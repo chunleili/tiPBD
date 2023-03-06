@@ -16,10 +16,7 @@ class Mesh:
         self.mesh = patcher.load_mesh(model_name, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
         self.numParticles = len(self.mesh.verts)
-        self.numTets = len(self.mesh.cells)
-        self.numEdges = len(self.mesh.edges)
-        self.numSurfs = len(self.mesh.faces)
-        self.mesh.verts.pos = ti.Vector.field(3, float, self.numParticles)
+        self.mesh.verts.pos = ti.Vector.field(3, float, len(self.mesh.verts))
         self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
 
         # 设置indices
@@ -28,15 +25,15 @@ class Mesh:
 
         self.pos = self.mesh.verts.pos
 
-        self.restLen = ti.field(float, self.numEdges)
-        self.restVol = ti.field(float, self.numTets)
-        self.invMass = ti.field(float, self.numParticles)
+        self.restLen = ti.field(float, len(self.mesh.edges))
+        self.restVol = ti.field(float, len(self.mesh.cells))
+        self.invMass = ti.field(float, len(self.mesh.verts))
 
         self.init_physics()
         self.init_invMass()
 
-        self.prevPos = ti.Vector.field(3, float, self.numParticles)
-        self.vel = ti.Vector.field(3, float, self.numParticles)
+        self.prevPos = ti.Vector.field(3, float, len(self.mesh.verts))
+        self.vel = ti.Vector.field(3, float, len(self.mesh.verts))
 
 
     @ti.kernel
@@ -154,8 +151,8 @@ camera.fov(55)
 
 @ti.kernel
 def init_pos():
-    for i in range(mesh.numParticles):
-        mesh.pos[i] += tm.vec3(0.5,1,0)
+    for v in mesh.mesh.verts:
+        mesh.pos[v.id] += tm.vec3(0.5,1,0)
 
 def main():
     init_pos()

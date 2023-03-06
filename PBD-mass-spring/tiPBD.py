@@ -5,43 +5,31 @@ import meshtaichi_patcher as patcher
 import taichi.math as tm
 ti.init()
 
-numSubsteps = 10
+numSubsteps = 30
 dt = 1.0 / 60.0 / numSubsteps
 edgeCompliance = 100.0
-volumeCompliance = 0.0
+volumeCompliance = 1.0
 
 @ti.data_oriented
 class Mesh:
-    def __init__(self):
+    def __init__(self, model_name="models/toy.node"):
+        self.mesh = patcher.load_mesh(model_name, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
-        #读取网格
-        self.numParticles = len(bunnyMesh['verts']) // 3
-        self.numEdges = len(bunnyMesh['tetEdgeIds']) // 2
-        self.numTets = len(bunnyMesh['tetIds']) // 4
-        self.numSurfs = len(bunnyMesh['tetSurfaceTriIds']) // 3
+        self.numParticles = len(self.mesh.verts)
+        self.numTets = len(self.mesh.cells)
+        self.numEdges = len(self.mesh.edges)
+        self.numSurfs = len(self.mesh.faces)
+        self.mesh.verts.pos = ti.Vector.field(3, float, self.numParticles)
+        self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
 
-        pos_np = np.array(bunnyMesh['verts'], dtype=float)
-        tet_np = np.array(bunnyMesh['tetIds'], dtype=int)
-        edge_np = np.array(bunnyMesh['tetEdgeIds'], dtype=int)
-        surf_np = np.array(bunnyMesh['tetSurfaceTriIds'], dtype=int)
+        # 设置indices
+        self.surf_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
+        self.init_tet_indices(self.mesh, self.surf_show)
 
-        pos_np = pos_np.reshape((-1,3))
-        tet_np = tet_np.reshape((-1,4))
-        edge_np = edge_np.reshape((-1,2))
-        surf_np = surf_np.reshape((-1,3))
-
-        #定义太极数据结构
-        self.mesh = ti.TetMesh()
-
-        self.pos = ti.Vector.field(3, float, self.numParticles)
+        self.pos = self.mesh.verts.pos
         self.tet = ti.Vector.field(4, int, self.numTets)
         self.edge = ti.Vector.field(2, int, self.numEdges)
-        self.surf = ti.Vector.field(3, int, self.numSurfs)
-        
-        self.pos.from_numpy(pos_np)
-        self.tet.from_numpy(tet_np)
-        self.edge.from_numpy(edge_np)
-        self.surf.from_numpy(surf_np)
+        self.dump()
 
         self.restLen = ti.field(float, self.numEdges)
         self.restVol = ti.field(float, self.numTets)
@@ -52,10 +40,24 @@ class Mesh:
 
         self.prevPos = ti.Vector.field(3, float, self.numParticles)
         self.vel = ti.Vector.field(3, float, self.numParticles)
-        self.surf_show = ti.field(int, self.numSurfs * 3)
-        self.surf_show.from_numpy(surf_np.flatten())
+
+    @ti.kernel
+    def dump(self):
+        for c in self.mesh.cells:
+            for j in ti.static(range(4)):
+                self.tet[c.id][j] = c.verts[j].id
+        for e in self.mesh.edges:
+            for j in ti.static(range(2)):
+                self.edge[e.id][j] = e.verts[j].id
 
 
+    @ti.kernel
+    def init_tet_indices(self, mesh: ti.template(), indices: ti.template()):
+        for c in mesh.cells:
+            ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
+            for i in ti.static(range(4)):
+                for j in ti.static(range(3)):
+                    indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
 
     @ti.kernel
     def init_physics(self):
@@ -81,13 +83,11 @@ class Mesh:
         temp = (self.pos[id[1]] - self.pos[id[0]]).cross(self.pos[id[2]] - self.pos[id[0]])
         res = temp.dot(self.pos[id[3]] - self.pos[id[0]])
         res *= 1.0/6.0
-        return res
+        return ti.abs(res)
     
 mesh = Mesh()
-# mesh.init_physics()
-# mesh.init_invMass()
 # ---------------------------------------------------------------------------- #
-#                                    核心计算步骤                                    #
+#                                    核心计算步骤                                #
 # ---------------------------------------------------------------------------- #
 
 @ti.kernel
@@ -169,8 +169,8 @@ scene = ti.ui.Scene()
 camera = ti.ui.make_camera()
 
 #initial camera position
-camera.position(0.5, 1.0, 1.95)
-camera.lookat(0.5, 0.3, 0.5)
+camera.position(0.36801182, 1.20798075, 3.1301154)
+camera.lookat(0.37387108, 1.21329924, 2.13014676)
 camera.fov(55)
 
 @ti.kernel
@@ -180,14 +180,28 @@ def init_pos():
 
 def main():
     init_pos()
+    paused = ti.field(int, shape=())
+    paused[None] = 1
     while window.running:
+        for e in window.get_events(ti.ui.PRESS):
+            if e.key == ti.ui.ESCAPE:
+                exit()
+            if e.key == ti.ui.SPACE:
+                paused[None] = not paused[None]
+                print("paused:", paused[None])
+            if e.key == "f":
+                substep()
+                print("step once")
+
         #do the simulation in each step
-        for _ in range(numSubsteps):
-            substep()
+        if not paused[None]:
+            for _ in range(numSubsteps):
+                substep()
 
         #set the camera, you can move around by pressing 'wasdeq'
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
         scene.set_camera(camera)
+
 
         #set the light
         scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
@@ -196,7 +210,7 @@ def main():
         
         #draw
         # scene.particles(mesh.pos, radius=0.02, color=(0, 1, 1))
-        scene.mesh(mesh.pos, indices=mesh.surf_show, color=(1,1,0))
+        scene.mesh(mesh.pos, indices=mesh.surf_show, color=(0.1229,0.2254,0.7207))
 
         #show the frame
         canvas.scene(scene)

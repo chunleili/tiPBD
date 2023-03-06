@@ -62,7 +62,7 @@ class Mesh:
     @ti.kernel
     def init_physics(self):
         for c in self.mesh.cells:
-            self.restVol[c.id] = self.tetVolume(c.id)
+            self.restVol[c.id] = self.tetVolume(c)
         for e in self.mesh.edges:
             self.restLen[e.id] = (self.pos[e.verts[0].id] - self.pos[e.verts[1].id]).norm()
 
@@ -76,7 +76,8 @@ class Mesh:
                 self.invMass[c.verts[j].id] += pInvMass
     
     @ti.func
-    def tetVolume(self,i):
+    def tetVolume(self,c:ti.template()):
+        i = c.id
         id = tm.ivec4(-1,-1,-1,-1)
         for j in ti.static(range(4)):
             id[j] = self.tet[i][j]

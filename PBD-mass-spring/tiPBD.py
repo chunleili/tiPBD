@@ -27,9 +27,6 @@ class Mesh:
         self.init_tet_indices(self.mesh, self.surf_show)
 
         self.pos = self.mesh.verts.pos
-        self.tet = ti.Vector.field(4, int, self.numTets)
-        self.edge = ti.Vector.field(2, int, self.numEdges)
-        self.dump()
 
         self.restLen = ti.field(float, self.numEdges)
         self.restVol = ti.field(float, self.numTets)
@@ -40,15 +37,6 @@ class Mesh:
 
         self.prevPos = ti.Vector.field(3, float, self.numParticles)
         self.vel = ti.Vector.field(3, float, self.numParticles)
-
-    @ti.kernel
-    def dump(self):
-        for c in self.mesh.cells:
-            for j in ti.static(range(4)):
-                self.tet[c.id][j] = c.verts[j].id
-        for e in self.mesh.edges:
-            for j in ti.static(range(2)):
-                self.edge[e.id][j] = e.verts[j].id
 
 
     @ti.kernel
@@ -77,13 +65,8 @@ class Mesh:
     
     @ti.func
     def tetVolume(self,c:ti.template()):
-        i = c.id
-        id = tm.ivec4(-1,-1,-1,-1)
-        for j in ti.static(range(4)):
-            id[j] = self.tet[i][j]
-            # id[j] = self.mesh.cells[i].verts[j].id
-        temp = (self.pos[id[1]] - self.pos[id[0]]).cross(self.pos[id[2]] - self.pos[id[0]])
-        res = temp.dot(self.pos[id[3]] - self.pos[id[0]])
+        temp = (self.pos[c.verts[1].id] - self.pos[c.verts[0].id]).cross(self.pos[c.verts[2].id] - self.pos[c.verts[0].id])
+        res = temp.dot(self.pos[c.verts[3].id] - self.pos[c.verts[0].id])
         res *= 1.0/6.0
         return ti.abs(res)
     
@@ -138,7 +121,7 @@ def solveVolume():
         for j in ti.static(range(4)):
             w += mesh.invMass[c.verts[j].id] * (grads[j].norm())**2
 
-        vol = mesh.tetVolume(c.id)
+        vol = mesh.tetVolume(c)
         C = (vol - mesh.restVol[c.id]) * 6.0
         s = -C /(w + alpha)
         

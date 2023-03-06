@@ -32,8 +32,10 @@ class Mesh:
         self.init_physics()
         self.init_invMass()
 
-        self.prevPos = ti.Vector.field(3, float, len(self.mesh.verts))
-        self.vel = ti.Vector.field(3, float, len(self.mesh.verts))
+        self.mesh.verts.place({ 'vel' : ti.math.vec3,
+                                'prevPos' : ti.math.vec3})
+        # self.mesh.cells.place({'restVol' : ti.f32})
+        # self.mesh.edges.place({'restLen' : ti.f32})
 
 
     @ti.kernel
@@ -76,11 +78,12 @@ mesh = Mesh()
 def preSolve():
     g = tm.vec3(0, -1, 0)
     for v in mesh.mesh.verts:
-        mesh.prevPos[v.id] = mesh.pos[v.id]
-        mesh.vel[v.id] += g * dt 
-        mesh.pos[v.id] += mesh.vel[v.id] * dt
+        # mesh.prevPos[v.id] = mesh.pos[v.id]
+        v.prevPos = mesh.pos[v.id]
+        v.vel += g * dt 
+        mesh.pos[v.id] += v.vel * dt
         if mesh.pos[v.id].y < 0.0:
-            mesh.pos[v.id] = mesh.prevPos[v.id]
+            mesh.pos[v.id] = v.prevPos
             mesh.pos[v.id].y = 0.0
 
 def solve():
@@ -128,7 +131,7 @@ def solveVolume():
 @ti.kernel
 def postSolve():
     for v in mesh.mesh.verts:
-        mesh.vel[v.id] = (mesh.pos[v.id] - mesh.prevPos[v.id]) / dt
+        v.vel = (mesh.pos[v.id] - v.prevPos) / dt
     
 def substep():
     preSolve()

@@ -25,18 +25,14 @@ class Mesh:
 
         self.pos = self.mesh.verts.pos
 
-        self.restLen = ti.field(float, len(self.mesh.edges))
-        self.restVol = ti.field(float, len(self.mesh.cells))
-        self.invMass = ti.field(float, len(self.mesh.verts))
+        self.mesh.verts.place({ 'vel' : ti.math.vec3,
+                                'prevPos' : ti.math.vec3,
+                                'invMass' : ti.f32,})
+        self.mesh.cells.place({'restVol' : ti.f32})
+        self.mesh.edges.place({'restLen' : ti.f32})
 
         self.init_physics()
         self.init_invMass()
-
-        self.mesh.verts.place({ 'vel' : ti.math.vec3,
-                                'prevPos' : ti.math.vec3})
-        # self.mesh.cells.place({'restVol' : ti.f32})
-        # self.mesh.edges.place({'restLen' : ti.f32})
-
 
     @ti.kernel
     def init_tet_indices(self, mesh: ti.template(), indices: ti.template()):
@@ -49,18 +45,18 @@ class Mesh:
     @ti.kernel
     def init_physics(self):
         for c in self.mesh.cells:
-            self.restVol[c.id] = self.tetVolume(c)
+            c.restVol = self.tetVolume(c)
         for e in self.mesh.edges:
-            self.restLen[e.id] = (self.pos[e.verts[0].id] - self.pos[e.verts[1].id]).norm()
+            e.restLen = (self.pos[e.verts[0].id] - self.pos[e.verts[1].id]).norm()
 
     @ti.kernel
     def init_invMass(self):
         for c in self.mesh.cells:
             pInvMass = 0.0
-            if self.restVol[c.id] > 0.0:
-                pInvMass = 1.0 / (self.restVol[c.id] / 4.0)
-            for j in ti.static(range(4)):
-                self.invMass[c.verts[j].id] += pInvMass
+            if c.restVol > 0.0:
+                pInvMass = 1.0 / (c.restVol / 4.0)
+            for v in c.verts:
+                v.invMass += pInvMass
     
     @ti.func
     def tetVolume(self,c:ti.template()):
@@ -98,12 +94,15 @@ def solveEdge():
         grads = mesh.pos[e.verts[0].id] - mesh.pos[e.verts[1].id]
         Len = grads.norm()
         grads = grads / Len
-        C =  Len - mesh.restLen[e.id]
-        w = mesh.invMass[e.verts[0].id] + mesh.invMass[e.verts[1].id]
+        C =  Len - e.restLen
+
+        invMass0 = e.verts[0].invMass
+        invMass1 = e.verts[1].invMass
+        w = invMass0 + invMass1
         s = -C / (w + alpha)
 
-        mesh.pos[e.verts[0].id] += grads *   s * mesh.invMass[e.verts[0].id]
-        mesh.pos[e.verts[1].id] += grads * (-s * mesh.invMass[e.verts[1].id])
+        mesh.pos[e.verts[0].id] += grads *   s * invMass0
+        mesh.pos[e.verts[1].id] += grads * (-s * invMass1)
 
 
 @ti.kernel
@@ -119,14 +118,14 @@ def solveVolume():
 
         w = 0.0
         for j in ti.static(range(4)):
-            w += mesh.invMass[c.verts[j].id] * (grads[j].norm())**2
+            w += c.verts[j].invMass * (grads[j].norm())**2
 
         vol = mesh.tetVolume(c)
-        C = (vol - mesh.restVol[c.id]) * 6.0
+        C = (vol - c.restVol) * 6.0
         s = -C /(w + alpha)
         
         for j in ti.static(range(4)):
-            mesh.pos[c.verts[j].id] += grads[j] * s * mesh.invMass[c.verts[j].id]
+            mesh.pos[c.verts[j].id] += grads[j] * s * c.verts[j].invMass
         
 @ti.kernel
 def postSolve():

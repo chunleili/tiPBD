@@ -61,25 +61,26 @@ class Mesh:
 
     @ti.kernel
     def init_physics(self):
-        for i in self.restVol:
-            self.restVol[i] = self.tetVolume(i)
-        for i in self.restLen:
-            self.restLen[i] = (self.pos[self.edge[i][0]] - self.pos[self.edge[i][1]]).norm()
+        for c in self.mesh.cells:
+            self.restVol[c.id] = self.tetVolume(c.id)
+        for e in self.mesh.edges:
+            self.restLen[e.id] = (self.pos[e.verts[0].id] - self.pos[e.verts[1].id]).norm()
 
     @ti.kernel
     def init_invMass(self):
-        for i in range(self.numTets):
+        for c in self.mesh.cells:
             pInvMass = 0.0
-            if self.restVol[i] > 0.0:
-                pInvMass = 1.0 / (self.restVol[i] / 4.0)
+            if self.restVol[c.id] > 0.0:
+                pInvMass = 1.0 / (self.restVol[c.id] / 4.0)
             for j in ti.static(range(4)):
-                self.invMass[self.tet[i][j]] += pInvMass
+                self.invMass[c.verts[j].id] += pInvMass
     
     @ti.func
     def tetVolume(self,i):
         id = tm.ivec4(-1,-1,-1,-1)
         for j in ti.static(range(4)):
             id[j] = self.tet[i][j]
+            # id[j] = self.mesh.cells[i].verts[j].id
         temp = (self.pos[id[1]] - self.pos[id[0]]).cross(self.pos[id[2]] - self.pos[id[0]])
         res = temp.dot(self.pos[id[3]] - self.pos[id[0]])
         res *= 1.0/6.0
@@ -93,13 +94,13 @@ mesh = Mesh()
 @ti.kernel
 def preSolve():
     g = tm.vec3(0, -1, 0)
-    for i in mesh.pos:
-        mesh.prevPos[i] = mesh.pos[i]
-        mesh.vel[i] += g * dt 
-        mesh.pos[i] += mesh.vel[i] * dt
-        if mesh.pos[i].y < 0.0:
-            mesh.pos[i] = mesh.prevPos[i]
-            mesh.pos[i].y = 0.0
+    for v in mesh.mesh.verts:
+        mesh.prevPos[v.id] = mesh.pos[v.id]
+        mesh.vel[v.id] += g * dt 
+        mesh.pos[v.id] += mesh.vel[v.id] * dt
+        if mesh.pos[v.id].y < 0.0:
+            mesh.pos[v.id] = mesh.prevPos[v.id]
+            mesh.pos[v.id].y = 0.0
 
 def solve():
     solveEdge()
@@ -109,19 +110,16 @@ def solve():
 def solveEdge():
     alpha = edgeCompliance / dt / dt
     grads = tm.vec3(0,0,0)
-    for i in range(mesh.numEdges):
-        id0 = mesh.edge[i][0]
-        id1 = mesh.edge[i][1]
-
-        grads = mesh.pos[id0] - mesh.pos[id1]
+    for e in mesh.mesh.edges:
+        grads = mesh.pos[e.verts[0].id] - mesh.pos[e.verts[1].id]
         Len = grads.norm()
         grads = grads / Len
-        C =  Len - mesh.restLen[i]
-        w = mesh.invMass[id0] + mesh.invMass[id1]
+        C =  Len - mesh.restLen[e.id]
+        w = mesh.invMass[e.verts[0].id] + mesh.invMass[e.verts[1].id]
         s = -C / (w + alpha)
 
-        mesh.pos[id0] += grads *   s * mesh.invMass[id0]
-        mesh.pos[id1] += grads * (-s * mesh.invMass[id1])
+        mesh.pos[e.verts[0].id] += grads *   s * mesh.invMass[e.verts[0].id]
+        mesh.pos[e.verts[1].id] += grads * (-s * mesh.invMass[e.verts[1].id])
 
 
 @ti.kernel
@@ -129,30 +127,27 @@ def solveVolume():
     alpha = volumeCompliance / dt / dt
     grads = [tm.vec3(0,0,0), tm.vec3(0,0,0), tm.vec3(0,0,0), tm.vec3(0,0,0)]
     
-    for i in range(mesh.numTets):
-        id = tm.ivec4(-1,-1,-1,-1)
-        for j in ti.static(range(4)):
-            id[j] = mesh.tet[i][j]
-        grads[0] = (mesh.pos[id[3]] - mesh.pos[id[1]]).cross(mesh.pos[id[2]] - mesh.pos[id[1]])
-        grads[1] = (mesh.pos[id[2]] - mesh.pos[id[0]]).cross(mesh.pos[id[3]] - mesh.pos[id[0]])
-        grads[2] = (mesh.pos[id[3]] - mesh.pos[id[0]]).cross(mesh.pos[id[1]] - mesh.pos[id[0]])
-        grads[3] = (mesh.pos[id[1]] - mesh.pos[id[0]]).cross(mesh.pos[id[2]] - mesh.pos[id[0]])
+    for c in mesh.mesh.cells:
+        grads[0] = (mesh.pos[c.verts[3].id] - mesh.pos[c.verts[1].id]).cross(mesh.pos[c.verts[2].id] - mesh.pos[c.verts[1].id])
+        grads[1] = (mesh.pos[c.verts[2].id] - mesh.pos[c.verts[0].id]).cross(mesh.pos[c.verts[3].id] - mesh.pos[c.verts[0].id])
+        grads[2] = (mesh.pos[c.verts[3].id] - mesh.pos[c.verts[0].id]).cross(mesh.pos[c.verts[1].id] - mesh.pos[c.verts[0].id])
+        grads[3] = (mesh.pos[c.verts[1].id] - mesh.pos[c.verts[0].id]).cross(mesh.pos[c.verts[2].id] - mesh.pos[c.verts[0].id])
 
         w = 0.0
         for j in ti.static(range(4)):
-            w += mesh.invMass[id[j]] * (grads[j].norm())**2
+            w += mesh.invMass[c.verts[j].id] * (grads[j].norm())**2
 
-        vol = mesh.tetVolume(i)
-        C = (vol - mesh.restVol[i]) * 6.0
+        vol = mesh.tetVolume(c.id)
+        C = (vol - mesh.restVol[c.id]) * 6.0
         s = -C /(w + alpha)
         
         for j in ti.static(range(4)):
-            mesh.pos[mesh.tet[i][j]] += grads[j] * s * mesh.invMass[id[j]]
+            mesh.pos[c.verts[j].id] += grads[j] * s * mesh.invMass[c.verts[j].id]
         
 @ti.kernel
 def postSolve():
-    for i in mesh.pos:
-        mesh.vel[i] = (mesh.pos[i] - mesh.prevPos[i]) / dt
+    for v in mesh.mesh.verts:
+        mesh.vel[v.id] = (mesh.pos[v.id] - mesh.prevPos[v.id]) / dt
     
 def substep():
     preSolve()
@@ -181,7 +176,7 @@ def init_pos():
 def main():
     init_pos()
     paused = ti.field(int, shape=())
-    paused[None] = 1
+    paused[None] = 0
     while window.running:
         for e in window.get_events(ti.ui.PRESS):
             if e.key == ti.ui.ESCAPE:

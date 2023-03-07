@@ -77,7 +77,8 @@ def vec(x):
 
 @ti.func
 def make_matrix(x, y, z):
-    return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0], [0, x, 0, 0, y, 0, 0, z, 0],
+    return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0],
+                      [0, x, 0, 0, y, 0, 0, z, 0],
                       [0, 0, x, 0, 0, y, 0, 0, z]])
 
 
@@ -223,8 +224,8 @@ def debug(field):
     print("---------------------")
     print("shape: ",field_np.shape)
     print("min, max: ", field_np.min(), field_np.max())
-    print("min_x, min_y, min_z: ", field_np[:,0].min(), field_np[:,1].min(), field_np[:,2].min())
-    print("max_x, max_y, max_z: ", field_np[:,0].max(), field_np[:,1].max(), field_np[:,2].max())
+    # print("min_x, min_y, min_z: ", field_np[:,0].min(), field_np[:,1].min(), field_np[:,2].min())
+    # print("max_x, max_y, max_z: ", field_np[:,0].max(), field_np[:,1].max(), field_np[:,2].max())
     print(field_np)
     print("---------------------")
     np.savetxt("debug.txt", field_np, fmt="%.4f", delimiter="\t")

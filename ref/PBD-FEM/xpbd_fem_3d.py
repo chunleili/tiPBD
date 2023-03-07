@@ -2,6 +2,7 @@ import taichi as ti
 import numpy as np
 from taichi.lang.ops import sqrt
 from read_tet import read_tet_mesh
+import meshtaichi_patcher as Patcher
 
 ti.init(arch=ti.cuda)
 
@@ -203,6 +204,31 @@ def collsion_response():
         if pos[i][1] < -3.0:
             pos[i][1] = -3.0
 
+@ti.kernel
+def init_surf_indices(mesh: ti.template(), indices: ti.template()):
+    for f in mesh.faces:
+        for j in ti.static(range(3)):
+            indices[f.id * 3 + j] = f.verts[j].id
+
+def read_surf_mesh(model_name):
+    mesh = Patcher.load_mesh(model_name, relations=["FV"])
+    mesh.verts.place({'x' : ti.math.vec3})
+    mesh.verts.x.from_numpy(mesh.get_position_as_numpy())
+    indices = ti.field(ti.i32, shape = len(mesh.faces) * 3)
+    init_surf_indices(mesh, indices)
+    return mesh, indices
+
+def debug(field):
+    field_np = field.to_numpy()
+    print("---------------------")
+    print("shape: ",field_np.shape)
+    print("min, max: ", field_np.min(), field_np.max())
+    print("min_x, min_y, min_z: ", field_np[:,0].min(), field_np[:,1].min(), field_np[:,2].min())
+    print("max_x, max_y, max_z: ", field_np[:,0].max(), field_np[:,1].max(), field_np[:,2].max())
+    print(field_np)
+    print("---------------------")
+    np.savetxt("debug.txt", field_np, fmt="%.4f", delimiter="\t")
+    return field_np
 
 if __name__ == "__main__":
     # init(theMesh)
@@ -218,6 +244,11 @@ if __name__ == "__main__":
     camera.lookat(0, 0, 0)
     camera.fov(75)
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
+
+    ground, ground_indices = read_surf_mesh("models/ground.obj")
+    coord, coord_indices = read_surf_mesh("models/coord.obj")
+
+    debug(pos)
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
@@ -245,6 +276,10 @@ if __name__ == "__main__":
                    display_indices,
                    color=(1.0, 0.5, 0.5),
                    show_wireframe=True)
+        
+        scene.mesh(ground.verts.x, ground_indices, color = (0.5,0.5,0.5))
+        scene.mesh(coord.verts.x, coord_indices, color = (0.5,0.5,0.5))
+
         canvas.scene(scene)
         window.show()
-    ti.profiler.print_kernel_profiler_info()
+    # ti.profiler.print_kernel_profiler_info()

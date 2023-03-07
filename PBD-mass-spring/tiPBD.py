@@ -13,28 +13,21 @@ class Mesh:
     def __init__(self, model_name="models/toy.node"):
         self.mesh = patcher.load_mesh(model_name, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
-        self.numParticles = len(self.mesh.verts)
-        self.mesh.verts.pos = ti.Vector.field(3, float, len(self.mesh.verts))
+        self.mesh.verts.place({ 'vel' : ti.math.vec3,
+                                'prevPos' : ti.math.vec3,
+                                'invMass' : ti.f32,
+                                'pos' : ti.math.vec3,})
+        self.mesh.cells.place({'restVol' : ti.f32})
+        self.mesh.edges.place({'restLen' : ti.f32})
+
         self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
 
         # 设置indices
         self.surf_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
         self.init_tet_indices(self.mesh, self.surf_show)
 
-        self.pos = self.mesh.verts.pos
-
-        self.restLen = ti.field(float, len(self.mesh.edges))
-        self.restVol = ti.field(float, len(self.mesh.cells))
-        self.invMass = ti.field(float, len(self.mesh.verts))
-
         self.init_physics()
         self.init_invMass()
-
-        self.mesh.verts.place({ 'vel' : ti.math.vec3,
-                                'prevPos' : ti.math.vec3})
-        # self.mesh.cells.place({'restVol' : ti.f32})
-        # self.mesh.edges.place({'restLen' : ti.f32})
-
 
     @ti.kernel
     def init_tet_indices(self, mesh: ti.template(), indices: ti.template()):
@@ -47,23 +40,23 @@ class Mesh:
     @ti.kernel
     def init_physics(self):
         for c in self.mesh.cells:
-            self.restVol[c.id] = self.tetVolume(c)
+            c.restVol = self.tetVolume(c)
         for e in self.mesh.edges:
-            self.restLen[e.id] = (self.pos[e.verts[0].id] - self.pos[e.verts[1].id]).norm()
+            e.restLen = (e.verts[0].pos - e.verts[1].pos).norm()
 
     @ti.kernel
     def init_invMass(self):
         for c in self.mesh.cells:
             pInvMass = 0.0
-            if self.restVol[c.id] > 0.0:
-                pInvMass = 1.0 / (self.restVol[c.id] / 4.0)
-            for j in ti.static(range(4)):
-                self.invMass[c.verts[j].id] += pInvMass
+            if c.restVol > 0.0:
+                pInvMass = 1.0 / (c.restVol / 4.0)
+            for v in c.verts:
+                v.invMass += pInvMass
     
     @ti.func
     def tetVolume(self,c:ti.template()):
-        temp = (self.pos[c.verts[1].id] - self.pos[c.verts[0].id]).cross(self.pos[c.verts[2].id] - self.pos[c.verts[0].id])
-        res = temp.dot(self.pos[c.verts[3].id] - self.pos[c.verts[0].id])
+        temp = (c.verts[1].pos - c.verts[0].pos).cross(c.verts[2].pos - c.verts[0].pos)
+        res = temp.dot(c.verts[3].pos - c.verts[0].pos)
         res *= 1.0/6.0
         return ti.abs(res)
     
@@ -76,13 +69,12 @@ mesh = Mesh()
 def preSolve():
     g = tm.vec3(0, -1, 0)
     for v in mesh.mesh.verts:
-        # mesh.prevPos[v.id] = mesh.pos[v.id]
-        v.prevPos = mesh.pos[v.id]
+        v.prevPos = v.pos
         v.vel += g * dt 
-        mesh.pos[v.id] += v.vel * dt
-        if mesh.pos[v.id].y < 0.0:
-            mesh.pos[v.id] = v.prevPos
-            mesh.pos[v.id].y = 0.0
+        v.pos += v.vel * dt
+        if v.pos.y < 0.0:
+            v.pos = v.prevPos
+            v.pos.y = 0.0
 
 def solve():
     solveEdge()
@@ -93,15 +85,18 @@ def solveEdge():
     alpha = edgeCompliance / dt / dt
     grads = tm.vec3(0,0,0)
     for e in mesh.mesh.edges:
-        grads = mesh.pos[e.verts[0].id] - mesh.pos[e.verts[1].id]
+        grads = e.verts[0].pos - e.verts[1].pos
         Len = grads.norm()
         grads = grads / Len
-        C =  Len - mesh.restLen[e.id]
-        w = mesh.invMass[e.verts[0].id] + mesh.invMass[e.verts[1].id]
+        C =  Len - e.restLen
+
+        invMass0 = e.verts[0].invMass
+        invMass1 = e.verts[1].invMass
+        w = invMass0 + invMass1
         s = -C / (w + alpha)
 
-        mesh.pos[e.verts[0].id] += grads *   s * mesh.invMass[e.verts[0].id]
-        mesh.pos[e.verts[1].id] += grads * (-s * mesh.invMass[e.verts[1].id])
+        e.verts[0].pos += grads *   s * invMass0
+        e.verts[1].pos += grads * (-s * invMass1)
 
 
 @ti.kernel
@@ -110,26 +105,26 @@ def solveVolume():
     grads = [tm.vec3(0,0,0), tm.vec3(0,0,0), tm.vec3(0,0,0), tm.vec3(0,0,0)]
     
     for c in mesh.mesh.cells:
-        grads[0] = (mesh.pos[c.verts[3].id] - mesh.pos[c.verts[1].id]).cross(mesh.pos[c.verts[2].id] - mesh.pos[c.verts[1].id])
-        grads[1] = (mesh.pos[c.verts[2].id] - mesh.pos[c.verts[0].id]).cross(mesh.pos[c.verts[3].id] - mesh.pos[c.verts[0].id])
-        grads[2] = (mesh.pos[c.verts[3].id] - mesh.pos[c.verts[0].id]).cross(mesh.pos[c.verts[1].id] - mesh.pos[c.verts[0].id])
-        grads[3] = (mesh.pos[c.verts[1].id] - mesh.pos[c.verts[0].id]).cross(mesh.pos[c.verts[2].id] - mesh.pos[c.verts[0].id])
+        grads[0] = (c.verts[3].pos -c.verts[1].pos).cross(c.verts[2].pos -c.verts[1].pos)
+        grads[1] = (c.verts[2].pos - c.verts[0].pos).cross(c.verts[3].pos - c.verts[0].pos)
+        grads[2] = (c.verts[3].pos - c.verts[0].pos).cross(c.verts[1].pos - c.verts[0].pos)
+        grads[3] = (c.verts[1].pos - c.verts[0].pos).cross(c.verts[2].pos - c.verts[0].pos)
 
         w = 0.0
         for j in ti.static(range(4)):
-            w += mesh.invMass[c.verts[j].id] * (grads[j].norm())**2
+            w += c.verts[j].invMass * (grads[j].norm())**2
 
         vol = mesh.tetVolume(c)
-        C = (vol - mesh.restVol[c.id]) * 6.0
+        C = (vol - c.restVol) * 6.0
         s = -C /(w + alpha)
         
         for j in ti.static(range(4)):
-            mesh.pos[c.verts[j].id] += grads[j] * s * mesh.invMass[c.verts[j].id]
+            c.verts[j].pos += grads[j] * s * c.verts[j].invMass
         
 @ti.kernel
 def postSolve():
     for v in mesh.mesh.verts:
-        v.vel = (mesh.pos[v.id] - v.prevPos) / dt
+        v.vel = (v.pos - v.prevPos) / dt
     
 def substep():
     preSolve()
@@ -153,7 +148,7 @@ camera.fov(55)
 @ti.kernel
 def init_pos():
     for v in mesh.mesh.verts:
-        mesh.pos[v.id] += tm.vec3(0.5,1,0)
+        v.pos += tm.vec3(0.5,1,0)
 
 def main():
     init_pos()
@@ -186,8 +181,7 @@ def main():
         scene.ambient_light((0.5, 0.5, 0.5))
         
         #draw
-        # scene.particles(mesh.pos, radius=0.02, color=(0, 1, 1))
-        scene.mesh(mesh.pos, indices=mesh.surf_show, color=(0.1229,0.2254,0.7207))
+        scene.mesh(mesh.mesh.verts.pos, indices=mesh.surf_show, color=(0.1229,0.2254,0.7207))
 
         #show the frame
         canvas.scene(scene)

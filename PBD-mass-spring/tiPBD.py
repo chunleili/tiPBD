@@ -1,6 +1,4 @@
-from mesh_data import bunnyMesh
 import taichi as ti
-import numpy as np
 import meshtaichi_patcher as patcher
 import taichi.math as tm
 ti.init()

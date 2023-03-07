@@ -1,3 +1,4 @@
 *.ini
 *.pyc
 __pycache__
+a.lua

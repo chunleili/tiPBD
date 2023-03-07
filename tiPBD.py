@@ -87,7 +87,7 @@ def substep():
 #                                      gui                                     #
 # ---------------------------------------------------------------------------- #
 #init the window, canvas, scene and camerea
-window = ti.ui.Window("pbd", (1024, 1024),vsync=True)
+window = ti.ui.Window("pbd", (1024, 1024),vsync=False)
 canvas = window.get_canvas()
 scene = ti.ui.Scene()
 camera = ti.ui.make_camera()

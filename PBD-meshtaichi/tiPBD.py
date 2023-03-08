@@ -10,7 +10,7 @@ volumeCompliance = 1.0
 
 @ti.data_oriented
 class Mesh:
-    def __init__(self, model_name="models/toy.node"):
+    def __init__(self, model_name="models/toy/toy.node"):
         self.mesh = patcher.load_mesh(model_name, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
         self.mesh.verts.place({ 'vel' : ti.math.vec3,

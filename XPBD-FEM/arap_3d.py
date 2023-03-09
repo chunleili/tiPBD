@@ -1,15 +1,18 @@
 import taichi as ti
 import meshtaichi_patcher as patcher
+from taichi.lang.ops import sqrt
 import taichi.math as tm
-ti.init()
+import numpy as np
 
-h = 0.001  # timestep size
+ti.init(debug=True)
+
+dt = 0.001  # timestep size
 omega = 0.2  # SOR factor
 compliance = 1.0e-3
-alpha = compliance * (1.0 / h / h)
+alpha = compliance * (1.0 / dt / dt)
 gravity = ti.Vector([0.0, -9.8, 0.0])
 MaxIte = 2
-NumSteps = 10
+numSubsteps = 10
 rho = 1000.0
 
 @ti.data_oriented
@@ -20,13 +23,14 @@ class Mesh:
         self.mesh.verts.place({ 'pos' : ti.math.vec3,
                                 'vel' : ti.math.vec3,
                                 'prevPos' : ti.math.vec3,
-                                'invMass' : ti.f32})
+                                'invMass' : ti.f32,
+                                'gradient': ti.math.vec3})
         self.mesh.cells.place({'restVol' : ti.f32,
                                'B': ti.math.mat3,
                                'F': ti.math.mat3,
                                'lagrangian': ti.f32,
                                'dLambda': ti.f32,
-                               'gradient': ti.f32})
+                               })
 
         self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
 
@@ -51,7 +55,7 @@ class Mesh:
         for c in self.mesh.cells:
             p0, p1, p2, p3= c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos
             Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
-            c.B = Dm.inverse()
+            c.B = Dm.inverse().transpose()
             c.restVol = abs(Dm.determinant()) / 6.0
 
 mesh = Mesh()
@@ -60,33 +64,152 @@ mesh = Mesh()
 # ---------------------------------------------------------------------------- #
 
 @ti.kernel
-def preSolve():
-    g = tm.vec3(0, -1, 0)
+def preSolve(dt: ti.f32):
+    # semi-Euler update pos & vel
     for v in mesh.mesh.verts:
-        v.prevPos = v.pos
-        v.vel += g * dt 
-        v.pos += v.vel * dt
-        if v.pos.y < 0.0:
-            v.pos = v.prevPos
-            v.pos.y = 0.0
+        if (v.invMass != 0.0):
+            v.vel = v.vel + dt * gravity
+            v.prevPos = v.pos
+            v.pos = v.pos + dt * v.vel
 
 def solve():
     solveFem()
 
+
+@ti.func
+def make_matrix(x, y, z):
+    return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0], [0, x, 0, 0, y, 0, 0, z, 0],
+                      [0, 0, x, 0, 0, y, 0, 0, z]])
+
+
+@ti.func
+def computeGradient(B, U, S, V):
+    isSuccess = True
+    sumSigma = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 + (S[2, 2] - 1)**2)
+    if sumSigma < 1.0e-6:
+        isSuccess = False
+
+    # (dcdS00, dcdS11, dcdS22)
+    dcdS = 1.0 / sumSigma * ti.Vector([S[0, 0] - 1, S[1, 1] - 1, S[2, 2] - 1])
+    # Compute (dFdx)^T
+    neg_sum_col1 = -B[0, 0] - B[1, 0] - B[2, 0]
+    neg_sum_col2 = -B[0, 1] - B[1, 1] - B[2, 1]
+    neg_sum_col3 = -B[0, 2] - B[1, 2] - B[2, 2]
+    dFdp0T = make_matrix(neg_sum_col1, neg_sum_col2, neg_sum_col3)
+    dFdp1T = make_matrix(B[0, 0], B[0, 1], B[0, 2])
+    dFdp2T = make_matrix(B[1, 0], B[1, 1], B[1, 2])
+    dFdp3T = make_matrix(B[2, 0], B[2, 1], B[2, 2])
+    # Compute (dsdF)
+    u00, u01, u02 = U[0, 0], U[0, 1], U[0, 2]
+    u10, u11, u12 = U[1, 0], U[1, 1], U[1, 2]
+    u20, u21, u22 = U[2, 0], U[2, 1], U[2, 2]
+    v00, v01, v02 = V[0, 0], V[0, 1], V[0, 2]
+    v10, v11, v12 = V[1, 0], V[1, 1], V[1, 2]
+    v20, v21, v22 = V[2, 0], V[2, 1], V[2, 2]
+    dsdF00 = ti.Vector([u00 * v00, u01 * v01, u02 * v02])
+    dsdF10 = ti.Vector([u10 * v00, u11 * v01, u12 * v02])
+    dsdF20 = ti.Vector([u20 * v00, u21 * v01, u22 * v02])
+    dsdF01 = ti.Vector([u00 * v10, u01 * v11, u02 * v12])
+    dsdF11 = ti.Vector([u10 * v10, u11 * v11, u12 * v12])
+    dsdF21 = ti.Vector([u20 * v10, u21 * v11, u22 * v12])
+    dsdF02 = ti.Vector([u00 * v20, u01 * v21, u02 * v22])
+    dsdF12 = ti.Vector([u10 * v20, u11 * v21, u12 * v22])
+    dsdF22 = ti.Vector([u20 * v20, u21 * v21, u22 * v22])
+
+    # Compute (dcdF)
+    dcdF = ti.Vector([
+        dsdF00.dot(dcdS),
+        dsdF10.dot(dcdS),
+        dsdF20.dot(dcdS),
+        dsdF01.dot(dcdS),
+        dsdF11.dot(dcdS),
+        dsdF21.dot(dcdS),
+        dsdF02.dot(dcdS),
+        dsdF12.dot(dcdS),
+        dsdF22.dot(dcdS)
+    ])
+    g0 = dFdp0T @ dcdF
+    g1 = dFdp1T @ dcdF
+    g2 = dFdp2T @ dcdF
+    g3 = dFdp3T @ dcdF
+    return g0, g1, g2, g3, isSuccess
+
+
 @ti.kernel
 def solveFem():
-    pass
+    for c in mesh.mesh.cells:
+        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
+        pos0, pos1, pos2, pos3 = p0.pos, p1.pos, p2.pos, p3.pos
+        invM0, invM1, invM2, invM3 = p0.invMass, p1.invMass, p2.invMass, p3.invMass
+        sumInvMass = invM0 + invM1 + invM2 + invM3
+
+        if sumInvMass < 1.0e-6:
+            print("wrong invMass function")
+
+        D_s = ti.Matrix.cols([pos1 - pos0, pos2 - pos0, pos3 - pos0])
+        c.F = D_s @ c.B
+
+        U, S, V = ti.svd(c.F)
+        if S[2, 2] < 1.0e-6:
+            S[2, 2] *= -1
+        
+        constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +
+                        (S[2, 2] - 1)**2)
+
+        g0, g1, g2, g3, isSuccess = computeGradient(c.B, U, S, V)
+
+        if isSuccess:
+            l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr(
+            ) + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
+            c.dLambda = -(constraint + alpha * c.lagrangian) / (
+                l + alpha)
+            c.lagrangian = c.lagrangian + c.dLambda
+
+            p0.gradient = g0
+            p1.gradient = g1
+            p2.gradient = g2
+            p3.gradient = g3
+
 
 @ti.kernel
-def postSolve():
-    for v in mesh.mesh.verts:
-        v.vel = (v.pos - v.prevPos) / dt
-    
-def substep():
-    preSolve()
-    solve()
-    postSolve()
+def update_pos():
+    for c in mesh.mesh.cells:
+        for v in c.verts:
+            if v.invMass != 0.0:
+                v.pos += omega * v.invMass * c.dLambda * v.gradient 
 
+    
+@ti.kernel
+def collsion_response():
+    for v in mesh.mesh.verts:
+        if v.pos[1] < -3.0:
+            v.pos[1] = -3.0
+
+@ti.kernel
+def postSolve(dt: ti.f32):
+    for v in mesh.mesh.verts:
+        if v.invMass != 0.0:
+            v.vel = (v.pos - v.prevPos) / dt
+
+
+def substep():
+    preSolve(dt/numSubsteps)
+    mesh.mesh.cells.lagrangian.fill(0.0)
+    for ite in range(MaxIte):
+        solve()
+        update_pos()
+        collsion_response()
+    postSolve(dt/numSubsteps)
+
+def debug(field):
+    field_np = field.to_numpy()
+    print("---------------------")
+    print("shape: ",field_np.shape)
+    print("min, max: ", field_np.min(), field_np.max())
+    print(field_np)
+    print("---------------------")
+    np.savetxt("debug_my.txt", field_np.flatten(), fmt="%.4f", delimiter="\t")
+    return field_np
 # ---------------------------------------------------------------------------- #
 #                                      gui                                     #
 # ---------------------------------------------------------------------------- #
@@ -94,7 +217,7 @@ def substep():
 window = ti.ui.Window("pbd", (1024, 1024),vsync=True)
 canvas = window.get_canvas()
 scene = ti.ui.Scene()
-camera = ti.ui.make_camera()
+camera = ti.ui.Camera()
 
 #initial camera position
 camera.position(0.36801182, 1.20798075, 3.1301154)
@@ -107,9 +230,11 @@ def init_pos():
         v.pos += tm.vec3(0.5,1,0)
 
 def main():
-    init_pos()
+    # init_pos()
     paused = ti.field(int, shape=())
-    paused[None] = 0
+    paused[None] = 1
+
+
     while window.running:
         for e in window.get_events(ti.ui.PRESS):
             if e.key == ti.ui.ESCAPE:
@@ -119,6 +244,7 @@ def main():
                 print("paused:", paused[None])
             if e.key == "f":
                 substep()
+                # debug(mesh.mesh.verts.pos)
                 print("step once")
 
         #do the simulation in each step

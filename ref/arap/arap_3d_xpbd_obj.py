@@ -6,7 +6,8 @@ import numpy as np
 from taichi.lang.ops import sqrt
 from read_tet import read_tet_mesh
 
-ti.init(arch=ti.cuda)
+# ti.init(arch=ti.cuda)
+ti.init(debug=True)
 
 h = 0.001  # timestep size
 omega = 0.2  # SOR factor
@@ -206,6 +207,15 @@ def collsion_response():
         if pos[i][1] < -3.0:
             pos[i][1] = -3.0
 
+def debug(field):
+    field_np = field.to_numpy()
+    print("---------------------")
+    print("shape: ",field_np.shape)
+    print("min, max: ", field_np.min(), field_np.max())
+    print(field_np)
+    print("---------------------")
+    np.savetxt("debug_yp.txt", field_np.flatten(), fmt="%.4f", delimiter="\t")
+    return field_np
 
 if __name__ == "__main__":
     # init(theMesh)

@@ -210,6 +210,7 @@ def collsion_response():
 def debug(field):
     field_np = field.to_numpy()
     print("---------------------")
+    print("name: ", field._name )
     print("shape: ",field_np.shape)
     print("min, max: ", field_np.min(), field_np.max())
     print(field_np)
@@ -217,12 +218,22 @@ def debug(field):
     np.savetxt("debug_yp.txt", field_np.flatten(), fmt="%.4f", delimiter="\t")
     return field_np
 
+
+def substep():
+    semiEuler(h / NumSteps)
+    resetLagrangian()
+    for ite in range(MaxIte):
+        computeGradientVector()
+        updatePos()
+        collsion_response()
+    updteVelocity(h / NumSteps)
+
 if __name__ == "__main__":
     # init(theMesh)
     init_pos(pos_in=model_pos,
              tet_indices_in=model_inx,
              tri_indices_in=model_tri)
-    pause = False
+    pause = 1
     window = ti.ui.Window('3D ARAP FEM XPBD', (800, 800))
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
@@ -232,6 +243,7 @@ if __name__ == "__main__":
     camera.fov(75)
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
 
+    step=0
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
         camera.track_user_inputs(window,
@@ -245,15 +257,19 @@ if __name__ == "__main__":
         if window.is_pressed(ti.ui.SPACE):
             pause = not pause
 
+        for e in window.get_events(ti.ui.PRESS):
+            if e.key == "f":
+                print("step: ", step)
+                step+=1
+                substep()
+                debug(pos)
+                debug(lagrangian)
+                print("step once")
+        
         if not pause:
             for i in range(NumSteps):
-                semiEuler(h / NumSteps)
-                resetLagrangian()
-                for ite in range(MaxIte):
-                    computeGradientVector()
-                    updatePos()
-                    collsion_response()
-                updteVelocity(h / NumSteps)
+                substep()
+
         scene.mesh(pos,
                    display_indices,
                    color=(1.0, 0.5, 0.5),

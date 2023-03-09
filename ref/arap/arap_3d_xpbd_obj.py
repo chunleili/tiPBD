@@ -7,7 +7,8 @@ from taichi.lang.ops import sqrt
 from read_tet import read_tet_mesh
 
 # ti.init(arch=ti.cuda)
-ti.init(debug=True)
+ti.init(ti.cuda, kernel_profiler=True)
+# ti.init(debug=True)
 
 h = 0.001  # timestep size
 omega = 0.2  # SOR factor
@@ -233,7 +234,7 @@ if __name__ == "__main__":
     init_pos(pos_in=model_pos,
              tet_indices_in=model_inx,
              tri_indices_in=model_tri)
-    pause = 1
+    pause = 0
     window = ti.ui.Window('3D ARAP FEM XPBD', (800, 800))
     canvas = window.get_canvas()
     scene = ti.ui.Scene()

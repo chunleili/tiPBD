@@ -4,14 +4,14 @@ from taichi.lang.ops import sqrt
 import taichi.math as tm
 import numpy as np
 
+# ti.init(ti.cuda, kernel_profiler=True, debug=True)
 ti.init(ti.cuda)
 
 dt = 0.001  # timestep size
 omega = 0.2  # SOR factor
 compliance = 1.0e-3
 alpha = ti.field(float, ())
-alpha[None] = compliance * (1.0 / dt / dt
-                            )  # timestep related compliance, see XPBD paper
+alpha[None] = compliance * (1.0 / dt / dt)  # timestep related compliance
 
 gravity = ti.Vector([0.0, -9.8, 0.0])
 MaxIte = 2
@@ -45,8 +45,9 @@ class Mesh:
         self.init_tet_indices(self.mesh, self.surf_show)
         self.init_physics()
 
+    @staticmethod
     @ti.kernel
-    def init_tet_indices(self, mesh: ti.template(), indices: ti.template()):
+    def init_tet_indices(mesh: ti.template(), indices: ti.template()):
         for c in mesh.cells:
             ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
             for i in ti.static(range(4)):
@@ -78,9 +79,6 @@ def preSolve(dt_: ti.f32):
             v.prevPos = v.pos
             v.pos = v.pos + dt_ * v.vel
 
-def solve():
-    solveFem()
-
 
 @ti.func
 def make_matrix(x, y, z):
@@ -92,8 +90,8 @@ def make_matrix(x, y, z):
 def computeGradient(B, U, S, V):
     isSuccess = True
     sumSigma = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 + (S[2, 2] - 1)**2)
-    if sumSigma < 1.0e-6:
-        isSuccess = False
+    # if sumSigma < 1.0e-6:
+    #     isSuccess = False
 
     # (dcdS00, dcdS11, dcdS22)
     dcdS = 1.0 / sumSigma * ti.Vector([S[0, 0] - 1, S[1, 1] - 1, S[2, 2] - 1])
@@ -142,50 +140,40 @@ def computeGradient(B, U, S, V):
 
 
 @ti.kernel
-def solveFem():
+def project_fem():
     for c in mesh.mesh.cells:
-        i = c.id
         p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-        pos0, pos1, pos2, pos3 = p0.pos, p1.pos, p2.pos, p3.pos #注意这里取出来之后就是深拷贝了
-        invM0, invM1, invM2, invM3 = p0.invMass, p1.invMass, p2.invMass, p3.invMass
-        sumInvMass = invM0 + invM1 + invM2 + invM3
-        if sumInvMass < 1.0e-6:
-            print("wrong invMass function")
-        D_s = ti.Matrix.cols([pos1 - pos0, pos2 - pos0, pos3 - pos0])
+        # invM0, invM1, invM2, invM3 = p0.invMass, p1.invMass, p2.invMass, p3.invMass
+        # sumInvMass = invM0 + invM1 + invM2 + invM3
+        # if sumInvMass < 1.0e-6:
+        #     print("wrong invMass function")
+        D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
         c.F = D_s @ c.B
         U, S, V = ti.svd(c.F)
-        if S[2, 2] < 1.0e-6:
-            S[2, 2] *= -1
-        constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +
-                          (S[2, 2] - 1)**2)
+        # if S[2, 2] < 1.0e-6:
+        #     S[2, 2] *= -1
+        constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
         g0, g1, g2, g3, isSuccess = computeGradient(c.B, U, S, V)
-        if isSuccess:
-            l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr(
-            ) + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
-            c.dLambda = -(constraint + alpha[None] * c.lagrangian) / (
-                l + alpha[None])
-            c.lagrangian = c.lagrangian + c.dLambda
 
-            mesh.gradient[4 * i + 0] = g0
-            mesh.gradient[4 * i + 1] = g1
-            mesh.gradient[4 * i + 2] = g2
-            mesh.gradient[4 * i + 3] = g3
+        # if isSuccess:
+        l = p0.invMass * g0.norm_sqr() + p1.invMass * g1.norm_sqr() + p2.invMass * g2.norm_sqr() + p3.invMass * g3.norm_sqr()
+        c.dLambda = -(constraint + alpha[None] * c.lagrangian) / (
+            l + alpha[None])
+        c.lagrangian = c.lagrangian + c.dLambda
+
+        mesh.gradient[4 * c.id + 0] = g0
+        mesh.gradient[4 * c.id + 1] = g1
+        mesh.gradient[4 * c.id + 2] = g2
+        mesh.gradient[4 * c.id + 3] = g3
 
 
 @ti.kernel
 def update_pos():
     for c in mesh.mesh.cells:
         i = c.id
-        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-        invM0, invM1, invM2, invM3 = p0.invMass, p1.invMass, p2.invMass, p3.invMass
-        if (invM0 != 0.0):
-            c.verts[0].pos += omega * invM0 * c.dLambda * mesh.gradient[4 * i + 0]
-        if (invM1 != 0.0):
-            c.verts[1].pos += omega * invM1 * c.dLambda * mesh.gradient[4 * i + 1]
-        if (invM2 != 0.0):
-            c.verts[2].pos += omega * invM2 * c.dLambda * mesh.gradient[4 * i + 2]
-        if (invM3 != 0.0):
-            c.verts[3].pos += omega * invM3 * c.dLambda * mesh.gradient[4 * i + 3]
+        for j in ti.static(range(4)):
+            # if c.verts[j].invMass != 0.0:
+                c.verts[j].pos += omega * c.verts[j].invMass * c.dLambda * mesh.gradient[4 * i + j]
 
     
 @ti.kernel
@@ -200,17 +188,12 @@ def postSolve(dt_: ti.f32):
         if v.invMass != 0.0:
             v.vel = (v.pos - v.prevPos) / dt_
 
-@ti.kernel
-def resetLagrangian():
-    for c in mesh.mesh.cells:
-        c.lagrangian = 0.0
 
 def substep():
     preSolve(dt/numSubsteps)
-    # mesh.mesh.cells.lagrangian.fill(0.0)
-    resetLagrangian()
+    mesh.mesh.cells.lagrangian.fill(0.0)
     for ite in range(MaxIte):
-        solve()
+        project_fem()
         update_pos()
         collsion_response()
     postSolve(dt/numSubsteps)
@@ -229,25 +212,20 @@ def debug(field):
 #                                      gui                                     #
 # ---------------------------------------------------------------------------- #
 #init the window, canvas, scene and camerea
-window = ti.ui.Window("pbd", (1024, 1024),vsync=True)
+window = ti.ui.Window("pbd", (1024, 1024),vsync=False)
 canvas = window.get_canvas()
 scene = ti.ui.Scene()
 camera = ti.ui.Camera()
 
 #initial camera position
-camera.position(0.36801182, 1.20798075, 3.1301154)
-camera.lookat(0.37387108, 1.21329924, 2.13014676)
+camera.position(-4.1016811, -1.05783201, 6.2282803)
+camera.lookat(-3.50212255, -0.9375709, 5.43703646)
 camera.fov(55)
 
-@ti.kernel
-def init_pos():
-    for v in mesh.mesh.verts:
-        v.pos += tm.vec3(0.5,1,0)
 
 def main():
-    # init_pos()
     paused = ti.field(int, shape=())
-    paused[None] = 0
+    paused[None] = 1
     step=0
 
     while window.running:
@@ -273,7 +251,8 @@ def main():
         #set the camera, you can move around by pressing 'wasdeq'
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
         scene.set_camera(camera)
-
+        # print("camera pos: ", camera.curr_position)
+        # print("camera lookat: ", camera.curr_lookat)
 
         #set the light
         scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
@@ -285,7 +264,8 @@ def main():
 
         #show the frame
         canvas.scene(scene)
-        window.show()
+        window.show()   
+        # ti.profiler.print_kernel_profiler_info() 
 
 if __name__ == '__main__':
     main()

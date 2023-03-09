@@ -32,7 +32,14 @@ class Mesh:
                                'F': ti.math.mat3,
                                'lagrangian': ti.f32,
                                'dLambda': ti.f32,
-                               })
+                               'grad0': ti.math.vec3,
+                               'grad1': ti.math.vec3,
+                               'grad2': ti.math.vec3,
+                               'grad3': ti.math.vec3}) 
+        #注意！这里的grad0,1,2,3是针对每个tet的四个顶点的。但是我们把他定义在cell上，而不是vert上。
+        #这是因为meshtaichi中vert是唯一的（和几何点是一一对应的）。
+        #也就是说多个cell共享同一个顶点时，这个顶点上的数据可能会被覆盖掉。
+        #所以这里我们需要为每个tet单独存储grad0,1,2,3。
         
         self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
 
@@ -161,19 +168,20 @@ def project_fem():
             l + alpha[None])
         c.lagrangian = c.lagrangian + c.dLambda
 
-        mesh.gradient[4 * c.id + 0] = g0
-        mesh.gradient[4 * c.id + 1] = g1
-        mesh.gradient[4 * c.id + 2] = g2
-        mesh.gradient[4 * c.id + 3] = g3
+        c.grad0 = g0
+        c.grad1 = g1
+        c.grad2 = g2
+        c.grad3 = g3
 
 
 @ti.kernel
 def update_pos():
     for c in mesh.mesh.cells:
-        i = c.id
-        for j in ti.static(range(4)):
-            # if c.verts[j].invMass != 0.0:
-                c.verts[j].pos += omega * c.verts[j].invMass * c.dLambda * mesh.gradient[4 * i + j]
+        c.verts[0].pos += omega * c.verts[0].invMass * c.dLambda * c.grad0
+        c.verts[1].pos += omega * c.verts[1].invMass * c.dLambda * c.grad1
+        c.verts[2].pos += omega * c.verts[2].invMass * c.dLambda * c.grad2
+        c.verts[3].pos += omega * c.verts[3].invMass * c.dLambda * c.grad3
+       
 
     
 @ti.kernel

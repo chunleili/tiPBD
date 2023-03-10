@@ -25,8 +25,26 @@ def init_tet_mesh(model_name):
     return theMesh, display_indices
 
 #这里我们读入了armadillo的四面体模型。这个模型是通过tetgen生成的，我们只需要给出node文件就可以了，它会自动找到ele和face文件。tetgen可以转化ply为node格式，可以在这里下载：http://wias-berlin.de/software/index.jsp?id=TetGen&lang=1
-armadillo, armadillo_indices = init_tet_mesh("models/bunny.node")
+model_name = "models/tetgen/bunny.1.node"
+model_name = "models/mygen/bunny2000.node"
+# armadillo, armadillo_indices = init_tet_mesh(model_name)
+armadillo, armadillo_indices = init_tet_mesh(model_name)
 
+def directly_import_surf():
+    face_file_name = "models/mygen/bunny2000.face"
+    with open(face_file_name, 'r') as f:
+        #skip comments
+        while True:
+            line = f.readline()
+            if line[0] != '#':
+                break
+        with open(face_file_name, 'r') as f:
+            lines = f.readlines()
+            NF = int(lines[0].split()[0])
+            face_indices = np.zeros((NF, 3), dtype=np.int32)
+            for i in range(NF):
+                face_indices[i] = np.array(lines[i + 1].split()[1:-1],
+                                        dtype=np.int32)
 
 window = ti.ui.Window("taichimesh", (1024, 1024))
 canvas = window.get_canvas()
@@ -61,7 +79,8 @@ while window.running:
     scene.set_camera(camera)
     
     # 渲染bunny和armadillo!!
-    scene.mesh(armadillo.verts.x, armadillo_indices, color = (0.5,0.5,0.5), show_wireframe=True)
+    # scene.mesh(armadillo.verts.x, armadillo_indices, color = (0.5,0.5,0.5), show_wireframe=True)
+    scene.mesh(armadillo.verts.x, armadillo_indices, color = (0.5,0.5,0.5))
 
 
     scene.point_light(pos=(0.5, 1.5, 0.5), color=(1, 1, 1))

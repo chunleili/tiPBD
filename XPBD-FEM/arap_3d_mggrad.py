@@ -26,6 +26,7 @@ write_energy_to_file = True
 potential_energy = ti.field(float, ())
 kinetic_energy = ti.field(float, ())
 total_energy = ti.field(float, ())
+frame = ti.field(int, ())
 
 @ti.data_oriented
 class Mesh:
@@ -100,6 +101,8 @@ class Mesh:
             Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
             c.B = Dm.inverse().transpose()
             c.restVol = abs(Dm.determinant()) / 6.0
+            if c.id == 0:
+                print("c.restVol",c.restVol)
 
 
 mesh = Mesh(model_name="models/bunny1000_2000/bunny1000_dilate_new")
@@ -221,7 +224,7 @@ def compute_potential_energy():
         c.F = D_s @ c.B
         U, S, V = ti.svd(c.F)
         constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
-        potential_energy[None] += 0.5 * 1.0/alpha[None] *  constraint ** 2
+        potential_energy[None] += 0.5 * 1.0/alpha[None] *  constraint ** 2 * c.restVol
 
 @ti.kernel
 def compute_kinetic_energy():
@@ -266,15 +269,18 @@ def substep():
         compute_potential_energy()
         compute_kinetic_energy()
         total_energy[None] = potential_energy[None] + kinetic_energy[None]
-        print("potential:", potential_energy[None], "kinetic:",kinetic_energy[None],  "total: ", total_energy[None])
 
-        if write_energy_to_file:
+        if write_energy_to_file and frame[None]%100==0:
+            print("frame:",frame[None],"potential:", potential_energy[None], "kinetic:",kinetic_energy[None],  "total: ", total_energy[None])
             with open("totalEnergy.txt", "ab") as f:
                 np.savetxt(f, np.array([total_energy[None]]), fmt="%.4e", delimiter="\t")
             with open("potentialEnergy.txt", "ab") as f:
                 np.savetxt(f, np.array([potential_energy[None]]), fmt="%.4e", delimiter="\t")
             with open("kineticEnergy.txt", "ab") as f:
                 np.savetxt(f, np.array([kinetic_energy[None]]), fmt="%.4e", delimiter="\t")
+
+    frame[None] += 1
+    
 
 
 def debug(field):

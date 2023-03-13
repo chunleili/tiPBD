@@ -3,34 +3,33 @@ import meshtaichi_patcher as patcher
 from taichi.lang.ops import sqrt
 import taichi.math as tm
 import numpy as np
-import scipy.io as sio
-from read_tet import read_tet_mesh
 
 # ti.init(ti.cuda, kernel_profiler=True, debug=True)
-ti.init(ti.gpu)
+ti.init(ti.cuda)
 
 dt = 0.001  # timestep size
-omega = 0.1  # SOR factor
+omega = 0.2  # SOR factor
 compliance = 1.0e-3
 alpha = ti.field(float, ())
 alpha[None] = compliance * (1.0 / dt / dt)  # timestep related compliance
-inv_lame = 1e-5
-inv_h2 = 1.0 / dt / dt
 
 gravity = ti.Vector([0.0, -9.8, 0.0])
 MaxIte = 2
 numSubsteps = 10
 
+potential_energy = ti.field(float, ())
+kinetic_energy = ti.field(float, ())
+total_energy = ti.field(float, ())
 
 @ti.data_oriented
 class Mesh:
-    def __init__(self, model_name):
-        node_file = model_name + ".node"
-        self.mesh = patcher.load_mesh(node_file, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
+    def __init__(self, model_name="models/toy/toy.node"):
+        self.mesh = patcher.load_mesh(model_name, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
         self.mesh.verts.place({ 'pos' : ti.math.vec3,
                                 'vel' : ti.math.vec3,
                                 'prevPos' : ti.math.vec3,
+                                'predictPos' : ti.math.vec3,
                                 'invMass' : ti.f32})
         self.mesh.cells.place({'restVol' : ti.f32,
                                'B': ti.math.mat3,
@@ -40,80 +39,44 @@ class Mesh:
                                'grad0': ti.math.vec3,
                                'grad1': ti.math.vec3,
                                'grad2': ti.math.vec3,
-                               'grad3': ti.math.vec3})
+                               'grad3': ti.math.vec3}) 
         #注意！这里的grad0,1,2,3是针对每个tet的四个顶点的。但是我们把他定义在cell上，而不是vert上。
         #这是因为meshtaichi中vert是唯一的（和几何点是一一对应的）。
         #也就是说多个cell共享同一个顶点时，这个顶点上的数据可能会被覆盖掉。
         #所以这里我们需要为每个tet单独存储grad0,1,2,3。
-
+        
         self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
 
         NT = len(self.mesh.cells)
         DIM = 3
         self.gradient = ti.Vector.field(DIM, float, 4 * NT)
 
+        # 设置indices
+        self.surf_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
+        self.init_tet_indices(self.mesh, self.surf_show)
         self.init_physics()
 
-        # 设置显示三角面的indices
-        # 自己计算surf_show
-        # self.surf_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
-        # self.init_tet_indices(self.mesh, self.surf_show)
-        # 直接读取surf_show
-        surf_show_np = self.directly_import_faces(model_name + '.face')
-        self.surf_show = ti.field(ti.i32, surf_show_np.shape[0] * 3)
-        self.surf_show.from_numpy(surf_show_np.reshape(surf_show_np.shape[0] * 3))
-
-
-    # @staticmethod
-    # @ti.kernel
-    # def init_tet_indices(mesh: ti.template(), indices: ti.template()):
-    #     for c in mesh.cells:
-    #         ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
-    #         for i in ti.static(range(4)):
-    #             for j in ti.static(range(3)):
-    #                 indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
-
     @staticmethod
-    def directly_import_faces(face_file_name):
-        with open(face_file_name, 'r') as f:
-            lines = f.readlines()
-            NF = int(lines[0].split()[0])
-            face_indices = np.zeros((NF, 3), dtype=np.int32)
-            for i in range(NF):
-                face_indices[i] = np.array(lines[i + 1].split()[1:-1],
-                                        dtype=np.int32)
-        return face_indices
+    @ti.kernel
+    def init_tet_indices(mesh: ti.template(), indices: ti.template()):
+        for c in mesh.cells:
+            ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
+            for i in ti.static(range(4)):
+                for j in ti.static(range(3)):
+                    indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
 
     @ti.kernel
     def init_physics(self):
         for v in self.mesh.verts:
             v.invMass = 1.0
-
+            
         for c in self.mesh.cells:
             p0, p1, p2, p3= c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos
             Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
             c.B = Dm.inverse().transpose()
             c.restVol = abs(Dm.determinant()) / 6.0
 
-
-mesh = Mesh(model_name="models/bunny1000_2000/bunny1000_dilate_new")
-
-
-#read restriction operator
-P = sio.mmread("models/bunny1000_2000/P.mtx")
-fine_pos_init, fine_tet_idx, fine_tri_idx = read_tet_mesh("models/bunny1000_2000/bunny2000")
-fine_pos_ti = ti.Vector.field(3, float, fine_pos_init.shape[0])
-fine_num_tri = fine_tri_idx.shape[0] * 3
-fine_tri_idx_ti = ti.field(ti.i32, fine_num_tri)
-fine_pos_ti.from_numpy(fine_pos_init)
-fine_tri_idx_ti.from_numpy(fine_tri_idx.reshape(fine_num_tri))
-
-def update_fine_mesh():
-    coarse_pos = mesh.mesh.verts.pos.to_numpy()
-    fine_pos = P @ coarse_pos
-    fine_pos_ti.from_numpy(fine_pos)
-
-
+mesh = Mesh()
 # ---------------------------------------------------------------------------- #
 #                                    核心计算步骤                                #
 # ---------------------------------------------------------------------------- #
@@ -126,11 +89,13 @@ def preSolve(dt_: ti.f32):
             v.vel = v.vel + dt_ * gravity
             v.prevPos = v.pos
             v.pos = v.pos + dt_ * v.vel
+            v.predictPos = v.pos
 
 
 @ti.func
 def make_matrix(x, y, z):
-    return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0], [0, x, 0, 0, y, 0, 0, z, 0],
+    return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0],
+                      [0, x, 0, 0, y, 0, 0, z, 0],
                       [0, 0, x, 0, 0, y, 0, 0, z]])
 
 
@@ -167,6 +132,13 @@ def computeGradient(B, U, S, V):
     dsdF02 = ti.Vector([u00 * v20, u01 * v21, u02 * v22])
     dsdF12 = ti.Vector([u10 * v20, u11 * v21, u12 * v22])
     dsdF22 = ti.Vector([u20 * v20, u21 * v21, u22 * v22])
+    
+    # dsdF = ti.Matrix([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
+    # mid = ti.Matrix([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
+    # for i in ti.static(range(3)):
+    #     for j in ti.static(range(3)):
+    #         mid[i, j] = 1
+    #         dsdF[i,j] = U.transpose() @ mid @ V
 
     # Compute (dcdF)
     dcdF = ti.Vector([
@@ -191,28 +163,36 @@ def computeGradient(B, U, S, V):
 def project_fem():
     for c in mesh.mesh.cells:
         p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-        # invM0, invM1, invM2, invM3 = p0.invMass, p1.invMass, p2.invMass, p3.invMass
-        # sumInvMass = invM0 + invM1 + invM2 + invM3
-        # if sumInvMass < 1.0e-6:
-        #     print("wrong invMass function")
         D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
         c.F = D_s @ c.B
         U, S, V = ti.svd(c.F)
-        # if S[2, 2] < 1.0e-6:
-        #     S[2, 2] *= -1
         constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
+
         g0, g1, g2, g3, isSuccess = computeGradient(c.B, U, S, V)
 
-        # if isSuccess:
         l = p0.invMass * g0.norm_sqr() + p1.invMass * g1.norm_sqr() + p2.invMass * g2.norm_sqr() + p3.invMass * g3.norm_sqr()
         c.dLambda = -(constraint + alpha[None] * c.lagrangian) / (
             l + alpha[None])
         c.lagrangian = c.lagrangian + c.dLambda
+        c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
-        c.grad0 = g0
-        c.grad1 = g1
-        c.grad2 = g2
-        c.grad3 = g3
+
+@ti.kernel
+def compute_potential_energy():
+    potential_energy[None] = 0.0
+    for c in mesh.mesh.cells:
+        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
+        D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
+        c.F = D_s @ c.B
+        U, S, V = ti.svd(c.F)
+        constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
+        potential_energy[None] += 0.5 * 1.0/alpha[None] *  constraint ** 2
+
+@ti.kernel
+def compute_kinetic_energy():
+    kinetic_energy[None] = 0.0
+    for v in mesh.mesh.verts:
+        kinetic_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr()
 
 
 @ti.kernel
@@ -222,9 +202,9 @@ def update_pos():
         c.verts[1].pos += omega * c.verts[1].invMass * c.dLambda * c.grad1
         c.verts[2].pos += omega * c.verts[2].invMass * c.dLambda * c.grad2
         c.verts[3].pos += omega * c.verts[3].invMass * c.dLambda * c.grad3
+       
 
-
-
+    
 @ti.kernel
 def collsion_response():
     for v in mesh.mesh.verts:
@@ -246,6 +226,10 @@ def substep():
         update_pos()
         collsion_response()
     postSolve(dt/numSubsteps)
+    compute_potential_energy()
+    compute_kinetic_energy()
+    total_energy[None] = potential_energy[None] + kinetic_energy[None]
+    print("total energy: ", total_energy[None])
 
 def debug(field):
     field_np = field.to_numpy()
@@ -276,9 +260,7 @@ def main():
     paused = ti.field(int, shape=())
     paused[None] = 1
     step=0
-    show_coarse, show_fine = True, True
-    
-    update_fine_mesh()
+
     while window.running:
         for e in window.get_events(ti.ui.PRESS):
             if e.key == ti.ui.ESCAPE:
@@ -298,7 +280,6 @@ def main():
         if not paused[None]:
             for _ in range(numSubsteps):
                 substep()
-            update_fine_mesh()
 
         #set the camera, you can move around by pressing 'wasdeq'
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -310,20 +291,14 @@ def main():
         scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
         scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
         scene.ambient_light((0.5, 0.5, 0.5))
-
+        
         #draw
-        if show_coarse:
-            scene.mesh(mesh.mesh.verts.pos, indices=mesh.surf_show, color=(0.1229,0.2254,0.7207),show_wireframe=True)
-        if show_fine:
-            scene.mesh(fine_pos_ti,
-                       fine_tri_idx_ti,
-                       color=(0.5, 0.5, 1.0),
-                       show_wireframe=True)
+        scene.mesh(mesh.mesh.verts.pos, indices=mesh.surf_show, color=(0.1229,0.2254,0.7207))
 
         #show the frame
         canvas.scene(scene)
-        window.show()
-        # ti.profiler.print_kernel_profiler_info()
+        window.show()   
+        # ti.profiler.print_kernel_profiler_info() 
 
 if __name__ == '__main__':
     main()

@@ -21,6 +21,11 @@ gravity = ti.Vector([0.0, -9.8, 0.0])
 MaxIte = 2
 numSubsteps = 10
 
+compute_energy = True
+write_energy_to_file = True
+potential_energy = ti.field(float, ())
+kinetic_energy = ti.field(float, ())
+total_energy = ti.field(float, ())
 
 @ti.data_oriented
 class Mesh:
@@ -31,6 +36,7 @@ class Mesh:
         self.mesh.verts.place({ 'pos' : ti.math.vec3,
                                 'vel' : ti.math.vec3,
                                 'prevPos' : ti.math.vec3,
+                                'predictPos' : ti.math.vec3,
                                 'invMass' : ti.f32})
         self.mesh.cells.place({'restVol' : ti.f32,
                                'B': ti.math.mat3,
@@ -126,6 +132,7 @@ def preSolve(dt_: ti.f32):
             v.vel = v.vel + dt_ * gravity
             v.prevPos = v.pos
             v.pos = v.pos + dt_ * v.vel
+            v.predictPos = v.pos
 
 
 @ti.func
@@ -191,28 +198,36 @@ def computeGradient(B, U, S, V):
 def project_fem():
     for c in mesh.mesh.cells:
         p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-        # invM0, invM1, invM2, invM3 = p0.invMass, p1.invMass, p2.invMass, p3.invMass
-        # sumInvMass = invM0 + invM1 + invM2 + invM3
-        # if sumInvMass < 1.0e-6:
-        #     print("wrong invMass function")
         D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
         c.F = D_s @ c.B
         U, S, V = ti.svd(c.F)
-        # if S[2, 2] < 1.0e-6:
-        #     S[2, 2] *= -1
         constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
+
         g0, g1, g2, g3, isSuccess = computeGradient(c.B, U, S, V)
 
-        # if isSuccess:
         l = p0.invMass * g0.norm_sqr() + p1.invMass * g1.norm_sqr() + p2.invMass * g2.norm_sqr() + p3.invMass * g3.norm_sqr()
         c.dLambda = -(constraint + alpha[None] * c.lagrangian) / (
             l + alpha[None])
         c.lagrangian = c.lagrangian + c.dLambda
+        c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
-        c.grad0 = g0
-        c.grad1 = g1
-        c.grad2 = g2
-        c.grad3 = g3
+
+@ti.kernel
+def compute_potential_energy():
+    potential_energy[None] = 0.0
+    for c in mesh.mesh.cells:
+        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
+        D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
+        c.F = D_s @ c.B
+        U, S, V = ti.svd(c.F)
+        constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
+        potential_energy[None] += 0.5 * 1.0/alpha[None] *  constraint ** 2
+
+@ti.kernel
+def compute_kinetic_energy():
+    kinetic_energy[None] = 0.0
+    for v in mesh.mesh.verts:
+        kinetic_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr()
 
 
 @ti.kernel
@@ -246,6 +261,21 @@ def substep():
         update_pos()
         collsion_response()
     postSolve(dt/numSubsteps)
+
+    if compute_energy:
+        compute_potential_energy()
+        compute_kinetic_energy()
+        total_energy[None] = potential_energy[None] + kinetic_energy[None]
+        print("potential:", potential_energy[None], "kinetic:",kinetic_energy[None],  "total: ", total_energy[None])
+
+        if write_energy_to_file:
+            with open("totalEnergy.txt", "ab") as f:
+                np.savetxt(f, np.array([total_energy[None]]), fmt="%.4e", delimiter="\t")
+            with open("potentialEnergy.txt", "ab") as f:
+                np.savetxt(f, np.array([potential_energy[None]]), fmt="%.4e", delimiter="\t")
+            with open("kineticEnergy.txt", "ab") as f:
+                np.savetxt(f, np.array([kinetic_energy[None]]), fmt="%.4e", delimiter="\t")
+
 
 def debug(field):
     field_np = field.to_numpy()

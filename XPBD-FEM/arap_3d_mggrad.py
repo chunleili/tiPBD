@@ -39,7 +39,7 @@ class Mesh:
                                 'prevPos' : ti.math.vec3,
                                 'predictPos' : ti.math.vec3,
                                 'invMass' : ti.f32})
-        self.mesh.cells.place({'restVol' : ti.f32,
+        self.mesh.cells.place({'invVol' : ti.f32,
                                'B': ti.math.mat3,
                                'F': ti.math.mat3,
                                'lagrangian': ti.f32,
@@ -101,8 +101,8 @@ class Mesh:
             p0, p1, p2, p3= c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos
             Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
             c.B = Dm.inverse().transpose()
-            c.restVol = abs(Dm.determinant()) / 6.0
-            c.alpha = inv_h2 * inv_lame * 1.0 / c.restVol
+            c.invVol = 6.0/ abs(Dm.determinant()) 
+            c.alpha = inv_h2 * inv_lame * c.invVol
 
             # if c.id == 0:
             #     print("c.restVol",c.restVol)
@@ -232,13 +232,14 @@ def compute_potential_energy():
         c.F = D_s @ c.B
         U, S, V = ti.svd(c.F)
         constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
-        potential_energy[None] += 0.5 * 1.0/c.alpha *  constraint ** 2 
+        invAlpha = inv_lame * c.invVol
+        potential_energy[None] += 0.5 * invAlpha *  constraint ** 2 
 
 @ti.kernel
 def compute_kinetic_energy():
     kinetic_energy[None] = 0.0
     for v in mesh.mesh.verts:
-        kinetic_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr()
+        kinetic_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr() * inv_h2
 
 
 @ti.kernel

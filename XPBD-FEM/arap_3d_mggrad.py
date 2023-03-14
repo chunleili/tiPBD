@@ -279,7 +279,7 @@ def substep():
         total_energy[None] = potential_energy[None] + kinetic_energy[None]
 
         if write_energy_to_file and frame[None]%100==0:
-            print("frame:",frame[None],"\tpotential:", potential_energy[None], "\tkinetic:",kinetic_energy[None],  "\ttotal: ", total_energy[None])
+            print(f"frame: {frame[None]} potential: {potential_energy[None]:.3e} kinetic: {kinetic_energy[None]:.3e} total: {total_energy[None]:.3e}")
             with open("totalEnergy.txt", "ab") as f:
                 np.savetxt(f, np.array([total_energy[None]]), fmt="%.4e", delimiter="\t")
             with open("potentialEnergy.txt", "ab") as f:

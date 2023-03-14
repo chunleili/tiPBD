@@ -3,3 +3,6 @@
 __pycache__
 a.lua
 debug*.txt
+potentialEnergy.txt
+kineticEnergy.txt
+totalEnergy.txt

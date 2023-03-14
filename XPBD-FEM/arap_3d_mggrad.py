@@ -10,10 +10,10 @@ from read_tet import read_tet_mesh
 ti.init(ti.gpu)
 
 dt = 0.001  # timestep size
-omega = 0.1  # SOR factor
+omega = 0.2  # SOR factor
 compliance = 1.0e-3
-alpha = ti.field(float, ())
-alpha[None] = compliance * (1.0 / dt / dt)  # timestep related compliance
+# alpha = ti.field(float, ())
+# alpha[None] = compliance * (1.0 / dt / dt)  # timestep related compliance
 inv_lame = 1e-5
 inv_h2 = 1.0 / dt / dt
 
@@ -47,7 +47,8 @@ class Mesh:
                                'grad0': ti.math.vec3,
                                'grad1': ti.math.vec3,
                                'grad2': ti.math.vec3,
-                               'grad3': ti.math.vec3})
+                               'grad3': ti.math.vec3,
+                               'alpha': ti.f32})
         #注意！这里的grad0,1,2,3是针对每个tet的四个顶点的。但是我们把他定义在cell上，而不是vert上。
         #这是因为meshtaichi中vert是唯一的（和几何点是一一对应的）。
         #也就是说多个cell共享同一个顶点时，这个顶点上的数据可能会被覆盖掉。
@@ -101,8 +102,15 @@ class Mesh:
             Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
             c.B = Dm.inverse().transpose()
             c.restVol = abs(Dm.determinant()) / 6.0
-            if c.id == 0:
-                print("c.restVol",c.restVol)
+            c.alpha = inv_h2 * inv_lame * 1.0 / c.restVol
+
+            # if c.id == 0:
+            #     print("c.restVol",c.restVol)
+            # pInvMass = 0.0
+            # density = 1.0
+            # pInvMass = 1.0/(c.restVol * density / 4.0)
+            # for j in ti.static(range(4)):
+            #     c.verts[j].invMass += pInvMass
 
 
 mesh = Mesh(model_name="models/bunny1000_2000/bunny1000_dilate_new")
@@ -209,8 +217,8 @@ def project_fem():
         g0, g1, g2, g3, isSuccess = computeGradient(c.B, U, S, V)
 
         l = p0.invMass * g0.norm_sqr() + p1.invMass * g1.norm_sqr() + p2.invMass * g2.norm_sqr() + p3.invMass * g3.norm_sqr()
-        c.dLambda = -(constraint + alpha[None] * c.lagrangian) / (
-            l + alpha[None])
+        c.dLambda = -(constraint + c.alpha * c.lagrangian) / (
+            l + c.alpha)
         c.lagrangian = c.lagrangian + c.dLambda
         c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
@@ -224,7 +232,7 @@ def compute_potential_energy():
         c.F = D_s @ c.B
         U, S, V = ti.svd(c.F)
         constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
-        potential_energy[None] += 0.5 * 1.0/alpha[None] *  constraint ** 2 * c.restVol
+        potential_energy[None] += 0.5 * 1.0/c.alpha *  constraint ** 2 
 
 @ti.kernel
 def compute_kinetic_energy():
@@ -271,7 +279,7 @@ def substep():
         total_energy[None] = potential_energy[None] + kinetic_energy[None]
 
         if write_energy_to_file and frame[None]%100==0:
-            print("frame:",frame[None],"potential:", potential_energy[None], "kinetic:",kinetic_energy[None],  "total: ", total_energy[None])
+            print("frame:",frame[None],"\tpotential:", potential_energy[None], "\tkinetic:",kinetic_energy[None],  "\ttotal: ", total_energy[None])
             with open("totalEnergy.txt", "ab") as f:
                 np.savetxt(f, np.array([total_energy[None]]), fmt="%.4e", delimiter="\t")
             with open("potentialEnergy.txt", "ab") as f:

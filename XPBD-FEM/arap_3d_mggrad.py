@@ -30,7 +30,7 @@ frame = ti.field(int, ())
 
 @ti.data_oriented
 class Mesh:
-    def __init__(self, model_name):
+    def __init__(self, model_name, direct_import_faces=True):
         node_file = model_name + ".node"
         self.mesh = patcher.load_mesh(node_file, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
@@ -64,22 +64,24 @@ class Mesh:
 
         # 设置显示三角面的indices
         # 自己计算surf_show
-        # self.surf_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
-        # self.init_tet_indices(self.mesh, self.surf_show)
+        if not direct_import_faces:
+            self.surf_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
+            self.init_tet_indices(self.mesh, self.surf_show)
         # 直接读取surf_show
-        surf_show_np = self.directly_import_faces(model_name + '.face')
-        self.surf_show = ti.field(ti.i32, surf_show_np.shape[0] * 3)
-        self.surf_show.from_numpy(surf_show_np.reshape(surf_show_np.shape[0] * 3))
+        else:
+            surf_show_np = self.directly_import_faces(model_name + '.face')
+            self.surf_show = ti.field(ti.i32, surf_show_np.shape[0] * 3)
+            self.surf_show.from_numpy(surf_show_np.reshape(surf_show_np.shape[0] * 3))
 
 
-    # @staticmethod
-    # @ti.kernel
-    # def init_tet_indices(mesh: ti.template(), indices: ti.template()):
-    #     for c in mesh.cells:
-    #         ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
-    #         for i in ti.static(range(4)):
-    #             for j in ti.static(range(3)):
-    #                 indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
+    @staticmethod
+    @ti.kernel
+    def init_tet_indices(mesh: ti.template(), indices: ti.template()):
+        for c in mesh.cells:
+            ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
+            for i in ti.static(range(4)):
+                for j in ti.static(range(3)):
+                    indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
 
     @staticmethod
     def directly_import_faces(face_file_name):
@@ -113,23 +115,17 @@ class Mesh:
             #     c.verts[j].invMass += pInvMass
 
 
-mesh = Mesh(model_name="models/bunny1000_2000/bunny1000_dilate_new")
+mesh = Mesh(model_name="models/bunny1000_2000/bunny1k")
 
 
 #read restriction operator
 P = sio.mmread("models/bunny1000_2000/P.mtx")
-fine_pos_init, fine_tet_idx, fine_tri_idx = read_tet_mesh("models/bunny1000_2000/bunny2000")
-fine_pos_ti = ti.Vector.field(3, float, fine_pos_init.shape[0])
-fine_num_tri = fine_tri_idx.shape[0] * 3
-fine_tri_idx_ti = ti.field(ti.i32, fine_num_tri)
-fine_pos_ti.from_numpy(fine_pos_init)
-fine_tri_idx_ti.from_numpy(fine_tri_idx.reshape(fine_num_tri))
+fine_mesh = Mesh(model_name="models/bunny1000_2000/bunny2k", direct_import_faces=True)
 
-def update_fine_mesh():
+def coarse_to_fine():
     coarse_pos = mesh.mesh.verts.pos.to_numpy()
     fine_pos = P @ coarse_pos
-    fine_pos_ti.from_numpy(fine_pos)
-
+    fine_mesh.mesh.verts.pos.from_numpy(fine_pos)
 
 # ---------------------------------------------------------------------------- #
 #                                    核心计算步骤                                #
@@ -323,7 +319,7 @@ def main():
     step=0
     show_coarse, show_fine = True, True
     
-    update_fine_mesh()
+    coarse_to_fine()
     while window.running:
         for e in window.get_events(ti.ui.PRESS):
             if e.key == ti.ui.ESCAPE:
@@ -343,7 +339,7 @@ def main():
         if not paused[None]:
             for _ in range(numSubsteps):
                 substep()
-            update_fine_mesh()
+            coarse_to_fine()
 
         #set the camera, you can move around by pressing 'wasdeq'
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -360,10 +356,8 @@ def main():
         if show_coarse:
             scene.mesh(mesh.mesh.verts.pos, indices=mesh.surf_show, color=(0.1229,0.2254,0.7207),show_wireframe=True)
         if show_fine:
-            scene.mesh(fine_pos_ti,
-                       fine_tri_idx_ti,
-                       color=(0.5, 0.5, 1.0),
-                       show_wireframe=True)
+            # scene.mesh(fine_pos_ti, indices=fine_tri_idx_ti, color=(1.0,0,0),show_wireframe=True)
+            scene.mesh(fine_mesh.mesh.verts.pos, indices=fine_mesh.surf_show, color=(1.0,0,0),show_wireframe=True)
 
         #show the frame
         canvas.scene(scene)

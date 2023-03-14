@@ -112,8 +112,8 @@ def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_te
 
 if __name__ == "__main__":
     is_mapping_computed = False
-    fine_mesh = "models/bunny1000_2000/bunny2000"
-    coarse_mesh = "models/bunny1000_2000/bunny1000_dilate_new"
+    fine_mesh = "models/bunny1000_2000/bunny2k"
+    coarse_mesh = "models/bunny1000_2000/bunny1k"
     
     coarse_pos, coarse_tet_indices, coarse_face_indices = read_tet_mesh(coarse_mesh)
     fine_pos, fine_tet_indices, fine_face_indices = read_tet_mesh(fine_mesh)

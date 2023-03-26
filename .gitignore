@@ -6,3 +6,6 @@ debug*.txt
 potentialEnergy.txt
 kineticEnergy.txt
 totalEnergy.txt
+.vscode
+log.txt
+results/*.txt

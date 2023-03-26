@@ -3,80 +3,43 @@ import meshtaichi_patcher as patcher
 from taichi.lang.ops import sqrt
 import taichi.math as tm
 import numpy as np
-
+import scipy.io as sio
+from engine.fem.read_tet import read_tet_mesh
+from engine.fem.mesh import Mesh
+from result import result_path
 # ti.init(ti.cuda, kernel_profiler=True, debug=True)
-ti.init(ti.cuda)
+ti.init(ti.gpu)
 
 dt = 0.001  # timestep size
 omega = 0.2  # SOR factor
 compliance = 1.0e-3
-alpha = ti.field(float, ())
-alpha[None] = compliance * (1.0 / dt / dt)  # timestep related compliance
+# alpha = ti.field(float, ())
+# alpha[None] = compliance * (1.0 / dt / dt)  # timestep related compliance
+inv_lame = 1e-5
+inv_h2 = 1.0 / dt / dt
 
 gravity = ti.Vector([0.0, -9.8, 0.0])
 MaxIte = 2
 numSubsteps = 10
 
+compute_energy, write_energy_to_file = True, True
+show_coarse, show_fine = True, False
 potential_energy = ti.field(float, ())
 kinetic_energy = ti.field(float, ())
 total_energy = ti.field(float, ())
+frame = ti.field(int, ())
 
-@ti.data_oriented
-class Mesh:
-    def __init__(self, model_name="models/toy/toy.node"):
-        self.mesh = patcher.load_mesh(model_name, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
+mesh = Mesh(model_name="data/models/bunny1000_2000/bunny1k")
 
-        self.mesh.verts.place({ 'pos' : ti.math.vec3,
-                                'vel' : ti.math.vec3,
-                                'prevPos' : ti.math.vec3,
-                                'predictPos' : ti.math.vec3,
-                                'invMass' : ti.f32})
-        self.mesh.cells.place({'restVol' : ti.f32,
-                               'B': ti.math.mat3,
-                               'F': ti.math.mat3,
-                               'lagrangian': ti.f32,
-                               'dLambda': ti.f32,
-                               'grad0': ti.math.vec3,
-                               'grad1': ti.math.vec3,
-                               'grad2': ti.math.vec3,
-                               'grad3': ti.math.vec3}) 
-        #注意！这里的grad0,1,2,3是针对每个tet的四个顶点的。但是我们把他定义在cell上，而不是vert上。
-        #这是因为meshtaichi中vert是唯一的（和几何点是一一对应的）。
-        #也就是说多个cell共享同一个顶点时，这个顶点上的数据可能会被覆盖掉。
-        #所以这里我们需要为每个tet单独存储grad0,1,2,3。
-        
-        self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
+#read restriction operator
+P = sio.mmread("data/models/bunny1000_2000/P.mtx")
+fine_mesh = Mesh(model_name="data/models/bunny1000_2000/bunny2k", direct_import_faces=True)
 
-        NT = len(self.mesh.cells)
-        DIM = 3
-        self.gradient = ti.Vector.field(DIM, float, 4 * NT)
+def coarse_to_fine():
+    coarse_pos = mesh.mesh.verts.pos.to_numpy()
+    fine_pos = P @ coarse_pos
+    fine_mesh.mesh.verts.pos.from_numpy(fine_pos)
 
-        # 设置indices
-        self.surf_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
-        self.init_tet_indices(self.mesh, self.surf_show)
-        self.init_physics()
-
-    @staticmethod
-    @ti.kernel
-    def init_tet_indices(mesh: ti.template(), indices: ti.template()):
-        for c in mesh.cells:
-            ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
-            for i in ti.static(range(4)):
-                for j in ti.static(range(3)):
-                    indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
-
-    @ti.kernel
-    def init_physics(self):
-        for v in self.mesh.verts:
-            v.invMass = 1.0
-            
-        for c in self.mesh.cells:
-            p0, p1, p2, p3= c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos
-            Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
-            c.B = Dm.inverse().transpose()
-            c.restVol = abs(Dm.determinant()) / 6.0
-
-mesh = Mesh()
 # ---------------------------------------------------------------------------- #
 #                                    核心计算步骤                                #
 # ---------------------------------------------------------------------------- #
@@ -94,8 +57,7 @@ def preSolve(dt_: ti.f32):
 
 @ti.func
 def make_matrix(x, y, z):
-    return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0],
-                      [0, x, 0, 0, y, 0, 0, z, 0],
+    return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0], [0, x, 0, 0, y, 0, 0, z, 0],
                       [0, 0, x, 0, 0, y, 0, 0, z]])
 
 
@@ -132,13 +94,6 @@ def computeGradient(B, U, S, V):
     dsdF02 = ti.Vector([u00 * v20, u01 * v21, u02 * v22])
     dsdF12 = ti.Vector([u10 * v20, u11 * v21, u12 * v22])
     dsdF22 = ti.Vector([u20 * v20, u21 * v21, u22 * v22])
-    
-    # dsdF = ti.Matrix([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
-    # mid = ti.Matrix([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
-    # for i in ti.static(range(3)):
-    #     for j in ti.static(range(3)):
-    #         mid[i, j] = 1
-    #         dsdF[i,j] = U.transpose() @ mid @ V
 
     # Compute (dcdF)
     dcdF = ti.Vector([
@@ -171,8 +126,8 @@ def project_fem():
         g0, g1, g2, g3, isSuccess = computeGradient(c.B, U, S, V)
 
         l = p0.invMass * g0.norm_sqr() + p1.invMass * g1.norm_sqr() + p2.invMass * g2.norm_sqr() + p3.invMass * g3.norm_sqr()
-        c.dLambda = -(constraint + alpha[None] * c.lagrangian) / (
-            l + alpha[None])
+        c.dLambda = -(constraint + c.alpha * c.lagrangian) / (
+            l + c.alpha)
         c.lagrangian = c.lagrangian + c.dLambda
         c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
@@ -186,13 +141,14 @@ def compute_potential_energy():
         c.F = D_s @ c.B
         U, S, V = ti.svd(c.F)
         constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
-        potential_energy[None] += 0.5 * 1.0/alpha[None] *  constraint ** 2
+        invAlpha = inv_lame * c.invVol
+        potential_energy[None] += 0.5 * invAlpha *  constraint ** 2 
 
 @ti.kernel
 def compute_kinetic_energy():
     kinetic_energy[None] = 0.0
     for v in mesh.mesh.verts:
-        kinetic_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr()
+        kinetic_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr() * inv_h2
 
 
 @ti.kernel
@@ -202,9 +158,9 @@ def update_pos():
         c.verts[1].pos += omega * c.verts[1].invMass * c.dLambda * c.grad1
         c.verts[2].pos += omega * c.verts[2].invMass * c.dLambda * c.grad2
         c.verts[3].pos += omega * c.verts[3].invMass * c.dLambda * c.grad3
-       
 
-    
+
+
 @ti.kernel
 def collsion_response():
     for v in mesh.mesh.verts:
@@ -226,10 +182,25 @@ def substep():
         update_pos()
         collsion_response()
     postSolve(dt/numSubsteps)
+
+    if compute_energy:
+        log_energy()
+
+    frame[None] += 1
+    
+def log_energy():
     compute_potential_energy()
     compute_kinetic_energy()
     total_energy[None] = potential_energy[None] + kinetic_energy[None]
-    print("total energy: ", total_energy[None])
+
+    if write_energy_to_file and frame[None]%100==0:
+        print(f"frame: {frame[None]} potential: {potential_energy[None]:.3e} kinetic: {kinetic_energy[None]:.3e} total: {total_energy[None]:.3e}")
+        with open(result_path+"/totalEnergy.txt", "ab") as f:
+            np.savetxt(f, np.array([total_energy[None]]), fmt="%.4e", delimiter="\t")
+        with open(result_path+"/potentialEnergy.txt", "ab") as f:
+            np.savetxt(f, np.array([potential_energy[None]]), fmt="%.4e", delimiter="\t")
+        with open(result_path+"/kineticEnergy.txt", "ab") as f:
+            np.savetxt(f, np.array([kinetic_energy[None]]), fmt="%.4e", delimiter="\t")
 
 def debug(field):
     field_np = field.to_numpy()
@@ -241,64 +212,3 @@ def debug(field):
     print("---------------------")
     np.savetxt("debug_my.txt", field_np.flatten(), fmt="%.4f", delimiter="\t")
     return field_np
-# ---------------------------------------------------------------------------- #
-#                                      gui                                     #
-# ---------------------------------------------------------------------------- #
-#init the window, canvas, scene and camerea
-window = ti.ui.Window("pbd", (1024, 1024),vsync=False)
-canvas = window.get_canvas()
-scene = ti.ui.Scene()
-camera = ti.ui.Camera()
-
-#initial camera position
-camera.position(-4.1016811, -1.05783201, 6.2282803)
-camera.lookat(-3.50212255, -0.9375709, 5.43703646)
-camera.fov(55)
-
-
-def main():
-    paused = ti.field(int, shape=())
-    paused[None] = 1
-    step=0
-
-    while window.running:
-        for e in window.get_events(ti.ui.PRESS):
-            if e.key == ti.ui.ESCAPE:
-                exit()
-            if e.key == ti.ui.SPACE:
-                paused[None] = not paused[None]
-                print("paused:", paused[None])
-            if e.key == "f":
-                print("step: ", step)
-                step+=1
-                substep()
-                debug(mesh.mesh.verts.pos)
-                debug(mesh.mesh.cells.lagrangian)
-                print("step once")
-
-        #do the simulation in each step
-        if not paused[None]:
-            for _ in range(numSubsteps):
-                substep()
-
-        #set the camera, you can move around by pressing 'wasdeq'
-        camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
-        scene.set_camera(camera)
-        # print("camera pos: ", camera.curr_position)
-        # print("camera lookat: ", camera.curr_lookat)
-
-        #set the light
-        scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
-        scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
-        scene.ambient_light((0.5, 0.5, 0.5))
-        
-        #draw
-        scene.mesh(mesh.mesh.verts.pos, indices=mesh.surf_show, color=(0.1229,0.2254,0.7207))
-
-        #show the frame
-        canvas.scene(scene)
-        window.show()   
-        # ti.profiler.print_kernel_profiler_info() 
-
-if __name__ == '__main__':
-    main()

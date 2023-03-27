@@ -1,6 +1,7 @@
 import taichi as ti
 ti.init(ti.gpu)
 from engine.fem.arap import *
+from engine.metadata import meta
 
 @ti.data_oriented
 class Solver:
@@ -17,11 +18,11 @@ class Solver:
         #initial camera position
         camera.position(-4.1016811, -1.05783201, 6.2282803)
         camera.lookat(-3.50212255, -0.9375709, 5.43703646)
-        camera.fov(55)
+        camera.fov(55) 
+
         paused = ti.field(int, shape=())
         paused[None] = 1
         step=0
-
         
         coarse_to_fine()
         while window.running:
@@ -41,7 +42,7 @@ class Solver:
 
             #do the simulation in each step
             if not paused[None]:
-                for _ in range(numSubsteps):
+                for _ in range(meta.numSubsteps):
                     substep()
                 coarse_to_fine()
 

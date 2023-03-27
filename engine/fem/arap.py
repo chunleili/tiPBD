@@ -11,12 +11,12 @@ from engine.metadata import meta
 # ti.init(ti.cuda, kernel_profiler=True, debug=True)
 # ti.init(ti.gpu)
 
-dt = 0.001  # timestep size
-omega = 0.2  # SOR factor
+# dt = 0.001  # timestep size
+# omega = 0.2  # SOR factor
 
-gravity = ti.Vector([0.0, -9.8, 0.0])
-MaxIte = 2
-numSubsteps = 10
+# gravity = ti.Vector([0.0, -9.8, 0.0])
+# MaxIte = 2
+# numSubsteps = 10
 
 compute_energy, write_energy_to_file = True, True
 show_coarse, show_fine = True, False
@@ -42,7 +42,7 @@ def preSolve(dt_: ti.f32):
     # semi-Euler update pos & vel
     for v in mesh.mesh.verts:
         if (v.invMass != 0.0):
-            v.vel = v.vel + dt_ * gravity
+            v.vel = v.vel + dt_ * meta.gravity
             v.prevPos = v.pos
             v.pos = v.pos + dt_ * v.vel
             v.predictPos = v.pos
@@ -125,10 +125,10 @@ def project_fem():
         c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
     # for c in mesh.mesh.cells:
-        c.verts[0].pos += omega * c.verts[0].invMass * c.dLambda * c.grad0
-        c.verts[1].pos += omega * c.verts[1].invMass * c.dLambda * c.grad1
-        c.verts[2].pos += omega * c.verts[2].invMass * c.dLambda * c.grad2
-        c.verts[3].pos += omega * c.verts[3].invMass * c.dLambda * c.grad3
+        c.verts[0].pos += meta.omega * c.verts[0].invMass * c.dLambda * c.grad0
+        c.verts[1].pos += meta.omega * c.verts[1].invMass * c.dLambda * c.grad1
+        c.verts[2].pos += meta.omega * c.verts[2].invMass * c.dLambda * c.grad2
+        c.verts[3].pos += meta.omega * c.verts[3].invMass * c.dLambda * c.grad3
 
 
 @ti.kernel
@@ -153,10 +153,10 @@ def compute_inertial_energy():
 @ti.kernel
 def update_pos():
     for c in mesh.mesh.cells:
-        c.verts[0].pos += omega * c.verts[0].invMass * c.dLambda * c.grad0
-        c.verts[1].pos += omega * c.verts[1].invMass * c.dLambda * c.grad1
-        c.verts[2].pos += omega * c.verts[2].invMass * c.dLambda * c.grad2
-        c.verts[3].pos += omega * c.verts[3].invMass * c.dLambda * c.grad3
+        c.verts[0].pos += meta.omega * c.verts[0].invMass * c.dLambda * c.grad0
+        c.verts[1].pos += meta.omega * c.verts[1].invMass * c.dLambda * c.grad1
+        c.verts[2].pos += meta.omega * c.verts[2].invMass * c.dLambda * c.grad2
+        c.verts[3].pos += meta.omega * c.verts[3].invMass * c.dLambda * c.grad3
 
 
 
@@ -174,13 +174,13 @@ def postSolve(dt_: ti.f32):
 
 
 def substep():
-    preSolve(dt/numSubsteps)
+    preSolve(meta.dt/meta.numSubsteps)
     mesh.mesh.cells.lagrangian.fill(0.0)
-    for ite in range(MaxIte):
+    for ite in range(meta.MaxIte):
         project_fem()
         # update_pos()
         collsion_response()
-    postSolve(dt/numSubsteps)
+    postSolve(meta.dt/meta.numSubsteps)
 
     if compute_energy:
         log_energy()

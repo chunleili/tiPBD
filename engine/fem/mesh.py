@@ -28,6 +28,10 @@ class Mesh:
         #也就是说多个cell共享同一个顶点时，这个顶点上的数据可能会被覆盖掉。
         #所以这里我们需要为每个tet单独存储grad0,1,2,3。
 
+        self.potential_energy = ti.field(float, (), needs_grad=True)
+        self.inertial_energy = ti.field(float, (), needs_grad=True)
+        self.total_energy = ti.field(float, (), needs_grad=True)
+
         self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
 
         NT = len(self.mesh.cells)

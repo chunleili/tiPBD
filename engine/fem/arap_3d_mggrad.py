@@ -24,9 +24,6 @@ numSubsteps = 10
 
 compute_energy, write_energy_to_file = True, True
 show_coarse, show_fine = True, False
-potential_energy = ti.field(float, ())
-kinetic_energy = ti.field(float, ())
-total_energy = ti.field(float, ())
 frame = ti.field(int, ())
 
 mesh = Mesh(model_name="data/models/bunny1000_2000/bunny1k")
@@ -131,10 +128,16 @@ def project_fem():
         c.lagrangian = c.lagrangian + c.dLambda
         c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
+    # for c in mesh.mesh.cells:
+        c.verts[0].pos += omega * c.verts[0].invMass * c.dLambda * c.grad0
+        c.verts[1].pos += omega * c.verts[1].invMass * c.dLambda * c.grad1
+        c.verts[2].pos += omega * c.verts[2].invMass * c.dLambda * c.grad2
+        c.verts[3].pos += omega * c.verts[3].invMass * c.dLambda * c.grad3
+
 
 @ti.kernel
 def compute_potential_energy():
-    potential_energy[None] = 0.0
+    mesh.potential_energy[None] = 0.0
     for c in mesh.mesh.cells:
         p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
         D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
@@ -142,13 +145,13 @@ def compute_potential_energy():
         U, S, V = ti.svd(c.F)
         constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
         invAlpha = inv_lame * c.invVol
-        potential_energy[None] += 0.5 * invAlpha *  constraint ** 2 
+        mesh.potential_energy[None] += 0.5 * invAlpha *  constraint ** 2 
 
 @ti.kernel
-def compute_kinetic_energy():
-    kinetic_energy[None] = 0.0
+def compute_inertial_energy():
+    mesh.inertial_energy[None] = 0.0
     for v in mesh.mesh.verts:
-        kinetic_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr() * inv_h2
+        mesh.inertial_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr() * inv_h2
 
 
 @ti.kernel
@@ -179,7 +182,7 @@ def substep():
     mesh.mesh.cells.lagrangian.fill(0.0)
     for ite in range(MaxIte):
         project_fem()
-        update_pos()
+        # update_pos()
         collsion_response()
     postSolve(dt/numSubsteps)
 
@@ -190,17 +193,17 @@ def substep():
     
 def log_energy():
     compute_potential_energy()
-    compute_kinetic_energy()
-    total_energy[None] = potential_energy[None] + kinetic_energy[None]
+    compute_inertial_energy()
+    mesh.total_energy[None] = mesh.potential_energy[None] + mesh.inertial_energy[None]
 
     if write_energy_to_file and frame[None]%100==0:
-        print(f"frame: {frame[None]} potential: {potential_energy[None]:.3e} kinetic: {kinetic_energy[None]:.3e} total: {total_energy[None]:.3e}")
+        print(f"frame: {frame[None]} potential: {mesh.potential_energy[None]:.3e} kinetic: {mesh.inertial_energy[None]:.3e} total: {mesh.total_energy[None]:.3e}")
         with open(result_path+"/totalEnergy.txt", "ab") as f:
-            np.savetxt(f, np.array([total_energy[None]]), fmt="%.4e", delimiter="\t")
+            np.savetxt(f, np.array([mesh.total_energy[None]]), fmt="%.4e", delimiter="\t")
         with open(result_path+"/potentialEnergy.txt", "ab") as f:
-            np.savetxt(f, np.array([potential_energy[None]]), fmt="%.4e", delimiter="\t")
+            np.savetxt(f, np.array([mesh.potential_energy[None]]), fmt="%.4e", delimiter="\t")
         with open(result_path+"/kineticEnergy.txt", "ab") as f:
-            np.savetxt(f, np.array([kinetic_energy[None]]), fmt="%.4e", delimiter="\t")
+            np.savetxt(f, np.array([mesh.inertial_energy[None]]), fmt="%.4e", delimiter="\t")
 
 def debug(field):
     field_np = field.to_numpy()

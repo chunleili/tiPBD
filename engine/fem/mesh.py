@@ -28,11 +28,13 @@ class Mesh:
         #也就是说多个cell共享同一个顶点时，这个顶点上的数据可能会被覆盖掉。
         #所以这里我们需要为每个tet单独存储grad0,1,2,3。
 
+        self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
+
         self.potential_energy = ti.field(float, (), needs_grad=True)
         self.inertial_energy = ti.field(float, (), needs_grad=True)
         self.total_energy = ti.field(float, (), needs_grad=True)
 
-        self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
+        self.inv_lame = 1e-5
 
         NT = len(self.mesh.cells)
         DIM = 3
@@ -74,7 +76,6 @@ class Mesh:
 
     @ti.kernel
     def init_physics(self):
-        inv_lame = 1e-5 #TODO:重构
         dt = 0.001  # timestep size
         inv_h2 = 1.0 / dt / dt
 
@@ -86,7 +87,7 @@ class Mesh:
             Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
             c.B = Dm.inverse().transpose()
             c.invVol = 6.0/ abs(Dm.determinant()) 
-            c.alpha = inv_h2 * inv_lame * c.invVol
+            c.alpha = inv_h2 * self.inv_lame * c.invVol
 
             # if c.id == 0:
             #     print("c.restVol",c.restVol)

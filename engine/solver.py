@@ -1,6 +1,6 @@
 import taichi as ti
+ti.init(ti.gpu)
 from engine.fem.arap import *
-
 
 @ti.data_oriented
 class Solver:

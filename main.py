@@ -7,7 +7,6 @@ result_path = os.path.join(root_path, "result")
 
 if __name__ == "__main__":
     print("root_path: ",root_path)
-    # args, config, scene_name, no_gui = ui.argparser.parse()
 
     solver = Solver()
     solver.run()

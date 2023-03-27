@@ -7,16 +7,12 @@ import scipy.io as sio
 from engine.fem.read_tet import read_tet_mesh
 from engine.fem.mesh import Mesh
 from result import result_path
+from engine.metadata import meta
 # ti.init(ti.cuda, kernel_profiler=True, debug=True)
-ti.init(ti.gpu)
+# ti.init(ti.gpu)
 
 dt = 0.001  # timestep size
 omega = 0.2  # SOR factor
-compliance = 1.0e-3
-# alpha = ti.field(float, ())
-# alpha[None] = compliance * (1.0 / dt / dt)  # timestep related compliance
-inv_lame = 1e-5
-inv_h2 = 1.0 / dt / dt
 
 gravity = ti.Vector([0.0, -9.8, 0.0])
 MaxIte = 2
@@ -144,14 +140,14 @@ def compute_potential_energy():
         c.F = D_s @ c.B
         U, S, V = ti.svd(c.F)
         constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
-        invAlpha = inv_lame * c.invVol
+        invAlpha = mesh.inv_lame * c.invVol
         mesh.potential_energy[None] += 0.5 * invAlpha *  constraint ** 2 
 
 @ti.kernel
 def compute_inertial_energy():
     mesh.inertial_energy[None] = 0.0
     for v in mesh.mesh.verts:
-        mesh.inertial_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr() * inv_h2
+        mesh.inertial_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr() * meta.inv_h2
 
 
 @ti.kernel

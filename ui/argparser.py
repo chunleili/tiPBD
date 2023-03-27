@@ -1,9 +1,9 @@
 import argparse
 from ui.config_builder import SimConfig
-from engine.data_center import DataCenter
 import os
 from ui.filedialog import filedialog
 from main import root_path
+from engine.metadata import meta
 def parse():
     parser = argparse.ArgumentParser(description='taichi PBD')
 

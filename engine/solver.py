@@ -61,9 +61,9 @@ class Solver:
             scene.ambient_light((0.5, 0.5, 0.5))
 
             #draw
-            if show_coarse:
+            if meta.show_coarse:
                 scene.mesh(mesh.mesh.verts.pos, indices=mesh.surf_show, color=(0.1229,0.2254,0.7207),show_wireframe=True)
-            if show_fine:
+            if meta.show_fine:
                 # scene.mesh(fine_pos_ti, indices=fine_tri_idx_ti, color=(1.0,0,0),show_wireframe=True)
                 scene.mesh(fine_mesh.mesh.verts.pos, indices=fine_mesh.surf_show, color=(1.0,0,0),show_wireframe=True)
 

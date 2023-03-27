@@ -7,8 +7,6 @@ from engine.fem.mesh import Mesh
 from engine.metadata import meta
 from engine.log import log_energy
 
-compute_energy, write_energy_to_file = True, True
-show_coarse, show_fine = True, False
 
 mesh = Mesh(model_name="data/models/bunny1000_2000/bunny1k")
 
@@ -120,7 +118,12 @@ def update_pos():
         c.verts[1].pos += meta.omega * c.verts[1].invMass * c.dLambda * c.grad1
         c.verts[2].pos += meta.omega * c.verts[2].invMass * c.dLambda * c.grad2
         c.verts[3].pos += meta.omega * c.verts[3].invMass * c.dLambda * c.grad3
-
+    # for c in mesh.mesh.cells:
+    #     pass
+    #     c.verts[0].pos += meta.omega * c.verts[0].invMass * c.get_member_field["verts"].grad[0]
+    #     c.verts[1].pos += meta.omega * c.verts[1].invMass * c.get_member_field["verts"].grad[1]
+    #     c.verts[2].pos += meta.omega * c.verts[2].invMass * c.get_member_field["verts"].grad[2]
+    #     c.verts[3].pos += meta.omega * c.verts[3].invMass * c.get_member_field["verts"].grad[3]
 
 @ti.kernel
 def compute_potential_energy():
@@ -157,8 +160,10 @@ def substep():
         collsion_response()
     postSolve(meta.dt/meta.numSubsteps)
 
-    if compute_energy:
+    if meta.compute_energy:
         compute_potential_energy()
+        # with ti.ad.Tape(loss=mesh.potential_energy[None]):
+        #     compute_potential_energy()
         compute_inertial_energy()
         mesh.total_energy[None] = mesh.potential_energy[None] + mesh.inertial_energy[None]
         log_energy(mesh)

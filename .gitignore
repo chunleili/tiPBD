@@ -4,6 +4,7 @@ __pycache__
 a.lua
 debug*.txt
 potentialEnergy.txt
+inertialEnergy.txt
 kineticEnergy.txt
 totalEnergy.txt
 .vscode

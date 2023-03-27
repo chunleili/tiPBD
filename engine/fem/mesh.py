@@ -8,11 +8,12 @@ class Mesh:
         node_file = model_name + ".node"
         self.mesh = patcher.load_mesh(node_file, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
-        self.mesh.verts.place({ 'pos' : ti.math.vec3,
+        self.mesh.verts.place({ 
                                 'vel' : ti.math.vec3,
                                 'prevPos' : ti.math.vec3,
                                 'predictPos' : ti.math.vec3,
                                 'invMass' : ti.f32})
+        self.mesh.verts.place({ 'pos' : ti.math.vec3},needs_grad=True)
         self.mesh.cells.place({'invVol' : ti.f32,
                                'B': ti.math.mat3,
                                'F': ti.math.mat3,

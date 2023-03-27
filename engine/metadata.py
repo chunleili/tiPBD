@@ -13,6 +13,8 @@ class MetaData:
         self.frame = 0
         self.step = 0
         self.use_multigrid = True
+        self.show_coarse, self.show_fine = True, False
+        self.compute_energy = True
         self.root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
         self.result_path = os.path.join(self.root_path, "result")
         print("root_path:", self.root_path)

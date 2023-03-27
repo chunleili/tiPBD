@@ -1,5 +1,5 @@
 import taichi as ti
-from engine.fem.arap_3d_mggrad import *
+from engine.fem.arap import *
 
 
 @ti.data_oriented

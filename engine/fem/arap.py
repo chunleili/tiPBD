@@ -142,8 +142,8 @@ def compute_inertial_energy():
 @ti.kernel
 def collsion_response():
     for v in mesh.mesh.verts:
-        if v.pos[1] < -2.0:
-            v.pos[1] = -2.0
+        if v.pos[1] < meta.ground.y:
+            v.pos[1] = meta.ground.y
 
 @ti.kernel
 def postSolve(dt_: ti.f32):

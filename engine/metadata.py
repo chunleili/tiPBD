@@ -8,6 +8,7 @@ class MetaData:
         self.inv_h2 = 1.0 / self.dt / self.dt
         self.omega = 0.2
         self.gravity = ti.Vector([0.0, -9.8, 0.0])
+        self.ground = ti.Vector([0.0, -2.0, 0.0])
         self.MaxIte = 2
         self.numSubsteps = 10
         self.frame = 0

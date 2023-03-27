@@ -22,7 +22,8 @@ class Mesh:
                                'grad1': ti.math.vec3,
                                'grad2': ti.math.vec3,
                                'grad3': ti.math.vec3,
-                               'alpha': ti.f32})
+                               'alpha': ti.f32,
+                               'fem_constraint': ti.f32,})
         #注意！这里的grad0,1,2,3是针对每个tet的四个顶点的。但是我们把他定义在cell上，而不是vert上。
         #这是因为meshtaichi中vert是唯一的（和几何点是一一对应的）。
         #也就是说多个cell共享同一个顶点时，这个顶点上的数据可能会被覆盖掉。

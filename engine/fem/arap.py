@@ -1,26 +1,14 @@
 import taichi as ti
-import meshtaichi_patcher as patcher
 from taichi.lang.ops import sqrt
 import taichi.math as tm
 import numpy as np
 import scipy.io as sio
-from engine.fem.read_tet import read_tet_mesh
 from engine.fem.mesh import Mesh
-from result import result_path
 from engine.metadata import meta
-# ti.init(ti.cuda, kernel_profiler=True, debug=True)
-# ti.init(ti.gpu)
-
-# dt = 0.001  # timestep size
-# omega = 0.2  # SOR factor
-
-# gravity = ti.Vector([0.0, -9.8, 0.0])
-# MaxIte = 2
-# numSubsteps = 10
+from engine.log import log_energy
 
 compute_energy, write_energy_to_file = True, True
 show_coarse, show_fine = True, False
-frame = ti.field(int, ())
 
 mesh = Mesh(model_name="data/models/bunny1000_2000/bunny1k")
 
@@ -114,40 +102,15 @@ def project_fem():
         D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
         c.F = D_s @ c.B
         U, S, V = ti.svd(c.F)
-        constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
+        c.fem_constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
 
         g0, g1, g2, g3, isSuccess = computeGradient(c.B, U, S, V)
-
-        l = p0.invMass * g0.norm_sqr() + p1.invMass * g1.norm_sqr() + p2.invMass * g2.norm_sqr() + p3.invMass * g3.norm_sqr()
-        c.dLambda = -(constraint + c.alpha * c.lagrangian) / (
-            l + c.alpha)
-        c.lagrangian = c.lagrangian + c.dLambda
         c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
-    # for c in mesh.mesh.cells:
-        c.verts[0].pos += meta.omega * c.verts[0].invMass * c.dLambda * c.grad0
-        c.verts[1].pos += meta.omega * c.verts[1].invMass * c.dLambda * c.grad1
-        c.verts[2].pos += meta.omega * c.verts[2].invMass * c.dLambda * c.grad2
-        c.verts[3].pos += meta.omega * c.verts[3].invMass * c.dLambda * c.grad3
-
-
-@ti.kernel
-def compute_potential_energy():
-    mesh.potential_energy[None] = 0.0
-    for c in mesh.mesh.cells:
-        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-        D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
-        c.F = D_s @ c.B
-        U, S, V = ti.svd(c.F)
-        constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
-        invAlpha = mesh.inv_lame * c.invVol
-        mesh.potential_energy[None] += 0.5 * invAlpha *  constraint ** 2 
-
-@ti.kernel
-def compute_inertial_energy():
-    mesh.inertial_energy[None] = 0.0
-    for v in mesh.mesh.verts:
-        mesh.inertial_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr() * meta.inv_h2
+        l = p0.invMass * g0.norm_sqr() + p1.invMass * g1.norm_sqr() + p2.invMass * g2.norm_sqr() + p3.invMass * g3.norm_sqr()
+        c.dLambda = -(c.fem_constraint + c.alpha * c.lagrangian) / (
+            l + c.alpha)
+        c.lagrangian = c.lagrangian + c.dLambda
 
 
 @ti.kernel
@@ -159,12 +122,25 @@ def update_pos():
         c.verts[3].pos += meta.omega * c.verts[3].invMass * c.dLambda * c.grad3
 
 
+@ti.kernel
+def compute_potential_energy():
+    mesh.potential_energy[None] = 0.0
+    for c in mesh.mesh.cells:
+        invAlpha = mesh.inv_lame * c.invVol
+        mesh.potential_energy[None] += 0.5 * invAlpha *  c.fem_constraint ** 2 
+
+@ti.kernel
+def compute_inertial_energy(): 
+    mesh.inertial_energy[None] = 0.0
+    for v in mesh.mesh.verts:
+        mesh.inertial_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr() * meta.inv_h2
+
 
 @ti.kernel
 def collsion_response():
     for v in mesh.mesh.verts:
-        if v.pos[1] < -3.0:
-            v.pos[1] = -3.0
+        if v.pos[1] < -2.0:
+            v.pos[1] = -2.0
 
 @ti.kernel
 def postSolve(dt_: ti.f32):
@@ -172,42 +148,18 @@ def postSolve(dt_: ti.f32):
         if v.invMass != 0.0:
             v.vel = (v.pos - v.prevPos) / dt_
 
-
 def substep():
     preSolve(meta.dt/meta.numSubsteps)
     mesh.mesh.cells.lagrangian.fill(0.0)
     for ite in range(meta.MaxIte):
         project_fem()
-        # update_pos()
+        update_pos()
         collsion_response()
     postSolve(meta.dt/meta.numSubsteps)
 
     if compute_energy:
-        log_energy()
-
-    frame[None] += 1
-    
-def log_energy():
-    compute_potential_energy()
-    compute_inertial_energy()
-    mesh.total_energy[None] = mesh.potential_energy[None] + mesh.inertial_energy[None]
-
-    if write_energy_to_file and frame[None]%100==0:
-        print(f"frame: {frame[None]} potential: {mesh.potential_energy[None]:.3e} kinetic: {mesh.inertial_energy[None]:.3e} total: {mesh.total_energy[None]:.3e}")
-        with open(result_path+"/totalEnergy.txt", "ab") as f:
-            np.savetxt(f, np.array([mesh.total_energy[None]]), fmt="%.4e", delimiter="\t")
-        with open(result_path+"/potentialEnergy.txt", "ab") as f:
-            np.savetxt(f, np.array([mesh.potential_energy[None]]), fmt="%.4e", delimiter="\t")
-        with open(result_path+"/kineticEnergy.txt", "ab") as f:
-            np.savetxt(f, np.array([mesh.inertial_energy[None]]), fmt="%.4e", delimiter="\t")
-
-def debug(field):
-    field_np = field.to_numpy()
-    print("---------------------")
-    print("name: ", field._name )
-    print("shape: ",field_np.shape)
-    print("min, max: ", field_np.min(), field_np.max())
-    print(field_np)
-    print("---------------------")
-    np.savetxt("debug_my.txt", field_np.flatten(), fmt="%.4f", delimiter="\t")
-    return field_np
+        compute_potential_energy()
+        compute_inertial_energy()
+        mesh.total_energy[None] = mesh.potential_energy[None] + mesh.inertial_energy[None]
+        log_energy(mesh)
+    meta.frame += 1

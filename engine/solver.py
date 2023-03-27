@@ -2,7 +2,8 @@ import taichi as ti
 ti.init(ti.gpu)
 from engine.fem.arap import *
 from engine.metadata import meta
-
+from engine.debug import debug_info
+from engine.metadata import meta
 @ti.data_oriented
 class Solver:
     def run(self):
@@ -22,9 +23,10 @@ class Solver:
 
         paused = ti.field(int, shape=())
         paused[None] = 1
-        step=0
+        meta.step=0
         
-        coarse_to_fine()
+        if meta.use_multigrid:
+            coarse_to_fine()
         while window.running:
             for e in window.get_events(ti.ui.PRESS):
                 if e.key == ti.ui.ESCAPE:
@@ -33,18 +35,19 @@ class Solver:
                     paused[None] = not paused[None]
                     print("paused:", paused[None])
                 if e.key == "f":
-                    print("step: ", step)
-                    step+=1
+                    print("step: ", meta.step)
+                    meta.step+=1
                     substep()
-                    debug(mesh.mesh.verts.pos)
-                    debug(mesh.mesh.cells.lagrangian)
+                    # debug_info(mesh.mesh.verts.pos)
+                    # debug_info(mesh.mesh.cells.lagrangian)
                     print("step once")
 
             #do the simulation in each step
             if not paused[None]:
                 for _ in range(meta.numSubsteps):
                     substep()
-                coarse_to_fine()
+                if meta.use_multigrid:
+                    coarse_to_fine()
 
             #set the camera, you can move around by pressing 'wasdeq'
             camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)

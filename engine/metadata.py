@@ -64,9 +64,7 @@ class MetaData:
             self.inv_lame_lambda = 1.0/self.lame_lambda
 
             print("\n-----------\nRead parameters from scene file: ", self.scene_path)
-            print("geometry_file:", self.geometry_file)
             print("dt:", self.dt)
-            print("lame_lambda:", self.lame_lambda)
             print("relax_factor:", self.relax_factor)
             print("gravity:", self.gravity)
             print("ground:", self.ground)
@@ -76,6 +74,8 @@ class MetaData:
             print("show_coarse:", self.show_coarse)
             print("show_fine:", self.show_fine)
             print("compute_energy:", self.compute_energy)
+            print("geometry_file:", self.geometry_file)
+            print(f"lame_lambda:{self.lame_lambda:.2e}")
             print("-----------\n")
 
 meta = MetaData()

@@ -21,10 +21,10 @@ class ARAP(FemBase):
             g0, g1, g2, g3 = computeGradient(c.B, U, S, V)
             c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
-            l = p0.invMass * g0.norm_sqr() + p1.invMass * g1.norm_sqr() + p2.invMass * g2.norm_sqr() + p3.invMass * g3.norm_sqr()
-            c.dLambda = -(c.fem_constraint + c.alpha * c.lagrangian) / (
+            l = p0.inv_mass * g0.norm_sqr() + p1.inv_mass * g1.norm_sqr() + p2.inv_mass * g2.norm_sqr() + p3.inv_mass * g3.norm_sqr()
+            c.dlambda = -(c.fem_constraint + c.alpha * c.lagrangian) / (
                 l + c.alpha)
-            c.lagrangian = c.lagrangian + c.dLambda
+            c.lagrangian = c.lagrangian + c.dlambda
 
 # #read restriction operator
 # P = sio.mmread("data/models/bunny1000_2000/P.mtx")

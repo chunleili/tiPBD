@@ -10,17 +10,17 @@ class Mesh:
         node_file = geometry_file_no_ext + ".node"
         self.mesh = patcher.load_mesh(node_file, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
+        self.mesh.verts.place({ 'pos' : ti.math.vec3},needs_grad=True)
         self.mesh.verts.place({ 
                                 'vel' : ti.math.vec3,
-                                'prevPos' : ti.math.vec3,
-                                'predictPos' : ti.math.vec3,
-                                'invMass' : ti.f32})
-        self.mesh.verts.place({ 'pos' : ti.math.vec3},needs_grad=True)
+                                'prev_pos' : ti.math.vec3,
+                                'predict_pos' : ti.math.vec3,
+                                'inv_mass' : ti.f32})
         self.mesh.cells.place({'inv_vol' : ti.f32,
                                'B': ti.math.mat3,
                                'F': ti.math.mat3,
                                'lagrangian': ti.f32,
-                               'dLambda': ti.f32,
+                               'dlambda': ti.f32,
                                'grad0': ti.math.vec3,
                                'grad1': ti.math.vec3,
                                'grad2': ti.math.vec3,
@@ -78,7 +78,7 @@ class Mesh:
     @ti.kernel
     def init_physics(self):
         for v in self.mesh.verts:
-            v.invMass = 1.0
+            v.inv_mass = 1.0
 
         for c in self.mesh.cells:
             p0, p1, p2, p3= c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos

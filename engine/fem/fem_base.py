@@ -13,11 +13,11 @@ class FemBase:
     def pre_solve(self, dt_: ti.f32):
         # semi-Euler update pos & vel
         for v in self.mesh.mesh.verts:
-            if (v.invMass != 0.0):
+            if (v.inv_mass != 0.0):
                 v.vel = v.vel + dt_ * meta.gravity
-                v.prevPos = v.pos
+                v.prev_pos = v.pos
                 v.pos = v.pos + dt_ * v.vel
-                v.predictPos = v.pos
+                v.predict_pos = v.pos
 
     @ti.kernel
     def project_constraints():
@@ -27,10 +27,10 @@ class FemBase:
     @ti.kernel
     def update_pos(self):
         for c in self.mesh.mesh.cells:
-            c.verts[0].pos += meta.relax_factor * c.verts[0].invMass * c.dLambda * c.grad0
-            c.verts[1].pos += meta.relax_factor * c.verts[1].invMass * c.dLambda * c.grad1
-            c.verts[2].pos += meta.relax_factor * c.verts[2].invMass * c.dLambda * c.grad2
-            c.verts[3].pos += meta.relax_factor * c.verts[3].invMass * c.dLambda * c.grad3
+            c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * c.dlambda * c.grad0
+            c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * c.dlambda * c.grad1
+            c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * c.dlambda * c.grad2
+            c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * c.dlambda * c.grad3
 
     @ti.kernel
     def compute_potential_energy(self):
@@ -43,7 +43,7 @@ class FemBase:
     def compute_inertial_energy(self):
         self.mesh.inertial_energy[None] = 0.0
         for v in self.mesh.mesh.verts:
-            self.mesh.inertial_energy[None] += 0.5 / v.invMass * (v.pos - v.predictPos).norm_sqr() * meta.inv_h2
+            self.mesh.inertial_energy[None] += 0.5 / v.inv_mass * (v.pos - v.predict_pos).norm_sqr() * meta.inv_h2
     
     @ti.kernel
     def collsion_response(self):
@@ -54,8 +54,8 @@ class FemBase:
     @ti.kernel
     def post_solve(self, dt_: ti.f32):
         for v in self.mesh.mesh.verts:
-            if v.invMass != 0.0:
-                v.vel = (v.pos - v.prevPos) / dt_
+            if v.inv_mass != 0.0:
+                v.vel = (v.pos - v.prev_pos) / dt_
 
     def substep(self):
         self.pre_solve(meta.dt/meta.num_substeps)

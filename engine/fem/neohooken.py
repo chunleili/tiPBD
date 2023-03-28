@@ -1,8 +1,11 @@
 import taichi as ti
 from taichi.lang.ops import sqrt
+import taichi.math as tm
+from engine.metadata import meta
+from engine.fem.fem_base import FemBase
+
+
 from read_tet import read_tet_mesh
-import scipy.io as sio
-import numpy as np
 import sys
 import os
 
@@ -53,64 +56,64 @@ def make_matrix(x, y, z):
 
 
 
-@ti.kernel
-def project_constraints(mid_pos: ti.template(), tet_indices: ti.template(),
-                        mass: ti.template(), lagrangian: ti.template(),
-                        B: ti.template(), pos: ti.template(),
-                        alpha_tilde: ti.template()):
-    for i in pos:
-        mid_pos[i] = pos[i]
+@ti.data_oriented
+class ARAP(FemBase):
+    def __init__(self):
+        super().__init__()
+    
+    def update_pos(self):
+        pass # do nothing
 
-    for i in tet_indices:
-        ia, ib, ic, id = tet_indices[i]
-        a, b, c, d = mid_pos[ia], mid_pos[ib], mid_pos[ic], mid_pos[id]
-        invM0, invM1, invM2, invM3 = 1.0 / mass[ia], 1.0 / mass[
-            ib], 1.0 / mass[ic], 1.0 / mass[id]
-        D_s = ti.Matrix.cols([b - a, c - a, d - a])
-        F = D_s @ B[i]
+    @ti.kernel
+    def project_constraints(self):
+        for c in self.mesh.mesh.cells:
+            p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
+            D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
+            F = D_s @ c.B
 
-        # Constraint 1
-        C_H = F.determinant() - gamma
-        f1 = ti.Vector([F[0,0], F[1, 0], F[2, 0]])
-        f2 = ti.Vector([F[0,1], F[1, 1], F[2, 1]])
-        f3 = ti.Vector([F[0,2], F[1, 2], F[2, 2]])
+            # Constraint 1
+            C_H = F.determinant() - meta.gamma
+            f1 = ti.Vector([F[0,0], F[1, 0], F[2, 0]])
+            f2 = ti.Vector([F[0,1], F[1, 1], F[2, 1]])
+            f3 = ti.Vector([F[0,2], F[1, 2], F[2, 2]])
 
-        f23 = f2.cross(f3)
-        f31 = f3.cross(f1)
-        f12 = f1.cross(f2)
-        f = ti.Vector([f23[0], f23[1], f23[2], f31[0], f31[1], f31[2], f12[0],f12[1], f12[2]])
-        dFdp1T = make_matrix(B[i][0, 0], B[i][0, 1], B[i][0, 2])
-        dFdp2T = make_matrix(B[i][1, 0], B[i][1, 1], B[i][1, 2])
-        dFdp3T = make_matrix(B[i][2, 0], B[i][2, 1], B[i][2, 2])
+            f23 = f2.cross(f3)
+            f31 = f3.cross(f1)
+            f12 = f1.cross(f2)
+            f = ti.Vector([f23[0], f23[1], f23[2], f31[0], f31[1], f31[2], f12[0],f12[1], f12[2]])
+            dFdp1T = make_matrix(c.B[0, 0], c.B[0, 1], c.B[0, 2])
+            dFdp2T = make_matrix(c.B[1, 0], c.B[1, 1], c.B[1, 2])
+            dFdp3T = make_matrix(c.B[2, 0], c.B[2, 1], c.B[2, 2])
 
-        g1 = dFdp1T @ f
-        g2 = dFdp2T @ f
-        g3 = dFdp3T @ f
-        g0 = -g1 - g2 - g3
-        l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr(
-        ) + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
-        dLambda = (-C_H - alpha_tilde[2 * i] * lagrangian[2 * i]) / (l + alpha_tilde[2 * i])
-        lagrangian[2 * i] += dLambda
-        pos[ia] += omega * invM0 * dLambda * g0
-        pos[ib] += omega * invM1 * dLambda * g1
-        pos[ic] += omega * invM2 * dLambda * g2
-        pos[id] += omega * invM3 * dLambda * g3
+            g1 = dFdp1T @ f
+            g2 = dFdp2T @ f
+            g3 = dFdp3T @ f
+            g0 = -g1 - g2 - g3
+            
+            l = p0.inv_mass * g0.norm_sqr() + p1.inv_mass * g1.norm_sqr() + p2.inv_mass * g2.norm_sqr() + p3.inv_mass * g3.norm_sqr()
+            dlambda = -(C_H + c.alpha * c.lagrangian) / (l + c.alpha)
+            c.lagrangian += dlambda
 
-        # Constraint 2
-        C_D = sqrt(f1.norm_sqr() + f2.norm_sqr() + f3.norm_sqr())
-        if C_D < 1e-6:
-            continue
-        r_s = 1.0 / C_D
-        f = ti.Vector([f1[0], f1[1], f1[2], f2[0], f2[1], f2[2], f3[0], f3[1], f3[2]])
-        g1 = r_s * (dFdp1T @ f)
-        g2 = r_s * (dFdp2T @ f)
-        g3 = r_s * (dFdp3T @ f)
-        g0 = r_s * (-g1 - g2 - g3)
-        l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr(
-        ) + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
-        dLambda = (-C_D - alpha_tilde[2 * i + 1] * lagrangian[2 * i + 1]) / (l + alpha_tilde[2 * i + 1])
-        lagrangian[2 * i + 1] += dLambda
-        pos[ia] += omega * invM0 * dLambda * g0
-        pos[ib] += omega * invM1 * dLambda * g1
-        pos[ic] += omega * invM2 * dLambda * g2
-        pos[id] += omega * invM3 * dLambda * g3
+            c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
+            c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * dlambda * g1
+            c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * dlambda * g2
+            c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * dlambda * g3
+
+
+            # Constraint 2
+            C_D = sqrt(f1.norm_sqr() + f2.norm_sqr() + f3.norm_sqr())
+            if C_D < 1e-6:
+                continue
+            r_s = 1.0 / C_D
+            f = ti.Vector([f1[0], f1[1], f1[2], f2[0], f2[1], f2[2], f3[0], f3[1], f3[2]])
+            g1 = r_s * (dFdp1T @ f)
+            g2 = r_s * (dFdp2T @ f)
+            g3 = r_s * (dFdp3T @ f)
+            g0 = r_s * (-g1 - g2 - g3)
+            l = p0.inv_mass * g0.norm_sqr() + p1.inv_mass * g1.norm_sqr() + p2.inv_mass * g2.norm_sqr() + p3.inv_mass * g3.norm_sqr()
+            dlambda = (-C_D - c.alpha * c.lagrangian) / (l + c.alpha)
+            c.lagrangian += dlambda
+            c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
+            c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * dlambda * g1
+            c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * dlambda * g2
+            c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * dlambda * g3

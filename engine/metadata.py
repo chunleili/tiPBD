@@ -4,6 +4,16 @@ from ui.filedialog import filedialog
 from ui.config_builder import SimConfig
 from ui.parse_commandline_args import parse_commandline_args
 
+def singleton(cls):
+    _instance = {}
+
+    def inner():
+        if cls not in _instance:
+            _instance[cls] = cls()
+        return _instance[cls]
+    return inner
+
+@singleton
 @ti.data_oriented
 class MetaData:
     def __init__(self):

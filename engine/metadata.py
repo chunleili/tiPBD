@@ -21,6 +21,7 @@ class MetaData:
         self.result_path = os.path.join(self.root_path, "result")
         print("root_path:", self.root_path)
 
+        self.geometry_file = "data/models/bunny1000_2000/bunny1k.node"
         self.dt = 0.001  # timestep size
         self.inv_h2 = 1.0 / self.dt / self.dt
         self.lame_lambda = 1e5
@@ -42,7 +43,11 @@ class MetaData:
         if self.use_scene_file:
             self.scene_path = filedialog()
             self.scene_name = self.scene_path.split("/")[-1].split(".")[0]
+
             self.config = SimConfig(scene_file_path=self.scene_path)
+
+            self.solids = self.config.get_solids()
+            self.geometry_file = self.solids[0]["geometry_file"] # 第一个solids
             self.dt = self.config.get_cfg("dt")
             self.inv_h2 = 1.0 / self.dt / self.dt
             self.lame_lambda = self.config.get_cfg("lame_lambda")
@@ -55,7 +60,9 @@ class MetaData:
             self.use_multigrid = self.config.get_cfg("use_multigrid")
             self.show_coarse, self.show_fine = self.config.get_cfg("show_coarse"), self.config.get_cfg("show_fine")
             self.compute_energy = self.config.get_cfg("compute_energy")
+
             print("\n-----------\nRead parameters from scene file: ", self.scene_path)
+            print("geometry_file:", self.geometry_file)
             print("dt:", self.dt)
             print("lame_lambda:", self.lame_lambda)
             print("relax_factor:", self.relax_factor)

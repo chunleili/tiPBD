@@ -5,8 +5,9 @@ import taichi.math as tm
 from engine.metadata import meta
 @ti.data_oriented
 class Mesh:
-    def __init__(self, model_name, direct_import_faces=True):
-        node_file = model_name + ".node"
+    def __init__(self, geometry_file, direct_import_faces=True):
+        geometry_file_no_ext = geometry_file.split(".")[0]        
+        node_file = geometry_file_no_ext + ".node"
         self.mesh = patcher.load_mesh(node_file, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
         self.mesh.verts.place({ 
@@ -49,7 +50,7 @@ class Mesh:
             self.init_tet_indices(self.mesh, self.surf_show)
         # 直接读取surf_show
         else:
-            surf_show_np = self.directly_import_faces(model_name + '.face')
+            surf_show_np = self.directly_import_faces(geometry_file_no_ext + '.face')
             self.surf_show = ti.field(ti.i32, surf_show_np.shape[0] * 3)
             self.surf_show.from_numpy(surf_show_np.reshape(surf_show_np.shape[0] * 3))
 

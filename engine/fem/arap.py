@@ -6,8 +6,8 @@ from engine.fem.fem_base import FemBase
 
 @ti.data_oriented
 class ARAP(FemBase):
-    def __init__(self, model_name="data/models/bunny1000_2000/bunny1k"):
-        super().__init__(model_name)
+    def __init__(self):
+        super().__init__()
 
     @ti.kernel
     def project_constraints(self):
@@ -28,7 +28,7 @@ class ARAP(FemBase):
 
 # #read restriction operator
 # P = sio.mmread("data/models/bunny1000_2000/P.mtx")
-# fine_mesh = Mesh(model_name="data/models/bunny1000_2000/bunny2k", direct_import_faces=True)
+# fine_mesh = Mesh(geometry_file="data/models/bunny1000_2000/bunny2k.node", direct_import_faces=True)
 
 # def coarse_to_fine():
 #     coarse_pos = mesh.mesh.verts.pos.to_numpy()

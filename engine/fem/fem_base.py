@@ -6,8 +6,8 @@ from engine.log import log_energy
 
 @ti.data_oriented
 class FemBase:
-    def __init__(self, model_name):
-        self.mesh = Mesh(model_name=model_name)
+    def __init__(self):
+        self.mesh = Mesh(geometry_file=meta.geometry_file)
 
     @ti.kernel
     def pre_solve(self, dt_: ti.f32):

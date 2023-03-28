@@ -1,6 +1,5 @@
 import taichi as ti
 ti.init(ti.gpu)
-# from engine.fem.arap import *
 from engine.fem.fem_base import FemBase
 from engine.fem.arap import ARAP
 from engine.metadata import meta

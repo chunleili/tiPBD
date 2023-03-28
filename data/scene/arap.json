@@ -1,7 +1,8 @@
 {
 	"common": 
 	{
-		"simulation_method": "arap",
+		"simulation_method": "fem",
+		"constitutive_model": "arap",
 		"dt": 1e-3,
 		"relax_factor": 0.2,
 		"gravity": [0.0, -9.81, 0.0],
@@ -12,7 +13,8 @@
 		"show_coarse": true,
 		"show_fine": false,
 		"compute_energy": false,
-		"use_log": false
+		"use_log": false,
+		"initial_pause": false
 	},
 	"solids": [
 		{

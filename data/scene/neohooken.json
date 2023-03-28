@@ -1,7 +1,7 @@
 {
 	"common": 
 	{
-		"simulation_method": "neohooken",
+		"constitutive_model": "neohooken",
 		"dt": 1e-2,
 		"relax_factor": 0.5,
 		"gravity": [0.0, -9.81, 0.0],
@@ -12,7 +12,8 @@
 		"show_coarse": true,
 		"show_fine": false,
 		"compute_energy": true,
-		"use_log": false
+		"use_log": false,
+		"initial_pause": false
 	},
 	"solids": [
 		{

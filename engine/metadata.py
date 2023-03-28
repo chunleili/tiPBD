@@ -22,6 +22,7 @@ class MetaData:
         print("root_path:", self.root_path)
         self.frame = 0
         self.step = 0
+        self.paused = False
 
         # read from json scene file
         self.use_scene_file = parse_commandline_args().use_scene_file
@@ -43,19 +44,20 @@ class MetaData:
             self.show_coarse, self.show_fine = self.common["show_coarse"], self.common["show_fine"]
             self.compute_energy = self.common["compute_energy"]
             self.use_log = self.common["use_log"]
+            self.paused = self.common["initial_pause"]
 
             self.solids = self.config.get_solids() # it is a list of dict
             self.solid_name = self.solids[0]["name"]
             self.geometry_file = self.solids[0]["geometry_file"] # only support one solid for now
-            if self.common['simulation_method'] == 'arap':
+            if self.common['constitutive_model'] == 'arap':
                 self.lame_lambda = self.solids[0]["lame_lambda"]
                 self.inv_lame_lambda = 1.0/self.lame_lambda
-            if self.common['simulation_method'] == 'neohooken':
+            if self.common['constitutive_model'] == 'neohooken':
                 self.youngs_modulus = self.solids[0]["youngs_modulus"]
-                self.poissons_ratio = self.solids[0]["poissons_ratio"]
+                self.poisson_ratio = self.solids[0]["poisson_ratio"]
                 self.mass_density = self.solids[0]["mass_density"]
-                self.lame_lambda = self.youngs_modulus * self.poissons_ratio / ((1.0 + self.poissons_ratio) * (1.0 - 2.0 * self.poissons_ratio))
-                self.lame_mu = self.youngs_modulus / (2.0 * (1.0 + self.poissons_ratio))
+                self.lame_lambda = self.youngs_modulus * self.poisson_ratio / ((1.0 + self.poisson_ratio) * (1.0 - 2.0 * self.poisson_ratio))
+                self.lame_mu = self.youngs_modulus / (2.0 * (1.0 + self.poisson_ratio))
                 self.inv_lame_lambda = 1.0/self.lame_lambda
                 self.inv_lame_mu = 1.0/self.lame_mu
                 self.gamma = 1 + self.inv_lame_lambda / self.inv_lame_mu # stable neo-hookean

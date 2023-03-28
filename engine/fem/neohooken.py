@@ -5,50 +5,6 @@ from engine.metadata import meta
 from engine.fem.fem_base import FemBase
 
 
-from read_tet import read_tet_mesh
-import sys
-import os
-
-path = os.path.abspath(os.path.join(sys.path[0])) + '/'
-
-ti.init(arch=ti.gpu)
-
-DIM = 3
-frame, max_frames = 0, 10000
-fine_max_iterations = 30
-
-h = 0.01
-inv_h2 = 1.0 / h / h
-omega = 0.5  # SOR factor
-gravity = ti.Vector([0.0, -9.80, 0.0])
-
-youngs_modulus = 1.0e6
-poissons_ratio = 0.48
-lame_lambda = youngs_modulus * poissons_ratio / (1+poissons_ratio) / (1-2*poissons_ratio)
-lame_mu = youngs_modulus / 2 / (1+poissons_ratio)
-inv_mu = 1.0 / lame_mu
-inv_lambda = 1.0 / lame_lambda
-gamma = 1 + inv_lambda / inv_mu # stable neo-hookean
-mass_density = 1000
-
-fine_model_pos, fine_model_inx, fine_model_tri = read_tet_mesh("data/model/cube/coarse")
-fNV = len(fine_model_pos)
-fNT = len(fine_model_inx)
-fNF = len(fine_model_tri)
-fpos = ti.Vector.field(DIM, float, fNV)
-fpos_mid = ti.Vector.field(DIM, float, fNV)
-fpredict_pos = ti.Vector.field(DIM, float, fNV)
-fold_pos = ti.Vector.field(DIM, float, fNV)
-fvel = ti.Vector.field(DIM, float, fNV)  # velocity of particles
-fmass = ti.field(float, fNV)  # mass of particles
-ftet_indices = ti.Vector.field(4, int, fNT)
-fdisplay_indices = ti.field(ti.i32, fNF * 3)
-fB = ti.Matrix.field(DIM, DIM, float, fNT)  # D_m^{-1}
-flagrangian = ti.field(float, 2 * fNT)  # lagrangian multipliers
-finv_V = ti.field(float, fNT)  # volume of each tet
-falpha_tilde = ti.field(float, 2 * fNT)
-
-
 @ti.func
 def make_matrix(x, y, z):
     return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0], [0, x, 0, 0, y, 0, 0, z, 0],
@@ -88,11 +44,7 @@ class NeoHooken(FemBase):
             
             dlambda =  self.compute_dlambda(c, C_H, c.alpha, c.lagrangian, g0, g1, g2, g3)
             c.lagrangian += dlambda
-
-            c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
-            c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * dlambda * g1
-            c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * dlambda * g2
-            c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * dlambda * g3
+            self.update_pos(c, dlambda, g0, g1, g2, g3)
 
 
             # Constraint 2
@@ -109,8 +61,4 @@ class NeoHooken(FemBase):
 
             dlambda = self.compute_dlambda(c, C_D, c.alpha, c.lagrangian, g0, g1, g2, g3)
             c.lagrangian += dlambda
-
-            c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
-            c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * dlambda * g1
-            c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * dlambda * g2
-            c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * dlambda * g3
+            self.update_pos(c, dlambda, g0, g1, g2, g3)

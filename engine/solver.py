@@ -1,6 +1,7 @@
 import taichi as ti
 from engine.fem.fem_base import FemBase
 from engine.fem.arap import ARAP
+from engine.fem.neohooken import NeoHooken
 from engine.metadata import meta
 from engine.debug import debug_info
 from engine.metadata import meta
@@ -18,11 +19,13 @@ class Solver:
         camera.lookat(-3.50212255, -0.9375709, 5.43703646)
         camera.fov(55) 
 
-        paused = ti.field(int, shape=())
-        paused[None] = 1
-        meta.step=0
 
-        pbd_solver = ARAP()
+        if meta.common['constitutive_model'] == 'arap':
+            pbd_solver = ARAP()
+        elif meta.common['constitutive_model'] == 'neohooken':
+            pbd_solver = NeoHooken()
+        else:
+            raise NotImplementedError
         
         # if meta.use_multigrid:
             # coarse_to_fine()
@@ -31,8 +34,8 @@ class Solver:
                 if e.key == ti.ui.ESCAPE:
                     exit()
                 if e.key == ti.ui.SPACE:
-                    paused[None] = not paused[None]
-                    print("paused:", paused[None])
+                    meta.paused = not meta.paused
+                    print("paused:", meta.paused)
                 if e.key == "f":
                     print("step: ", meta.step)
                     meta.step+=1
@@ -42,7 +45,7 @@ class Solver:
                     print("step once")
 
             #do the simulation in each step
-            if not paused[None]:
+            if not meta.paused:
                 for _ in range(meta.num_substeps):
                     pbd_solver.substep()
                 # if meta.use_multigrid:

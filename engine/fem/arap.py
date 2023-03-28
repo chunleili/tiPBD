@@ -10,6 +10,10 @@ class ARAP(FemBase):
         super().__init__()
 
     @ti.kernel
+    def update_pos(self):
+        pass
+
+    @ti.kernel
     def project_constraints(self):
         for c in self.mesh.mesh.cells:
             p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
@@ -20,10 +24,14 @@ class ARAP(FemBase):
             c.fem_constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
 
             g0, g1, g2, g3 = computeGradient(c.B, U, S, V)
-            c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
-            c.dlambda =  self.compute_dlambda(c, c.fem_constraint, c.alpha, c.lagrangian, g0, g1, g2, g3)
-            c.lagrangian += c.dlambda
+            dlambda =  self.compute_dlambda(c, c.fem_constraint, c.alpha, c.lagrangian, g0, g1, g2, g3)
+            c.lagrangian += dlambda
+
+            c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
+            c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * dlambda * g1
+            c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * dlambda * g2
+            c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * dlambda * g3
 
 
 

@@ -46,75 +46,12 @@ finv_V = ti.field(float, fNT)  # volume of each tet
 falpha_tilde = ti.field(float, 2 * fNT)
 
 
-@ti.kernel
-def init_pos(pos_in: ti.types.ndarray(), tet_indices_in: ti.types.ndarray(),
-             tri_indices_in: ti.types.ndarray(), pos_out: ti.template(),
-             old_pos_out: ti.template(), vel_out: ti.template(),
-             mass_out: ti.template(), tet_indices_out: ti.template(),
-             B_out: ti.template(), inv_V_out: ti.template(),
-             display_indices_out: ti.template(), NF: int):
-    for i in pos_out:
-        pos_out[i] = ti.Vector([pos_in[i, 0], pos_in[i, 1], pos_in[i, 2]])
-        old_pos_out[i] = pos_out[i]
-        vel_out[i] = ti.Vector([0, 0, 0])
-    for i in tet_indices_out:
-        a, b, c, d = tet_indices_in[i, 0], tet_indices_in[
-            i, 1], tet_indices_in[i, 2], tet_indices_in[i, 3]
-        tet_indices_out[i] = ti.Vector([a, b, c, d])
-        a, b, c, d = tet_indices_out[i]
-        p0, p1, p2, p3 = pos_out[a], pos_out[b], pos_out[c], pos_out[d]
-        D_m = ti.Matrix.cols([p1 - p0, p2 - p0, p3 - p0])
-        rest_volume = 1.0 / 6.0 * ti.abs(D_m.determinant())
-        mass = mass_density * rest_volume
-        avg_mass = mass / 4.0
-        mass_out[a] += avg_mass
-        mass_out[b] += avg_mass
-        mass_out[c] += avg_mass
-        mass_out[d] += avg_mass
-        inv_V_out[i] = 1.0 / rest_volume
-        B_out[i] = D_m.inverse()
-    for i in range(NF):
-        display_indices_out[3 * i + 0] = tri_indices_in[i, 0]
-        display_indices_out[3 * i + 1] = tri_indices_in[i, 1]
-        display_indices_out[3 * i + 2] = tri_indices_in[i, 2]
-
-
-@ti.kernel
-def init_alpha_tilde(alpha_tilde: ti.template(), inv_V: ti.template()):
-    for i in alpha_tilde:
-        alpha_tilde[2 * i] = inv_h2 * inv_lambda * inv_V[i]
-        alpha_tilde[2 * i + 1] = inv_h2 * inv_mu * inv_V[i]
-
-
-@ti.kernel
-def resetLagrangian(lagrangian: ti.template()):
-    for i in lagrangian:
-        lagrangian[i] = 0.0
-
-
 @ti.func
 def make_matrix(x, y, z):
     return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0], [0, x, 0, 0, y, 0, 0, z, 0],
                       [0, 0, x, 0, 0, y, 0, 0, z]])
 
 
-@ti.kernel
-def semiEuler(h: ti.f32, pos: ti.template(), predic_pos: ti.template(),
-              old_pos: ti.template(), vel: ti.template()):
-    # semi-Euler update pos & vel
-    for i in pos:
-        vel[i] += h * gravity
-        old_pos[i] = pos[i]
-        pos[i] += h * vel[i]
-        predic_pos[i] = pos[i]
-
-
-@ti.kernel
-def updteVelocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(),
-                  vel: ti.template()):
-    # update velocity
-    for i in pos:
-        vel[i] = (pos[i] - old_pos[i]) / h
 
 @ti.kernel
 def project_constraints(mid_pos: ti.template(), tet_indices: ti.template(),
@@ -177,93 +114,3 @@ def project_constraints(mid_pos: ti.template(), tet_indices: ti.template(),
         pos[ib] += omega * invM1 * dLambda * g1
         pos[ic] += omega * invM2 * dLambda * g2
         pos[id] += omega * invM3 * dLambda * g3
-
-
-@ti.kernel
-def collsion_response(pos: ti.template()):
-    for i in pos:
-        if pos[i][1] < -2:
-            pos[i][1] = -2
-        if pos[i][1] > 5:
-            pos[i][1] = 5
-        if pos[i][0] < -2:
-            pos[i][0] = -2
-        if pos[i][0] > 2:
-            pos[i][0] = 2
-        if pos[i][2] < -2:
-            pos[i][2] = -2
-        if pos[i][2] > 2:
-            pos[i][2] = 2
-
-def reset():
-    init_pos(fine_model_pos, fine_model_inx, fine_model_tri, fpos, fold_pos,
-             fvel, fmass, ftet_indices, fB, finv_V, fdisplay_indices, fNF)
-    init_alpha_tilde(falpha_tilde, finv_V)
-    resetLagrangian(flagrangian)
-
-
-if __name__ == "__main__":
-    init_pos(fine_model_pos, fine_model_inx, fine_model_tri, fpos, fold_pos,
-             fvel, fmass, ftet_indices, fB, finv_V, fdisplay_indices, fNF)
-    init_alpha_tilde(falpha_tilde, finv_V)
-    pause = True
-    window = ti.ui.Window('3D NeoHooean FEM XPBD', (1300, 900), vsync=True)
-    canvas = window.get_canvas()
-    scene = ti.ui.Scene()
-    camera = ti.ui.Camera()
-    camera.position(0, 0, 3.5)
-    camera.lookat(0, 0, 0)
-    camera.fov(100)
-    scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
-    gui = window.get_gui()
-    wire_frame = True
-    pause = True
-    show_fine_mesh = True
-    simulate_fine_mesh = True
-    reset_flag = False
-    while window.running:
-        scene.ambient_light((0.8, 0.8, 0.8))
-        camera.track_user_inputs(window,
-                                 movement_speed=0.03,
-                                 hold_key=ti.ui.RMB)
-        scene.set_camera(camera)
-
-        if window.is_pressed(ti.ui.ESCAPE):
-            window.running = False
-
-        if window.is_pressed(ti.ui.SPACE):
-            pause = not pause
-
-        pause = gui.checkbox("pause", pause)
-        wire_frame = gui.checkbox("wireframe", wire_frame)
-        show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
-        simulate_fine_mesh = gui.checkbox("simulate fine mesh",
-                                          simulate_fine_mesh)
-        
-        reset_flag = gui.button("reset")
-        if reset_flag:
-            reset()
-
-        if not pause:
-            print(f"######## frame {frame} ########")
-            semiEuler(h, fpos, fpredict_pos, fold_pos, fvel)
-            resetLagrangian(flagrangian)
-            for ite in range(fine_max_iterations):
-                project_constraints(fpos_mid, ftet_indices, fmass, flagrangian,
-                                    fB, fpos, falpha_tilde)
-                collsion_response(fpos)
-            updteVelocity(h, fpos, fold_pos, fvel)
-
-            frame += 1
-
-        if frame == max_frames:
-            window.running = False
-
-        if show_fine_mesh:
-            scene.mesh(fpos,
-                       fdisplay_indices,
-                       color=(1.0, 0.5, 0.5),
-                       show_wireframe=wire_frame)
-
-        canvas.scene(scene)
-        window.show()

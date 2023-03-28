@@ -46,8 +46,19 @@ class MetaData:
             self.solids = self.config.get_solids() # it is a list of dict
             self.solid_name = self.solids[0]["name"]
             self.geometry_file = self.solids[0]["geometry_file"] # only support one solid for now
-            self.lame_lambda = self.solids[0]["lame_lambda"]
-            self.inv_lame_lambda = 1.0/self.lame_lambda
+            if self.common['simulation_method'] == 'arap':
+                self.lame_lambda = self.solids[0]["lame_lambda"]
+                self.inv_lame_lambda = 1.0/self.lame_lambda
+            if self.common['simulation_method'] == 'neohooken':
+                self.youngs_modulus = self.solids[0]["youngs_modulus"]
+                self.poissons_ratio = self.solids[0]["poissons_ratio"]
+                self.mass_density = self.solids[0]["mass_density"]
+                self.lame_lambda = self.youngs_modulus * self.poissons_ratio / ((1.0 + self.poissons_ratio) * (1.0 - 2.0 * self.poissons_ratio))
+                self.lame_mu = self.youngs_modulus / (2.0 * (1.0 + self.poissons_ratio))
+                self.inv_lame_lambda = 1.0/self.lame_lambda
+                self.inv_lame_mu = 1.0/self.lame_mu
+                self.gamma = 1 + self.inv_lame_lambda / self.inv_lame_mu # stable neo-hookean
+
 
             print("\n-----------\nRead parameters from scene file: ", self.scene_path)
             print("dt:", self.dt)
@@ -61,7 +72,6 @@ class MetaData:
             print("show_fine:", self.show_fine)
             print("compute_energy:", self.compute_energy)
             print("geometry_file:", self.geometry_file)
-            print(f"lame_lambda:{self.lame_lambda:.2e}")
             print("-----------\n")
 
 meta = MetaData()

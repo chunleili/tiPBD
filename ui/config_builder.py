@@ -6,7 +6,7 @@ class SimConfig:
         self.config = None
         with open(scene_file_path, "r") as f:
             self.config = json.load(f)
-        print(self.config)
+        print(json.dumps(self.config, indent=2))
     
     def get_common(self):
         if "common" in self.config:

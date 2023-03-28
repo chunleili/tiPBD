@@ -1,5 +1,4 @@
 import taichi as ti
-ti.init(ti.gpu)
 from engine.fem.fem_base import FemBase
 from engine.fem.arap import ARAP
 from engine.metadata import meta
@@ -8,9 +7,6 @@ from engine.metadata import meta
 @ti.data_oriented
 class Solver:
     def run(self):
-        # ---------------------------------------------------------------------------- #
-        #                                      gui                                     #
-        # ---------------------------------------------------------------------------- #
         #init the window, canvas, scene and camerea
         window = ti.ui.Window("pbd", (1024, 1024),vsync=False)
         canvas = window.get_canvas()

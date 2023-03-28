@@ -23,20 +23,6 @@ class MetaData:
         self.frame = 0
         self.step = 0
 
-        # self.geometry_file = "data/model/bunny1k2k/bunny1k.node"
-        # self.dt = 0.001  # timestep size
-        # self.inv_h2 = 1.0 / self.dt / self.dt
-        # self.lame_lambda = 1e5
-        # self.inv_lame_lambda = 1.0/self.lame_lambda
-        # self.relax_factor = 0.2
-        # self.gravity = ti.Vector([0.0, -9.8, 0.0])
-        # self.ground = ti.Vector([0.0, -2.0, 0.0])
-        # self.max_iter = 2
-        # self.num_substeps = 10
-        # self.use_multigrid = True
-        # self.show_coarse, self.show_fine = True, False
-        # self.compute_energy = True
-
         # read from json scene file
         self.use_scene_file = parse_commandline_args().use_scene_file
         if self.use_scene_file:

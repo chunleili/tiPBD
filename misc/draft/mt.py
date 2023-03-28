@@ -2,7 +2,7 @@ import taichi as ti
 import meshtaichi_patcher as pathcher
 ti.init(arch=ti.cuda)
 
-mesh = pathcher.load_mesh("models/toy/toy.node", relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
+mesh = pathcher.load_mesh("model/toy/toy.node", relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
 mesh.verts.place({ 'pos' : ti.math.vec3,})
 

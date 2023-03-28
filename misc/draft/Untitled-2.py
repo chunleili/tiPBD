@@ -6,7 +6,7 @@ from matplotlib.pyplot  import *
 
 import os
 path = os.path.abspath(os.path.join(os.getcwd())).replace("\\", "/")
-path = path + "/models/bunny1000_2000/"
+path = path + "/model/bunny1k2k/"
 print(path)
 P = mmread(path + "P1.mtx")
 R = mmread(path + "R.mtx")

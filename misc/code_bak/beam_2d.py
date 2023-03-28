@@ -15,7 +15,7 @@ volumeCompliance = 1.0
 # ---------------------------------------------------------------------------- #
 @ti.data_oriented
 class Mesh:
-    def __init__(self, model_name="models/beam.obj"):
+    def __init__(self, model_name="model/beam.obj"):
         self.mesh = patcher.load_mesh(model_name, relations=["FV","VF","FE","EF","EV","VE"])
 
         self.mesh.verts.place({ 'vel' : ti.math.vec3,

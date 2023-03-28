@@ -17,7 +17,7 @@
 	"solids": [
 		{
             "name": "bunny1k",
-			"geometry_file": "data/models/bunny1000_2000/bunny1k.node"
+			"geometry_file": "data/model/bunny1k2k/bunny1k.node"
 		}
 	]
 }

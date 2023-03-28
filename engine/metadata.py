@@ -21,7 +21,7 @@ class MetaData:
         self.result_path = os.path.join(self.root_path, "result")
         print("root_path:", self.root_path)
 
-        self.geometry_file = "data/models/bunny1000_2000/bunny1k.node"
+        self.geometry_file = "data/model/bunny1k2k/bunny1k.node"
         self.dt = 0.001  # timestep size
         self.inv_h2 = 1.0 / self.dt / self.dt
         self.lame_lambda = 1e5

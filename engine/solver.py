@@ -26,7 +26,7 @@ class Solver:
         paused[None] = 1
         meta.step=0
 
-        fem = ARAP()
+        pbd_solver = ARAP()
         
         # if meta.use_multigrid:
             # coarse_to_fine()
@@ -40,7 +40,7 @@ class Solver:
                 if e.key == "f":
                     print("step: ", meta.step)
                     meta.step+=1
-                    fem.substep()
+                    pbd_solver.substep()
                     # debug_info(mesh.mesh.verts.pos)
                     # debug_info(mesh.mesh.cells.lagrangian)
                     print("step once")
@@ -48,7 +48,7 @@ class Solver:
             #do the simulation in each step
             if not paused[None]:
                 for _ in range(meta.num_substeps):
-                    fem.substep()
+                    pbd_solver.substep()
                 # if meta.use_multigrid:
                     # coarse_to_fine()
 
@@ -65,7 +65,7 @@ class Solver:
 
             #draw
             if meta.show_coarse:
-                scene.mesh(fem.mesh.mesh.verts.pos, indices=fem.mesh.surf_show, color=(0.1229,0.2254,0.7207),show_wireframe=True)
+                scene.mesh(pbd_solver.mesh.mesh.verts.pos, indices=pbd_solver.mesh.surf_show, color=(0.1229,0.2254,0.7207),show_wireframe=True)
             # if meta.show_fine:
                 # scene.mesh(fine_pos_ti, indices=fine_tri_idx_ti, color=(1.0,0,0),show_wireframe=True)
                 # scene.mesh(fine_mesh.mesh.verts.pos, indices=fine_mesh.surf_show, color=(1.0,0,0),show_wireframe=True)

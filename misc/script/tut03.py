@@ -7,7 +7,7 @@ def directly_import_surf():
     import numpy as np
     import os
     pwd = os.getcwd().replace("\\", "/")
-    face_file_name = pwd + "/models/mygen/bunny2000_try.face"
+    face_file_name = pwd + "/model/mygen/bunny2000_try.face"
     # print("face_file_name: ", face_file_name)
     with open(face_file_name, 'r') as f:
         lines = f.readlines()
@@ -29,7 +29,7 @@ def init_tet_mesh(model_name):
     return theMesh, display_indices
 
 
-model_name = "models/mygen/bunny2000_try.node"
+model_name = "model/mygen/bunny2000_try.node"
 armadillo, armadillo_indices = init_tet_mesh(model_name)
 armadillo_indices.to_numpy()
 

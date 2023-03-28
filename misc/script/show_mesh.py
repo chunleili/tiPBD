@@ -25,13 +25,13 @@ def init_tet_mesh(model_name):
     return theMesh, display_indices
 
 #这里我们读入了armadillo的四面体模型。这个模型是通过tetgen生成的，我们只需要给出node文件就可以了，它会自动找到ele和face文件。tetgen可以转化ply为node格式，可以在这里下载：http://wias-berlin.de/software/index.jsp?id=TetGen&lang=1
-model_name = "models/tetgen/bunny.1.node"
-model_name = "models/mygen/bunny2000.node"
+model_name = "model/tetgen/bunny.1.node"
+model_name = "model/mygen/bunny2000.node"
 # armadillo, armadillo_indices = init_tet_mesh(model_name)
 armadillo, armadillo_indices = init_tet_mesh(model_name)
 
 def directly_import_surf():
-    face_file_name = "models/mygen/bunny2000.face"
+    face_file_name = "model/mygen/bunny2000.face"
     with open(face_file_name, 'r') as f:
         #skip comments
         while True:

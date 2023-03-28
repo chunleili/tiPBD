@@ -28,7 +28,7 @@ inv_lambda = 1.0 / lame_lambda
 gamma = 1 + inv_lambda / inv_mu # stable neo-hookean
 mass_density = 1000
 
-fine_model_pos, fine_model_inx, fine_model_tri = read_tet_mesh("data/models/cube/coarse")
+fine_model_pos, fine_model_inx, fine_model_tri = read_tet_mesh("data/model/cube/coarse")
 fNV = len(fine_model_pos)
 fNT = len(fine_model_inx)
 fNF = len(fine_model_tri)

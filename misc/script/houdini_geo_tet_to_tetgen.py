@@ -72,7 +72,7 @@ def write_tetgen(tet_indices,positions, pointcount, primitivecount,to_path, gen_
 
 
 if __name__ == '__main__':
-    from_path="models/bunny1000_dilate/bunny1000_dilate.geo"
+    from_path="model/bunny1000_dilate/bunny1000_dilate.geo"
     to_path=from_path[:-4]
 
     tet_indices,positions, pointcount,vertexcount,primitivecount = read_geo(from_path)

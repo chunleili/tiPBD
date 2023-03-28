@@ -112,28 +112,28 @@ def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_te
 
 if __name__ == "__main__":
     is_mapping_computed = False
-    fine_mesh = "models/bunny1000_2000/bunny2k"
-    coarse_mesh = "models/bunny1000_2000/bunny1k"
+    fine_mesh = "model/bunny1k2k/bunny2k"
+    coarse_mesh = "model/bunny1k2k/bunny1k"
     
     coarse_pos, coarse_tet_indices, coarse_face_indices = read_tet_mesh(coarse_mesh)
     fine_pos, fine_tet_indices, fine_face_indices = read_tet_mesh(fine_mesh)
     
     if not is_mapping_computed:
         coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx,  fine_in_coarse_tet_coord = compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices)
-        np.savetxt("models/bunny1000_2000/coarse_in_fine_tet_indx.txt", coarse_in_fine_tet_indx, fmt="%d")
-        np.savetxt("models/bunny1000_2000/coarse_in_fine_tet_coord.txt", coarse_in_fine_tet_coord, fmt="%.6f")
+        np.savetxt("model/bunny1k2k/coarse_in_fine_tet_indx.txt", coarse_in_fine_tet_indx, fmt="%d")
+        np.savetxt("model/bunny1k2k/coarse_in_fine_tet_coord.txt", coarse_in_fine_tet_coord, fmt="%.6f")
 
-        np.savetxt("models/bunny1000_2000/fine_in_coarse_tet_indx.txt", fine_in_coarse_tet_indx, fmt="%d")
-        np.savetxt("models/bunny1000_2000/fine_in_coarse_tet_coord.txt", fine_in_coarse_tet_coord, fmt="%.6f")
+        np.savetxt("model/bunny1k2k/fine_in_coarse_tet_indx.txt", fine_in_coarse_tet_indx, fmt="%d")
+        np.savetxt("model/bunny1k2k/fine_in_coarse_tet_coord.txt", fine_in_coarse_tet_coord, fmt="%.6f")
     else:
-        coarse_in_fine_tet_indx = np.loadtxt("models/bunny1000_2000/coarse_in_fine_tet_indx.txt", dtype=np.int32)
-        coarse_in_fine_tet_coord = np.loadtxt("models/bunny1000_2000/coarse_in_fine_tet_coord.txt", dtype=np.float64)
-        fine_in_coarse_tet_indx = np.loadtxt("models/bunny1000_2000/fine_in_coarse_tet_indx.txt", dtype=np.int32)
-        fine_in_coarse_tet_coord = np.loadtxt("models/bunny1000_2000/fine_in_coarse_tet_coord.txt", dtype=np.float64)
+        coarse_in_fine_tet_indx = np.loadtxt("model/bunny1k2k/coarse_in_fine_tet_indx.txt", dtype=np.int32)
+        coarse_in_fine_tet_coord = np.loadtxt("model/bunny1k2k/coarse_in_fine_tet_coord.txt", dtype=np.float64)
+        fine_in_coarse_tet_indx = np.loadtxt("model/bunny1k2k/fine_in_coarse_tet_indx.txt", dtype=np.int32)
+        fine_in_coarse_tet_coord = np.loadtxt("model/bunny1k2k/fine_in_coarse_tet_coord.txt", dtype=np.float64)
         
     n = fine_pos.shape[0]
     m = coarse_pos.shape[0]
     R = compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_tet_indices)
-    mmwrite("models/bunny1000_2000/R.mtx", R)
+    mmwrite("model/bunny1k2k/R.mtx", R)
     P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices)
-    mmwrite("models/bunny1000_2000/P.mtx", P)
+    mmwrite("model/bunny1k2k/P.mtx", P)

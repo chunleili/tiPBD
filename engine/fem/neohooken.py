@@ -71,7 +71,7 @@ class ARAP(FemBase):
             D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
             F = D_s @ c.B
 
-            # Constraint 1
+            # Constraint 1 
             C_H = F.determinant() - meta.gamma
             f1 = ti.Vector([F[0,0], F[1, 0], F[2, 0]])
             f2 = ti.Vector([F[0,1], F[1, 1], F[2, 1]])

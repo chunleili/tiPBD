@@ -57,6 +57,25 @@ class FemBase:
             if v.inv_mass != 0.0:
                 v.vel = (v.pos - v.prev_pos) / dt_
 
+    @ti.func
+    def compute_denorminator(self, c, g0, g1, g2, g3):
+        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
+        res = p0.inv_mass * g0.norm_sqr() + p1.inv_mass * g1.norm_sqr() + p2.inv_mass * g2.norm_sqr() + p3.inv_mass * g3.norm_sqr()
+        return res
+    
+    @ti.func
+    def compute_F(self, c, B):
+        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
+        D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
+        res = D_s @ B
+        return res
+
+    @ti.func
+    def compute_dlambda(self, c, constraint, alpha, lagrangian, g0, g1, g2, g3):
+        denorminator = self.compute_denorminator(c, g0, g1, g2, g3)
+        dlambda = -(constraint + alpha * lagrangian) / (denorminator + alpha)
+        return dlambda
+
     def substep(self):
         self.pre_solve(meta.dt/meta.num_substeps)
         self.mesh.mesh.cells.lagrangian.fill(0.0)

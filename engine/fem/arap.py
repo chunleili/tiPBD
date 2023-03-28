@@ -13,18 +13,19 @@ class ARAP(FemBase):
     def project_constraints(self):
         for c in self.mesh.mesh.cells:
             p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-            D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
-            c.F = D_s @ c.B
+
+            c.F = self.compute_F(c, c.B)
+
             U, S, V = ti.svd(c.F)
             c.fem_constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
 
             g0, g1, g2, g3 = computeGradient(c.B, U, S, V)
             c.grad0, c.grad1, c.grad2, c.grad3 = g0, g1, g2, g3
 
-            l = p0.inv_mass * g0.norm_sqr() + p1.inv_mass * g1.norm_sqr() + p2.inv_mass * g2.norm_sqr() + p3.inv_mass * g3.norm_sqr()
-            c.dlambda = -(c.fem_constraint + c.alpha * c.lagrangian) / (
-                l + c.alpha)
-            c.lagrangian = c.lagrangian + c.dlambda
+            c.dlambda =  self.compute_dlambda(c, c.fem_constraint, c.alpha, c.lagrangian, g0, g1, g2, g3)
+            c.lagrangian += c.dlambda
+
+
 
 # #read restriction operator
 # P = sio.mmread("data/model/bunny1k2k/P.mtx")

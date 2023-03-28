@@ -1,5 +1,3 @@
-import os
-import ui.argparser
 from  engine.solver import Solver
 
 if __name__ == "__main__":

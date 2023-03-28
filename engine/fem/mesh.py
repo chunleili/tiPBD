@@ -2,6 +2,7 @@ import taichi as ti
 import meshtaichi_patcher as patcher
 import numpy as np
 import taichi.math as tm
+from engine.metadata import meta
 @ti.data_oriented
 class Mesh:
     def __init__(self, model_name, direct_import_faces=True):
@@ -14,7 +15,7 @@ class Mesh:
                                 'predictPos' : ti.math.vec3,
                                 'invMass' : ti.f32})
         self.mesh.verts.place({ 'pos' : ti.math.vec3},needs_grad=True)
-        self.mesh.cells.place({'invVol' : ti.f32,
+        self.mesh.cells.place({'inv_vol' : ti.f32,
                                'B': ti.math.mat3,
                                'F': ti.math.mat3,
                                'lagrangian': ti.f32,
@@ -36,11 +37,8 @@ class Mesh:
         self.inertial_energy = ti.field(float, (), needs_grad=True)
         self.total_energy = ti.field(float, (), needs_grad=True)
 
-        self.inv_lame = 1e-5
-
-        NT = len(self.mesh.cells)
-        DIM = 3
-        self.gradient = ti.Vector.field(DIM, float, 4 * NT)
+        # self.lame_lambda = meta.config.get_solids()["lame_lambda"]
+        # self.inv_lame_lambda = 1.0 / self.lame_lambda
 
         self.init_physics()
 
@@ -78,9 +76,6 @@ class Mesh:
 
     @ti.kernel
     def init_physics(self):
-        dt = 0.001  # timestep size
-        inv_h2 = 1.0 / dt / dt
-
         for v in self.mesh.verts:
             v.invMass = 1.0
 
@@ -88,13 +83,5 @@ class Mesh:
             p0, p1, p2, p3= c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos
             Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
             c.B = Dm.inverse().transpose()
-            c.invVol = 6.0/ abs(Dm.determinant()) 
-            c.alpha = inv_h2 * self.inv_lame * c.invVol
-
-            # if c.id == 0:
-            #     print("c.restVol",c.restVol)
-            # pInvMass = 0.0
-            # density = 1.0
-            # pInvMass = 1.0/(c.restVol * density / 4.0)
-            # for j in ti.static(range(4)):
-            #     c.verts[j].invMass += pInvMass
+            c.inv_vol = 6.0/ abs(Dm.determinant()) 
+            c.alpha = meta.inv_h2 * meta.inv_lame_lambda * c.inv_vol

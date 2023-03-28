@@ -94,7 +94,7 @@ def computeGradient(B, U, S, V):
 
 
 @ti.kernel
-def project_fem():
+def project_constraints():
     for c in mesh.mesh.cells:
         p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
         D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
@@ -114,22 +114,22 @@ def project_fem():
 @ti.kernel
 def update_pos():
     for c in mesh.mesh.cells:
-        c.verts[0].pos += meta.omega * c.verts[0].invMass * c.dLambda * c.grad0
-        c.verts[1].pos += meta.omega * c.verts[1].invMass * c.dLambda * c.grad1
-        c.verts[2].pos += meta.omega * c.verts[2].invMass * c.dLambda * c.grad2
-        c.verts[3].pos += meta.omega * c.verts[3].invMass * c.dLambda * c.grad3
+        c.verts[0].pos += meta.relax_factor * c.verts[0].invMass * c.dLambda * c.grad0
+        c.verts[1].pos += meta.relax_factor * c.verts[1].invMass * c.dLambda * c.grad1
+        c.verts[2].pos += meta.relax_factor * c.verts[2].invMass * c.dLambda * c.grad2
+        c.verts[3].pos += meta.relax_factor * c.verts[3].invMass * c.dLambda * c.grad3
     # for c in mesh.mesh.cells:
     #     pass
-    #     c.verts[0].pos += meta.omega * c.verts[0].invMass * c.get_member_field["verts"].grad[0]
-    #     c.verts[1].pos += meta.omega * c.verts[1].invMass * c.get_member_field["verts"].grad[1]
-    #     c.verts[2].pos += meta.omega * c.verts[2].invMass * c.get_member_field["verts"].grad[2]
-    #     c.verts[3].pos += meta.omega * c.verts[3].invMass * c.get_member_field["verts"].grad[3]
+    #     c.verts[0].pos += meta.relax_factor * c.verts[0].invMass * c.get_member_field["verts"].grad[0]
+    #     c.verts[1].pos += meta.relax_factor * c.verts[1].invMass * c.get_member_field["verts"].grad[1]
+    #     c.verts[2].pos += meta.relax_factor * c.verts[2].invMass * c.get_member_field["verts"].grad[2]
+    #     c.verts[3].pos += meta.relax_factor * c.verts[3].invMass * c.get_member_field["verts"].grad[3]
 
 @ti.kernel
 def compute_potential_energy():
     mesh.potential_energy[None] = 0.0
     for c in mesh.mesh.cells:
-        invAlpha = mesh.inv_lame * c.invVol
+        invAlpha = meta.inv_lame_lambda * c.inv_vol
         mesh.potential_energy[None] += 0.5 * invAlpha *  c.fem_constraint ** 2 
 
 @ti.kernel
@@ -152,13 +152,13 @@ def postSolve(dt_: ti.f32):
             v.vel = (v.pos - v.prevPos) / dt_
 
 def substep():
-    preSolve(meta.dt/meta.numSubsteps)
+    preSolve(meta.dt/meta.num_substeps)
     mesh.mesh.cells.lagrangian.fill(0.0)
-    for ite in range(meta.MaxIte):
-        project_fem()
+    for ite in range(meta.max_iter):
+        project_constraints()
         update_pos()
         collsion_response()
-    postSolve(meta.dt/meta.numSubsteps)
+    postSolve(meta.dt/meta.num_substeps)
 
     if meta.compute_energy:
         compute_potential_energy()

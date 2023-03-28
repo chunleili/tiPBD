@@ -44,7 +44,7 @@ class Solver:
 
             #do the simulation in each step
             if not paused[None]:
-                for _ in range(meta.numSubsteps):
+                for _ in range(meta.num_substeps):
                     substep()
                 if meta.use_multigrid:
                     coarse_to_fine()

@@ -10,10 +10,16 @@ class SimConfig:
     
     def get_cfg(self, name, enforce_exist=False):
         if enforce_exist:
-            assert name in self.config["Configuration"]
-        if name not in self.config["Configuration"]:
+            assert name in self.config["common"]
+        if name not in self.config["common"]:
             if enforce_exist:
-                assert name in self.config["Configuration"]
+                assert name in self.config["common"]
             else:
                 return None
-        return self.config["Configuration"][name]
+        return self.config["common"][name]
+    
+    def get_solids(self):
+        if "solids" in self.config:
+            return self.config["solids"]
+        else:
+            assert False, "No solids in scene file"

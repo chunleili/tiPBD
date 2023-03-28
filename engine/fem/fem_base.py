@@ -24,13 +24,12 @@ class FemBase:
         # to be implemented in derived class
         pass
 
-    @ti.kernel
-    def update_pos(self):
-        for c in self.mesh.mesh.cells:
-            c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * c.dlambda * c.grad0
-            c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * c.dlambda * c.grad1
-            c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * c.dlambda * c.grad2
-            c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * c.dlambda * c.grad3
+    @ti.func
+    def update_pos(self, c, dlambda, g0, g1, g2, g3):
+        c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
+        c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * dlambda * g1
+        c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * dlambda * g2
+        c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * dlambda * g3
 
     @ti.kernel
     def compute_potential_energy(self):
@@ -81,7 +80,6 @@ class FemBase:
         self.mesh.mesh.cells.lagrangian.fill(0.0)
         for ite in range(meta.max_iter):
             self.project_constraints()
-            self.update_pos()
             self.collsion_response()
         self.post_solve(meta.dt/meta.num_substeps)
 

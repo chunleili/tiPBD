@@ -55,21 +55,17 @@ def make_matrix(x, y, z):
                       [0, 0, x, 0, 0, y, 0, 0, z]])
 
 
-
 @ti.data_oriented
-class ARAP(FemBase):
+class NeoHooken(FemBase):
     def __init__(self):
         super().__init__()
-    
-    def update_pos(self):
-        pass # do nothing
 
     @ti.kernel
     def project_constraints(self):
         for c in self.mesh.mesh.cells:
             p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-            D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
-            F = D_s @ c.B
+            
+            F = self.compute_F(c, c.B)
 
             # Constraint 1 
             C_H = F.determinant() - meta.gamma
@@ -90,8 +86,7 @@ class ARAP(FemBase):
             g3 = dFdp3T @ f
             g0 = -g1 - g2 - g3
             
-            l = p0.inv_mass * g0.norm_sqr() + p1.inv_mass * g1.norm_sqr() + p2.inv_mass * g2.norm_sqr() + p3.inv_mass * g3.norm_sqr()
-            dlambda = -(C_H + c.alpha * c.lagrangian) / (l + c.alpha)
+            dlambda =  self.compute_dlambda(c, C_H, c.alpha, c.lagrangian, g0, g1, g2, g3)
             c.lagrangian += dlambda
 
             c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
@@ -110,9 +105,11 @@ class ARAP(FemBase):
             g2 = r_s * (dFdp2T @ f)
             g3 = r_s * (dFdp3T @ f)
             g0 = r_s * (-g1 - g2 - g3)
-            l = p0.inv_mass * g0.norm_sqr() + p1.inv_mass * g1.norm_sqr() + p2.inv_mass * g2.norm_sqr() + p3.inv_mass * g3.norm_sqr()
-            dlambda = (-C_D - c.alpha * c.lagrangian) / (l + c.alpha)
+
+
+            dlambda = self.compute_dlambda(c, C_D, c.alpha, c.lagrangian, g0, g1, g2, g3)
             c.lagrangian += dlambda
+
             c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
             c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * dlambda * g1
             c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * dlambda * g2

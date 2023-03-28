@@ -11,22 +11,22 @@ class Mesh:
         self.mesh = patcher.load_mesh(node_file, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
         self.mesh.verts.place({ 'pos' : ti.math.vec3},needs_grad=True)
-        self.mesh.verts.place({ 
-                                'vel' : ti.math.vec3,
+        self.mesh.verts.place({ 'vel' : ti.math.vec3,
                                 'prev_pos' : ti.math.vec3,
                                 'predict_pos' : ti.math.vec3,
                                 'inv_mass' : ti.f32})
         self.mesh.cells.place({'inv_vol' : ti.f32,
                                'B': ti.math.mat3,
-                               'F': ti.math.mat3,
                                'lagrangian': ti.f32,
-                               'dlambda': ti.f32,
-                               'grad0': ti.math.vec3,
-                               'grad1': ti.math.vec3,
-                               'grad2': ti.math.vec3,
-                               'grad3': ti.math.vec3,
                                'alpha': ti.f32,
-                               'fem_constraint': ti.f32,})
+                            #    'fem_constraint': ti.f32,
+                            #    'F': ti.math.mat3,
+                            #    'dlambda': ti.f32,
+                            #    'grad0': ti.math.vec3,
+                            #    'grad1': ti.math.vec3,
+                            #    'grad2': ti.math.vec3,
+                            #    'grad3': ti.math.vec3,
+                               })
         #注意！这里的grad0,1,2,3是针对每个tet的四个顶点的。但是我们把他定义在cell上，而不是vert上。
         #这是因为meshtaichi中vert是唯一的（和几何点是一一对应的）。
         #也就是说多个cell共享同一个顶点时，这个顶点上的数据可能会被覆盖掉。

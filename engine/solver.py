@@ -1,6 +1,8 @@
 import taichi as ti
 ti.init(ti.gpu)
-from engine.fem.arap import *
+# from engine.fem.arap import *
+from engine.fem.fem_base import FemBase
+from engine.fem.arap import ARAP
 from engine.metadata import meta
 from engine.debug import debug_info
 from engine.metadata import meta
@@ -24,9 +26,11 @@ class Solver:
         paused = ti.field(int, shape=())
         paused[None] = 1
         meta.step=0
+
+        fem = ARAP()
         
-        if meta.use_multigrid:
-            coarse_to_fine()
+        # if meta.use_multigrid:
+            # coarse_to_fine()
         while window.running:
             for e in window.get_events(ti.ui.PRESS):
                 if e.key == ti.ui.ESCAPE:
@@ -37,7 +41,7 @@ class Solver:
                 if e.key == "f":
                     print("step: ", meta.step)
                     meta.step+=1
-                    substep()
+                    fem.substep()
                     # debug_info(mesh.mesh.verts.pos)
                     # debug_info(mesh.mesh.cells.lagrangian)
                     print("step once")
@@ -45,9 +49,9 @@ class Solver:
             #do the simulation in each step
             if not paused[None]:
                 for _ in range(meta.num_substeps):
-                    substep()
-                if meta.use_multigrid:
-                    coarse_to_fine()
+                    fem.substep()
+                # if meta.use_multigrid:
+                    # coarse_to_fine()
 
             #set the camera, you can move around by pressing 'wasdeq'
             camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -62,10 +66,10 @@ class Solver:
 
             #draw
             if meta.show_coarse:
-                scene.mesh(mesh.mesh.verts.pos, indices=mesh.surf_show, color=(0.1229,0.2254,0.7207),show_wireframe=True)
-            if meta.show_fine:
+                scene.mesh(fem.mesh.mesh.verts.pos, indices=fem.mesh.surf_show, color=(0.1229,0.2254,0.7207),show_wireframe=True)
+            # if meta.show_fine:
                 # scene.mesh(fine_pos_ti, indices=fine_tri_idx_ti, color=(1.0,0,0),show_wireframe=True)
-                scene.mesh(fine_mesh.mesh.verts.pos, indices=fine_mesh.surf_show, color=(1.0,0,0),show_wireframe=True)
+                # scene.mesh(fine_mesh.mesh.verts.pos, indices=fine_mesh.surf_show, color=(1.0,0,0),show_wireframe=True)
 
             #show the frame
             canvas.scene(scene)

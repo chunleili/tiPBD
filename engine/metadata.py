@@ -42,6 +42,7 @@ class MetaData:
             self.use_multigrid = self.common["use_multigrid"]
             self.show_coarse, self.show_fine = self.common["show_coarse"], self.common["show_fine"]
             self.compute_energy = self.common["compute_energy"]
+            self.use_log = self.common["use_log"]
 
             self.solids = self.config.get_solids() # it is a list of dict
             self.solid_name = self.solids[0]["name"]

@@ -45,20 +45,23 @@ class MetaData:
 
             self.config = SimConfig(scene_file_path=self.scene_path)
 
-            self.solids = self.config.get_solids()
-            self.geometry_file = self.solids[0]["geometry_file"] # 第一个solids
-            self.dt = self.config.get_cfg("dt")
+            self.common = self.config.get_common() # it is a dict
+            self.dt = self.common["dt"]
             self.inv_h2 = 1.0 / self.dt / self.dt
-            self.lame_lambda = self.config.get_cfg("lame_lambda")
+            self.relax_factor = self.common["relax_factor"]
+            self.gravity = ti.Vector(self.common["gravity"])
+            self.ground = ti.Vector(self.common["ground"])
+            self.max_iter = self.common["max_iter"]
+            self.num_substeps = self.common["num_substeps"]
+            self.use_multigrid = self.common["use_multigrid"]
+            self.show_coarse, self.show_fine = self.common["show_coarse"], self.common["show_fine"]
+            self.compute_energy = self.common["compute_energy"]
+
+            self.solids = self.config.get_solids() # it is a list of dict
+            self.solid_name = self.solids[0]["name"]
+            self.geometry_file = self.solids[0]["geometry_file"] # only support one solid for now
+            self.lame_lambda = self.solids[0]["lame_lambda"]
             self.inv_lame_lambda = 1.0/self.lame_lambda
-            self.relax_factor = self.config.get_cfg("relax_factor")
-            self.gravity = ti.Vector(self.config.get_cfg("gravity"))
-            self.ground = ti.Vector(self.config.get_cfg("ground"))
-            self.max_iter = self.config.get_cfg("max_iter")
-            self.num_substeps = self.config.get_cfg("num_substeps")
-            self.use_multigrid = self.config.get_cfg("use_multigrid")
-            self.show_coarse, self.show_fine = self.config.get_cfg("show_coarse"), self.config.get_cfg("show_fine")
-            self.compute_energy = self.config.get_cfg("compute_energy")
 
             print("\n-----------\nRead parameters from scene file: ", self.scene_path)
             print("geometry_file:", self.geometry_file)

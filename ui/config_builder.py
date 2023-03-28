@@ -8,15 +8,11 @@ class SimConfig:
             self.config = json.load(f)
         print(self.config)
     
-    def get_cfg(self, name, enforce_exist=False):
-        if enforce_exist:
-            assert name in self.config["common"]
-        if name not in self.config["common"]:
-            if enforce_exist:
-                assert name in self.config["common"]
-            else:
-                return None
-        return self.config["common"][name]
+    def get_common(self):
+        if "common" in self.config:
+            return self.config["common"]
+        else:
+            assert False, "No common in scene file"
     
     def get_solids(self):
         if "solids" in self.config:

@@ -8,7 +8,6 @@
 		"ground": [0.0, -2.0, 0.0],
 		"max_iter": 2,
 		"num_substeps": 10,
-		"lame_lambda": 1e5,
 		"use_multigrid": true,
 		"show_coarse": true,
 		"show_fine": false,
@@ -17,7 +16,8 @@
 	"solids": [
 		{
             "name": "bunny1k",
-			"geometry_file": "data/model/bunny1k2k/bunny1k.node"
+			"geometry_file": "data/model/bunny1k2k/bunny1k.node",
+			"lame_lambda": 1e5
 		}
 	]
 }

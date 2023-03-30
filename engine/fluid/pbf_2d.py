@@ -7,7 +7,7 @@ import numpy as np
 
 import taichi as ti
 
-ti.init(arch=ti.gpu)
+ti.init(arch=ti.cpu)
 
 screen_res = (800, 400)
 screen_to_world_ratio = 10.0

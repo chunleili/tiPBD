@@ -19,7 +19,7 @@ class FemBase:
                 v.pos = v.pos + dt_ * v.vel
                 v.predict_pos = v.pos
 
-    @ti.kernel
+    # @ti.kernel
     def project_constraints():
         # to be implemented in derived class
         pass
@@ -63,9 +63,8 @@ class FemBase:
         return res
     
     @ti.func
-    def compute_F(self, c, B):
-        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-        D_s = ti.Matrix.cols([p1.pos - p0.pos, p2.pos - p0.pos, p3.pos - p0.pos])
+    def compute_F(self, x0,x1,x2,x3, B):
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
         res = D_s @ B
         return res
 

@@ -4,27 +4,62 @@ import taichi.math as tm
 from engine.metadata import meta
 from engine.fem.fem_base import FemBase
 
+
+
 @ti.data_oriented
 class ARAP(FemBase):
     def __init__(self):
         super().__init__()
 
+        self.constraint = ti.field(ti.f32, shape=len(self.mesh.mesh.cells), needs_grad=True)
+        # self.x0, self.x1, self.x2, self.x3 =
+        self.x0 = ti.Vector.field(3, ti.f32, shape=len(self.mesh.mesh.cells), needs_grad=True)
+        self.x1 = ti.Vector.field(3, ti.f32, shape=len(self.mesh.mesh.cells), needs_grad=True)
+        self.x2 = ti.Vector.field(3, ti.f32, shape=len(self.mesh.mesh.cells), needs_grad=True)
+        self.x3 = ti.Vector.field(3, ti.f32, shape=len(self.mesh.mesh.cells), needs_grad=True)
+        
+
+
     @ti.kernel
-    def project_constraints(self):
+    def compute_constraint(self):
         for c in self.mesh.mesh.cells:
-            p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-
-            F = self.compute_F(c, c.B)
-
+            self.x0[c.id],self.x1[c.id], self.x2[c.id], self.x3[c.id] = c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos
+            F = self.compute_F(self.x0[c.id], self.x1[c.id], self.x2[c.id], self.x3[c.id], c.B)
             U, S, V = ti.svd(F)
-            constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
+            self.constraint[c.id] = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
 
-            g0, g1, g2, g3 = computeGradient(c.B, U, S, V)
+    def project_constraints(self):
+        self.constraint.grad.fill(1.0)
+        self.x0.grad.fill(0.0)
+        self.x1.grad.fill(0.0)
+        self.x2.grad.fill(0.0)
+        self.x3.grad.fill(0.0)
+        self.compute_constraint.grad()
+        self.apply_gradient()
 
-            dlambda =  self.compute_dlambda(c, constraint, c.alpha, c.lagrangian, g0, g1, g2, g3)
+    @ti.kernel
+    def apply_gradient(self):
+        for c in self.mesh.mesh.cells:
+            dlambda =  self.compute_dlambda(c, self.constraint, c.alpha, c.lagrangian, self.x0.grad, self.x1.grad, self.x2.grad, self.x3.grad)
             c.lagrangian += dlambda
+            self.update_pos(c, dlambda, self.x0.grad, self.x1.grad, self.x2.grad, self.x3.grad)
 
-            self.update_pos(c, dlambda, g0, g1, g2, g3)
+# @ti.data_oriented
+# class ARAP(FemBase):
+#     def __init__(self):
+#         super().__init__()
+
+#     @ti.kernel
+#     def project_constraints(self):
+#         for c in self.mesh.mesh.cells:
+#             p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
+#             F = self.compute_F(c, c.B)
+#             U, S, V = ti.svd(F)
+#             constraint = sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
+#             g0, g1, g2, g3 = computeGradient(c.B, U, S, V)
+#             dlambda =  self.compute_dlambda(c, constraint, c.alpha, c.lagrangian, g0, g1, g2, g3)
+#             c.lagrangian += dlambda
+#             self.update_pos(c, dlambda, g0, g1, g2, g3)
 
 
 

@@ -18,7 +18,7 @@ class ARAP(FemBase):
         self.x2 = ti.Vector.field(3, ti.f32, shape=self.cell_size, needs_grad=True)
         self.x3 = ti.Vector.field(3, ti.f32, shape=self.cell_size, needs_grad=True)
         self.B_ex = ti.Matrix.field(3, 3, ti.f32, shape=self.cell_size)
-        self.B_ex.copy_from(self.mesh.mesh.verts.pos)
+        self.B_ex.copy_from(self.mesh.mesh.cells.B)
 
     @ti.kernel
     def dump(self):

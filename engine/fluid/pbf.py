@@ -76,7 +76,7 @@ particle_num_neighbors = ti.field(int, shape = (num_particles))
 particle_neighbors = ti.field(int, shape = ((num_particles,) + (max_num_neighbors,)))
 lambdas = ti.field(float, shape = (num_particles))
 position_deltas = ti.Vector.field(dim, float, shape=(num_particles))
-board_states = ti.Vector.field(2, float, shape =())
+# board_states = ti.Vector.field(2, float, shape =())
 
 
 @ti.func
@@ -125,7 +125,7 @@ def is_in_grid(c):
 @ti.func
 def confine_position_to_boundary(p):
     bmin = particle_radius_in_world
-    bmax = ti.Vector([board_states[None][0], boundary[1]
+    bmax = ti.Vector([boundary[0], boundary[1]
                       ]) - particle_radius_in_world
     for i in ti.static(range(dim)):
         # Use randomness to prevent particles from sticking into each other after clamping
@@ -256,7 +256,7 @@ def render(gui):
     for j in range(dim):
         pos_np[:, j] *= screen_to_world_ratio / screen_res[j]
     gui.circles(pos_np, radius=particle_radius, color=particle_color)
-    gui.rect((0, 0), (board_states[None][0] / boundary[0], 1),
+    gui.rect((0, 0), (boundary[0] / boundary[0], 1),
              radius=1.5,
              color=boundary_color)
     gui.show()
@@ -272,7 +272,7 @@ def init_particles():
                                   ]) * delta + offs
         for c in ti.static(range(dim)):
             velocities[i][c] = (ti.random() - 0.5) * 4
-    board_states[None] = ti.Vector([boundary[0] - epsilon, -0.0])
+    # board_states[None] = ti.Vector([boundary[0] - epsilon, -0.0])
 
 
 def print_stats():

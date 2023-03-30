@@ -250,18 +250,6 @@ def run_pbf():
     epilogue()
 
 
-def render(gui):
-    gui.clear(bg_color)
-    pos_np = positions.to_numpy()
-    for j in range(dim):
-        pos_np[:, j] *= screen_to_world_ratio / screen_res[j]
-    gui.circles(pos_np, radius=particle_radius, color=particle_color)
-    gui.rect((0, 0), (boundary[0] / boundary[0], 1),
-             radius=1.5,
-             color=boundary_color)
-    gui.show()
-
-
 @ti.kernel
 def init_particles():
     for i in range(num_particles):
@@ -272,29 +260,41 @@ def init_particles():
                                   ]) * delta + offs
         for c in ti.static(range(dim)):
             velocities[i][c] = (ti.random() - 0.5) * 4
-    # board_states[None] = ti.Vector([boundary[0] - epsilon, -0.0])
 
 
-def print_stats():
-    print('PBF stats:')
-    num = grid_num_particles.to_numpy()
-    avg, max_ = np.mean(num), np.max(num)
-    print(f'  #particles per cell: avg={avg:.2f} max={max_}')
-    num = particle_num_neighbors.to_numpy()
-    avg, max_ = np.mean(num), np.max(num)
-    print(f'  #neighbors per particle: avg={avg:.2f} max={max_}')
+positions_show = ti.Vector.field(dim, float, shape =(num_particles))
 
+@ti.kernel
+def scale_world():
+    for I in positions:
+        for j in ti.static(range(dim)):
+            positions_show[I][j] = positions[I][j] * screen_to_world_ratio / screen_res[j]
+
+
+window = ti.ui.Window("pbf", (1024, 1024),vsync=False)
+canvas = window.get_canvas()
+scene = ti.ui.Scene()
+camera = ti.ui.Camera()
+camera.position(1.1, 0.0, -1.23)
+
+def render_ggui():
+    camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
+    # print(camera.curr_position)
+    scene.set_camera(camera)
+    scene.ambient_light((0.8, 0.8, 0.8))
+    scene.point_light(pos=(0.5, 1.5, 1.5), color=(1, 1, 1))
+
+    scale_world()
+    scene.particles(positions_show, color = (0.68, 0.26, 0.19), radius = 0.01)
+    canvas.scene(scene)
+    window.show()
 
 def main():
     init_particles()
     print(f'boundary={boundary} grid={grid_size} cell_size={cell_size}')
-    gui = ti.GUI('PBF2D', screen_res)
-    while gui.running and not gui.get_event(gui.ESCAPE):
+    while window.running:
         run_pbf()
-        if gui.frame % 20 == 1:
-            print_stats()
-        render(gui)
-
+        render_ggui()
 
 if __name__ == '__main__':
     main()

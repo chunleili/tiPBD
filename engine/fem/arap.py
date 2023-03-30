@@ -45,14 +45,14 @@ class ARAP(FemBase):
         self.x3.grad.fill(0.0)
         self.compute_constraint.grad()
         g0,g1,g2,g3 = self.x0.grad, self.x1.grad, self.x2.grad, self.x3.grad
-        self.apply_gradient(g0,g1,g2,g3)
+        self.apply_gradient(self.constraint, g0,g1,g2,g3)
 
     @ti.kernel
-    def apply_gradient(self,g0:ti.template(), g1:ti.template(), g2:ti.template(), g3:ti.template()):
+    def apply_gradient(self,constraint:ti.template(), g0:ti.template(), g1:ti.template(), g2:ti.template(), g3:ti.template()):
         for c in self.mesh.mesh.cells:
-            dlambda =  self.compute_dlambda(c, self.constraint, c.alpha, c.lagrangian, g0,g1,g2,g3)
+            dlambda =  self.compute_dlambda(c, constraint[c.id], c.alpha, c.lagrangian, g0[c.id],g1[c.id],g2[c.id],g3[c.id])
             c.lagrangian += dlambda
-            self.update_pos(c, dlambda, g0,g1,g2,g3)
+            self.update_pos(c, dlambda, g0[c.id],g1[c.id],g2[c.id],g3[c.id])
 
 
 # @ti.data_oriented

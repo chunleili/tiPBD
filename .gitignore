@@ -9,4 +9,5 @@ kineticEnergy.txt
 totalEnergy.txt
 .vscode
 log.txt
-results/*.txt
+result/*.txt
+result/*

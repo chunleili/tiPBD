@@ -8,7 +8,7 @@ import numpy as np
 
 import taichi as ti
 
-ti.init(arch=ti.cuda)
+ti.init(arch=ti.cpu)
 
 screen_res = (800, 800)
 screen_to_world_ratio = 20.0
@@ -31,14 +31,14 @@ particle_color = 0x068587
 boundary_color = 0xebaca2
 num_particles_x = 10
 # num_particles = num_particles_x * num_particles_x * 10
-num_particles = 10000
+num_particles = 1000
 max_num_particles_per_cell = 100
 max_num_neighbors = 100
 time_delta = 1.0 / 20.0
 epsilon = 1e-5
 particle_radius = 3.0
 particle_radius_in_world = particle_radius / screen_to_world_ratio
-
+print('particle_radius_in_world', particle_radius_in_world)
 # PBF params
 h = 1.1
 mass = 1.0
@@ -121,9 +121,9 @@ def is_in_grid(c):
 
 @ti.func
 def confine_position_to_boundary(p):
-    bmin = particle_radius_in_world
+    bmin = particle_radius_in_world * 10 
     bmax = ti.Vector([boundary[0], boundary[1], boundary[2]
-                      ]) - particle_radius_in_world
+                      ]) - particle_radius_in_world * 10
     for i in ti.static(range(dim)):
         # Use randomness to prevent particles from sticking into each other after clamping
         if p[i] <= bmin:
@@ -136,9 +136,12 @@ def confine_position_to_boundary(p):
 
 
 @ti.kernel
-def prologue():
+def prologue(frame: ti.i32):
+    # print('prologue', frame)
     # save old positions
     for i in positions:
+        # if frame >=50: 
+        #     print('i', i)
         old_positions[i] = positions[i]
     # apply gravity within boundary
     for i in positions:
@@ -242,8 +245,8 @@ def epilogue():
     # no vorticity/xsph because we cannot do cross product in 2D...
 
 
-def run_pbf():
-    prologue()
+def run_pbf(frame: int):
+    prologue(frame)
     for _ in range(pbf_num_iters):
         substep()
     epilogue()
@@ -288,10 +291,11 @@ def main():
     gui = ti.GUI('PBF3D', screen_res, background_color = 0xffffff) 
     frame=0
     while gui.running and not gui.get_event(gui.ESCAPE):
-
-        run_pbf()
+        print("frame:",frame)
+        run_pbf(frame)
 
         pos = positions.to_numpy()
+        # np.savetxt(f'result/res_{frame:03d}.txt',pos)
         # print(pos)
         # export_file = "PLY/pbf3d.ply"
         # if export_file:

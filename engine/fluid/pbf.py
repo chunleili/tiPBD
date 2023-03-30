@@ -9,21 +9,25 @@ import taichi as ti
 
 ti.init(arch=ti.cpu)
 
-screen_res = (800, 400)
+# screen_res = (800, 800, 800)
 screen_to_world_ratio = 10.0
-boundary = (screen_res[0] / screen_to_world_ratio,
-            screen_res[1] / screen_to_world_ratio)
+# boundary = (screen_res[0] / screen_to_world_ratio,
+#             screen_res[1] / screen_to_world_ratio,
+#             screen_res[1] / screen_to_world_ratio,
+#             )
 cell_size = 2.51
 cell_recpr = 1.0 / cell_size
 
 
-def round_up(f, s):
-    return (math.floor(f * cell_recpr / s) + 1) * s
+# def round_up(f, s):
+#     return (math.floor(f * cell_recpr / s) + 1) * s
 
 
-grid_size = (round_up(boundary[0], 1), round_up(boundary[1], 1))
+# grid_size = (round_up(boundary[0], 1), round_up(boundary[1], 1))
+boundary = (80.0, 40.0, 80.0)
+grid_size = (32,16,32)
 
-dim = 2
+dim = 3
 bg_color = 0x112f41
 particle_color = 0x068587
 boundary_color = 0xebaca2
@@ -34,7 +38,7 @@ max_num_neighbors = 100
 time_delta = 1.0 / 20.0
 epsilon = 1e-5
 particle_radius = 3.0
-particle_radius_in_world = particle_radius / screen_to_world_ratio
+# particle_radius_in_world = particle_radius / screen_to_world_ratio
 
 # PBF params
 h_ = 1.1
@@ -63,15 +67,18 @@ position_deltas = ti.Vector.field(dim, float)
 # 0: x-pos, 1: timestep in sin()
 board_states = ti.Vector.field(2, float)
 
-ti.root.dense(ti.i, num_particles).place(old_positions, positions, velocities)
-grid_snode = ti.root.dense(ti.ij, grid_size)
-grid_snode.place(grid_num_particles)
-grid_snode.dense(ti.k, max_num_particles_per_cell).place(grid2particles)
-nb_node = ti.root.dense(ti.i, num_particles)
-nb_node.place(particle_num_neighbors)
-nb_node.dense(ti.j, max_num_neighbors).place(particle_neighbors)
-ti.root.dense(ti.i, num_particles).place(lambdas, position_deltas)
-ti.root.place(board_states)
+# ti.root.dense(ti.i, num_particles).place(old_positions, positions, velocities)
+# grid_snode = ti.root.dense(ti.ij, grid_size)
+# grid_snode.place(grid_num_particles)
+# grid_snode.dense(ti.k, max_num_particles_per_cell).place(grid2particles)
+# nb_node = ti.root.dense(ti.i, num_particles)
+# nb_node.place(particle_num_neighbors)
+# nb_node.dense(ti.j, max_num_neighbors).place(particle_neighbors)
+# ti.root.dense(ti.i, num_particles).place(lambdas, position_deltas)
+# ti.root.place(board_states)
+
+positions = ti.Vector.field(3, float, num_particles)
+velocities = ti.Vector.field(3, float, num_particles)
 
 
 @ti.func
@@ -85,7 +92,7 @@ def poly6_value(s, h):
 
 @ti.func
 def spiky_gradient(r, h):
-    result = ti.Vector([0.0, 0.0])
+    result = ti.Vector([0.0, 0.0,0.0])
     r_len = r.norm()
     if 0 < r_len and r_len < h:
         x = (h - r_len) / (h * h * h)
@@ -120,8 +127,7 @@ def is_in_grid(c):
 @ti.func
 def confine_position_to_boundary(p):
     bmin = particle_radius_in_world
-    bmax = ti.Vector([board_states[None][0], boundary[1]
-                      ]) - particle_radius_in_world
+    bmax = ti.Vector([boundary[0], boundary[1], boundary[2]]) - particle_radius_in_world
     for i in ti.static(range(dim)):
         # Use randomness to prevent particles from sticking into each other after clamping
         if p[i] <= bmin:
@@ -132,26 +138,13 @@ def confine_position_to_boundary(p):
 
 
 @ti.kernel
-def move_board():
-    # probably more accurate to exert force on particles according to hooke's law.
-    b = board_states[None]
-    b[1] += 1.0
-    period = 90
-    vel_strength = 8.0
-    if b[1] >= 2 * period:
-        b[1] = 0
-    b[0] += -ti.sin(b[1] * np.pi / period) * vel_strength * time_delta
-    board_states[None] = b
-
-
-@ti.kernel
 def prologue():
     # save old positions
     for i in positions:
         old_positions[i] = positions[i]
     # apply gravity within boundary
     for i in positions:
-        g = ti.Vector([0.0, -9.8])
+        g = ti.Vector([0.0, -9.8, 0])
         pos, vel = positions[i], velocities[i]
         vel += g * time_delta
         pos += vel * time_delta
@@ -194,7 +187,7 @@ def substep():
     for p_i in positions:
         pos_i = positions[p_i]
 
-        grad_i = ti.Vector([0.0, 0.0])
+        grad_i = ti.Vector([0.0, 0.0, 0])
         sum_gradient_sqr = 0.0
         density_constraint = 0.0
 
@@ -221,7 +214,7 @@ def substep():
         pos_i = positions[p_i]
         lambda_i = lambdas[p_i]
 
-        pos_delta_i = ti.Vector([0.0, 0.0])
+        pos_delta_i = ti.Vector([0.0, 0.0, 0])
         for j in range(particle_num_neighbors[p_i]):
             p_j = particle_neighbors[p_i, j]
             if p_j < 0:
@@ -272,15 +265,16 @@ def render(gui):
 
 @ti.kernel
 def init_particles():
+    init_pos = ti.Vector([10.0,10.0,10.0]) 
+    cube_size = 20
+    spacing = 1
+    num_per_row = (int) (cube_size // spacing) + 1
+    num_per_floor = num_per_row * num_per_row
     for i in range(num_particles):
-        delta = h_ * 0.8
-        offs = ti.Vector([(boundary[0] - delta * num_particles_x) * 0.5,
-                          boundary[1] * 0.02])
-        positions[i] = ti.Vector([i % num_particles_x, i // num_particles_x
-                                  ]) * delta + offs
-        for c in ti.static(range(dim)):
-            velocities[i][c] = (ti.random() - 0.5) * 4
-    board_states[None] = ti.Vector([boundary[0] - epsilon, -0.0])
+        floor = i // (num_per_floor) 
+        row = (i % num_per_floor) // num_per_row
+        col = (i % num_per_floor) % num_per_row
+        positions[i] = ti.Vector([col*spacing, floor*spacing, row*spacing]) + init_pos
 
 
 def print_stats():

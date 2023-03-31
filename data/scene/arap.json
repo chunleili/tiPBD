@@ -14,7 +14,8 @@
 		"show_fine": false,
 		"compute_energy": false,
 		"use_log": false,
-		"initial_pause": false
+		"initial_pause": false,
+		"use_autodiff": true
 	},
 	"solids": [
 		{

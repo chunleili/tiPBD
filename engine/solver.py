@@ -1,9 +1,9 @@
 import taichi as ti
 from engine.fem.fem_base import FemBase
 from engine.fem.arap import ARAP
+from engine.fem.arap_autodiff import ARAP_autodiff
 from engine.fem.neohooken import NeoHooken
 from engine.metadata import meta
-from engine.debug import debug_info
 from engine.metadata import meta
 @ti.data_oriented
 class Solver:
@@ -21,7 +21,10 @@ class Solver:
 
 
         if meta.common['constitutive_model'] == 'arap':
-            pbd_solver = ARAP()
+            if meta.common['use_autodiff'] == True:
+                pbd_solver = ARAP_autodiff()
+            else:
+                pbd_solver = ARAP()
         elif meta.common['constitutive_model'] == 'neohooken':
             pbd_solver = NeoHooken()
         else:
@@ -72,4 +75,4 @@ class Solver:
             #show the frame
             canvas.scene(scene)
             window.show()
-            ti.profiler.print_kernel_profiler_info()
+            # ti.profiler.print_kernel_profiler_info()

@@ -6,7 +6,9 @@ if __name__ == "__main__":
 
     if args.use_dearpygui:
         import ui.dearpygui as gui
-        gui.run()
+        from multiprocessing import  Process
+        gui_process = Process(target=gui.run)
+        gui_process.start()
     
     ti.init(arch=args.arch, kernel_profiler=args.kernel_profiler)
 

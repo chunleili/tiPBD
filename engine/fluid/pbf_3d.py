@@ -294,7 +294,7 @@ def render_ggui():
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1, 1, 1))
 
     scale_world()
-    scene.particles(positions_show, color = (0.68, 0.26, 0.19), radius = 0.01)
+    scene.particles(positions_show, color = (69/255, 177/255, 232/255), radius = 0.01)
     canvas.scene(scene)
     window.show()
 

@@ -18,16 +18,11 @@ grid_size = (32,16)
 boundary = (80.0, 40.0)
 
 dim = 2
-bg_color = 0x112f41
-particle_color = 0x068587
-boundary_color = 0xebaca2
-num_particles_x = 60
-num_particles = num_particles_x * 20
+num_particles = 1200
 max_num_particles_per_cell = 100
 max_num_neighbors = 100
 time_delta = 1.0 / 20.0
 epsilon = 1e-5
-particle_radius = 3.0
 
 # PBF params
 h_ = 1.1
@@ -123,6 +118,7 @@ def is_in_grid(c):
 
 @ti.func
 def confine_position_to_boundary(p):
+    particle_radius = 3.0
     particle_radius_in_world = particle_radius / screen_to_world_ratio
     bmin = particle_radius_in_world
     bmax = ti.Vector([boundary[0], boundary[1]
@@ -252,6 +248,7 @@ def run_pbf():
 
 @ti.kernel
 def init_particles():
+    num_particles_x = 60   
     for i in range(num_particles):
         delta = h_ * 0.8
         offs = ti.Vector([(boundary[0] - delta * num_particles_x) * 0.5,

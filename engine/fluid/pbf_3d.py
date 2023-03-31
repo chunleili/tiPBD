@@ -14,8 +14,8 @@ screen_to_world_ratio = 10.0
 cell_size = 2.51
 cell_recpr = 1.0 / cell_size
 
-grid_size = (32,16)
 boundary = (80.0, 40.0)
+grid_size = (math.ceil(boundary[0] * cell_recpr), math.ceil(boundary[1] * cell_recpr))
 
 dim = 2
 num_particles = 1200

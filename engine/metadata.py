@@ -62,19 +62,4 @@ class MetaData:
                 self.inv_lame_mu = 1.0/self.lame_mu
                 self.gamma = 1 + self.inv_lame_lambda / self.inv_lame_mu # stable neo-hookean
 
-
-            print("\n-----------\nRead parameters from scene file: ", self.scene_path)
-            print("dt:", self.dt)
-            print("relax_factor:", self.relax_factor)
-            print("gravity:", self.gravity)
-            print("ground:", self.ground)
-            print("max_iter:", self.max_iter)
-            print("num_substeps:", self.num_substeps)
-            print("use_multigrid:", self.use_multigrid)
-            print("show_coarse:", self.show_coarse)
-            print("show_fine:", self.show_fine)
-            print("compute_energy:", self.compute_energy)
-            print("geometry_file:", self.geometry_file)
-            print("-----------\n")
-
 meta = MetaData()

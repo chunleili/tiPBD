@@ -9,17 +9,19 @@ import taichi as ti
 
 ti.init(arch=ti.cpu)
 
+dim = 2
 screen_res = (800, 400)
 screen_to_world_ratio = 10.0
 cell_size = 2.51
 cell_recpr = 1.0 / cell_size
+particle_radius = 2.0/3
 
 boundary = (80.0, 40.0)
 grid_size = (math.ceil(boundary[0] * cell_recpr), math.ceil(boundary[1] * cell_recpr))
+num_particles_xyz = tuple([math.ceil(boundary[d] / (2*particle_radius)) for d in range(dim)])
+num_particles = 1
+for d in range(dim): num_particles *= num_particles_xyz[d]
 
-dim = 2
-num_particles = 1200
-particle_radius = 2.0/3
 max_num_particles_per_cell = 100
 max_num_neighbors = 100
 time_delta = 1.0 / 20.0
@@ -248,16 +250,13 @@ def run_pbf():
 
 @ti.kernel
 def init_particles():
-    # num_particles_x = 60   
-    num_particles_x = int(boundary[0] // (2*particle_radius) )
     for i in range(num_particles):
         delta = h_ * 0.8
-        offs = ti.Vector([(boundary[0] - delta * num_particles_x) * 0.5,
+        offs = ti.Vector([(boundary[0] - delta * num_particles_xyz[0]) * 0.5,
                           boundary[1] * 0.02])
-        positions[i] = ti.Vector([i % num_particles_x, i // num_particles_x
+        positions[i] = ti.Vector([i % num_particles_xyz[0], i // num_particles_xyz[0]
                                   ]) * delta + offs
-        for c in ti.static(range(dim)):
-            velocities[i][c] = (ti.random() - 0.5) * 4
+
 
 # @ti.kernel
 # def init_particles():

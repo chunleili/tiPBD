@@ -15,7 +15,7 @@
 		"compute_energy": false,
 		"use_log": false,
 		"initial_pause": false,
-		"use_autodiff": true
+		"use_autodiff": false
 	},
 	"solids": [
 		{

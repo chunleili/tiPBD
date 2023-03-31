@@ -13,6 +13,8 @@ def parse_commandline_args():
                         help="backend(arch) of taichi)")
     parser.add_argument("--kernel_profiler", action='store_true', default=False,
                         help="enable kernel profiler")
+    parser.add_argument("--use_dearpygui", action='store_true', default=True,
+                        help="use dearpygui as gui")
     args = parser.parse_args()
 
     import taichi as ti

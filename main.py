@@ -3,6 +3,11 @@ import taichi as ti
 from ui.parse_commandline_args import parse_commandline_args
 if __name__ == "__main__":
     args = parse_commandline_args()
+
+    if args.use_dearpygui:
+        import ui.dearpygui as gui
+        gui.run()
+    
     ti.init(arch=args.arch, kernel_profiler=args.kernel_profiler)
 
     solver = Solver()

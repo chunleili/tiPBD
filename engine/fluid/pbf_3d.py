@@ -10,14 +10,13 @@ import taichi as ti
 ti.init(arch=ti.cpu)
 
 dim = 2
-screen_res = (800, 400)
 screen_to_world_ratio = 10.0
 cell_size = 2.51
 cell_recpr = 1.0 / cell_size
 particle_radius = 2.0/3
 
 boundary = (80.0, 40.0)
-grid_size = (math.ceil(boundary[0] * cell_recpr), math.ceil(boundary[1] * cell_recpr))
+grid_size = (math.ceil(boundary[0] / cell_size), math.ceil(boundary[1] / cell_size))
 num_particles_xyz = tuple([math.ceil(boundary[d] / (2*particle_radius)) for d in range(dim)])
 num_particles = 1
 for d in range(dim): num_particles *= num_particles_xyz[d]
@@ -278,7 +277,7 @@ positions_show = ti.Vector.field(dim, float, shape =(num_particles))
 def scale_world():
     for I in positions:
         for j in ti.static(range(dim)):
-            positions_show[I][j] = positions[I][j] * screen_to_world_ratio / screen_res[j]
+            positions_show[I][j] = positions[I][j] / boundary[j]
 
 
 window = ti.ui.Window("pbf", (1024, 1024),vsync=True)

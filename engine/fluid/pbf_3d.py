@@ -19,6 +19,7 @@ boundary = (80.0, 40.0)
 
 dim = 2
 num_particles = 1200
+particle_radius = 2.0/3
 max_num_particles_per_cell = 100
 max_num_neighbors = 100
 time_delta = 1.0 / 20.0
@@ -118,11 +119,10 @@ def is_in_grid(c):
 
 @ti.func
 def confine_position_to_boundary(p):
-    particle_radius = 3.0
-    particle_radius_in_world = particle_radius / screen_to_world_ratio
-    bmin = particle_radius_in_world
+    padding =  4.5 * particle_radius / screen_to_world_ratio
+    bmin = padding
     bmax = ti.Vector([boundary[0], boundary[1]
-                      ]) - particle_radius_in_world
+                      ]) - padding
     for i in ti.static(range(dim)):
         # Use randomness to prevent particles from sticking into each other after clamping
         if p[i] <= bmin:
@@ -248,7 +248,8 @@ def run_pbf():
 
 @ti.kernel
 def init_particles():
-    num_particles_x = 60   
+    # num_particles_x = 60   
+    num_particles_x = int(boundary[0] // (2*particle_radius) )
     for i in range(num_particles):
         delta = h_ * 0.8
         offs = ti.Vector([(boundary[0] - delta * num_particles_x) * 0.5,

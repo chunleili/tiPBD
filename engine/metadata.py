@@ -24,9 +24,11 @@ class MetaData:
         self.step = 0
         self.paused = False
 
+        self.args = parse_commandline_args()
+        print("args:", self.args)
+
         # read from json scene file
-        self.use_scene_file = parse_commandline_args().use_scene_file
-        if self.use_scene_file:
+        if self.args.use_scene_file:
             self.scene_path = filedialog()
             self.scene_name = self.scene_path.split("/")[-1].split(".")[0]
 

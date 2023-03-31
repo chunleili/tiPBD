@@ -75,4 +75,6 @@ class Solver:
             #show the frame
             canvas.scene(scene)
             window.show()
-            # ti.profiler.print_kernel_profiler_info()
+        
+            if meta.args.kernel_profiler:
+                ti.profiler.print_kernel_profiler_info()

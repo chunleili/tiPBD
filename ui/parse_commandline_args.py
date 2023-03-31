@@ -11,13 +11,17 @@ def parse_commandline_args():
                         help='no gui mode')
     parser.add_argument("--arch", type=str, default="cuda",
                         help="backend(arch) of taichi)")
+    parser.add_argument("--kernel_profiler", action='store_true', default=False,
+                        help="enable kernel profiler")
     args = parser.parse_args()
 
     import taichi as ti
     if args.arch == "cuda":
         args.arch = ti.cuda
-    elif args.arch == "x64":
-        args.arch = ti.x64
+    elif args.arch == "gpu":
+        args.arch = ti.gpu
+    elif args.arch == "cpu":
+        args.arch = ti.cpu
     else:
         args.arch = None
 

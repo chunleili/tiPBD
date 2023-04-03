@@ -2,12 +2,12 @@
 	"common": 
 	{
 		"constitutive_model": "neohooken",
-		"dt": 1e-2,
+		"dt": 1e-4,
 		"relax_factor": 0.5,
 		"gravity": [0.0, -9.81, 0.0],
 		"ground": [0.0, -2.0, 0.0],
-		"max_iter": 2,
-		"num_substeps": 10,
+		"max_iter": 30,
+		"num_substeps": 1,
 		"use_multigrid": false,
 		"show_coarse": true,
 		"show_fine": false,

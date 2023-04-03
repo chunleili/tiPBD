@@ -24,6 +24,9 @@ class NeoHooken(FemBase):
         for c in self.mesh.mesh.cells:
             c.alpha2 = meta.inv_h2 * meta.inv_lame_mu * c.inv_vol
 
+    def reset_lagrangian(self):
+        self.mesh.mesh.cells.lagrangian.fill(0.0)
+        self.mesh.mesh.cells.lagrangian2.fill(0.0)
 
     @ti.kernel
     def project_constraints(self):
@@ -55,11 +58,10 @@ class NeoHooken(FemBase):
             c.lagrangian += dlambda
             self.update_pos(c, dlambda, g0, g1, g2, g3)
 
-
             # # Constraint 2
             C_D = sqrt(f1.norm_sqr() + f2.norm_sqr() + f3.norm_sqr())
-            if C_D < 1e-6:
-                continue
+            # if C_D < 1e-6:
+            #     continue
             r_s = 1.0 / C_D
             f = ti.Vector([f1[0], f1[1], f1[2], f2[0], f2[1], f2[2], f3[0], f3[1], f3[2]])
             g1 = r_s * (dFdp1T @ f)
@@ -67,7 +69,6 @@ class NeoHooken(FemBase):
             g3 = r_s * (dFdp3T @ f)
             g0 = r_s * (-g1 - g2 - g3)
 
-
-            # dlambda2 = self.compute_dlambda(c, C_D, c.alpha2, c.lagrangian2, g0, g1, g2, g3)
-            # c.lagrangian2 += dlambda2
-            # self.update_pos(c, dlambda2, g0, g1, g2, g3)
+            dlambda2 = self.compute_dlambda(c, C_D, c.alpha2, c.lagrangian2, g0, g1, g2, g3)
+            c.lagrangian2 += dlambda2
+            self.update_pos(c, dlambda2, g0, g1, g2, g3)

@@ -18,28 +18,13 @@ class Mesh:
         self.mesh.cells.place({'inv_vol' : ti.f32,
                                'B': ti.math.mat3,
                                'lagrangian': ti.f32,
-                               'alpha': ti.f32,
-                            #    'fem_constraint': ti.f32,
-                            #    'F': ti.math.mat3,
-                            #    'dlambda': ti.f32,
-                            #    'grad0': ti.math.vec3,
-                            #    'grad1': ti.math.vec3,
-                            #    'grad2': ti.math.vec3,
-                            #    'grad3': ti.math.vec3,
-                               })
-        #注意！这里的grad0,1,2,3是针对每个tet的四个顶点的。但是我们把他定义在cell上，而不是vert上。
-        #这是因为meshtaichi中vert是唯一的（和几何点是一一对应的）。
-        #也就是说多个cell共享同一个顶点时，这个顶点上的数据可能会被覆盖掉。
-        #所以这里我们需要为每个tet单独存储grad0,1,2,3。
+                               'alpha': ti.f32})
 
         self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
 
-        self.potential_energy = ti.field(float, (), needs_grad=True)
-        self.inertial_energy = ti.field(float, (), needs_grad=True)
-        self.total_energy = ti.field(float, (), needs_grad=True)
-
-        # self.lame_lambda = meta.config.get_solids()["lame_lambda"]
-        # self.inv_lame_lambda = 1.0 / self.lame_lambda
+        self.potential_energy = ti.field(float, ())
+        self.inertial_energy = ti.field(float, ())
+        self.total_energy = ti.field(float, ())
 
         self.init_physics()
 

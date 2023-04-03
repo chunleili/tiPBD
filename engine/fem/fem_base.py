@@ -74,9 +74,12 @@ class FemBase:
         dlambda = -(constraint + alpha * lagrangian) / (denorminator + alpha)
         return dlambda
 
+    def reset_lagrangian(self):
+        self.mesh.mesh.cells.lagrangian.fill(0.0)
+
     def substep(self):
         self.pre_solve(meta.dt/meta.num_substeps)
-        self.mesh.mesh.cells.lagrangian.fill(0.0)
+        self.reset_lagrangian()
         for ite in range(meta.max_iter):
             self.project_constraints()
             self.collsion_response()

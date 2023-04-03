@@ -11,7 +11,7 @@ if __name__ == "__main__":
         gui_process = Process(target=gui.run)
         gui_process.start()
     
-    ti.init(arch=args.arch, kernel_profiler=args.kernel_profiler)
+    ti.init(arch=args.arch, kernel_profiler=args.kernel_profiler, debug=args.debug)
 
     solver = Solver()
     solver.run()

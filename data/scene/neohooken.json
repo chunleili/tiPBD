@@ -8,10 +8,10 @@
 		"ground": [0.0, -2.0, 0.0],
 		"max_iter": 2,
 		"num_substeps": 10,
-		"use_multigrid": true,
+		"use_multigrid": false,
 		"show_coarse": true,
 		"show_fine": false,
-		"compute_energy": true,
+		"compute_energy": false,
 		"use_log": false,
 		"initial_pause": false
 	},

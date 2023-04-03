@@ -15,15 +15,24 @@ def make_matrix(x, y, z):
 class NeoHooken(FemBase):
     def __init__(self):
         super().__init__()
+        self.mesh.mesh.cells.place({'lagrangian2': ti.f32,
+                                    'alpha2': ti.f32})
+        self.init_alpha2()
+
+    @ti.kernel
+    def init_alpha2(self):
+        for c in self.mesh.mesh.cells:
+            c.alpha2 = meta.inv_h2 * meta.inv_lame_mu * c.inv_vol
+
 
     @ti.kernel
     def project_constraints(self):
         for c in self.mesh.mesh.cells:
             p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
             
-            F = self.compute_F(c, c.B)
+            F = self.compute_F(p0.pos, p1.pos, p2.pos, p3.pos, c.B)
 
-            # Constraint 1 
+            # # Constraint 1 
             C_H = F.determinant() - meta.gamma
             f1 = ti.Vector([F[0,0], F[1, 0], F[2, 0]])
             f2 = ti.Vector([F[0,1], F[1, 1], F[2, 1]])
@@ -47,7 +56,7 @@ class NeoHooken(FemBase):
             self.update_pos(c, dlambda, g0, g1, g2, g3)
 
 
-            # Constraint 2
+            # # Constraint 2
             C_D = sqrt(f1.norm_sqr() + f2.norm_sqr() + f3.norm_sqr())
             if C_D < 1e-6:
                 continue
@@ -59,6 +68,6 @@ class NeoHooken(FemBase):
             g0 = r_s * (-g1 - g2 - g3)
 
 
-            dlambda = self.compute_dlambda(c, C_D, c.alpha, c.lagrangian, g0, g1, g2, g3)
-            c.lagrangian += dlambda
-            self.update_pos(c, dlambda, g0, g1, g2, g3)
+            # dlambda2 = self.compute_dlambda(c, C_D, c.alpha2, c.lagrangian2, g0, g1, g2, g3)
+            # c.lagrangian2 += dlambda2
+            # self.update_pos(c, dlambda2, g0, g1, g2, g3)

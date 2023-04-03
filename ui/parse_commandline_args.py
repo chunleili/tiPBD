@@ -15,6 +15,8 @@ def parse_commandline_args():
                         help="enable kernel profiler")
     parser.add_argument("--use_dearpygui", action='store_true', default=False,
                         help="use dearpygui as gui")
+    parser.add_argument("--debug", action='store_true', default=False,
+                    help="debug mode")
     args = parser.parse_args()
 
     import taichi as ti

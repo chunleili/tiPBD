@@ -9,26 +9,22 @@ import taichi as ti
 
 ti.init(arch=ti.cpu)
 
-screen_res = (800, 400)
+dim = 2
 screen_to_world_ratio = 10.0
 cell_size = 2.51
 cell_recpr = 1.0 / cell_size
+particle_radius = 2.0/3
 
-grid_size = (32,16)
 boundary = (80.0, 40.0)
+grid_size = (math.ceil(boundary[0] / cell_size), math.ceil(boundary[1] / cell_size))
+num_particles_xyz = tuple([math.ceil(boundary[d] / (2*particle_radius)) for d in range(dim)])
+num_particles = 1
+for d in range(dim): num_particles *= num_particles_xyz[d]
 
-dim = 2
-bg_color = 0x112f41
-particle_color = 0x068587
-boundary_color = 0xebaca2
-num_particles_x = 60
-num_particles = num_particles_x * 20
 max_num_particles_per_cell = 100
 max_num_neighbors = 100
 time_delta = 1.0 / 20.0
 epsilon = 1e-5
-particle_radius = 3.0
-particle_radius_in_world = particle_radius / screen_to_world_ratio
 
 # PBF params
 h_ = 1.1
@@ -76,7 +72,6 @@ particle_num_neighbors = ti.field(int, shape = (num_particles))
 particle_neighbors = ti.field(int, shape = ((num_particles,) + (max_num_neighbors,)))
 lambdas = ti.field(float, shape = (num_particles))
 position_deltas = ti.Vector.field(dim, float, shape=(num_particles))
-# board_states = ti.Vector.field(2, float, shape =())
 
 
 @ti.func
@@ -124,9 +119,10 @@ def is_in_grid(c):
 
 @ti.func
 def confine_position_to_boundary(p):
-    bmin = particle_radius_in_world
+    padding =  4.5 * particle_radius / screen_to_world_ratio
+    bmin = padding
     bmax = ti.Vector([boundary[0], boundary[1]
-                      ]) - particle_radius_in_world
+                      ]) - padding
     for i in ti.static(range(dim)):
         # Use randomness to prevent particles from sticking into each other after clamping
         if p[i] <= bmin:
@@ -254,13 +250,10 @@ def run_pbf():
 def init_particles():
     for i in range(num_particles):
         delta = h_ * 0.8
-        offs = ti.Vector([(boundary[0] - delta * num_particles_x) * 0.5,
+        offs = ti.Vector([(boundary[0] - delta * num_particles_xyz[0]) * 0.5,
                           boundary[1] * 0.02])
-        positions[i] = ti.Vector([i % num_particles_x, i // num_particles_x
+        positions[i] = ti.Vector([i % num_particles_xyz[0], i // num_particles_xyz[0]
                                   ]) * delta + offs
-        for c in ti.static(range(dim)):
-            velocities[i][c] = (ti.random() - 0.5) * 4
-
 
 positions_show = ti.Vector.field(dim, float, shape =(num_particles))
 
@@ -268,10 +261,10 @@ positions_show = ti.Vector.field(dim, float, shape =(num_particles))
 def scale_world():
     for I in positions:
         for j in ti.static(range(dim)):
-            positions_show[I][j] = positions[I][j] * screen_to_world_ratio / screen_res[j]
+            positions_show[I][j] = positions[I][j] / boundary[j]
 
 
-window = ti.ui.Window("pbf", (1024, 1024),vsync=False)
+window = ti.ui.Window("pbf", (1024, 1024),vsync=True)
 canvas = window.get_canvas()
 scene = ti.ui.Scene()
 camera = ti.ui.Camera()
@@ -285,7 +278,7 @@ def render_ggui():
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1, 1, 1))
 
     scale_world()
-    scene.particles(positions_show, color = (0.68, 0.26, 0.19), radius = 0.01)
+    scene.particles(positions_show, color = (69/255, 177/255, 232/255), radius = 0.01)
     canvas.scene(scene)
     window.show()
 

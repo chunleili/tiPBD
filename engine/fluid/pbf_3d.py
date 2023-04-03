@@ -72,7 +72,6 @@ particle_num_neighbors = ti.field(int, shape = (num_particles))
 particle_neighbors = ti.field(int, shape = ((num_particles,) + (max_num_neighbors,)))
 lambdas = ti.field(float, shape = (num_particles))
 position_deltas = ti.Vector.field(dim, float, shape=(num_particles))
-# board_states = ti.Vector.field(2, float, shape =())
 
 
 @ti.func

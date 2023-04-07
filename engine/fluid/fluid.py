@@ -11,6 +11,7 @@ class Fluid:
         meta.particle_radius = meta.materials[0]["particle_radius"]
         meta.kernel_radius = 4 * meta.particle_radius
         meta.padding = 5 * meta.particle_radius
+        meta.neighbor_radius = 4 * meta.particle_radius * 1.05
         meta.boundary = meta.materials[0]["boundary"]
         meta.gravity = meta.materials[0]["gravity"]
         meta.cell_size = meta.kernel_radius
@@ -32,6 +33,8 @@ class Fluid:
 
         self.grid_num_particles = ti.field(int, shape = (meta.num_grid))
         self.grid2particles = ti.field(int, (meta.num_grid + (meta.max_num_particles_per_cell,)))
+        self.particle_neighbors = ti.field(int, (self.num_particles, meta.max_num_neighbors))
+        self.particle_num_neighbors = ti.field(int, shape = (self.num_particles))
 
 
     def init(self):
@@ -40,7 +43,9 @@ class Fluid:
 
     def substep(self):
         explicit_euler(self.pos, self.prev_pos, self.vel, meta.dt)
-        prepare_neighbor_search(self.pos, self.grid_num_particles, self.grid2particles)
+        prepare_neighbor_search(self.pos, self.grid_num_particles, self.particle_neighbors, self.grid2particles, self.particle_num_neighbors)
+        from engine.debug_info import debug_info
+        debug_info(self.particle_num_neighbors)
         for _ in range(meta.max_iter):
             iteration()
         epilogue()
@@ -67,13 +72,40 @@ def collision_response(p):
 
 
 @ti.kernel
-def prepare_neighbor_search(pos: ti.template(), grid_num_particles: ti.template(), particle_neighbors: ti.template()):
+def prepare_neighbor_search(pos: ti.template(), grid_num_particles: ti.template(), particle_neighbors: ti.template(), grid2particles: ti.template(), particle_num_neighbors: ti.template()):
     # clear neighbor lookup table
     for I in ti.grouped(grid_num_particles):
         grid_num_particles[I] = 0
     for I in ti.grouped(particle_neighbors):
         particle_neighbors[I] = -1    
+    
+    cell_inv = 1 / meta.cell_size
+    # update grid
+    for p_i in pos:
+        cell = ti.cast(pos[p_i] * cell_inv, ti.i32)
+        offs = ti.atomic_add(grid_num_particles[cell], 1)
+        grid2particles[cell, offs] = p_i
+    # find particle neighbors
+    for p_i in pos:
+        cell = ti.cast(pos[p_i] * cell_inv, ti.i32)
+        nb_i = 0
+        for offs in ti.static(ti.grouped(ti.ndrange((-1, 2), (-1, 2), (-1, 2)))):
+            c = cell + offs
+            if is_in_grid(c):
+                for k in range(grid_num_particles[c]):
+                    p_j = grid2particles[c, k]
+                    if nb_i < meta.max_num_neighbors and p_j != p_i and (pos[p_i] - pos[p_j]).norm() < meta.neighbor_radius:
+                        particle_neighbors[p_i, nb_i] = p_j
+                        nb_i += 1
+        particle_num_neighbors[p_i] = nb_i
 
+@ti.func
+def is_in_grid(cell):
+    res = True
+    for d in ti.static(range(meta.dim)):
+        if cell[d] < 0 or cell[d] >= meta.num_grid[d]:
+            res = False
+    return res
 
 @ti.kernel
 def prologue(pos: ti.template(), velocities: ti.template(), old_positions: ti.template(), grid_num_particles: ti.template(), grid2particles: ti.template(), particle_neighbors: ti.template(), particle_num_neighbors: ti.template()):

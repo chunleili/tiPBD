@@ -1,0 +1,24 @@
+{
+	"common": 
+	{
+		"dt": 1e-3,
+		"num_substeps": 1,
+		"initial_pause": true
+	},
+	"materials": [
+		{
+			"name": "bunny_fluid",
+			"geo_path": "data/model/bunny_fluid/bunny_fluid.ply",
+			"type": "fluid",
+			"particle_radius": 0.025,
+			"rho0": 1000.0,
+			"lambda_epsilon": 1e-6,
+			"epsilon": 1e-5,
+			"coeff_dq": 0.3,
+			"coeff_k": 0.1,
+			"max_iter": 8,
+			"gravity": [0.0, -9.8, 0.0],
+			"world_bound": [[-10.0, 10.0], [-10.0, 10.0], [-10.0, 10.0]]
+		}
+	]
+}

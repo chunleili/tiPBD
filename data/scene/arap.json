@@ -17,9 +17,10 @@
 		"initial_pause": false,
 		"use_autodiff": false
 	},
-	"solids": [
+	"materials": [
 		{
             "name": "bunny1k",
+			"type": "volumetric",
 			"geometry_file": "data/model/bunny1k2k/bunny1k.node",
 			"lame_lambda": 1e5
 		}

@@ -1,10 +1,100 @@
 import taichi as ti
-from engine.fem.fem_base import FemBase
+import meshtaichi_patcher as patcher
+import numpy as np
+import taichi.math as tm
+from engine.metadata import meta
+from engine.log import log_energy
 
+meta.dt = meta.common["dt"]
+meta.relax_factor = meta.common["relax_factor"]
+meta.gravity = ti.Vector(meta.common["gravity"])
+meta.ground = ti.Vector(meta.common["ground"])
+meta.max_iter = meta.common["max_iter"]
+meta.num_substeps = meta.common["num_substeps"]
+meta.use_multigrid = meta.common["use_multigrid"]
+meta.show_coarse, meta.show_fine = meta.common["show_coarse"], meta.common["show_fine"]
+meta.compute_energy = meta.common["compute_energy"]
+meta.use_log = meta.common["use_log"]
+meta.paused = meta.common["initial_pause"]
+meta.inv_h2 = 1.0 / meta.dt / meta.dt
+
+meta.geometry_file = meta.materials[0]["geometry_file"] # only support one solid for now
+meta.lame_lambda = meta.materials[0]["lame_lambda"]
+meta.inv_lame_lambda = 1.0/meta.lame_lambda
 
 @ti.data_oriented
-class ARAP(FemBase):
+class Mesh:
+    def __init__(self, geometry_file, direct_import_faces=True):
+        geometry_file_no_ext = geometry_file.split(".")[0]        
+        node_file = geometry_file_no_ext + ".node"
+        self.mesh = patcher.load_mesh(node_file, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
+
+        self.mesh.verts.place({ 'vel' : ti.math.vec3,
+                               'pos' : ti.math.vec3,
+                                'prev_pos' : ti.math.vec3,
+                                'predict_pos' : ti.math.vec3,
+                                'inv_mass' : ti.f32})
+        self.mesh.cells.place({'inv_vol' : ti.f32,
+                               'B': ti.math.mat3,
+                               'lagrangian': ti.f32,
+                               'alpha': ti.f32})
+
+        self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
+
+        self.potential_energy = ti.field(float, ())
+        self.inertial_energy = ti.field(float, ())
+        self.total_energy = ti.field(float, ())
+
+        self.init_physics()
+
+        # 设置显示三角面的indices
+        # 自己计算surf_show
+        if not direct_import_faces:
+            self.surf_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
+            self.init_tet_indices(self.mesh, self.surf_show)
+        # 直接读取surf_show
+        else:
+            surf_show_np = self.directly_import_faces(geometry_file_no_ext + '.face')
+            self.surf_show = ti.field(ti.i32, surf_show_np.shape[0] * 3)
+            self.surf_show.from_numpy(surf_show_np.reshape(surf_show_np.shape[0] * 3))
+
+
+    @staticmethod
+    @ti.kernel
+    def init_tet_indices(mesh: ti.template(), indices: ti.template()):
+        for c in mesh.cells:
+            ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
+            for i in ti.static(range(4)):
+                for j in ti.static(range(3)):
+                    indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
+
+    @staticmethod
+    def directly_import_faces(face_file_name):
+        with open(face_file_name, 'r') as f:
+            lines = f.readlines()
+            NF = int(lines[0].split()[0])
+            face_indices = np.zeros((NF, 3), dtype=np.int32)
+            for i in range(NF):
+                face_indices[i] = np.array(lines[i + 1].split()[1:-1],
+                                        dtype=np.int32)
+        return face_indices
+
+    @ti.kernel
+    def init_physics(self):
+        for v in self.mesh.verts:
+            v.inv_mass = 1.0
+
+        for c in self.mesh.cells:
+            p0, p1, p2, p3= c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos
+            Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
+            c.B = Dm.inverse().transpose()
+            c.inv_vol = 6.0/ abs(Dm.determinant()) 
+            c.alpha = meta.inv_h2 * meta.inv_lame_lambda * c.inv_vol
+
+@ti.data_oriented
+class ARAP():
     def __init__(self):
+        self.mesh = Mesh(geometry_file=meta.geometry_file)
         super().__init__()
 
     @ti.kernel
@@ -18,6 +108,84 @@ class ARAP(FemBase):
             dlambda =  self.compute_dlambda(c, constraint, c.alpha, c.lagrangian, g0, g1, g2, g3)
             c.lagrangian += dlambda
             self.update_pos(c, dlambda, g0, g1, g2, g3)
+
+    @ti.kernel
+    def pre_solve(self, dt_: ti.f32):
+        # semi-Euler update pos & vel
+        for v in self.mesh.mesh.verts:
+            if (v.inv_mass != 0.0):
+                v.vel = v.vel + dt_ * meta.gravity
+                v.prev_pos = v.pos
+                v.pos = v.pos + dt_ * v.vel
+                v.predict_pos = v.pos
+
+    @ti.func
+    def update_pos(self, c, dlambda, g0, g1, g2, g3):
+        c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
+        c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * dlambda * g1
+        c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * dlambda * g2
+        c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * dlambda * g3
+
+    @ti.kernel
+    def compute_potential_energy(self):
+        self.mesh.potential_energy[None] = 0.0
+        for c in self.mesh.mesh.cells:
+            invAlpha = meta.inv_lame_lambda * c.inv_vol
+            self.mesh.potential_energy[None] += 0.5 * invAlpha *  c.fem_constraint ** 2 
+
+    @ti.kernel
+    def compute_inertial_energy(self):
+        self.mesh.inertial_energy[None] = 0.0
+        for v in self.mesh.mesh.verts:
+            self.mesh.inertial_energy[None] += 0.5 / v.inv_mass * (v.pos - v.predict_pos).norm_sqr() * meta.inv_h2
+    
+    @ti.kernel
+    def collsion_response(self):
+        for v in self.mesh.mesh.verts:
+            if v.pos[1] < meta.ground.y:
+                v.pos[1] = meta.ground.y
+    
+    @ti.kernel
+    def post_solve(self, dt_: ti.f32):
+        for v in self.mesh.mesh.verts:
+            if v.inv_mass != 0.0:
+                v.vel = (v.pos - v.prev_pos) / dt_
+
+    @ti.func
+    def compute_denorminator(self, c, g0, g1, g2, g3):
+        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
+        res = p0.inv_mass * g0.norm_sqr() + p1.inv_mass * g1.norm_sqr() + p2.inv_mass * g2.norm_sqr() + p3.inv_mass * g3.norm_sqr()
+        return res
+    
+    @ti.func
+    def compute_F(self, x0,x1,x2,x3, B):
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        res = D_s @ B
+        return res
+
+    @ti.func
+    def compute_dlambda(self, c, constraint, alpha, lagrangian, g0, g1, g2, g3):
+        denorminator = self.compute_denorminator(c, g0, g1, g2, g3)
+        dlambda = -(constraint + alpha * lagrangian) / (denorminator + alpha)
+        return dlambda
+
+    def reset_lagrangian(self):
+        self.mesh.mesh.cells.lagrangian.fill(0.0)
+
+    def substep(self):
+        self.pre_solve(meta.dt/meta.num_substeps)
+        self.reset_lagrangian()
+        for ite in range(meta.max_iter):
+            self.project_constraints()
+            self.collsion_response()
+        self.post_solve(meta.dt/meta.num_substeps)
+
+        if meta.compute_energy:
+            self.compute_potential_energy()
+            self.compute_inertial_energy()
+            self.mesh.total_energy[None] = self.mesh.potential_energy[None] + self.mesh.inertial_energy[None]
+            log_energy(self.mesh)
+        meta.frame += 1
 
 
 @ti.func

@@ -1,134 +1,115 @@
-# Macklin, M. and Müller, M., 2013. Position based fluids. ACM Transactions on Graphics (TOG), 32(4), p.104.
-# Taichi implementation by Ye Kuang (k-ye)
-
 import math
-
 import numpy as np
-
 import taichi as ti
+from engine.metadata import meta
+from engine.mesh_io import read_particles
 
-ti.init(arch=ti.cpu)
+dim = 3
 
-dim = 2
-screen_to_world_ratio = 10.0
-cell_size = 2.51
-cell_recpr = 1.0 / cell_size
-particle_radius = 2.0/3
+# vertices_np,_,_ = read_tetgen(parm.geo_noext)
+vertices_np = read_particles(meta.materials[0]["geometry_file"])
+vertices_np = vertices_np.astype(np.float32)
+num_particles = vertices_np.shape[0]
 
-boundary = (80.0, 40.0)
-grid_size = (math.ceil(boundary[0] / cell_size), math.ceil(boundary[1] / cell_size))
-num_particles_xyz = tuple([math.ceil(boundary[d] / (2*particle_radius)) for d in range(dim)])
-num_particles = 1
-for d in range(dim): num_particles *= num_particles_xyz[d]
+class Parm:
+    pass
+parm = Parm()
 
-max_num_particles_per_cell = 100
-max_num_neighbors = 100
-time_delta = 1.0 / 20.0
-epsilon = 1e-5
+def set_parm():
+    parm.dim = dim
+    parm.num_particles = num_particles
+    parm.particle_radius = meta.materials[0]["particle_radius"]
+    parm.kernel_radius = 4.0 * parm.particle_radius 
+    parm.cell_size = 4 * parm.particle_radius
+    parm.world_bound = meta.materials[0]["world_bound"]
+    parm.num_grid = tuple([math.ceil((parm.world_bound[d][1]-parm.world_bound[d][0]) / parm.cell_size) for d in range(dim)])
+    parm.dt = meta.common["dt"]
+    parm.num_substeps = meta.common["num_substeps"]
 
-# PBF params
-h_ = 1.1
-mass = 1.0
-rho0 = 1.0
-lambda_epsilon = 100.0
-pbf_num_iters = 5
-corr_deltaQ_coeff = 0.3
-corrK = 0.001
-# Need ti.pow()
-# corrN = 4.0
-neighbor_radius = h_ * 1.05
+    parm.max_iter = meta.materials[0]["max_iter"]
+    parm.gravity = ti.Vector(meta.materials[0]["gravity"])
+    parm.epsilon = meta.materials[0]["epsilon"]
+    parm.rho0 = meta.materials[0]["rho0"]
+    parm.lambda_epsilon = meta.materials[0]["lambda_epsilon"]
+    parm.coeff_dq = meta.materials[0]["coeff_dq"]
+    parm.coeff_k = meta.materials[0]["coeff_k"]
+    parm.neighbor_radius = parm.kernel_radius * 1.05
+    parm.poly6_factor = 315.0 / (64.0 * math.pi * math.pow(parm.kernel_radius, 9))
+    parm.spiky_grad_factor = -(45.0) / (math.pi * math.pow(parm.kernel_radius, 6))
+    parm.max_num_particles_per_cell = 60
+    parm.max_num_neighbors = 60
 
-poly6_factor = 315.0 / 64.0 / math.pi
-spiky_grad_factor = -45.0 / math.pi
+set_parm()
 
-# old_positions = ti.Vector.field(dim, float)
-# positions = ti.Vector.field(dim, float)
-# velocities = ti.Vector.field(dim, float)
-# grid_num_particles = ti.field(int)
-# grid2particles = ti.field(int)
-# particle_num_neighbors = ti.field(int)
-# particle_neighbors = ti.field(int)
-# lambdas = ti.field(float)
-# position_deltas = ti.Vector.field(dim, float)
-# 0: x-pos, 1: timestep in sin()
-# board_states = ti.Vector.field(2, float)
-
-# ti.root.dense(ti.i, num_particles).place(old_positions, positions, velocities)
-# grid_snode = ti.root.dense(ti.ij, grid_size)
-# grid_snode.place(grid_num_particles)
-# grid_snode.dense(ti.k, max_num_particles_per_cell).place(grid2particles)
-# nb_node = ti.root.dense(ti.i, num_particles)
-# nb_node.place(particle_num_neighbors)
-# nb_node.dense(ti.j, max_num_neighbors).place(particle_neighbors)
-# ti.root.dense(ti.i, num_particles).place(lambdas, position_deltas)
-# ti.root.place(board_states)
-
+# screen_to_world_ratio = 10.0
 positions = ti.Vector.field(dim, float, shape =(num_particles))
 old_positions = ti.Vector.field(dim, float, shape = (num_particles))
 velocities = ti.Vector.field(dim, float, shape = (num_particles))
-grid_num_particles = ti.field(int, shape = (grid_size))
-grid2particles = ti.field(int, (grid_size + (max_num_particles_per_cell,)))
+grid_num_particles = ti.field(int, shape = (parm.num_grid))
+grid2particles = ti.field(int, (parm.num_grid + (parm.max_num_particles_per_cell,)))
 particle_num_neighbors = ti.field(int, shape = (num_particles))
-particle_neighbors = ti.field(int, shape = ((num_particles,) + (max_num_neighbors,)))
+particle_neighbors = ti.field(int, shape = ((num_particles,) + (parm.max_num_neighbors,)))
 lambdas = ti.field(float, shape = (num_particles))
 position_deltas = ti.Vector.field(dim, float, shape=(num_particles))
 
+positions.from_numpy(vertices_np)
+old_positions.from_numpy(vertices_np)
+debug_info(positions, 'positions')
 
 @ti.func
-def poly6_value(s, h):
-    result = 0.0
-    if 0 < s and s < h:
-        x = (h * h - s * s) / (h * h * h)
-        result = poly6_factor * x * x * x
-    return result
-
+def poly6_value(r, h):
+    res = 0.0
+    r2 = r * r
+    h2 = h * h
+    if r2 <= h2:
+        res = math.pow(h2 - r2, 3) * parm.poly6_factor
+    return res
 
 @ti.func
 def spiky_gradient(r, h):
-    result = ti.Vector([0.0, 0.0])
-    r_len = r.norm()
-    if 0 < r_len and r_len < h:
-        x = (h - r_len) / (h * h * h)
-        g_factor = spiky_grad_factor * x * x
-        result = r * g_factor / r_len
-    return result
+    res = ti.Vector([0.0, 0.0, 0])
+    r2 = r.norm_sqr()
+    h2 = h * h
+    if r2 <= h2:
+        rl = math.sqrt(r2)
+        hr = h - rl
+        hr2 = hr * hr
+        res = parm.spiky_grad_factor * hr2 * r * (1.0 / rl)
+    return res
 
 
 @ti.func
 def compute_scorr(pos_ji):
-    # Eq (13)
-    x = poly6_value(pos_ji.norm(), h_) / poly6_value(corr_deltaQ_coeff * h_,
-                                                     h_)
-    # pow(x, 4)
+    x = poly6_value(pos_ji.norm(), parm.kernel_radius) / poly6_value(parm.coeff_dq * parm.kernel_radius, parm.kernel_radius)
     x = x * x
     x = x * x
-    return (-corrK) * x
+    return (-parm.coeff_k) * x
 
 
 @ti.func
 def get_cell(pos):
-    return int(pos * cell_recpr)
+    return int(pos * parm.cell_recpr)
 
 
 @ti.func
 def is_in_grid(c):
     # @c: Vector(i32)
-    return 0 <= c[0] and c[0] < grid_size[0] and 0 <= c[1] and c[
-        1] < grid_size[1]
+    return 0 <= c[0] and c[0] < parm.num_grid[0] and 0 <= c[1] and c[
+        1] < parm.num_grid[1]
 
 
 @ti.func
 def confine_position_to_boundary(p):
-    padding =  4.5 * particle_radius / screen_to_world_ratio
+    padding =  4.5 * parm.particle_radius / parm.screen_to_world_ratio
     bmin = padding
-    bmax = ti.Vector([boundary[0], boundary[1]
+    bmax = ti.Vector([parm.boundary[0], parm.boundary[1]
                       ]) - padding
     for i in ti.static(range(dim)):
         # Use randomness to prevent particles from sticking into each other after clamping
         if p[i] <= bmin:
-            p[i] = bmin + epsilon * ti.random()
+            p[i] = bmin + parm.epsilon * ti.random()
         elif bmax[i] <= p[i]:
-            p[i] = bmax[i] - epsilon * ti.random()
+            p[i] = bmax[i] - parm.epsilon * ti.random()
     return p
 
 
@@ -139,10 +120,9 @@ def prologue():
         old_positions[i] = positions[i]
     # apply gravity within boundary
     for i in positions:
-        g = ti.Vector([0.0, -9.8])
         pos, vel = positions[i], velocities[i]
-        vel += g * time_delta
-        pos += vel * time_delta
+        vel += parm.gravity * parm.dt
+        pos += vel * parm.dt
         positions[i] = confine_position_to_boundary(pos)
 
     # clear neighbor lookup table
@@ -163,20 +143,20 @@ def prologue():
         pos_i = positions[p_i]
         cell = get_cell(pos_i)
         nb_i = 0
-        for offs in ti.static(ti.grouped(ti.ndrange((-1, 2), (-1, 2)))):
+        for offs in ti.static(ti.grouped(ti.ndrange((-1, 2), (-1, 2),(-1,2)))): 
             cell_to_check = cell + offs
             if is_in_grid(cell_to_check):
                 for j in range(grid_num_particles[cell_to_check]):
                     p_j = grid2particles[cell_to_check, j]
-                    if nb_i < max_num_neighbors and p_j != p_i and (
-                            pos_i - positions[p_j]).norm() < neighbor_radius:
+                    if nb_i < parm.max_num_neighbors and p_j != p_i and (
+                            pos_i - positions[p_j]).norm() < parm.neighbor_radius:
                         particle_neighbors[p_i, nb_i] = p_j
                         nb_i += 1
         particle_num_neighbors[p_i] = nb_i
 
 
 @ti.kernel
-def substep():
+def iteration():
     # compute lambdas
     # Eq (8) ~ (11)
     for p_i in positions:
@@ -191,18 +171,18 @@ def substep():
             if p_j < 0:
                 break
             pos_ji = pos_i - positions[p_j]
-            grad_j = spiky_gradient(pos_ji, h_)
+            grad_j = spiky_gradient(pos_ji, parm.kernel_radius)
             grad_i += grad_j
             sum_gradient_sqr += grad_j.dot(grad_j)
             # Eq(2)
-            density_constraint += poly6_value(pos_ji.norm(), h_)
+            density_constraint += poly6_value(pos_ji.norm(), parm.kernel_radius)
 
         # Eq(1)
-        density_constraint = (mass * density_constraint / rho0) - 1.0
+        density_constraint = (parm.mass * density_constraint / parm.rho0) - 1.0
 
         sum_gradient_sqr += grad_i.dot(grad_i)
         lambdas[p_i] = (-density_constraint) / (sum_gradient_sqr +
-                                                lambda_epsilon)
+                                                parm.lambda_epsilon)
     # compute position deltas
     # Eq(12), (14)
     for p_i in positions:
@@ -218,9 +198,9 @@ def substep():
             pos_ji = pos_i - positions[p_j]
             scorr_ij = compute_scorr(pos_ji)
             pos_delta_i += (lambda_i + lambda_j + scorr_ij) * \
-                spiky_gradient(pos_ji, h_)
+                spiky_gradient(pos_ji, parm.kernel_radius)
 
-        pos_delta_i /= rho0
+        pos_delta_i /= parm.rho0
         position_deltas[p_i] = pos_delta_i
     # apply position deltas
     for i in positions:
@@ -235,49 +215,15 @@ def epilogue():
         positions[i] = confine_position_to_boundary(pos)
     # update velocities
     for i in positions:
-        velocities[i] = (positions[i] - old_positions[i]) / time_delta
+        velocities[i] = (positions[i] - old_positions[i]) / parm.dt
     # no vorticity/xsph because we cannot do cross product in 2D...
 
 
-def run_pbf():
+def substep():
     prologue()
-    for _ in range(pbf_num_iters):
-        substep()
+    for _ in range(parm.max_iter):
+        iteration()
     epilogue()
-
-
-@ti.kernel
-def init_particles():
-    for i in range(num_particles):
-        delta = h_ * 0.8
-        offs = ti.Vector([(boundary[0] - delta * num_particles_xyz[0]) * 0.5,
-                          boundary[1] * 0.02])
-        positions[i] = ti.Vector([i % num_particles_xyz[0], i // num_particles_xyz[0]
-                                  ]) * delta + offs
-
-
-# @ti.kernel
-# def init_particles():
-#     init_pos = ti.Vector([10.0,10.0,10.0]) 
-#     cube_size = 20
-#     spacing = 1
-#     num_per_row = (int) (cube_size // spacing) + 1
-#     num_per_floor = num_per_row * num_per_row
-#     for i in range(num_particles):
-#         floor = i // (num_per_floor) 
-#         row = (i % num_per_floor) // num_per_row
-#         col = (i % num_per_floor) % num_per_row
-#         positions[i] = ti.Vector([col*spacing, floor*spacing, row*spacing]) + init_pos
-
-
-positions_show = ti.Vector.field(dim, float, shape =(num_particles))
-
-@ti.kernel
-def scale_world():
-    for I in positions:
-        for j in ti.static(range(dim)):
-            positions_show[I][j] = positions[I][j] / boundary[j]
-
 
 window = ti.ui.Window("pbf", (1024, 1024),vsync=True)
 canvas = window.get_canvas()
@@ -292,16 +238,16 @@ def render_ggui():
     scene.ambient_light((0.8, 0.8, 0.8))
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1, 1, 1))
 
-    scale_world()
-    scene.particles(positions_show, color = (69/255, 177/255, 232/255), radius = 0.01)
+    # scale_world()
+    scene.particles(positions, color = (69/255, 177/255, 232/255), radius = 0.01)
     canvas.scene(scene)
     window.show()
 
 def main():
-    init_particles()
-    print(f'boundary={boundary} grid={grid_size} cell_size={cell_size}')
+    print(f'world_bound={parm.world_bound} grid={parm.num_grid} cell_size={parm.cell_size}')
     while window.running:
-        run_pbf()
+        for _ in range(parm.num_substeps):
+            substep()
         render_ggui()
 
 if __name__ == '__main__':

@@ -1,5 +1,4 @@
 if __name__ == "__main__":
-    from  engine.solver import Solver
     import taichi as ti
     from ui.parse_commandline_args import parse_commandline_args
     
@@ -13,5 +12,10 @@ if __name__ == "__main__":
     
     ti.init(arch=args.arch, kernel_profiler=args.kernel_profiler, debug=args.debug)
 
-    solver = Solver()
-    solver.run()
+    args.use_solver_main = True
+    if args.use_solver_main: # use the provided main in this lib
+        from  engine.solver_main import solver_main
+        solver_main()
+    else: # manually give main
+        import engine.fluid.pbf_3d as pbf
+        pbf.main()

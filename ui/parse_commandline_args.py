@@ -5,8 +5,8 @@ Read command line arguments
 def parse_commandline_args():
     parser = argparse.ArgumentParser(description='taichi PBD')
 
-    parser.add_argument('--use_scene_file', action='store_true', default=True,
-                        help='use scene file to read parameters')
+    parser.add_argument('--scene_file', type=str, default="D:/Dev/tiPBD/data/scene/arap.json",
+                        help='manually specify scene file, if not specified, use gui to select')
     parser.add_argument('--no-gui', action='store_true', default=False,
                         help='no gui mode')
     parser.add_argument("--arch", type=str, default="cuda",

@@ -14,8 +14,8 @@ class SimConfig:
         else:
             assert False, "No common in scene file"
     
-    def get_solids(self):
-        if "solids" in self.config:
-            return self.config["solids"]
+    def get_materials(self):
+        if "materials" in self.config:
+            return self.config["materials"]
         else:
-            assert False, "No solids in scene file"
+            assert False, "No materials in scene file"

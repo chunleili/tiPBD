@@ -15,7 +15,7 @@
 		"use_log": false,
 		"initial_pause": false
 	},
-	"solids": [
+	"materials": [
 		{
             "name": "bunny1k",
 			"geometry_file": "data/model/bunny1k2k/bunny1k.node",

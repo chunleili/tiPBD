@@ -1,4 +1,3 @@
-
 def read_particles(filepath):
     import meshio
     print("read ", filepath)

@@ -32,7 +32,7 @@ python main.py
     - neohooken: # neo-hooken模型的约束投影
     - mesh: # 基于meshtaichi的网格数据
 - ui # 用户界面
-  - parse_commandline_args: # 解析命令行参数
+  - parse_cli: # 解析命令行参数
   - config_builder # 用于从json场景文件构建配置文件，传给metadata
   - filedialog # 打开文件对话框以选择json场景文件
 

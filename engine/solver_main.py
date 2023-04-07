@@ -66,12 +66,8 @@ class GGUI():
         self.scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
         self.scene.ambient_light((0.5, 0.5, 0.5))
         
-        from engine.metadata import meta
-        if meta.show_coarse:
-            self.scene.mesh(pos_show, indices=indices_show, color=(0.1229,0.2254,0.7207),show_wireframe=True)
-        # if meta.show_fine:
-            # self.scene.mesh(fine_pos_ti, indices=fine_tri_idx_ti, color=(1.0,0,0),show_wireframe=True)
-            # self.scene.mesh(fine_mesh.mesh.verts.pos, indices=fine_mesh.surf_show, color=(1.0,0,0),show_wireframe=True)
+        self.scene.mesh(pos_show, indices=indices_show, color=(0.1229,0.2254,0.7207),show_wireframe=True)
+
 
         self.canvas.scene(self.scene)
         self.window.show()

@@ -1,11 +1,10 @@
-import argparse
-'''
-Read command line arguments
-'''
-def parse_commandline_args():
+def parse_cli():
+    '''
+    Read command line arguments
+    '''
+    import argparse
     parser = argparse.ArgumentParser(description='taichi PBD')
-
-    parser.add_argument('--scene_file', type=str, default="D:/Dev/tiPBD/data/scene/arap.json",
+    parser.add_argument('--scene_file', type=str, default="",
                         help='manually specify scene file, if not specified, use gui to select')
     parser.add_argument('--no-gui', action='store_true', default=False,
                         help='no gui mode')
@@ -17,7 +16,14 @@ def parse_commandline_args():
                         help="use dearpygui as gui")
     parser.add_argument("--debug", action='store_true', default=False,
                     help="debug mode")
+    parser.add_argument("--device_memory_GB", type=float, default=0.5,
+                    help="device memory in GB")
     args = parser.parse_args()
+
+    import os
+    root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    args.scene_file =  root_path+"/data/scene/bunny_fluid.json"
+    # args.device_memory_GB = 3.0
 
     import taichi as ti
     if args.arch == "cuda":

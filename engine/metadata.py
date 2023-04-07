@@ -2,7 +2,7 @@ import taichi as ti
 import os
 from ui.filedialog import filedialog
 from ui.config_builder import SimConfig
-from ui.parse_commandline_args import parse_commandline_args
+from ui.parse_cli import parse_cli
 
 def singleton(cls):
     _instance = {}
@@ -24,7 +24,7 @@ class MetaData:
         self.frame = 0
         self.step = 0
 
-        self.args = parse_commandline_args()
+        self.args = parse_cli()
         print("args:", self.args)
 
         if self.args.scene_file == "":

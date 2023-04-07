@@ -10,15 +10,16 @@
 			"name": "bunny_fluid",
 			"geometry_file": "data/model/bunny_fluid.ply",
 			"type": "fluid",
+			"max_iter": 8,
 			"particle_radius": 0.025,
 			"rho0": 1000.0,
 			"lambda_epsilon": 1e-6,
 			"epsilon": 1e-5,
 			"coeff_dq": 0.3,
 			"coeff_k": 0.1,
-			"max_iter": 8,
 			"gravity": [0.0, -9.8, 0.0],
-			"boundary": [80.0, 40.0]
+			"boundary": [[0,0,0],[10,10,10]],
+			"max_num_neighbors": 100
 		}
 	]
 }

@@ -1,5 +1,4 @@
 import taichi as ti
-from functools import reduce
 ti.init(debug=True)
 
 @ti.data_oriented
@@ -44,7 +43,6 @@ class SDF:
         for i, j, k in self.grad:
             self.grad[i, j, k] = ti.Vector([(self.val[i+1, j, k] - self.val[i-1, j, k]/dx), (self.val[i, j+1, k] - self.val[i, j-1, k])/dy, (self.val[i, j, k+1] - self.val[i, j, k-1])/dz])
             
-
     def to_numpy(self):
         return self.val.to_numpy(), self.grad.to_numpy()
 
@@ -61,7 +59,7 @@ class SDF:
 if __name__ == "__main__":
     sdf = SDF((3, 3))
     sdf.val.fill(1)
+    sdf.compute_gradient(1.0,1.0)  
     # print(sdf.val)
-    # sdf.compute_gradient(1.0,1.0)  
     # print(sdf)
     

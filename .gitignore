@@ -11,3 +11,6 @@ totalEnergy.txt
 log.txt
 result/*.txt
 result/*
+engine.egg-info
+build
+dist

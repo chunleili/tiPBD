@@ -34,3 +34,34 @@ def read_tetgen(filename):
                                        dtype=np.int32)
 
     return pos, tet_indices, face_indices
+
+
+def point_cloud_from_mesh(mesh_path="data/model/box.obj", particle_seperation=0.02):
+    '''
+    将surface mesh转换为点云
+    
+    Args:
+        mesh_path: mesh文件路径
+        particle_seperation: 粒子间距
+    
+    Returns:
+        mesh_vox_pts: 粒子化点云
+    '''
+    import trimesh
+
+    mesh = trimesh.load(mesh_path)
+
+    mesh_vox = mesh.voxelized(pitch=particle_seperation).fill()
+    mesh_vox_pts = mesh_vox.points
+
+    return mesh_vox_pts
+
+
+if __name__=="__main__":
+    pts_np = point_cloud_from_mesh()
+    import taichi as ti
+    ti.init()
+    pts = ti.Vector.field(3, dtype=ti.f32, shape=pts_np.shape[0])
+    pts.from_numpy(pts_np)
+    from solver_main import visualize
+    visualize(pts)

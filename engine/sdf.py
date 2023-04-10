@@ -6,6 +6,8 @@ class SDF:
     def __init__(self, shape, dx=1.0, dy=1.0, dz=1.0):
         self.dim = len(shape)
         self.shape = shape
+        # TODO: gen sdf from mesh
+
         print("SDF init...")
         if self.dim == 2:
             self.val =  ti.field(dtype=ti.f32, shape=shape)
@@ -19,6 +21,16 @@ class SDF:
             raise Exception("SDF only supports 2D/3D for now")
 
         self.compute_gradient(dx, dy, dz)
+
+    def gen_sdf_from_mesh(mesh_path="data/model/box.obj"):
+        '''
+        Generate SDF from mesh
+        '''
+        from mesh_io import point_cloud_from_mesh
+        pts = point_cloud_from_mesh(mesh_path)
+
+        #TODO
+
 
     def compute_gradient(self, dx, dy, dz=None):
         '''

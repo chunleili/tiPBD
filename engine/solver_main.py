@@ -96,3 +96,33 @@ def visualize(par_pos=None, par_radius=0.01, mesh_pos=None, mesh_indices=None):
 
         canvas.scene(scene)
         window.show()
+
+def visualize_np(pts_np=None, par_radius=0.01, mesh_pos=None, mesh_indices=None):
+    import taichi as ti
+    ti.init()
+    pts = ti.Vector.field(3, dtype=ti.f32, shape=pts_np.shape[0])
+    pts.from_numpy(pts_np)
+
+
+    window = ti.ui.Window("visualizer", (1024, 1024), vsync=False)
+    canvas = window.get_canvas()
+    scene = ti.ui.Scene()
+    camera = ti.ui.Camera()
+
+    camera.position(-4.1016811, -1.05783201, 6.2282803)
+    camera.lookat(-3.50212255, -0.9375709, 5.43703646)
+    camera.fov(55) 
+    while window.running:
+        camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
+        scene.set_camera(camera)
+        scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
+        scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
+        scene.ambient_light((0.5, 0.5, 0.5))
+        
+        if pts is not None:
+            scene.particles(pts, radius=par_radius, color=(0.1229,0.2254,0.7207))
+        if mesh_pos and mesh_indices is not None:
+            scene.mesh(mesh_pos, indices=mesh_indices, color=(0.1229,0.2254,0.7207))
+
+        canvas.scene(scene)
+        window.show()

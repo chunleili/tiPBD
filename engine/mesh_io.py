@@ -6,6 +6,17 @@ def read_particles(filepath):
 
 
 def read_tetgen(filename):
+    '''
+    读取tetgen生成的网格文件，返回顶点坐标、单元索引、面索引
+
+    Args:
+        filename: 网格文件名，不包含后缀名
+    
+    Returns:
+        pos: 顶点坐标，shape=(NV, 3)
+        tet_indices: 单元索引，shape=(NT, 4)
+        face_indices: 面索引，shape=(NF, 3)
+    '''
     import numpy as np
     ele_file_name = filename + '.ele'
     node_file_name = filename + '.node'
@@ -38,26 +49,74 @@ def read_tetgen(filename):
 
 def point_cloud_from_mesh(mesh_path="data/model/box.obj", particle_seperation=0.02):
     '''
-    将surface mesh转换为点云
+    将surface mesh转换为点云。点云的采样密度由particle_seperation决定。
     
     Args:
         mesh_path: mesh文件路径
         particle_seperation: 粒子间距
     
     Returns:
-        mesh_vox_pts: 粒子化点云
+        mesh_vox_pts: 均匀采样的点云
     '''
     import trimesh
 
     mesh = trimesh.load(mesh_path)
 
     mesh_vox = mesh.voxelized(pitch=particle_seperation).fill()
-    mesh_vox_pts = mesh_vox.points
+    point_cloud = mesh_vox.points
+    return point_cloud
 
-    return mesh_vox_pts
 
 
-if __name__=="__main__":
+def scale_to_unit_sphere(mesh):
+    '''
+    将mesh缩放到单位球
+
+    Args:
+        mesh: 原始Trimesh对象
+
+    Returns:
+        缩放后的Trimesh对象
+    '''
+    import trimesh
+    import numpy as np
+    if isinstance(mesh, trimesh.Scene):
+        mesh = mesh.dump().sum()
+
+    vertices = mesh.vertices - mesh.bounding_box.centroid
+    distances = np.linalg.norm(vertices, axis=1)
+    vertices /= np.max(distances)
+
+    return trimesh.Trimesh(vertices=vertices, faces=mesh.faces)
+
+def scale_to_unit_cube(mesh):
+    '''
+    将mesh缩放到单位立方体
+
+    Args:
+        mesh: 原始Trimesh对象
+
+    Returns:
+        缩放后的Trimesh对象
+    '''
+    import trimesh
+    import numpy as np
+
+    if isinstance(mesh, trimesh.Scene):
+        mesh = mesh.dump().sum()
+
+    vertices = mesh.vertices - mesh.bounding_box.centroid
+    vertices *= 2 / np.max(mesh.bounding_box.extents)
+
+    return trimesh.Trimesh(vertices=vertices, faces=mesh.faces)
+
+
+# ---------------------------------------------------------------------------- #
+#                                     test                                     #
+# ---------------------------------------------------------------------------- #
+
+
+def test_point_cloud_from_mesh():
     pts_np = point_cloud_from_mesh()
     import taichi as ti
     ti.init()
@@ -65,3 +124,31 @@ if __name__=="__main__":
     pts.from_numpy(pts_np)
     from solver_main import visualize
     visualize(pts)
+
+
+def test_scale_to_unit_sphere():
+    import taichi as ti
+    ti.init()
+    import trimesh
+    mesh = trimesh.load("data/model/bunny.obj")
+    print("before scale")
+    mesh = scale_to_unit_sphere(mesh)
+    print("after scale")
+    from solver_main import visualize_np
+    visualize_np(mesh.vertices)
+
+def test_scale_to_unit_cube():
+    import taichi as ti
+    ti.init()
+    import trimesh
+    mesh = trimesh.load("data/model/bunny.obj")
+    print("before scale")
+    print(mesh.vertices.max(), mesh.vertices.min())
+    mesh = scale_to_unit_cube(mesh)
+    print("after scale")
+    print(mesh.vertices.max(), mesh.vertices.min())
+    from solver_main import visualize_np
+    visualize_np(mesh.vertices)
+
+if __name__=="__main__":
+    test_scale_to_unit_cube()

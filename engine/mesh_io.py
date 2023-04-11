@@ -1,9 +1,18 @@
-def read_particles(filepath):
-    import meshio
-    print("read ", filepath)
-    mesh = meshio.read(filepath)
-    return mesh.points
+from visualize import visualize
+import taichi as ti
 
+
+def read_particles(mesh_path="data/model/bunny.obj"):
+    import trimesh
+    print("Read ", mesh_path)
+    mesh = trimesh.load(mesh_path)
+    return mesh.vertices
+
+# def read_particles_meshio(mesh_path="data/model/bunny.obj"):
+#     import meshio
+#     print("Read ", mesh_path)
+#     mesh = meshio.read(mesh_path)
+#     return mesh.points
 
 def read_tetgen(filename):
     '''
@@ -47,10 +56,11 @@ def read_tetgen(filename):
     return pos, tet_indices, face_indices
 
 
-def point_cloud_from_mesh(mesh_path="data/model/box.obj", particle_seperation=0.02):
+def points_from_volume(mesh_path="data/model/box.obj", particle_seperation=0.02):
     '''
-    将surface mesh转换为点云。点云的采样密度由particle_seperation决定。
-    
+    将surface mesh转换为体素化后的点云（粒子化）。点云的采样密度由particle_seperation决定。这与houdini中的
+    points_from_volume节点一致。
+
     Args:
         mesh_path: mesh文件路径
         particle_seperation: 粒子间距
@@ -67,10 +77,9 @@ def point_cloud_from_mesh(mesh_path="data/model/box.obj", particle_seperation=0.
     return point_cloud
 
 
-
 def scale_to_unit_sphere(mesh):
     '''
-    将mesh缩放到单位球
+    将mesh缩放到单位球，并且将mesh的中心点移动到原点。
 
     Args:
         mesh: 原始Trimesh对象
@@ -91,7 +100,7 @@ def scale_to_unit_sphere(mesh):
 
 def scale_to_unit_cube(mesh):
     '''
-    将mesh缩放到单位立方体
+    将mesh缩放到单位立方体。并且将mesh的中心点移动到原点。
 
     Args:
         mesh: 原始Trimesh对象
@@ -116,30 +125,25 @@ def scale_to_unit_cube(mesh):
 # ---------------------------------------------------------------------------- #
 
 
-def test_point_cloud_from_mesh():
-    pts_np = point_cloud_from_mesh()
+def test_points_from_volume():
+    pts_np = points_from_volume()
     import taichi as ti
     ti.init()
     pts = ti.Vector.field(3, dtype=ti.f32, shape=pts_np.shape[0])
     pts.from_numpy(pts_np)
-    from solver_main import visualize
+    from visualize import visualize
     visualize(pts)
 
 
 def test_scale_to_unit_sphere():
-    import taichi as ti
-    ti.init()
     import trimesh
     mesh = trimesh.load("data/model/bunny.obj")
     print("before scale")
     mesh = scale_to_unit_sphere(mesh)
     print("after scale")
-    from solver_main import visualize_np
-    visualize_np(mesh.vertices)
+    visualize(mesh.vertices, ti_init=True)
 
 def test_scale_to_unit_cube():
-    import taichi as ti
-    ti.init()
     import trimesh
     mesh = trimesh.load("data/model/bunny.obj")
     print("before scale")
@@ -147,8 +151,16 @@ def test_scale_to_unit_cube():
     mesh = scale_to_unit_cube(mesh)
     print("after scale")
     print(mesh.vertices.max(), mesh.vertices.min())
-    from solver_main import visualize_np
-    visualize_np(mesh.vertices)
+    visualize(mesh.vertices, ti_init=True)
+
+
+def test_read_particles():
+    pts = read_particles()
+    visualize(pts, ti_init=True, show_widget=True)
+
 
 if __name__=="__main__":
-    test_scale_to_unit_cube()
+    # test_scale_to_unit_cube()
+    # test_points_from_volume()
+    # test_read_particles()
+    test_read_particles()

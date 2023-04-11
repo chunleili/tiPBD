@@ -7,3 +7,12 @@ def init_tet_indices(mesh: ti.template(), indices: ti.template()):
         for i in ti.static(range(4)):
             for j in ti.static(range(3)):
                 indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
+
+
+def field_from_numpy(x_np):
+    import numpy as np
+    import taichi as ti
+    ti.init()
+    x = ti.Vector.field(3, dtype=ti.f32, shape=x_np.shape[0])
+    x.from_numpy(x_np)
+    return x

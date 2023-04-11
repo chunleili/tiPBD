@@ -10,10 +10,27 @@ class SDF:
     '''
     def __init__(self, shape):
         print("SDF init...")
-        self.dim = len(shape)
-        self.shape = shape
-        self.val =  ti.field(dtype=ti.f32, shape=shape)
-        self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=shape)
+        # self.dim = len(shape)
+        # self.shape = shape
+        # self.val =  ti.field(dtype=ti.f32, shape=shape)
+        # self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=shape)
+
+    def generate_from_mesh(self, mesh_path):
+        '''
+        Generate SDF from mesh file.
+        '''
+        import trimesh, mesh_to_sdf
+        mesh = trimesh.load(mesh_path)
+        mesh = mesh_to_sdf.scale_to_unit_cube(mesh)
+        sdf = mesh_to_sdf.sample_sdf_near_surface(mesh,number_of_points=10000)
+        sdf_val, sdf_grad = sdf[0], sdf[1]
+        self.shape = sdf_val.shape
+        self.dim = len(self.shape)
+        self.val = ti.field(dtype=ti.f32, shape=self.shape)
+        self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=self.shape)
+        self.val.from_numpy(sdf_val)
+        self.grad.from_numpy(sdf_grad)
+
 
     def compute_gradient(self, dx, dy, dz=None):
         '''
@@ -61,6 +78,15 @@ class SDF:
             np.savetxt(filename+"_grad.txt", grad.reshape(-1, self.dim), fmt="%.2e")
 
 
+class SDFBase:
+    def __init__(self, shape):
+        print("SDF init...\nresolution: "+str(shape)+"...")
+        self.dim = len(shape)
+        self.shape = shape
+        self.val =  ti.field(dtype=ti.f32, shape=shape)
+        self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=shape)
+
+
 def mesh2sdf(mesh_path='data/model/chair.obj', scale_to_unit_cube=True):
     import trimesh, mesh_to_sdf
     mesh = trimesh.load(mesh_path)
@@ -69,7 +95,31 @@ def mesh2sdf(mesh_path='data/model/chair.obj', scale_to_unit_cube=True):
     sdf_val, sdf_grad = sdf[0], sdf[1]
     return sdf_val, sdf_grad
 
-    
+
+def gen_sdf(shape, mesh_path):
+    '''
+    从表面网格生成SDF场。
+    '''
+    import trimesh
+    from mesh_io import scale_to_unit_cube
+    mesh = trimesh.load(mesh_path)
+    mesh = scale_to_unit_cube(mesh)
+    v = mesh.vertices
+
+    print("number of vertices: ", v.shape[0])
+
+    # from visualize import visualize
+    # visualize(v, par_radius=0.1, background_color=(1,1,1))
+
+    from utils import field_from_numpy
+    v_ti = field_from_numpy(v)
+
+    from p2g import p2g
+    sdf = SDFBase(shape=(128,128,128))
+    p2g(v_ti, 0.1, sdf.val)
+    sdf_val_np = sdf.val.to_numpy()
+    print(sdf_val_np)
+
 
 def test_sdf_basic():
     sdf = SDF((5, 5))
@@ -99,6 +149,9 @@ def test_sdf_from_mesh():
     print(sdf)
     sdf.print_to_file("result/sdf_from_mesh")
 
+def test_gen_sdf():
+    gen_sdf((128,128,128), 'data/model/chair.obj')
 
 if __name__ == "__main__":
-    test_mesh2sdf()
+    # test_mesh2sdf()
+    test_gen_sdf()

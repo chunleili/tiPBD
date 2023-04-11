@@ -10,7 +10,7 @@ import taichi as ti
 ti.init()
 pts = ti.Vector.field(3, dtype=ti.f32, shape=pts_np.shape[0])
 pts.from_numpy(pts_np)
-from solver_main import visualize
+from visualize import visualize
 visualize(pts)
 ```
 

@@ -1,5 +1,4 @@
 import numpy as np
-from engine.metadata import meta
 def debug_info(field):
     field_np = field.to_numpy()
     print("---------------------")

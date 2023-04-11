@@ -8,22 +8,12 @@ class SDF:
 
     This implementation tackles the boundary issue with if statements in the for loops. This will preserve the sparsity of the field, but will cause if statements in the for loops.
     '''
-    def __init__(self, shape, dx=1.0, dy=1.0, dz=1.0):
+    def __init__(self, shape):
+        print("SDF init...")
         self.dim = len(shape)
         self.shape = shape
-        # TODO: gen sdf from mesh
-
-        print("SDF init...")
-        if self.dim == 2:
-            self.val =  ti.field(dtype=ti.f32, shape=shape)
-            self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=shape)
-        elif self.dim == 3:
-            self.val =  ti.field(dtype=ti.f32, shape=shape)            
-            self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=shape)
-        else:
-            raise Exception("SDF only supports 2D/3D for now")
-
-
+        self.val =  ti.field(dtype=ti.f32, shape=shape)
+        self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=shape)
 
     def compute_gradient(self, dx, dy, dz=None):
         '''
@@ -70,16 +60,13 @@ class SDF:
             np.savetxt(filename+"_val.txt", val.flatten(), fmt="%.2e")
             np.savetxt(filename+"_grad.txt", grad.reshape(-1, self.dim), fmt="%.2e")
 
-def mesh2sdf(mesh_path='data/model/chair.obj'):
-    
+
+def mesh2sdf(mesh_path='data/model/chair.obj', scale_to_unit_cube=True):
     import trimesh, mesh_to_sdf
-
     mesh = trimesh.load(mesh_path)
-    mesh = mesh_to_sdf.scale_to_unit_sphere(mesh)
-
+    mesh = mesh_to_sdf.scale_to_unit_cube(mesh)
     sdf = mesh_to_sdf.sample_sdf_near_surface(mesh,number_of_points=10000)
-    sdf_val = sdf[0]
-    sdf_grad = sdf[1]
+    sdf_val, sdf_grad = sdf[0], sdf[1]
     return sdf_val, sdf_grad
 
     
@@ -106,7 +93,12 @@ def test_mesh2sdf():
     print(sdf_val)
     print(sdf_grad)
     
+def test_sdf_from_mesh():
+    sdf = SDF((5, 5))
+    sdf.from_mesh('data/model/chair.obj')
+    print(sdf)
+    sdf.print_to_file("result/sdf_from_mesh")
+
 
 if __name__ == "__main__":
-
     test_mesh2sdf()

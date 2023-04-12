@@ -48,7 +48,7 @@ def p2g_3d(x: ti.template(), dx:ti.f32, grid_m:ti.template()):
                         print('grid_m[base+I] < 0', grid_m[base+I], base+I, w[i].x, w[j].y, w[k].z)
 
 @ti.kernel
-def p2g(x: ti.template(), dx:ti.f32, grid_m:ti.template(), dim:int):
+def p2g(x: ti.template(), dx:ti.f32, grid_m:ti.template(), dim:ti.template()):
     '''
     将周围粒子的质量scatter到网格上。实际上，只要替换grid_m, 可以scatter任何标量场。
 
@@ -56,6 +56,7 @@ def p2g(x: ti.template(), dx:ti.f32, grid_m:ti.template(), dim:int):
         x (ti.template()): 粒子位置
         dx (ti.f32): 网格间距
         grid_m (ti.template()): 网格质量(输出)
+        dim (ti.template()): 网格维度
     '''
     inv_dx = 1.0 / dx
     p_mass = 1.0
@@ -70,7 +71,7 @@ def p2g(x: ti.template(), dx:ti.f32, grid_m:ti.template(), dim:int):
                 weight *= w[offset[d]][d]
             grid_m[base + offset] += weight * p_mass
             if grid_m[base + offset] < 0:
-                print('grid_m[base+offset] < 0', grid_m[base + offset], base + offset, w[offset[0]][0], w[offset[1]][1], w[offset[2]][2])
+                print('grid_m[base+offset] < 0', grid_m[base + offset], base + offset, w[offset[0]][0], w[offset[1]][1])
             
 
 
@@ -85,14 +86,24 @@ def test_p2g_3d():
     np.random.seed(0)
     x_np = np.random.rand(n, 3)
     x.from_numpy(x_np)
-    # p2g_3d(x, 0.1, grid_m)
-
-    p2g(x, 0.1, grid_m,3)
-    
+    p2g_3d(x, 0.1, grid_m)
+    # p2g(x, 0.1, grid_m, 3)
     grid_m_np = debug_info(grid_m)
-    # print(grid_m_np)
 
+def test_p2g_2d():
+    import numpy as np
+    import taichi as ti
+    from debug_info import debug_info
+    ti.init()
+    n = 100
+    x = ti.Vector.field(2, dtype=ti.f32, shape=n)
+    grid_m = ti.field(dtype=ti.f32, shape=(n, n))
+    np.random.seed(0)
+    x_np = np.random.rand(n, 2)
+    x.from_numpy(x_np)
+    p2g_2d(x, 0.1, grid_m)
+    # p2g(x, 0.1, grid_m, 2) 
+    grid_m_np = debug_info(grid_m)
 
 if __name__ == '__main__':
     test_p2g_3d()
-    pass

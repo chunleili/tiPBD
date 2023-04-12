@@ -4,34 +4,35 @@ import taichi as ti
 class SDF:
     '''
     Signed Distance Field (SDF) class.
-
-    This implementation tackles the boundary issue with if statements in the for loops. This will preserve the sparsity of the field, but will cause if statements in the for loops.
     '''
-    def __init__(self, shape):
+    def __init__(self, mesh_path=None, resolution=64, dim=3):
+        '''
+        生成SDF体素场。其中有两个taichi field: val和grad，分别表示SDF体素场的值和梯度。
+
+        Args:
+            mesh_path (str): 网格文件路径，如果为None则需要手动填充SDF体素场。
+            resolution (int): SDF体素场分辨率。默认为64。
+            dim (int): SDF体素场维度。默认为3。
+        '''
         print("SDF init...")
-        # self.dim = len(shape)
-        # self.shape = shape
-        # self.val =  ti.field(dtype=ti.f32, shape=shape)
-        # self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=shape)
-
-    def generate_from_mesh(self, mesh_path):
-        '''
-        Generate SDF from mesh file.
-        '''
-        import trimesh, mesh_to_sdf
-        mesh = trimesh.load(mesh_path)
-        mesh = mesh_to_sdf.scale_to_unit_cube(mesh)
-        sdf = mesh_to_sdf.sample_sdf_near_surface(mesh,number_of_points=10000)
-        sdf_val, sdf_grad = sdf[0], sdf[1]
-        self.shape = sdf_val.shape
-        self.dim = len(self.shape)
-        self.val = ti.field(dtype=ti.f32, shape=self.shape)
+        if dim==2:
+            self.shape = (resolution, resolution)
+        elif dim==3:
+            self.shape = (resolution, resolution, resolution)
+        else:
+            raise Exception("SDF only supports 2D/3D for now")
+        print("SDF resolution = ", self.shape)
+        self.dim = dim
+        self.val =  ti.field(dtype=ti.f32, shape=self.shape)
         self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=self.shape)
-        self.val.from_numpy(sdf_val)
-        self.grad.from_numpy(sdf_grad)
+
+        if mesh_path is not None:
+            val_np, grad_np = gen_sdf_voxels(mesh_path, resolution, True)
+            self.val.from_numpy(val_np)
+            self.grad.from_numpy(grad_np)
 
 
-    def compute_gradient(self, dx, dy, dz=None):
+    def compute_gradient(self, dx=1.0, dy=1.0, dz=1.0):
         '''
         Compute the gradient of the SDF field.
         '''
@@ -58,23 +59,9 @@ class SDF:
                     (self.val[i, j+1, k] - self.val[i, j-1, k])/dy,
                     (self.val[i, j, k+1] - self.val[i, j, k-1])/dz
                     ]) * 0.5
-     
-
-    def to_numpy(self):
-        return self.val.to_numpy(), self.grad.to_numpy()
 
     def __str__(self) -> str:
-         return "shape:\n"+str(self.shape)+"\n\nval:\n" + str(self.val) + "\n\n" + "grad:\n" + str(self.grad)
-    
-    def print_to_file(self, filename="result/sdf"):
-        import numpy as np
-        val, grad = self.to_numpy()
-        if self.dim == 2:
-            np.savetxt(filename+"_val.txt", val, fmt="%.2e")
-            np.savetxt(filename+"_grad.txt", grad.reshape(-1, self.dim), fmt="%.2e")
-        elif self.dim == 3:
-            np.savetxt(filename+"_val.txt", val.flatten(), fmt="%.2e")
-            np.savetxt(filename+"_grad.txt", grad.reshape(-1, self.dim), fmt="%.2e")
+         return "shape:\n"+str(self.shape)+"\n\nval:\n" + str(self.val) + "\n\n" + "grad:\n" + str(self.grad)    
 
 
 class SDFBase:
@@ -86,7 +73,10 @@ class SDFBase:
         self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=shape)
 
 
-def sample_sdf_near_surf(mesh_path='data/model/chair.obj', scale_to_unit_cube=True):
+def gen_sdf_points(mesh_path):
+    '''
+    从表面网格生成采样点(靠近网格表面处的)SDF场。借助mesh_to_sdf库和trimesh。注意导入的模型会自动缩放到[-1,1]的立方体内。
+    '''
     import trimesh, mesh_to_sdf
     mesh = trimesh.load(mesh_path)
     mesh = mesh_to_sdf.scale_to_unit_cube(mesh)
@@ -95,9 +85,9 @@ def sample_sdf_near_surf(mesh_path='data/model/chair.obj', scale_to_unit_cube=Tr
     return sdf_val, sdf_grad
 
 
-def gen_sdf_voxel(mesh_path='data/model/chair.obj', resolution=64):
+def gen_sdf_voxels(mesh_path, resolution=64, return_gradients=False):
     '''
-    从表面网格生成SDF场。借助mesh_to_sdf库和trimesh。
+    从表面网格生成体素(靠近网格表面处的)SDF场。借助mesh_to_sdf库和trimesh。注意导入的模型会自动缩放到[-1,1]的立方体内。
 
     Args:
         mesh_path (str, optional): 网格文件路径。 Defaults to 'data/model/chair.obj'.
@@ -106,45 +96,48 @@ def gen_sdf_voxel(mesh_path='data/model/chair.obj', resolution=64):
     import trimesh, mesh_to_sdf
     mesh = trimesh.load(mesh_path)
     mesh = mesh_to_sdf.scale_to_unit_cube(mesh)
-    vox = mesh_to_sdf.mesh_to_voxels(mesh, voxel_resolution=resolution)
+    vox = mesh_to_sdf.mesh_to_voxels(mesh, voxel_resolution=resolution, return_gradients=return_gradients)
     return vox
 # ---------------------------------------------------------------------------- #
 #                                     test                                     #
 # ---------------------------------------------------------------------------- #
 def test_sdf_basic():
-    sdf = SDF((5, 5))
+    # fill with 1
+    sdf = SDF(None, 5,dim=2)
     sdf.val.fill(1)
-    print(sdf.val)
-    print(sdf.grad)
     sdf.compute_gradient(1.0,1.0)  
     print(sdf)
-    sdf.print_to_file()    
 
-    sdf_3d = SDF((5, 5, 5))
+    # fill with 1, 3d
+    sdf_3d = SDF(None, 5,dim=3)
     sdf_3d.val.fill(1)
-    print(sdf_3d.val)
-    print(sdf_3d.grad)
     sdf_3d.compute_gradient(1.0,1.0,1.0)
     print(sdf_3d)
-    sdf_3d.print_to_file("result/sdf_3d")
 
-def test_sample_sdf_near_surf():
-    sdf_val, sdf_grad = sample_sdf_near_surf()
+    #random fill, 3d
+    import numpy as np
+    sdf_3d = SDF(None, 5,dim=3)
+    sdf_3d.val.from_numpy(np.random.rand(5,5,5))
+    sdf_3d.compute_gradient()
+    print(sdf_3d)
+
+def test_gen_sdf_points():
+    val, grad = gen_sdf_points()
     from visualize import visualize
-    visualize(sdf_val)
+    visualize(val)
     
-def test_sdf_from_mesh():
-    sdf = SDF((5, 5))
-    sdf.from_mesh('data/model/chair.obj')
-    print(sdf)
-    sdf.print_to_file("result/sdf_from_mesh")
-
-
-def test_gen_sdf_voxel():
-    vox = gen_sdf_voxel('data/model/chair.obj',64)
+def test_gen_sdf_voxels():
+    vox, grad = gen_sdf_voxels('data/model/chair.obj',64,True)
     from visualize import vis_sdf
     vis_sdf(vox)
 
+def test_SDF():
+    sdf = SDF('data/model/chair.obj',64, 3)
+    from visualize import vis_sdf
+    vis_sdf(sdf.val)
+
 if __name__ == "__main__":
     ti.init(arch=ti.cuda)
-    test_gen_sdf_voxel()
+    # test_sdf_basic()
+    # test_gen_sdf_voxels()
+    test_SDF()

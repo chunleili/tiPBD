@@ -54,3 +54,11 @@ def random_fill(x, dim):
         random_fill_vec(x, dim)
     else:
         random_fill_scalar(x)
+
+def print_to_file(val, filename="field", dim=3):
+    import numpy as np
+    val= val.to_numpy()
+    if dim == 1:
+        np.savetxt("result/"+filename+".csv", val, fmt="%.2e")
+    else:
+        np.savetxt("result/"+filename+".csv", val.reshape(-1, dim), fmt="%.2e")

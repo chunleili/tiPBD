@@ -86,13 +86,31 @@ class SDFBase:
         self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=shape)
 
 
-def sample_sdf_near_surf(mesh_path='data/model/chair.obj', scale_to_unit_cube=True):
+def mesh2sdf(mesh_path='data/model/chair.obj', scale_to_unit_cube=True):
     import trimesh, mesh_to_sdf
     mesh = trimesh.load(mesh_path)
     mesh = mesh_to_sdf.scale_to_unit_cube(mesh)
     sdf = mesh_to_sdf.sample_sdf_near_surface(mesh,number_of_points=10000)
     sdf_val, sdf_grad = sdf[0], sdf[1]
     return sdf_val, sdf_grad
+
+
+# def gen_sdf_p2g(shape, mesh_path):
+#     '''
+#     从表面网格生成SDF场。
+#     '''
+#     import trimesh
+#     from mesh_io import scale_to_unit_cube, shift
+#     from p2g import p2g
+ 
+#     mesh = trimesh.load(mesh_path)
+#     mesh = scale_to_unit_cube(mesh)
+#     shift(mesh, (1.0, 1.0, 1.0))
+#     x = ti.Vector.field(3, dtype=ti.f32, shape=mesh.vertices.shape[0])
+#     x.from_numpy(mesh.vertices)
+#     grid_m = ti.field(dtype=ti.f32, shape=shape)
+#     p2g(x, 0.1, grid_m, 3)
+#     return grid_m
 
 
 def gen_sdf_voxel(mesh_path='data/model/chair.obj', resolution=64):
@@ -111,6 +129,7 @@ def gen_sdf_voxel(mesh_path='data/model/chair.obj', resolution=64):
 # ---------------------------------------------------------------------------- #
 #                                     test                                     #
 # ---------------------------------------------------------------------------- #
+
 def test_sdf_basic():
     sdf = SDF((5, 5))
     sdf.val.fill(1)
@@ -128,10 +147,13 @@ def test_sdf_basic():
     print(sdf_3d)
     sdf_3d.print_to_file("result/sdf_3d")
 
-def test_sample_sdf_near_surf():
-    sdf_val, sdf_grad = sample_sdf_near_surf()
+def test_mesh2sdf():
+    sdf_val, sdf_grad = mesh2sdf()
+    pass
     from visualize import visualize
     visualize(sdf_val)
+    # print(sdf_val)
+    # print(sdf_grad)
     
 def test_sdf_from_mesh():
     sdf = SDF((5, 5))
@@ -142,9 +164,12 @@ def test_sdf_from_mesh():
 
 def test_gen_sdf_voxel():
     vox = gen_sdf_voxel('data/model/chair.obj',64)
-    from visualize import vis_sdf
-    vis_sdf(vox)
+    from visualize import vis_grid
+    vis_grid(vox)
 
 if __name__ == "__main__":
     ti.init(arch=ti.cuda)
+
     test_gen_sdf_voxel()
+    # test_mesh2voxels()
+    

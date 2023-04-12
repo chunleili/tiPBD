@@ -81,6 +81,9 @@ def p2g(x: ti.template(), dx:ti.f32, grid_m:ti.template(), dim:ti.template()):
                 weight *= w[offset[d]][d]
             if in_bound(base, offset, grid_m.shape):
                 grid_m[base + offset] += weight * p_mass
+    #             if (base+offset)[1]==0:
+    #                 print("grid_m[base+offset]", offset+base, grid_m[base+offset])
+    # print(grid_m[15, 0, 15])
 
 
 def test_p2g_3d():

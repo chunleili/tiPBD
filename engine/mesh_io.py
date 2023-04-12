@@ -150,6 +150,11 @@ def match_size(mesh, bbox):
     bbox_centroid = (bbox[1][:] + bbox[0][:]) * 0.5
     mesh.vertices *= bbox_extents / mesh.bounding_box.extents
     mesh.vertices += bbox_centroid - mesh.bounding_box.centroid
+
+
+@ti.func
+def xyz_to_ijk(x, y, z, dx, dy, dz):
+    return ti.Vector([x/dx, y/dy, z/dz], ti.i32)
 # ---------------------------------------------------------------------------- #
 #                                     test                                     #
 # ---------------------------------------------------------------------------- #

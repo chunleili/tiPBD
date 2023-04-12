@@ -112,32 +112,36 @@ def visualize(par_pos=None, par_radius=0.01, mesh_pos=None, mesh_indices=None, t
 
 
 
-def vis_grid(grid):
+def vis_sdf(grid):
+    import numpy as np
     num_particles = grid.shape[0] * grid.shape[1] * grid.shape[2]
     particles = ti.Vector.field(3, dtype=ti.f32, shape=num_particles)
     par_color = ti.Vector.field(3, dtype=ti.f32, shape=num_particles)
 
-    threshold = 0.1
+    if  isinstance(grid, np.ndarray):
+        grid_ = ti.field(dtype=ti.f32, shape=grid.shape)
+        grid_.from_numpy(grid)
+        grid = grid_
+
+    threshold = 0.0
     @ti.kernel
     def occ():
-        max = 0.0
-        for i in range(grid.shape[0]):
-            for j in range(grid.shape[1]):
-                for k in range(grid.shape[2]):
-                    if grid[i,j,k] > max:
-                        max = grid[i,j,k]
+        # max = 0.0
+        # for i in range(grid.shape[0]):
+        #     for j in range(grid.shape[1]):
+        #         for k in range(grid.shape[2]):
+        #             if grid[i,j,k] > max:
+        #                 max = grid[i,j,k]
 
-        for i in range(grid.shape[0]):
-            for j in range(grid.shape[1]):
-                for k in range(grid.shape[2]):
-                    if (grid[i,j,k] > threshold):
-                        par_indx = i * grid.shape[1] * grid.shape[2] + j * grid.shape[2] + k
-                        particles[par_indx] = ti.Vector([i,j,k]) / grid.shape[0]
-                        par_color[par_indx] = grid[i,j,k] / max
+        for i,j,k in grid:
+            if (grid[i,j,k] < threshold):
+                par_indx = i * grid.shape[1] * grid.shape[2] + j * grid.shape[2] + k
+                particles[par_indx] = ti.Vector([i,j,k]) / grid.shape[0]
+                # par_color[par_indx] = grid[i,j,k] / max
     
     occ()
 
-    window = ti.ui.Window("visualizer", (1024, 1024), vsync=False)
+    window = ti.ui.Window("visualizer", (1024, 1024), vsync=True)
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
     camera = ti.ui.Camera()
@@ -169,7 +173,7 @@ def vis_grid(grid):
                     camera.lookat(cam_lookat[0], cam_lookat[1], cam_lookat[2])
                     camera.fov(55) 
         
-        scene.particles(particles, radius=0.01, per_vertex_color=par_color)
+        scene.particles(particles, radius=0.001, per_vertex_color=par_color)
 
         canvas.scene(scene)
         window.show()

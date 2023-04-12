@@ -17,6 +17,19 @@ def field_from_numpy(x_np):
     x.from_numpy(x_np)
     return x
 
+def np_to_ti(input, dim=1):
+    import numpy as np
+    if  isinstance(input, np.ndarray):
+        if dim == 1:
+            out = ti.field(dtype=ti.f32, shape=input.shape)
+            out.from_numpy(input)
+        else:
+            out = ti.Vector.field(dim, dtype=ti.f32, shape=input.shape)
+            out.from_numpy(input)
+    else:
+        out = input
+    return out
+
 
 @ti.kernel
 def random_fill_vec(x: ti.template(), dim: ti.template()):

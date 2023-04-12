@@ -1,4 +1,3 @@
-from visualize import visualize
 import taichi as ti
 
 
@@ -13,6 +12,12 @@ def read_particles(mesh_path="data/model/bunny.obj"):
 #     print("Read ", mesh_path)
 #     mesh = meshio.read(mesh_path)
 #     return mesh.points
+
+def read_mesh(mesh_path="data/model/bunny.obj"):
+    import trimesh
+    print("Read ", mesh_path)
+    mesh = trimesh.load(mesh_path)
+    return mesh.vertices, mesh.faces
 
 def read_tetgen(filename):
     '''
@@ -119,7 +124,32 @@ def scale_to_unit_cube(mesh):
 
     return trimesh.Trimesh(vertices=vertices, faces=mesh.faces)
 
+def shift(mesh, x):
+    mesh.vertices += x
 
+def scale(mesh, s):
+    mesh.vertices *= s
+
+def rotate(mesh, axis, angle):
+    import trimesh
+    import numpy as np
+    if isinstance(mesh, trimesh.Scene):
+        mesh = mesh.dump().sum()
+    mesh.vertices = trimesh.transformations.rotation_matrix(angle, axis)[:3, :3].dot(mesh.vertices.T).T
+
+
+def match_size(mesh, bbox):
+    '''
+    将mesh缩放到bbox的大小，并且将mesh的中心点移动到bbox的中心点。这与Houdini中的match_size节点一致。
+
+    Args:
+        mesh: Trimesh对象
+        bbox: 目标bbox，格式为[[xmin, ymin, zmin], [xmax, ymax, zmax]]
+    '''
+    bbox_extents = bbox[1][:] - bbox[0][:]
+    bbox_centroid = (bbox[1][:] + bbox[0][:]) * 0.5
+    mesh.vertices *= bbox_extents / mesh.bounding_box.extents
+    mesh.vertices += bbox_centroid - mesh.bounding_box.centroid
 # ---------------------------------------------------------------------------- #
 #                                     test                                     #
 # ---------------------------------------------------------------------------- #
@@ -137,6 +167,8 @@ def test_points_from_volume():
 
 def test_scale_to_unit_sphere():
     import trimesh
+    from visualize import visualize
+
     mesh = trimesh.load("data/model/bunny.obj")
     print("before scale")
     mesh = scale_to_unit_sphere(mesh)
@@ -151,11 +183,15 @@ def test_scale_to_unit_cube():
     mesh = scale_to_unit_cube(mesh)
     print("after scale")
     print(mesh.vertices.max(), mesh.vertices.min())
+    from visualize import visualize
+
     visualize(mesh.vertices, ti_init=True)
 
 
 def test_read_particles():
     pts = read_particles()
+    from visualize import visualize
+
     visualize(pts, ti_init=True, show_widget=True)
 
 

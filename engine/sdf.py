@@ -1,5 +1,4 @@
 import taichi as ti
-ti.init(debug=True)
 
 @ti.data_oriented
 class SDF:
@@ -101,25 +100,33 @@ def gen_sdf(shape, mesh_path):
     从表面网格生成SDF场。
     '''
     import trimesh
-    from mesh_io import scale_to_unit_cube
+    from mesh_io import scale_to_unit_cube, shift
+    from visualize import visualize
+    from debug_info import debug_info
+    from p2g import p2g, p2g_3d
+ 
     mesh = trimesh.load(mesh_path)
     mesh = scale_to_unit_cube(mesh)
-    v = mesh.vertices
-
-    print("number of vertices: ", v.shape[0])
-
-    # from visualize import visualize
+    shift(mesh, (1.1, 1.1, 1.1))
+    x_np = mesh.vertices
+    print("number of vertices: ", x_np.shape[0])
     # visualize(v, par_radius=0.1, background_color=(1,1,1))
 
-    from utils import field_from_numpy
-    v_ti = field_from_numpy(v)
+    x = ti.Vector.field(3, dtype=ti.f32, shape=x_np.shape[0])
+    x.from_numpy(x_np)
+    # sdf = SDFBase(shape=shape)
+    # val = sdf.val
+    val  = ti.Vector.field(3, dtype=ti.f32, shape=shape)
+    p2g(x, 0.1, val, 3)
 
-    from p2g import p2g
-    sdf = SDFBase(shape=(128,128,128))
-    p2g(v_ti, 0.1, sdf.val)
-    sdf_val_np = sdf.val.to_numpy()
-    print(sdf_val_np)
+    print(val)
+    # val_np = debug_info(val, "sdf_val", dont_print_cli=True)
+    # visualize(val_np, par_radius=0.1)
+    pass
 
+# ---------------------------------------------------------------------------- #
+#                                     test                                     #
+# ---------------------------------------------------------------------------- #
 
 def test_sdf_basic():
     sdf = SDF((5, 5))
@@ -153,5 +160,6 @@ def test_gen_sdf():
     gen_sdf((128,128,128), 'data/model/chair.obj')
 
 if __name__ == "__main__":
-    # test_mesh2sdf()
+    ti.init(debug=True)
+
     test_gen_sdf()

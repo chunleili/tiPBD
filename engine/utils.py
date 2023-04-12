@@ -16,3 +16,28 @@ def field_from_numpy(x_np):
     x = ti.Vector.field(3, dtype=ti.f32, shape=x_np.shape[0])
     x.from_numpy(x_np)
     return x
+
+
+@ti.kernel
+def random_fill_vec(x: ti.template(), dim: ti.template()):
+    shape = x.shape
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            for k in range(shape[2]):
+                for d in ti.static(range(dim)):
+                    x[i,j,k][d] = ti.random()
+
+@ti.kernel
+def random_fill_scalar(x: ti.template()):
+    shape = x.shape
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            for k in range(shape[2]):
+                    x[i,j,k] = ti.random()
+
+
+def random_fill(x, dim):
+    if dim > 1:
+        random_fill_vec(x, dim)
+    else:
+        random_fill_scalar(x)

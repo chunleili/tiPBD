@@ -22,7 +22,7 @@ def parse_cli():
 
     import os
     root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-    args.scene_file =  root_path+"/data/scene/bunny_fluid.json"
+    # args.scene_file =  root_path+"/data/scene/bunny_fluid.json"
     # args.device_memory_GB = 3.0
 
     import taichi as ti

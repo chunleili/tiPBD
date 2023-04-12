@@ -37,6 +37,7 @@ class Mesh:
         self.mesh.cells.place({'inv_vol' : ti.f32,
                                'B': ti.math.mat3,
                                'lagrangian': ti.f32,
+                               'fem_constraint': ti.f32,
                                'alpha': ti.f32})
 
         self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
@@ -104,6 +105,7 @@ class ARAP():
             F = self.compute_F(p0.pos, p1.pos, p2.pos, p3.pos, c.B)
             U, S, V = ti.svd(F)
             constraint = ti.sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
+            c.fem_constraint = constraint
             g0, g1, g2, g3 = computeGradient(c.B, U, S, V)
             dlambda =  self.compute_dlambda(c, constraint, c.alpha, c.lagrangian, g0, g1, g2, g3)
             c.lagrangian += dlambda

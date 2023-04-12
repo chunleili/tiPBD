@@ -12,8 +12,8 @@
 		"use_multigrid": true,
 		"show_coarse": true,
 		"show_fine": false,
-		"compute_energy": false,
-		"use_log": false,
+		"compute_energy": true,
+		"use_log": true,
 		"initial_pause": false,
 		"use_autodiff": false
 	},

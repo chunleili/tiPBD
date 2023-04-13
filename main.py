@@ -1,6 +1,6 @@
 if __name__ == "__main__":
     import taichi as ti
-    from ui.parse_cli import parse_cli, parse_cli_better
+    from ui.parse_cli import parse_cli_better
     
     args = parse_cli_better()
 
@@ -19,10 +19,9 @@ if __name__ == "__main__":
     # ti.init(arch=args.arch, kernel_profiler=args.kernel_profiler, debug=args.debug, device_memory_GB=args.device_memory_GB)
     ti.init(**args.init_args)
 
-    args.use_solver_main = True
-    if args.use_solver_main: # use the provided main in this lib
+    if args.use_solver_main: # use the provided solver_main
         from  engine.solver_main import solver_main
         solver_main()
     else: # manually give main
-        import engine.fluid.pbf as solver
-        solver.main()
+        import engine.fluid.pbf as pbf
+        pbf.main()

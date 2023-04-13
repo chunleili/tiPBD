@@ -60,6 +60,8 @@ def parse_cli_better():
                         help="use dearpygui as gui")
     parser.add_argument("--use_webui", action='store_true', default=False,
                         help="use webui")
+    parser.add_argument("--use_solver_main", action='store_true', default=False,
+                        help="use provided solver_main")
     args = parser.parse_args()
     
     root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))

@@ -1,8 +1,8 @@
 if __name__ == "__main__":
     import taichi as ti
-    from ui.parse_cli import parse_cli_better
+    from ui.parse_cli import parse_cli
     
-    args = parse_cli_better()
+    args = parse_cli()
 
     if args.use_dearpygui:
         import ui.dearpygui as gui

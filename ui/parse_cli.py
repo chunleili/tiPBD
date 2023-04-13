@@ -58,6 +58,8 @@ def parse_cli_better():
                         help="enable kernel profiler")
     parser.add_argument("--use_dearpygui", action='store_true', default=False,
                         help="use dearpygui as gui")
+    parser.add_argument("--use_webui", action='store_true', default=False,
+                        help="use webui")
     args = parser.parse_args()
     
     root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))

@@ -10,6 +10,12 @@ if __name__ == "__main__":
         gui_process = Process(target=gui.run)
         gui_process.start()
 
+    if args.use_webui:
+        import ui.webui as webui
+        from multiprocessing import  Process
+        webui_process = Process(target=webui.run_webui)
+        webui_process.start()
+
     # ti.init(arch=args.arch, kernel_profiler=args.kernel_profiler, debug=args.debug, device_memory_GB=args.device_memory_GB)
     ti.init(**args.init_args)
 

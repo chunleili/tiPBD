@@ -1,5 +1,5 @@
 *.ini
-!cli_args.ini
+!args.ini
 *.pyc
 __pycache__
 a.lua

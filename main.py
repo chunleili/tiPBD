@@ -19,6 +19,7 @@ if __name__ == "__main__":
     # ti.init(arch=args.arch, kernel_profiler=args.kernel_profiler, debug=args.debug, device_memory_GB=args.device_memory_GB)
     ti.init(**args.init_args)
 
+    args.use_solver_main = False
     if args.use_solver_main: # use the provided solver_main
         from  engine.solver_main import solver_main
         solver_main()

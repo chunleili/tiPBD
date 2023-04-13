@@ -20,7 +20,7 @@ def parse_cli():
 
     parser = configargparse.ArgumentParser(description='taichi PBD')
     parser.add_argument('-c', '--config_file', is_config_file=True, help='config file path', default='args.ini')
-    parser.add_argument('--scene_file', type=str, default=None,
+    parser.add_argument('--scene_file', type=str, default="",
                         help='manually specify scene file, if not specified, use gui to select')
     parser.add_argument('--no-gui', action='store_true', default=False,
                         help='no gui mode')

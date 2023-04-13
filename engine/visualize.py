@@ -183,7 +183,7 @@ def test_vis_grid():
     from p2g import p2g
     from debug_info import debug_info
     from visualize import visualize, vis_3d_grid, vis_grid
-    from utils import random_fill
+    from util import random_fill
     ti.init(arch=ti.cuda)
     shape = (100, 100, 100)
     x = ti.field(dtype=ti.f32, shape=shape)

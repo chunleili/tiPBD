@@ -33,8 +33,24 @@ class MetaData:
         else:
             self.scene_path = self.args.scene_file
         self.scene_name = self.scene_path.split("/")[-1].split(".")[0]
-        self.config = SimConfig(scene_file_path=self.scene_path)
-        self.common = self.config.get_common()
-        self.materials = self.config.get_materials()
+        self.config_instance = SimConfig(scene_file_path=self.scene_path)
+        self.common = self.config_instance.config["common"]
+        self.materials = self.config_instance.config["materials"]
+
+        # #为缺失的参数设置默认值
+        # if "num_substeps" not in self.common:
+        #     self.num_substeps = 1
+
+    def get_common(self, key, default=None):
+        if key in self.common:
+            return self.common[key]
+        else:
+            return default
+    
+    def get_materials(self, key, id_=0, default=None):
+        if key in self.materials[id_]:
+            return self.materials[id_][key]
+        else:
+            return default
 
 meta = MetaData()

@@ -2,19 +2,22 @@ import taichi as ti
 
 def solver_main():
     from engine.metadata import meta
-    if meta.common['constitutive_model'] == 'arap':
-        from engine.fem.arap import ARAP
-        pbd_solver = ARAP()
-    elif meta.common['constitutive_model'] == 'neohooken':
-        from engine.fem.neohooken import NeoHooken
-        pbd_solver = NeoHooken()
-    else:
-        raise NotImplementedError
+    if 'constitutive_model' in meta.common:
+        if meta.common['constitutive_model'] == 'arap':
+            from engine.fem.arap import ARAP
+            pbd_solver = ARAP()
+        elif meta.common['constitutive_model'] == 'neohooken':
+            from engine.fem.neohooken import NeoHooken
+            pbd_solver = NeoHooken()
+        else:
+            raise NotImplementedError(f"constitutive_model {meta.common['constitutive_model']} not implemented")
+    elif meta.materials[0]['type'] == 'fluid':
+        from engine.fluid.pbf import Fluid
+        pbd_solver = Fluid()
     
     from engine.visualize import GGUI
     ggui = GGUI()
     meta.paused = meta.common["initial_pause"]
-
 
 
     # if meta.use_multigrid:
@@ -42,7 +45,8 @@ def solver_main():
             # if meta.use_multigrid:
                 # coarse_to_fine()
             
-        ggui.update(pbd_solver.mesh.mesh.verts.pos, pbd_solver.mesh.surf_show)
+        # ggui.update(pbd_solver.mesh.mesh.verts.pos, pbd_solver.mesh.surf_show)
+        ggui.update(pos_show=pbd_solver.pos_show, indices_show=pbd_solver.indices_show)
     
         if meta.args.kernel_profiler:
             ti.profiler.print_kernel_profiler_info()

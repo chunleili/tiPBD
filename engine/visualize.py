@@ -1,6 +1,7 @@
 import taichi as ti
 class GGUI():
     def __init__(self) -> None:
+        from engine.metadata import meta
         self.window = ti.ui.Window("pbd", (1024, 1024),vsync=False)
         self.canvas = self.window.get_canvas()
         self.scene = ti.ui.Scene()
@@ -14,8 +15,8 @@ class GGUI():
         self.gui = self.window.get_gui()
         self.show_widget = True
         self.show_wireframe = True
-        self.show_particles = False
-        self.show_mesh = True
+        self.show_particles = meta.get_common("show_particles", default=True)
+        self.show_mesh = meta.get_common("show_mesh", default=False)
         self.par_radius = 0.01
         self.uniform_color = (0.1229,0.2254,0.7207)
         self.par_color = None
@@ -23,7 +24,7 @@ class GGUI():
         if self.show_auxiliary_meshes:
             self.ground, self.coord, self.ground_indices, self.coord_indices = read_auxiliary_meshes()
     
-    def update(self, pos_show, indices_show):
+    def update(self, pos_show, indices_show=None):
         self.camera.track_user_inputs(self.window, movement_speed=0.03, hold_key=ti.ui.RMB)
         self.scene.set_camera(self.camera)
 

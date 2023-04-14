@@ -23,7 +23,7 @@ meta.lame_lambda = meta.materials[0]["lame_lambda"]
 meta.inv_lame_lambda = 1.0/meta.lame_lambda
 
 @ti.data_oriented
-class Mesh:
+class Model:
     def __init__(self, geometry_file, direct_import_faces=True):
         geometry_file_no_ext = geometry_file.split(".")[0]        
         node_file = geometry_file_no_ext + ".node"
@@ -49,16 +49,15 @@ class Mesh:
         self.init_physics()
 
         # 设置显示三角面的indices
-        # 自己计算surf_show
+        # 自己计算 indices_show
         if not direct_import_faces:
-            self.surf_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
-            self.init_tet_indices(self.mesh, self.surf_show)
-        # 直接读取surf_show
+            self.indices_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
+            self.init_tet_indices(self.mesh, self.indices_show)
+        # 直接读取 indices_show
         else:
-            surf_show_np = self.directly_import_faces(geometry_file_no_ext + '.face')
-            self.surf_show = ti.field(ti.i32, surf_show_np.shape[0] * 3)
-            self.surf_show.from_numpy(surf_show_np.reshape(surf_show_np.shape[0] * 3))
-
+            indices_show_np = self.directly_import_faces(geometry_file_no_ext + '.face')
+            self.indices_show = ti.field(ti.i32, indices_show_np.shape[0] * 3)
+            self.indices_show.from_numpy(indices_show_np.reshape(indices_show_np.shape[0] * 3))
 
     @staticmethod
     @ti.kernel
@@ -95,12 +94,14 @@ class Mesh:
 @ti.data_oriented
 class ARAP():
     def __init__(self):
-        self.mesh = Mesh(geometry_file=meta.geometry_file)
+        self.model = Model(geometry_file=meta.geometry_file)
         super().__init__()
+        self.pos_show = self.model.mesh.verts.pos
+        self.indices_show = self.model.indices_show
 
     @ti.kernel
     def project_constraints(self):
-        for c in self.mesh.mesh.cells:
+        for c in self.model.mesh.cells:
             p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
             F = self.compute_F(p0.pos, p1.pos, p2.pos, p3.pos, c.B)
             U, S, V = ti.svd(F)
@@ -114,7 +115,7 @@ class ARAP():
     @ti.kernel
     def pre_solve(self, dt_: ti.f32):
         # semi-Euler update pos & vel
-        for v in self.mesh.mesh.verts:
+        for v in self.model.mesh.verts:
             if (v.inv_mass != 0.0):
                 v.vel = v.vel + dt_ * meta.gravity
                 v.prev_pos = v.pos
@@ -130,26 +131,26 @@ class ARAP():
 
     @ti.kernel
     def compute_potential_energy(self):
-        self.mesh.potential_energy[None] = 0.0
-        for c in self.mesh.mesh.cells:
+        self.model.potential_energy[None] = 0.0
+        for c in self.model.mesh.cells:
             invAlpha = meta.inv_lame_lambda * c.inv_vol
-            self.mesh.potential_energy[None] += 0.5 * invAlpha *  c.fem_constraint ** 2 
+            self.model.potential_energy[None] += 0.5 * invAlpha *  c.fem_constraint ** 2 
 
     @ti.kernel
     def compute_inertial_energy(self):
-        self.mesh.inertial_energy[None] = 0.0
-        for v in self.mesh.mesh.verts:
-            self.mesh.inertial_energy[None] += 0.5 / v.inv_mass * (v.pos - v.predict_pos).norm_sqr() * meta.inv_h2
+        self.model.inertial_energy[None] = 0.0
+        for v in self.model.mesh.verts:
+            self.model.inertial_energy[None] += 0.5 / v.inv_mass * (v.pos - v.predict_pos).norm_sqr() * meta.inv_h2
     
     @ti.kernel
     def collsion_response(self):
-        for v in self.mesh.mesh.verts:
+        for v in self.model.mesh.verts:
             if v.pos[1] < meta.ground.y:
                 v.pos[1] = meta.ground.y
     
     @ti.kernel
     def post_solve(self, dt_: ti.f32):
-        for v in self.mesh.mesh.verts:
+        for v in self.model.mesh.verts:
             if v.inv_mass != 0.0:
                 v.vel = (v.pos - v.prev_pos) / dt_
 
@@ -172,7 +173,7 @@ class ARAP():
         return dlambda
 
     def reset_lagrangian(self):
-        self.mesh.mesh.cells.lagrangian.fill(0.0)
+        self.model.mesh.cells.lagrangian.fill(0.0)
 
     def substep(self):
         self.pre_solve(meta.dt/meta.num_substeps)
@@ -185,8 +186,8 @@ class ARAP():
         if meta.compute_energy:
             self.compute_potential_energy()
             self.compute_inertial_energy()
-            self.mesh.total_energy[None] = self.mesh.potential_energy[None] + self.mesh.inertial_energy[None]
-            log_energy(self.mesh)
+            self.model.total_energy[None] = self.model.potential_energy[None] + self.model.inertial_energy[None]
+            log_energy(self.model)
         meta.frame += 1
 
 

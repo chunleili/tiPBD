@@ -8,14 +8,14 @@ class SimConfig:
             self.config = json.load(f)
         print(json.dumps(self.config, indent=2))
     
-    def get_common(self):
-        if "common" in self.config:
-            return self.config["common"]
-        else:
-            assert False, "No common in scene file"
-    
-    def get_materials(self):
-        if "materials" in self.config:
-            return self.config["materials"]
-        else:
-            assert False, "No materials in scene file"
+    # def get_common(self, key, default=None):
+    #     if key in self.config['common']:
+    #         return self.config['common'][key]
+    #     else:
+    #         return default
+        
+    # def get_materials(self, key, default=None):
+    #     if key in self.config["materials"]:
+    #         return self.config["materials"][key]
+    #     else:
+    #         return default

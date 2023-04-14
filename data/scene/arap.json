@@ -15,7 +15,9 @@
 		"compute_energy": true,
 		"use_log": true,
 		"initial_pause": false,
-		"use_autodiff": false
+		"use_autodiff": false,
+		"show_particles": false,
+		"show_mesh": true
 	},
 	"materials": [
 		{

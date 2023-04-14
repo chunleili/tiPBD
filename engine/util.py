@@ -62,3 +62,9 @@ def print_to_file(val, filename="field", dim=3):
         np.savetxt("result/"+filename+".csv", val, fmt="%.2e")
     else:
         np.savetxt("result/"+filename+".csv", val.reshape(-1, dim), fmt="%.2e")
+
+
+@ti.func
+def pos_to_grid_idx(x, y, z, dx, dy, dz):
+    return ti.Vector([x/dx, y/dy, z/dz], ti.i32)
+

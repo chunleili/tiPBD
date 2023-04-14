@@ -33,8 +33,6 @@ def solver_main():
                 print("step: ", meta.step)
                 meta.step+=1
                 pbd_solver.substep()
-                # debug_info(mesh.mesh.verts.pos)
-                # debug_info(mesh.mesh.cells.lagrangian)
                 print("step once")
 
         #do the simulation in each step
@@ -45,7 +43,6 @@ def solver_main():
             # if meta.use_multigrid:
                 # coarse_to_fine()
             
-        # ggui.update(pbd_solver.mesh.mesh.verts.pos, pbd_solver.mesh.surf_show)
         ggui.update(pos_show=pbd_solver.pos_show, indices_show=pbd_solver.indices_show)
     
         if meta.args.kernel_profiler:

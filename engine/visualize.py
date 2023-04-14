@@ -2,27 +2,52 @@ import taichi as ti
 class GGUI():
     def __init__(self) -> None:
         from engine.metadata import meta
-        self.window = ti.ui.Window("pbd", (1024, 1024),vsync=False)
+        self.vsync = meta.get_common("sync", default=True)
+        self.window = ti.ui.Window("pbd", (1024, 1024),vsync=self.vsync)
         self.canvas = self.window.get_canvas()
         self.scene = ti.ui.Scene()
         self.camera = ti.ui.Camera()
 
-        self.cam_pos = [-.71, 1.78, 1.77]
-        self.cam_lookat = [-.159, -1.1578, 1.213]
+        self.canvas.set_background_color((1,1,1))
+        # self.cam_pos = [-.71, 1.78, 1.77]
+        # self.cam_lookat = [-.159, -1.1578, 1.213]
+        self.cam_pos = [.5, .5 , 2]
+        self.cam_lookat = [0.5, 0.5, 1.]
         self.camera.position(self.cam_pos[0], self.cam_pos[1], self.cam_pos[2])
         self.camera.lookat(self.cam_lookat[0], self.cam_lookat[1], self.cam_lookat[2])
-        self.camera.fov(55) 
+        self.camera.fov(60) 
         self.gui = self.window.get_gui()
         self.show_widget = True
-        self.show_wireframe = True
+        self.show_wireframe = False
         self.show_particles = meta.get_common("show_particles", default=True)
         self.show_mesh = meta.get_common("show_mesh", default=False)
         self.par_radius = 0.01
         self.uniform_color = (0.1229,0.2254,0.7207)
         self.par_color = None
-        self.show_auxiliary_meshes = True
+
+        self.show_auxiliary_meshes = meta.get_common("show_auxiliary_meshes", default=True)
         if self.show_auxiliary_meshes:
             self.ground, self.coord, self.ground_indices, self.coord_indices = read_auxiliary_meshes()
+        
+        self.show_bounds = True
+        if self.show_bounds:
+            self.draw_bounds()
+
+    def draw_bounds(self, x_max=1, y_max=1, z_max=1):
+        self.box_anchors = ti.Vector.field(3, dtype=ti.f32, shape = 8)
+        self.box_anchors[0] = ti.Vector([0.0, 0.0, 0.0])
+        self.box_anchors[1] = ti.Vector([0.0, y_max, 0.0])
+        self.box_anchors[2] = ti.Vector([x_max, 0.0, 0.0])
+        self.box_anchors[3] = ti.Vector([x_max, y_max, 0.0])
+        self.box_anchors[4] = ti.Vector([0.0, 0.0, z_max])
+        self.box_anchors[5] = ti.Vector([0.0, y_max, z_max])
+        self.box_anchors[6] = ti.Vector([x_max, 0.0, z_max])
+        self.box_anchors[7] = ti.Vector([x_max, y_max, z_max])
+
+        self.box_lines_indices = ti.field(int, shape=(2 * 12))
+        for i, val in enumerate([0, 1, 0, 2, 1, 3, 2, 3, 4, 5, 4, 6, 5, 7, 6, 7, 0, 4, 1, 5, 2, 6, 3, 7]):
+            self.box_lines_indices[i] = val
+
     
     def update(self, pos_show, indices_show=None):
         self.camera.track_user_inputs(self.window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -31,6 +56,8 @@ class GGUI():
         self.scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
         self.scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
         self.scene.ambient_light((0.5, 0.5, 0.5))
+        
+        from engine.metadata import meta
 
         if self.show_widget:
             with self.gui.sub_window("Options", 0, 0, 0.25, 0.3) as w:
@@ -41,13 +68,18 @@ class GGUI():
                     self.camera.position(self.cam_pos[0], self.cam_pos[1], self.cam_pos[2])
                     self.camera.lookat(self.cam_lookat[0], self.cam_lookat[1], self.cam_lookat[2])
                     self.camera.fov(55) 
+                meta.num_substeps = self.gui.slider_int("num_substeps", meta.num_substeps, 0, 100)
+
         if self.show_mesh:
             self.scene.mesh(pos_show, indices=indices_show, color=self.uniform_color, show_wireframe=self.show_wireframe)
         if self.show_particles:
             self.scene.particles(pos_show, radius=self.par_radius, color=self.uniform_color, per_vertex_color=self.par_color)
         if self.show_auxiliary_meshes:
             self.scene.mesh(self.ground, indices=self.ground_indices, color=(0.5,0.5,0.5), show_wireframe=self.show_wireframe)
-            self.scene.mesh(self.coord, indices=self.coord_indices, color=(0.5,0.5,0.5), show_wireframe=self.show_wireframe)
+            self.scene.mesh(self.coord, indices=self.coord_indices, color=(0.5, 0, 0), show_wireframe=self.show_wireframe)
+
+        if self.show_bounds:
+            self.scene.lines(self.box_anchors, indices=self.box_lines_indices, color = (0.99, 0.68, 0.28), width = 2.0)
 
         self.canvas.scene(self.scene)
         self.window.show()

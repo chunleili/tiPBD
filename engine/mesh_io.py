@@ -151,10 +151,12 @@ def match_size(mesh, bbox):
     mesh.vertices *= bbox_extents / mesh.bounding_box.extents
     mesh.vertices += bbox_centroid - mesh.bounding_box.centroid
 
+@ti.kernel
+def shift_ti(pos:ti.template(), tx: ti.f32, ty: ti.f32, tz: ti.f32):
+    for i in pos:
+        pos[i] += ti.Vector([tx, ty, tz])
 
-@ti.func
-def xyz_to_ijk(x, y, z, dx, dy, dz):
-    return ti.Vector([x/dx, y/dy, z/dz], ti.i32)
+
 # ---------------------------------------------------------------------------- #
 #                                     test                                     #
 # ---------------------------------------------------------------------------- #

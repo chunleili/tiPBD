@@ -1,0 +1,30 @@
+{
+	"common": 
+	{
+		"simulation_method": "fem",
+		"constitutive_model": "arap",
+		"dt": 1e-3,
+		"relax_factor": 0.1,
+		"gravity": [0.0, -9.81, 0.0],
+		"ground": [0.0, 0.0, 0.0],
+		"max_iter": 5,
+		"num_substeps": 5,
+		"use_multigrid": true,
+		"show_coarse": true,
+		"show_fine": false,
+		"compute_energy": true,
+		"use_log": true,
+		"initial_pause": false,
+		"use_autodiff": false,
+		"show_particles": false,
+		"show_mesh": true
+	},
+	"materials": [
+		{
+            "name": "bunny",
+			"type": "volumetric",
+			"geometry_file": "data/model/bunny_small/bunny_small.node",
+			"lame_lambda": 1e7
+		}
+	]
+}

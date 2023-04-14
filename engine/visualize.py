@@ -33,6 +33,11 @@ class GGUI():
         if self.show_bounds:
             self.draw_bounds()
 
+    def draw_sdf(self, sdf):
+        self.sdf_vertices = vis_sdf(sdf.val, False)
+        self.show_sdf = True
+
+    
     def draw_bounds(self, x_max=1, y_max=1, z_max=1):
         self.box_anchors = ti.Vector.field(3, dtype=ti.f32, shape = 8)
         self.box_anchors[0] = ti.Vector([0.0, 0.0, 0.0])
@@ -81,8 +86,8 @@ class GGUI():
         if self.show_bounds:
             self.scene.lines(self.box_anchors, indices=self.box_lines_indices, color = (0.99, 0.68, 0.28), width = 2.0)
 
-        self.canvas.scene(self.scene)
-        self.window.show()
+        if self.show_sdf and self.sdf_vertices is not None:
+            self.scene.particles(self.sdf_vertices, radius=self.par_radius, color=self.uniform_color, per_vertex_color=self.par_color)
 
 
 def read_auxiliary_meshes():
@@ -145,7 +150,7 @@ def visualize(par_pos=None, par_radius=0.01, mesh_pos=None, mesh_indices=None, t
 
 
 
-def vis_sdf(grid):
+def vis_sdf(grid, provide_render=True):
     import numpy as np
     num_particles = grid.shape[0] * grid.shape[1] * grid.shape[2]
     particles = ti.Vector.field(3, dtype=ti.f32, shape=num_particles)
@@ -171,45 +176,46 @@ def vis_sdf(grid):
                 par_indx = i * grid.shape[1] * grid.shape[2] + j * grid.shape[2] + k
                 particles[par_indx] = ti.Vector([i,j,k]) / grid.shape[0]
                 # par_color[par_indx] = grid[i,j,k] / max
-    
     occ()
 
-    window = ti.ui.Window("visualizer", (1024, 1024), vsync=True)
-    canvas = window.get_canvas()
-    scene = ti.ui.Scene()
-    camera = ti.ui.Camera()
+    if provide_render:
+        window = ti.ui.Window("visualizer", (1024, 1024), vsync=True)
+        canvas = window.get_canvas()
+        scene = ti.ui.Scene()
+        camera = ti.ui.Camera()
 
-    cam_pos = [-.71, 1.78, 1.77]
-    cam_lookat = [-.159, -1.1578, 1.213]
+        cam_pos = [-.71, 1.78, 1.77]
+        cam_lookat = [-.159, -1.1578, 1.213]
 
-    camera.position(cam_pos[0], cam_pos[1], cam_pos[2])
-    camera.lookat(cam_lookat[0], cam_lookat[1], cam_lookat[2])
-    camera.fov(55) 
-    canvas.set_background_color((1,1,1))
-    gui = window.get_gui()
-    show_widget = True
-    reset_camera = False
-    while window.running:
-        camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
-        scene.set_camera(camera)
-        scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
-        scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
-        scene.ambient_light((0.5, 0.5, 0.5))
+        camera.position(cam_pos[0], cam_pos[1], cam_pos[2])
+        camera.lookat(cam_lookat[0], cam_lookat[1], cam_lookat[2])
+        camera.fov(55) 
+        canvas.set_background_color((1,1,1))
+        gui = window.get_gui()
+        show_widget = True
+        reset_camera = False
+        while window.running:
+            camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
+            scene.set_camera(camera)
+            scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
+            scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
+            scene.ambient_light((0.5, 0.5, 0.5))
 
-        if show_widget:
-            with gui.sub_window("Options", 0, 0, 0.25, 0.3) as w:
-                gui.text("camera.curr_position: " + str(camera.curr_position))
-                gui.text("camera.curr_lookat: " + str(camera.curr_lookat))
-                reset_camera = gui.button("Reset Camera")
-                if reset_camera:
-                    camera.position(cam_pos[0], cam_pos[1], cam_pos[2])
-                    camera.lookat(cam_lookat[0], cam_lookat[1], cam_lookat[2])
-                    camera.fov(55) 
-        
-        scene.particles(particles, radius=0.001, per_vertex_color=par_color)
+            if show_widget:
+                with gui.sub_window("Options", 0, 0, 0.25, 0.3) as w:
+                    gui.text("camera.curr_position: " + str(camera.curr_position))
+                    gui.text("camera.curr_lookat: " + str(camera.curr_lookat))
+                    reset_camera = gui.button("Reset Camera")
+                    if reset_camera:
+                        camera.position(cam_pos[0], cam_pos[1], cam_pos[2])
+                        camera.lookat(cam_lookat[0], cam_lookat[1], cam_lookat[2])
+                        camera.fov(55) 
+            
+            scene.particles(particles, radius=0.001, per_vertex_color=par_color)
 
-        canvas.scene(scene)
-        window.show()
+            canvas.scene(scene)
+            window.show()
+    return particles
 
 
 def test_vis_grid():

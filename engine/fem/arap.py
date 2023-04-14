@@ -22,6 +22,7 @@ meta.geometry_file = meta.materials[0]["geometry_file"] # only support one solid
 meta.lame_lambda = meta.materials[0]["lame_lambda"]
 meta.inv_lame_lambda = 1.0/meta.lame_lambda
 
+
 @ti.data_oriented
 class Model:
     def __init__(self, geometry_file, direct_import_faces=True):
@@ -98,6 +99,13 @@ class ARAP():
         super().__init__()
         self.pos_show = self.model.mesh.verts.pos
         self.indices_show = self.model.indices_show
+        from engine.sdf import SDF
+        meta.sdf_mesh_path = meta.get_common("sdf_mesh_path")
+        self.sdf = SDF(meta.sdf_mesh_path, resolution=64)
+        # from engine.visualize import vis_sdf
+        # vis_sdf(self.sdf.val)
+        # print(self.sdf.val[0,0,0])
+
 
     @ti.kernel
     def project_constraints(self):
@@ -116,11 +124,12 @@ class ARAP():
     def pre_solve(self, dt_: ti.f32):
         # semi-Euler update pos & vel
         for v in self.model.mesh.verts:
-            if (v.inv_mass != 0.0):
+            # if (v.inv_mass != 0.0):
                 v.vel = v.vel + dt_ * meta.gravity
                 v.prev_pos = v.pos
                 v.pos = v.pos + dt_ * v.vel
                 v.predict_pos = v.pos
+                collision_response(v.pos, v.vel, self.sdf)
 
     @ti.func
     def update_pos(self, c, dlambda, g0, g1, g2, g3):
@@ -141,12 +150,7 @@ class ARAP():
         self.model.inertial_energy[None] = 0.0
         for v in self.model.mesh.verts:
             self.model.inertial_energy[None] += 0.5 / v.inv_mass * (v.pos - v.predict_pos).norm_sqr() * meta.inv_h2
-    
-    @ti.kernel
-    def collsion_response(self):
-        for v in self.model.mesh.verts:
-            if v.pos[1] < meta.ground.y:
-                v.pos[1] = meta.ground.y
+
     
     @ti.kernel
     def post_solve(self, dt_: ti.f32):
@@ -180,7 +184,7 @@ class ARAP():
         self.reset_lagrangian()
         for ite in range(meta.max_iter):
             self.project_constraints()
-            self.collsion_response()
+            # collsion_response(self.model.mesh.verts)
         self.post_solve(meta.dt/meta.num_substeps)
 
         if meta.compute_energy:
@@ -189,6 +193,33 @@ class ARAP():
             self.model.total_energy[None] = self.model.potential_energy[None] + self.model.inertial_energy[None]
             log_energy(self.model)
         meta.frame += 1
+
+
+# @ti.kernel
+# def collsion_response(verts:ti.template()):
+#     for v in verts:
+#         if v.pos[1] < meta.ground.y:
+#             v.pos[1] = meta.ground.y
+
+@ti.func
+def pos_to_grid_idx(pos, dx):
+    return ti.Vector([pos.x/dx, pos.y/dx, pos.z/dx], ti.i32)
+
+@ti.func
+def collision_response(pos, vel, sdf):
+    sdf_epsilon = 1e-4
+    grid_idx = pos_to_grid_idx(pos, 1.0/sdf.resolution)
+    normal = sdf.grad[grid_idx]
+    sdf_val = sdf.val[grid_idx]
+
+    if sdf_val < sdf_epsilon:
+        print("collision")
+        pos -= sdf_val * normal
+        if vel.dot(normal) < 0:
+            normal_component = normal.dot(vel)
+            vel -=  normal * min(normal_component, 0)
+
+
 
 
 @ti.func

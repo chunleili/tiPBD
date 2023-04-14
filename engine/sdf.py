@@ -15,6 +15,7 @@ class SDF:
             dim (int): SDF体素场维度。默认为3。
         '''
         print("SDF init...")
+        self.resolution = resolution
         if dim==2:
             self.shape = (resolution, resolution)
         elif dim==3:

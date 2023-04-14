@@ -17,7 +17,8 @@
 		"initial_pause": false,
 		"use_autodiff": false,
 		"show_particles": false,
-		"show_mesh": true
+		"show_mesh": true,
+		"sdf_mesh_path": "data/model/chair.obj"
 	},
 	"materials": [
 		{

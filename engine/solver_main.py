@@ -42,9 +42,13 @@ def solver_main():
                 # print("pbd_solver.mesh.mesh.verts.pos",pbd_solver.mesh.mesh.verts.pos)
             # if meta.use_multigrid:
                 # coarse_to_fine()
-            
+
+        ggui.draw_sdf(pbd_solver.sdf)    
         ggui.update(pos_show=pbd_solver.pos_show, indices_show=pbd_solver.indices_show)
-    
+
+        ggui.canvas.scene(ggui.scene)
+        ggui.window.show()
+
         if meta.args.kernel_profiler:
             ti.profiler.print_kernel_profiler_info()
 

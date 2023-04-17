@@ -15,10 +15,20 @@ def solver_main():
         from engine.fluid.pbf import Fluid
         pbd_solver = Fluid()
     
-    from engine.visualize import GGUI
+    from engine.visualize import GGUI, vis_sdf, vis_sparse_grid
     ggui = GGUI()
+
+    meta.ggui = ggui
+
     meta.paused = meta.common["initial_pause"]
 
+    if meta.get_common("use_sdf"):
+        ggui.sdf_vertices = vis_sdf(pbd_solver.sdf.val, False)
+
+    if meta.get_common("vis_sparse_grid"):
+        ggui.sparse_grid_anchors, ggui.sparse_grid_indices = vis_sparse_grid(pbd_solver.sdf.val, pbd_solver.sdf.resolution)
+        print("ggui.sparse_grid_anchors",ggui.sparse_grid_anchors)
+        print("ggui.sparse_grid_indices",ggui.sparse_grid_indices)
 
     # if meta.use_multigrid:
         # coarse_to_fine()
@@ -43,9 +53,8 @@ def solver_main():
             # if meta.use_multigrid:
                 # coarse_to_fine()
 
-        ggui.draw_sdf(pbd_solver.sdf)    
+ 
         ggui.update(pos_show=pbd_solver.pos_show, indices_show=pbd_solver.indices_show)
-
         ggui.canvas.scene(ggui.scene)
         ggui.window.show()
 

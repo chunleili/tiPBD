@@ -31,27 +31,26 @@ class GGUI():
         
         self.show_bounds = True
         if self.show_bounds:
-            self.draw_bounds()
+            self.box_anchors, self.box_lines_indices = self.draw_bounds()
 
-    def draw_sdf(self, sdf):
-        self.sdf_vertices = vis_sdf(sdf.val, False)
-        self.show_sdf = True
+        meta.use_sdf =  meta.get_common("use_sdf")
 
     
-    def draw_bounds(self, x_max=1, y_max=1, z_max=1):
-        self.box_anchors = ti.Vector.field(3, dtype=ti.f32, shape = 8)
-        self.box_anchors[0] = ti.Vector([0.0, 0.0, 0.0])
-        self.box_anchors[1] = ti.Vector([0.0, y_max, 0.0])
-        self.box_anchors[2] = ti.Vector([x_max, 0.0, 0.0])
-        self.box_anchors[3] = ti.Vector([x_max, y_max, 0.0])
-        self.box_anchors[4] = ti.Vector([0.0, 0.0, z_max])
-        self.box_anchors[5] = ti.Vector([0.0, y_max, z_max])
-        self.box_anchors[6] = ti.Vector([x_max, 0.0, z_max])
-        self.box_anchors[7] = ti.Vector([x_max, y_max, z_max])
+    def draw_bounds(self, x_min=0, y_min=0, z_min=0, x_max=1, y_max=1, z_max=1):
+        box_anchors = ti.Vector.field(3, dtype=ti.f32, shape = 8)
+        box_anchors[0] = ti.Vector([x_min, y_min, z_min])
+        box_anchors[1] = ti.Vector([x_min, y_max, z_min])
+        box_anchors[2] = ti.Vector([x_max, y_min, z_min])
+        box_anchors[3] = ti.Vector([x_max, y_max, z_min])
+        box_anchors[4] = ti.Vector([x_min, y_min, z_max])
+        box_anchors[5] = ti.Vector([x_min, y_max, z_max])
+        box_anchors[6] = ti.Vector([x_max, y_min, z_max])
+        box_anchors[7] = ti.Vector([x_max, y_max, z_max])
 
-        self.box_lines_indices = ti.field(int, shape=(2 * 12))
+        box_lines_indices = ti.field(int, shape=(2 * 12))
         for i, val in enumerate([0, 1, 0, 2, 1, 3, 2, 3, 4, 5, 4, 6, 5, 7, 6, 7, 0, 4, 1, 5, 2, 6, 3, 7]):
-            self.box_lines_indices[i] = val
+            box_lines_indices[i] = val
+        return box_anchors, box_lines_indices
 
     
     def update(self, pos_show, indices_show=None):
@@ -86,8 +85,11 @@ class GGUI():
         if self.show_bounds:
             self.scene.lines(self.box_anchors, indices=self.box_lines_indices, color = (0.99, 0.68, 0.28), width = 2.0)
 
-        if self.show_sdf and self.sdf_vertices is not None:
+        if meta.use_sdf:
             self.scene.particles(self.sdf_vertices, radius=self.par_radius, color=self.uniform_color, per_vertex_color=self.par_color)
+
+        # if meta.get_common("vis_sparse_grid"):
+        #     self.scene.lines(self.sparse_grid_anchors, indices=self.sparse_grid_indices, color = (0.99, 0.68, 0.28), width = 2.0)
 
 
 def read_auxiliary_meshes():
@@ -218,17 +220,43 @@ def vis_sdf(grid, provide_render=True):
     return particles
 
 
-def test_vis_grid():
-    from p2g import p2g
-    from debug_info import debug_info
-    from visualize import visualize, vis_3d_grid, vis_grid
-    from util import random_fill
-    ti.init(arch=ti.cuda)
-    shape = (100, 100, 100)
-    x = ti.field(dtype=ti.f32, shape=shape)
-    random_fill(x, 1)
-    pass
-    vis_grid(x) 
+def vis_sparse_grid(grid, resolution):
+    threshold = 0.0
+    # resolution = grid.shape[0]
+    dx = 1.0 / resolution
 
-if __name__ == "__main__":
-    test_vis_grid()
+    # num_grid = (resolution,) * 3
+
+    # num_grid = grid.shape[0] * grid.shape[1] * grid.shape[2]
+    # anchors = ti.Vector.field(3, dtype=ti.f32, shape = (grid.shape,8))
+    # indices = ti.field(dtype=ti.i32, shape = (grid.shape, 24))
+    anchors = ti.Vector.field(3, dtype=ti.f32, shape = (resolution,resolution,resolution,8))
+    indices = ti.field(dtype=ti.i32, shape = (resolution,resolution,resolution, 24))
+
+
+    @ti.kernel
+    def occ():
+        for i,j,k in grid:
+            if (grid[i,j,k] < threshold):
+                # par_indx = i * grid.shape[1] * grid.shape[2] + j * grid.shape[2] + k
+                # particles[par_indx] = ti.Vector([i,j,k]) / grid.shape[0]
+                x_min = i * dx
+                x_max = (i+1) * dx
+                y_min = j * dx
+                y_max = (j+1) * dx
+                z_min = k * dx
+                z_max = (k+1) * dx
+                anchors[i,j,k, 0] = ti.Vector([x_min, y_min, z_min])
+                anchors[i,j,k, 1] = ti.Vector([x_min, y_max, z_min])
+                anchors[i,j,k, 2] = ti.Vector([x_max, y_min, z_min])
+                anchors[i,j,k, 3] = ti.Vector([x_max, y_max, z_min])
+                anchors[i,j,k, 4] = ti.Vector([x_min, y_min, z_max])
+                anchors[i,j,k, 5] = ti.Vector([x_min, y_max, z_max])
+                anchors[i,j,k, 6] = ti.Vector([x_max, y_min, z_max])
+                anchors[i,j,k, 7] = ti.Vector([x_max, y_max, z_max])
+
+                for l, val in ti.static(enumerate([0, 1, 0, 2, 1, 3, 2, 3, 4, 5, 4, 6, 5, 7, 6, 7, 0, 4, 1, 5, 2, 6, 3, 7])):
+                    indices[i,j,k, l] = val
+
+    occ()
+    return anchors, indices

@@ -42,6 +42,12 @@ class Model:
                                'alpha': ti.f32})
 
         self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
+        self.pos = self.mesh.verts.pos
+        from engine.mesh_io import scale_ti, translation_ti
+        sx,sy,sz = meta.get_materials("scale", 0)
+        tx,ty,tz = meta.get_materials("translation", 0)
+        scale_ti(self.pos, sx,sy,sz)
+        translation_ti(self.pos, tx,ty,tz)
 
         self.potential_energy = ti.field(float, ())
         self.inertial_energy = ti.field(float, ())
@@ -219,8 +225,6 @@ def pos_to_grid_idx(pos, dx):
 #         if vel.dot(normal) < 0:
 #             normal_component = normal.dot(vel)
 #             vel -=  normal * min(normal_component, 0)
-
-
 
 
 @ti.func

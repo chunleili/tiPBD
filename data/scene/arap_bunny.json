@@ -21,7 +21,7 @@
 		"use_sdf": true,
 		"sdf_mesh_path": "data/model/chair.obj",
 		"sdf_mesh_scale": [0.5, 0.5, 0.5],
-		"sdf_mesh_translation": [0.0, 0.0, 0.0],
+		"sdf_mesh_translation": [0.0, -0.5, 0.0],
 		"vis_sparse_grid":false
 	},
 	"materials": [
@@ -30,7 +30,7 @@
 			"type": "volumetric",
 			"geometry_file": "data/model/bunny_small/bunny_small.node",
 			"scale": [0.5, 0.5, 0.5],
-			"translation": [0.0, 0.0, 0.0],
+			"translation": [0.0, 0.5, 0.0],
 			"lame_lambda": 1e7
 		}
 	]

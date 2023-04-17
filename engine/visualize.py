@@ -219,7 +219,7 @@ def vis_sdf(grid, provide_render=True):
             window.show()
     return particles
 
-
+# FIXME
 def vis_sparse_grid(grid, resolution):
     threshold = 0.0
     # resolution = grid.shape[0]

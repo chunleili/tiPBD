@@ -154,5 +154,4 @@ def match_size(mesh, bbox):
 @ti.kernel
 def shift_ti(pos:ti.template(), tx: ti.f32, ty: ti.f32, tz: ti.f32):
     for i in pos:
-        pos[i] += ti.Vector([tx, ty, tz])
-
+        pos[i] = pos[i] + ti.Vector([tx, ty, tz])

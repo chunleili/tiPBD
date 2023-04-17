@@ -1,4 +1,6 @@
 import taichi as ti
+import os
+import numpy as np
 
 @ti.data_oriented
 class SDF:
@@ -14,7 +16,6 @@ class SDF:
             resolution (int): SDF体素场分辨率。默认为64。
             dim (int): SDF体素场维度。默认为3。
         '''
-        print("SDF init...")
         self.resolution = resolution
         if dim==2:
             self.shape = (resolution, resolution)
@@ -22,15 +23,32 @@ class SDF:
             self.shape = (resolution, resolution, resolution)
         else:
             raise Exception("SDF only supports 2D/3D for now")
-        print("SDF resolution = ", self.shape)
         self.dim = dim
         self.val =  ti.field(dtype=ti.f32, shape=self.shape)
         self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=self.shape)
 
+        print("SDF resolution = ", self.shape)
+        print("SDF initilizing...")
+
         if mesh_path is not None:
-            val_np, grad_np = gen_sdf_voxels(mesh_path, resolution, True)
+            print(mesh_path)
+            # 检查是否存在cache
+            val_cache_path = mesh_path+ "_sdf_cache_val.npy"
+            grad_cache_path = mesh_path+ "_sdf_cache_grad.npy"
+            if not os.path.exists(val_cache_path) or not os.path.exists(grad_cache_path):
+                print("No sdf cache found. Generating sdf cache...")
+                val_np, grad_np = gen_sdf_voxels(mesh_path, resolution, True)
+                np.save(val_cache_path, val_np)
+                np.save(grad_cache_path,grad_np)
+            else:
+                print("Found sdf cache. Loading sdf cache...")
+                val_np = np.load(val_cache_path)
+                grad_np = np.load(grad_cache_path)
+
             self.val.from_numpy(val_np)
             self.grad.from_numpy(grad_np)
+        
+        print("SDF init done.")
 
 
     def compute_gradient(self, dx=1.0, dy=1.0, dz=1.0):

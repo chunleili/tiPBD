@@ -30,10 +30,10 @@ def parse_cli():
         root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
         args.scene_file =  root_path + args.scene_file
 
-    print("----------")
-    print(parser.format_help())
-    print("----------")
-    print(parser.format_values())
+    # print("----------")
+    # print(parser.format_help())
+    # print("----------")
+    # print(parser.format_values())
 
     if args.arch == "cuda":
         args.arch = ti.cuda
@@ -45,7 +45,7 @@ def parse_cli():
     # 把init_args打包， ti.init(**args.init_args)
     args.init_args = {"arch": args.arch, "device_memory_fraction": args.device_memory_fraction, "kernel_profiler": args.kernel_profiler, "debug": args.debug}
 
-    print(args)
+    # print(args)
     return args
 
 

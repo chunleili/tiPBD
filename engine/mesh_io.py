@@ -13,10 +13,12 @@ def read_particles(mesh_path="data/model/bunny.obj"):
 #     mesh = meshio.read(mesh_path)
 #     return mesh.points
 
-def read_mesh(mesh_path="data/model/bunny.obj"):
+def read_mesh(mesh_path="data/model/bunny.obj", scale=[1.0, 1.0, 1.0], shift=[0, 0, 0]):
     import trimesh
     print("Read ", mesh_path)
     mesh = trimesh.load(mesh_path)
+    mesh.vertices *= scale
+    mesh.vertices += shift
     return mesh.vertices, mesh.faces
 
 def read_tetgen(filename):
@@ -155,3 +157,8 @@ def match_size(mesh, bbox):
 def shift_ti(pos:ti.template(), tx: ti.f32, ty: ti.f32, tz: ti.f32):
     for i in pos:
         pos[i] = pos[i] + ti.Vector([tx, ty, tz])
+
+@ti.kernel
+def scale_ti(pos:ti.template(), sx: ti.f32, sy: ti.f32, sz: ti.f32):
+    for i in pos:
+        pos[i] = pos[i] * ti.Vector([sx, sy, sz])

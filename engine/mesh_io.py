@@ -107,7 +107,7 @@ def scale_to_unit_sphere(mesh):
 
 def scale_to_unit_cube(mesh):
     '''
-    将mesh缩放到单位立方体。并且将mesh的中心点移动到原点。
+    将mesh缩放到[-1,1]的立方体，并且将mesh的中心点移动到原点。
 
     Args:
         mesh: 原始Trimesh对象
@@ -125,6 +125,7 @@ def scale_to_unit_cube(mesh):
     vertices *= 2 / np.max(mesh.bounding_box.extents)
 
     return trimesh.Trimesh(vertices=vertices, faces=mesh.faces)
+
 
 def shift(mesh, x):
     mesh.vertices += x

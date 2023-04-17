@@ -59,8 +59,22 @@ def gen_sdf_voxels(mesh_path, resolution=64, return_gradients=False):
         mesh_path (str, optional): 网格文件路径。 Defaults to 'data/model/chair.obj'.
         resolution (int, optional): 体素分辨率。 Defaults to 64.
     '''
-    import trimesh, mesh_to_sdf
+    import trimesh
     mesh = trimesh.load(mesh_path)
-    mesh = mesh_to_sdf.scale_to_unit_cube(mesh)
-    vox = mesh_to_sdf.mesh_to_voxels(mesh, voxel_resolution=resolution, return_gradients=return_gradients)
+    vox = mesh_to_voxels(mesh, voxel_resolution=resolution, return_gradients=return_gradients)
     return vox
+
+
+def mesh_to_voxels(mesh, voxel_resolution=64, surface_point_method='scan', sign_method='normal', scan_count=100, scan_resolution=400, sample_point_count=10000000, normal_sample_count=11, pad=False, check_result=False, return_gradients=False):
+    from mesh_to_sdf import get_surface_point_cloud
+    from engine.mesh_io import scale_to_unit_cube
+    from engine.metadata import meta
+    mesh = scale_to_unit_cube(mesh)
+    if meta.get_common("sdf_mesh_scale") is not None:
+        mesh.apply_scale(meta.get_common("sdf_mesh_scale"))
+    if meta.get_common("sdf_mesh_translation") is not None:
+        mesh.apply_translation(meta.get_common("sdf_mesh_translation"))
+
+    surface_point_cloud = get_surface_point_cloud(mesh, surface_point_method, 3**0.5, scan_count, scan_resolution, sample_point_count, sign_method=='normal')
+
+    return surface_point_cloud.get_voxels(voxel_resolution, sign_method=='depth', normal_sample_count, pad, check_result, return_gradients)

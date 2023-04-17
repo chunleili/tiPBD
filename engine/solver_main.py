@@ -4,10 +4,10 @@ def solver_main():
     from engine.metadata import meta
     if 'constitutive_model' in meta.common:
         if meta.common['constitutive_model'] == 'arap':
-            from engine.fem.arap import ARAP
+            from engine.volumetric.arap import ARAP
             pbd_solver = ARAP()
         elif meta.common['constitutive_model'] == 'neohooken':
-            from engine.fem.neohooken import NeoHooken
+            from engine.volumetric.neohooken import NeoHooken
             pbd_solver = NeoHooken()
         else:
             raise NotImplementedError(f"constitutive_model {meta.common['constitutive_model']} not implemented")

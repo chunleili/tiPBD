@@ -120,7 +120,7 @@ def visualize(par_pos=None, par_radius=0.01, mesh_pos=None, mesh_indices=None, t
     else:
         par_pos_ti = par_pos
 
-    window = ti.ui.Window("visualizer", (1024, 1024), vsync=False)
+    window = ti.ui.Window("visualizer", (1024, 1024), vsync=True)
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
     camera = ti.ui.Camera()

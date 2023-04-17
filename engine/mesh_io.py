@@ -163,3 +163,38 @@ def translation_ti(pos:ti.template(), tx: ti.f32, ty: ti.f32, tz: ti.f32):
 def scale_ti(pos:ti.template(), sx: ti.f32, sy: ti.f32, sz: ti.f32):
     for i in pos:
         pos[i] = pos[i] * ti.Vector([sx, sy, sz])
+
+
+@ti.kernel
+def tet_indices_to_face_indices(tets:ti.template(), faces: ti.template()):
+    for tid in tets:
+        ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
+        faces[tid*4+0][0] = tets[tid][ind[0][0]]
+        faces[tid*4+0][1] = tets[tid][ind[0][1]]
+        faces[tid*4+0][2] = tets[tid][ind[0][2]]
+        faces[tid*4+1][0] = tets[tid][ind[1][0]]
+        faces[tid*4+1][1] = tets[tid][ind[1][1]]
+        faces[tid*4+1][2] = tets[tid][ind[1][2]]
+        faces[tid*4+2][0] = tets[tid][ind[2][0]]
+        faces[tid*4+2][1] = tets[tid][ind[2][1]]
+        faces[tid*4+2][2] = tets[tid][ind[2][2]]
+        faces[tid*4+3][0] = tets[tid][ind[3][0]]
+        faces[tid*4+3][1] = tets[tid][ind[3][1]]
+        faces[tid*4+3][2] = tets[tid][ind[3][2]]
+
+@ti.kernel
+def tet_indices_to_edge_indices(tets:ti.template(), edges: ti.template()):
+    ind = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]]
+    for tid in tets:
+        edges[tid*6+0][0] = tets[tid][ind[0][0]]
+        edges[tid*6+0][1] = tets[tid][ind[0][1]]
+        edges[tid*6+1][0] = tets[tid][ind[1][0]]
+        edges[tid*6+1][1] = tets[tid][ind[1][1]]
+        edges[tid*6+2][0] = tets[tid][ind[2][0]]
+        edges[tid*6+2][1] = tets[tid][ind[2][1]]
+        edges[tid*6+3][0] = tets[tid][ind[3][0]]
+        edges[tid*6+3][1] = tets[tid][ind[3][1]]
+        edges[tid*6+4][0] = tets[tid][ind[4][0]]
+        edges[tid*6+4][1] = tets[tid][ind[4][1]]
+        edges[tid*6+5][0] = tets[tid][ind[5][0]]
+        edges[tid*6+5][1] = tets[tid][ind[5][1]]

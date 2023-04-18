@@ -1,7 +1,7 @@
 import taichi as ti
 
 def solver_main():
-    from engine.metadata import meta
+    from engine.metadata import meta #此处是第一次打开meta，因此也是打开filediag的地方
     if 'constitutive_model' in meta.common:
         if meta.common['constitutive_model'] == 'arap':
             from engine.volumetric.arap import ARAP

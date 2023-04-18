@@ -12,12 +12,15 @@ def solver_main():
         else:
             raise NotImplementedError(f"constitutive_model {meta.common['constitutive_model']} not implemented")
     elif meta.get_materials('type') == 'fluid':
-        from engine.fluid.pbf import Fluid
-        pbd_solver = Fluid()
+        import engine.fluid.pbf as pbf
+        pbf.main()
     elif meta.get_materials("type") == "mass_spring_volumetric":
         from engine.volumetric.mass_spring_volumetric import MassSpring
         pbd_solver = MassSpring()
     
+    if meta.get_common("self_main", False):
+        return
+
     from engine.visualize import GGUI, vis_sdf, vis_sparse_grid
     ggui = GGUI()
 
@@ -64,5 +67,3 @@ def solver_main():
 
         if meta.args.kernel_profiler:
             ti.profiler.print_kernel_profiler_info()
-
-

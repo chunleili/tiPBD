@@ -3,7 +3,8 @@
 	{
 		"dt": 1e-3,
 		"num_substeps": 1,
-		"initial_pause": true
+		"initial_pause": true,
+		"self_main": true
 	},
 	"materials": [
 		{

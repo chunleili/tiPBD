@@ -1,66 +1,24 @@
-# import math
-# import numpy as np
-# import taichi as ti
-# from engine.metadata import meta
-# from engine.mesh_io import read_particles
+import math
+import numpy as np
+import taichi as ti
 
-# dim = 3
-
-# # vertices_np,_,_ = read_tetgen(parm.geo_noext)
-# vertices_np = read_particles(meta.root_path + "/" + meta.materials[0]["geometry_file"])
-# vertices_np = vertices_np.astype(np.float32)
-# num_particles = vertices_np.shape[0]
+#TODO: 注意！当前的参数是hard-code进去的，实际上并没使用json，后面会改掉。
 
 class Parm:
     pass
 parm = Parm()
 
-# def set_parm():
-#     parm.dim = dim
-#     parm.num_particles = num_particles
-#     parm.parm.particle_radius = meta.materials[0]["parm.particle_radius"]
-#     parm.kernel_radius = 4.0 * parm.parm.particle_radius 
-#     parm.parm.cell_size = 4 * parm.parm.particle_radius
-#     parm.parm.boundary = meta.materials[0]["parm.boundary"]
-#     parm.num_grid = tuple([math.ceil((parm.parm.boundary[d][1]-parm.parm.boundary[d][0]) / parm.parm.cell_size) for d in range(dim)])
-#     parm.dt = meta.common["dt"]
-#     parm.num_substeps = meta.common["num_substeps"]
-
-#     parm.max_iter = meta.materials[0]["max_iter"]
-#     parm.gravity = ti.Vector(meta.materials[0]["gravity"])
-#     parm.parm.epsilon = meta.materials[0]["parm.epsilon"]
-#     parm.rho0 = meta.materials[0]["rho0"]
-#     parm.lambda_epsilon = meta.materials[0]["lambda_epsilon"]
-#     parm.coeff_dq = meta.materials[0]["coeff_dq"]
-#     parm.coeff_k = meta.materials[0]["coeff_k"]
-#     parm.parm.neighbor_radius = parm.kernel_radius * 1.05
-#     parm.parm.poly6_factor = 315.0 / (64.0 * math.pi * math.pow(parm.kernel_radius, 9))
-#     parm.parm.spiky_grad_factor = -(45.0) / (math.pi * math.pow(parm.kernel_radius, 6))
-#     parm.max_num_particles_per_cell = 60
-#     parm.parm.max_num_neighbors = 60
-#     parm.screen_to_world_ratio = 10.0
-
-# set_parm()
-
-
-import math
-import numpy as np
-import taichi as ti
-ti.init(arch=ti.cpu)
 
 screen_res = (800, 400)
 screen_to_world_ratio = 10.0
-# parm.boundary = (screen_res[0] / screen_to_world_ratio,
-#             screen_res[1] / screen_to_world_ratio)
 parm.cell_size = 2.51
 cell_recpr = 1.0 / parm.cell_size
 
-
-# def round_up(f, s):
-#     return (math.floor(f * cell_recpr / s) + 1) * s
-
-
-# parm.grid_size = (round_up(parm.boundary[0], 1), round_up(parm.boundary[1], 1))
+parm.boundary = (screen_res[0] / screen_to_world_ratio,
+            screen_res[1] / screen_to_world_ratio)
+def round_up(f, s):
+    return (math.floor(f * cell_recpr / s) + 1) * s
+parm.grid_size = (round_up(parm.boundary[0], 1), round_up(parm.boundary[1], 1))
 # print(parm.grid_size)
 parm.grid_size =     (32,16)
 parm.boundary = (80.0, 40.0)

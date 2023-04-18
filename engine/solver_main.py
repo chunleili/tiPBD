@@ -14,6 +14,9 @@ def solver_main():
     elif meta.get_materials('type') == 'fluid':
         import engine.fluid.pbf as pbf
         pbf.main()
+    elif meta.get_materials("type") == "fluid2d":
+        import engine.fluid.pbf2d_sparse as pbf2d
+        pbf2d.main()
     elif meta.get_materials("type") == "mass_spring_volumetric":
         from engine.volumetric.mass_spring_volumetric import MassSpring
         pbd_solver = MassSpring()

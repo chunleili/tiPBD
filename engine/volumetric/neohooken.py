@@ -41,9 +41,10 @@ class NeoHooken():
         self.alpha_tilde_H = ti.field(float, self.num_cells)
         self.alpha_tilde_D = ti.field(float, self.num_cells)
         self.display_indices = ti.field(ti.i32, self.num_faces * 3)
-        self.surf_show = self.display_indices
         self.init_display_indices(self.fine_model_tri, self.display_indices, self.num_faces)
         self.reset()
+        self.pos_show = self.pos
+        self.indices_show = self.display_indices
 
     def reset(self):
         self.tet_indices.from_numpy(self.fine_model_inx)

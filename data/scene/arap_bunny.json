@@ -29,8 +29,8 @@
             "name": "bunny",
 			"type": "volumetric",
 			"geometry_file": "data/model/bunny_small/bunny_small.node",
-			"scale": [0.5, 0.5, 0.5],
-			"translation": [0.0, 0.5, 0.0],
+			"scale": [1.0, 1.0, 1.0],
+			"translation": [0.0, 0.2, 0.0],
 			"lame_lambda": 1e7
 		}
 	]

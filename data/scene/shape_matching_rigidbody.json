@@ -5,7 +5,10 @@
 	},
 	"materials":[
 		{
-			"type": "shape_matching_rigidbody"
+			"type": "shape_matching_rigidbody",
+			"geometry_file": "data/model/bunny.obj",
+			"scale": [0.1, 0.1, 0.1],
+			"translation": [0.5, 0.5, 0.5]
 		}
 	]
 }

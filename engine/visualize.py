@@ -31,26 +31,9 @@ class GGUI():
         
         self.show_bounds = True
         if self.show_bounds:
-            self.box_anchors, self.box_lines_indices = self.draw_bounds()
+            self.box_anchors, self.box_lines_indices = draw_bounds(x_min=0, y_min=0, z_min=0, x_max=1, y_max=1, z_max=1)
 
         meta.use_sdf =  meta.get_common("use_sdf")
-
-    
-    def draw_bounds(self, x_min=0, y_min=0, z_min=0, x_max=1, y_max=1, z_max=1):
-        box_anchors = ti.Vector.field(3, dtype=ti.f32, shape = 8)
-        box_anchors[0] = ti.Vector([x_min, y_min, z_min])
-        box_anchors[1] = ti.Vector([x_min, y_max, z_min])
-        box_anchors[2] = ti.Vector([x_max, y_min, z_min])
-        box_anchors[3] = ti.Vector([x_max, y_max, z_min])
-        box_anchors[4] = ti.Vector([x_min, y_min, z_max])
-        box_anchors[5] = ti.Vector([x_min, y_max, z_max])
-        box_anchors[6] = ti.Vector([x_max, y_min, z_max])
-        box_anchors[7] = ti.Vector([x_max, y_max, z_max])
-
-        box_lines_indices = ti.field(int, shape=(2 * 12))
-        for i, val in enumerate([0, 1, 0, 2, 1, 3, 2, 3, 4, 5, 4, 6, 5, 7, 6, 7, 0, 4, 1, 5, 2, 6, 3, 7]):
-            box_lines_indices[i] = val
-        return box_anchors, box_lines_indices
 
     
     def update(self, pos_show, indices_show=None):
@@ -93,6 +76,18 @@ class GGUI():
 
 
 def read_auxiliary_meshes():
+    '''
+    读取辅助网格，包括地面和坐标系。
+    
+    Examples::
+
+        # (before the render loop)
+        ground, coord, ground_indices, coord_indices = read_auxiliary_meshes()
+        # ...
+        # (in the render loop)
+        scene.mesh(ground, indices=ground_indices, color=(0.5,0.5,0.5))
+        scene.mesh(coord, indices=coord_indices, color=(0.5, 0, 0))
+    '''
     from engine.mesh_io import read_mesh
     ground_, ground_indices_ = read_mesh("data/model/ground.obj")
     coord_, coord_indices_ = read_mesh("data/model/coord.obj")
@@ -260,3 +255,20 @@ def vis_sparse_grid(grid, resolution):
 
     occ()
     return anchors, indices
+
+
+def draw_bounds(x_min=0, y_min=0, z_min=0, x_max=1, y_max=1, z_max=1):
+    box_anchors = ti.Vector.field(3, dtype=ti.f32, shape = 8)
+    box_anchors[0] = ti.Vector([x_min, y_min, z_min])
+    box_anchors[1] = ti.Vector([x_min, y_max, z_min])
+    box_anchors[2] = ti.Vector([x_max, y_min, z_min])
+    box_anchors[3] = ti.Vector([x_max, y_max, z_min])
+    box_anchors[4] = ti.Vector([x_min, y_min, z_max])
+    box_anchors[5] = ti.Vector([x_min, y_max, z_max])
+    box_anchors[6] = ti.Vector([x_max, y_min, z_max])
+    box_anchors[7] = ti.Vector([x_max, y_max, z_max])
+
+    box_lines_indices = ti.field(int, shape=(2 * 12))
+    for i, val in enumerate([0, 1, 0, 2, 1, 3, 2, 3, 4, 5, 4, 6, 5, 7, 6, 7, 0, 4, 1, 5, 2, 6, 3, 7]):
+        box_lines_indices[i] = val
+    return box_anchors, box_lines_indices

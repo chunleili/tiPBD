@@ -66,8 +66,10 @@ def solver_main():
             # if meta.use_multigrid:
                 # coarse_to_fine()
 
- 
-        ggui.update(pos_show=pbd_solver.pos_show, indices_show=pbd_solver.indices_show)
+        indices_show = None
+        if hasattr(pbd_solver, "indices_show"):
+            indices_show = pbd_solver.indices_show
+        ggui.update(pos_show=pbd_solver.pos_show, indices_show=indices_show)
         ggui.canvas.scene(ggui.scene)
         ggui.window.show()
 

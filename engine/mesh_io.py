@@ -7,15 +7,21 @@ def read_particles(mesh_path="data/model/bunny.obj"):
     mesh = trimesh.load(mesh_path)
     return mesh.vertices
 
-# def read_particles_meshio(mesh_path="data/model/bunny.obj"):
-#     import meshio
-#     print("Read ", mesh_path)
-#     mesh = meshio.read(mesh_path)
-#     return mesh.points
+def read_meshio_instance(mesh_path="data/model/bunny.obj"):
+    import meshio
+    print("Using meshio read: ", mesh_path)
+    mesh = meshio.read(mesh_path)
+    return mesh
+
+def read_trimesh_instance(mesh_path="data/model/bunny.obj"):
+    import trimesh
+    print("Using trimesh read: ", mesh_path)
+    mesh = mesh = trimesh.load(mesh_path)
+    return mesh
 
 def read_mesh(mesh_path="data/model/bunny.obj", scale=[1.0, 1.0, 1.0], shift=[0, 0, 0]):
     import trimesh
-    print("Read ", mesh_path)
+    print("Using trimesh read ", mesh_path)
     mesh = trimesh.load(mesh_path)
     mesh.vertices *= scale
     mesh.vertices += shift

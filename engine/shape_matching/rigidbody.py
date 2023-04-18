@@ -11,15 +11,16 @@ mass_inv = 1.0
 
 positions = ti.Vector.field(dim, float, num_particles)
 velocities = ti.Vector.field(dim, float, num_particles)
-pos_draw = ti.Vector.field(dim, float, num_particles)
+pos_show = ti.Vector.field(dim, float, num_particles)
 force = ti.Vector.field(dim, float, num_particles)
 positions0 = ti.Vector.field(dim, float, num_particles)
 radius_vector = ti.Vector.field(dim, float, num_particles)
 paused = ti.field(ti.i32, shape=())
 q_inv = ti.Matrix.field(n=3, m=3, dtype=float, shape=())
 
+
 @ti.kernel
-def init_particles():
+def init_cube():
     init_pos = ti.Vector([70.0, 50.0, 0.0])
     cube_size = 20 
     spacing = 2 
@@ -30,6 +31,23 @@ def init_particles():
         row = (i % num_per_floor) // num_per_row
         col = (i % num_per_floor) % num_per_row
         positions[i] = ti.Vector([col*spacing, floor*spacing, row*spacing]) + init_pos
+
+
+read_mesh_from_file = True
+def init_particles():
+    if read_mesh_from_file: 
+        from engine.mesh_io import read_mesh
+        from engine.metadata import meta
+        scale = meta.get_materials("scale")
+        shift = meta.get_materials("translation")
+        pos_np, indices_show_np = read_mesh(meta.get_materials("geometry_file"), scale=scale, shift=shift)
+        pos_np /= world_scale_factor #因为有个world_scale_factor，所以这里要除以这个因子
+        positions.from_numpy(pos_np)
+        return indices_show_np.flatten()
+    else:
+        init_cube()
+        rotation(60) #initially rotate the cube
+        return None
 
 
 @ti.kernel
@@ -108,13 +126,14 @@ def substep():
 @ti.kernel
 def world_scale():
     for i in range(num_particles):
-        pos_draw[i] = positions[i] * world_scale_factor
+        pos_show[i] = positions[i] * world_scale_factor
 
 #init the window, canvas, scene and camerea
 window = ti.ui.Window("rigidbody", (1024, 1024),vsync=True)
 canvas = window.get_canvas()
 scene = ti.ui.Scene()
-camera = ti.ui.make_camera()
+camera = ti.ui.Camera()
+# canvas.set_background_color((1,1,1))
 
 #initial camera position
 camera.position(0.5, 1.0, 1.95)
@@ -122,10 +141,18 @@ camera.lookat(0.5, 0.3, 0.5)
 camera.fov(55)
 
 def main():
-    init_particles()
-    rotation(60) #initially rotate the cube
+    indices_show_np = init_particles()
+    if indices_show_np is not None:
+        indices_show = ti.field(ti.i32, shape=indices_show_np.shape)
+        indices_show.from_numpy(indices_show_np)
+
     compute_radius_vector() #store the shape of rigid body
     precompute_q_inv()
+
+    from engine.visualize import draw_bounds, read_auxiliary_meshes
+    anchors, line_indices=draw_bounds()
+    ground, coord, ground_indices, coord_indices = read_auxiliary_meshes()
+
 
     paused[None] = True
     while window.running:
@@ -154,7 +181,12 @@ def main():
         
         #draw particles
         world_scale()
-        scene.particles(pos_draw, radius=0.01, color=(0, 1, 1))
+        scene.particles(pos_show, radius=0.001, color=(0, 1, 1))
+        scene.lines(vertices=anchors, indices=line_indices, color=(1, 0, 0), width=2)
+        scene.mesh(ground, indices=ground_indices, color=(0.5,0.5,0.5))
+        scene.mesh(coord, indices=coord_indices, color=(0.5, 0, 0))
+        # if indices_show_np is not None:
+        #     scene.mesh(pos_show, indices=indices_show, color=(0, 0, 1))
 
         #show the frame
         canvas.scene(scene)

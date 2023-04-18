@@ -1,7 +1,13 @@
+def run():
+    from multiprocessing import  Process
+    sub_process = Process(target=run_dearpygui)
+    sub_process.start()
+
+
 def save_callback():
     print("Save Clicked")
 
-def run():
+def run_dearpygui():
     import dearpygui.dearpygui as dpg
     dpg.create_context()
     dpg.create_viewport()

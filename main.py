@@ -6,15 +6,11 @@ if __name__ == "__main__":
 
     if args.use_dearpygui:
         import ui.dearpygui as gui
-        from multiprocessing import  Process
-        gui_process = Process(target=gui.run)
-        gui_process.start()
+        gui.run()
 
     if args.use_webui:
         import ui.webui as webui
-        from multiprocessing import  Process
-        webui_process = Process(target=webui.run_webui)
-        webui_process.start()
+        webui.run()
 
     ti.init(**args.init_args)
 

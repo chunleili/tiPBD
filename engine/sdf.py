@@ -70,10 +70,12 @@ def mesh_to_voxels(mesh, voxel_resolution=64, surface_point_method='scan', sign_
     from engine.mesh_io import scale_to_unit_cube
     from engine.metadata import meta
     mesh = scale_to_unit_cube(mesh)
-    if meta.get_common("sdf_mesh_scale") is not None:
-        mesh.apply_scale(meta.get_common("sdf_mesh_scale"))
-    if meta.get_common("sdf_mesh_translation") is not None:
-        mesh.apply_translation(meta.get_common("sdf_mesh_translation"))
+    s = meta.get_sdf_meshes("scale")
+    t = meta.get_sdf_meshes("translation")
+    if s is not None:
+        mesh.apply_scale(s)
+    if t is not None:
+        mesh.apply_translation(t)
 
     surface_point_cloud = get_surface_point_cloud(mesh, surface_point_method, 3**0.5, scan_count, scan_resolution, sample_point_count, sign_method=='normal')
 

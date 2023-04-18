@@ -1,4 +1,5 @@
 import taichi as ti
+import logging
 
 def singleton(cls):
     _instance = {}
@@ -36,6 +37,8 @@ class MetaData:
         self.config_instance = SimConfig(scene_file_path=self.scene_path)
         self.common = self.config_instance.config["common"]
         self.materials = self.config_instance.config["materials"]
+        if "sdf_meshes" in self.config_instance.config:
+            self.sdf_meshes = self.config_instance.config["sdf_meshes"]
 
         # #为缺失的参数设置默认值
         # if "num_substeps" not in self.common:
@@ -45,12 +48,24 @@ class MetaData:
         if key in self.common:
             return self.common[key]
         else:
+            logging.warning("Warning: key {} not found in common, return default value {}".format(key, default))
             return default
     
     def get_materials(self, key, id_=0, default=None):
         if key in self.materials[id_]:
             return self.materials[id_][key]
         else:
+            logging.warning("Warning: key {} not found in materials, return default value {}".format(key, default))
+            return default
+    
+    def get_sdf_meshes(self, key, id_=0, default=None):
+        if not hasattr(self, "sdf_meshes"):
+            logging.warning("Warning: sdf_meshes not found in config file, return None".format(None))
+            return None
+        if key in self.sdf_meshes[id_]:
+            return self.sdf_meshes[id_][key]
+        else:
+            logging.warning("Warning: key {} not found in sdf_meshes, return default value {}".format(key, default))
             return default
 
 meta = MetaData()

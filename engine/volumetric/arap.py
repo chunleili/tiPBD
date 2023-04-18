@@ -108,7 +108,7 @@ class ARAP():
         
         if meta.get_common("use_sdf"):
             from engine.sdf import SDF
-            meta.sdf_mesh_path = meta.get_common("sdf_mesh_path")
+            meta.sdf_mesh_path = meta.get_sdf_meshes("geometry_file")
             self.sdf = SDF(meta.sdf_mesh_path, resolution=64)
         # from engine.visualize import vis_sdf
         # vis_sdf(self.sdf.val)

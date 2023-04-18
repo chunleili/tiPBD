@@ -5,8 +5,8 @@ if __name__ == "__main__":
     args = parse_cli()
 
     if args.use_dearpygui:
-        import ui.dearpygui as gui
-        gui.run()
+        import ui.dearpygui as dearpygui
+        dearpygui.run()
 
     if args.use_webui:
         import ui.webui as webui

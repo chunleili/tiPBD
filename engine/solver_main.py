@@ -17,6 +17,9 @@ def solver_main():
     elif meta.get_materials("type") == "fluid2d":
         import engine.fluid.pbf2d_sparse as pbf2d
         pbf2d.main()
+    if meta.get_materials("type") == "shape_matching_rigidbody":
+        import engine.shape_matching.rigidbody as rigidbody
+        rigidbody.main()
     elif meta.get_materials("type") == "mass_spring_volumetric":
         from engine.volumetric.mass_spring_volumetric import MassSpring
         pbd_solver = MassSpring()

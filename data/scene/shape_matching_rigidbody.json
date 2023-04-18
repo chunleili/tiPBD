@@ -1,0 +1,11 @@
+{
+	"common": 
+	{
+		"self_main": true
+	},
+	"materials":[
+		{
+			"type": "shape_matching_rigidbody"
+		}
+	]
+}

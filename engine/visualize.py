@@ -2,7 +2,7 @@ import taichi as ti
 class GGUI():
     def __init__(self) -> None:
         from engine.metadata import meta
-        self.vsync = meta.get_common("sync", default=True)
+        self.vsync = meta.get_common("sync", default=False)
         self.window = ti.ui.Window("pbd", (1024, 1024),vsync=self.vsync)
         self.canvas = self.window.get_canvas()
         self.scene = ti.ui.Scene()
@@ -20,7 +20,7 @@ class GGUI():
         self.show_widget = True
         self.show_wireframe = False
         self.show_particles = meta.get_common("show_particles", default=True)
-        self.show_mesh = meta.get_common("show_mesh", default=False)
+        self.show_mesh = meta.get_common("show_mesh", default=True)
         self.par_radius = 0.01
         self.uniform_color = (0.1229,0.2254,0.7207)
         self.par_color = None
@@ -74,7 +74,7 @@ class GGUI():
                     self.camera.fov(55) 
                 meta.num_substeps = self.gui.slider_int("num_substeps", meta.num_substeps, 0, 100)
 
-        if self.show_mesh:
+        if indices_show is not None and self.show_mesh:
             self.scene.mesh(pos_show, indices=indices_show, color=self.uniform_color, show_wireframe=self.show_wireframe)
         if self.show_particles:
             self.scene.particles(pos_show, radius=self.par_radius, color=self.uniform_color, per_vertex_color=self.par_color)

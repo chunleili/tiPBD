@@ -1,0 +1,11 @@
+{
+	"common": 
+	{
+
+	},
+	"materials":[
+		{
+			"type": "mass_spring_volumetric"
+		}
+	]
+}

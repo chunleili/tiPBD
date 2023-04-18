@@ -11,16 +11,20 @@ def solver_main():
             pbd_solver = NeoHooken()
         else:
             raise NotImplementedError(f"constitutive_model {meta.common['constitutive_model']} not implemented")
-    elif meta.materials[0]['type'] == 'fluid':
+    elif meta.get_materials('type') == 'fluid':
         from engine.fluid.pbf import Fluid
         pbd_solver = Fluid()
+    elif meta.get_materials("type") == "mass_spring_volumetric":
+        from engine.volumetric.mass_spring_volumetric import MassSpring
+        pbd_solver = MassSpring()
     
     from engine.visualize import GGUI, vis_sdf, vis_sparse_grid
     ggui = GGUI()
 
     meta.ggui = ggui
 
-    meta.paused = meta.common["initial_pause"]
+    meta.paused = meta.get_common("initial_pause", False)
+    meta.num_substeps = meta.get_common("num_substeps", 1)
 
     if meta.get_common("use_sdf"):
         ggui.sdf_vertices = vis_sdf(pbd_solver.sdf.val, False)

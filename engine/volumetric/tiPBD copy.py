@@ -2,7 +2,7 @@ import taichi as ti
 import numpy as np
 import sys,os
 sys.path.append(os.getcwd())
-from engine.mesh_io import read_mesh,read_tetgen
+from engine.mesh_io import read_tetgen
 # import meshio
 ti.init()
 
@@ -58,15 +58,10 @@ tet = ti.Vector.field(4, int, numTets)
 edge = ti.Vector.field(2, int, numEdges)
 surf = ti.Vector.field(3, int, numSurfs)
 
-tet_indices_to_face_indices(tet, surf)
-tet_indices_to_edge_indices(tet, edge)
-
-pos.from_numpy(pos_np)
-tet.from_numpy(tet_np)
-edge.from_numpy(edge_np)
-surf.from_numpy(surf_np)
-
-
+pos.from_numpy(pos_np) # pos
+tet.from_numpy(tet_np) # tet
+tet_indices_to_face_indices(tet, surf) # face indices
+tet_indices_to_edge_indices(tet, edge) # edge indices
 
 
 restVol = ti.field(float, numTets)
@@ -116,8 +111,8 @@ surf_show = ti.field(int, numSurfs * 3)
 surf_show.from_numpy(surf_np.flatten())
 
 
-from engine.visualize import visualize
-visualize(pos_np, par_radius=0.001, mesh_pos=pos, mesh_indices=surf_show)
+# from engine.visualize import visualize
+# visualize(pos_np, par_radius=0.001, mesh_pos=pos, mesh_indices=surf_show)
 
 
 @ti.kernel
@@ -197,6 +192,7 @@ window = ti.ui.Window("pbd", (1024, 1024),vsync=False)
 canvas = window.get_canvas()
 scene = ti.ui.Scene()
 camera = ti.ui.make_camera()
+canvas.set_background_color((1,1,1))
 
 #initial camera position
 camera.position(0.5, 1.0, 1.95)

@@ -1,9 +1,8 @@
 import taichi as ti
 import taichi.math as tm
-
-from engine.volumetric.mesh_data import bunnyMesh
-import taichi as ti
 import numpy as np
+
+from data.model.mass_spring_volumetric_meshdata import bunnyMesh
 ti.init()
 
 numParticles = len(bunnyMesh['verts']) // 3
@@ -34,7 +33,6 @@ surf.from_numpy(surf_np)
 # ---------------------------------------------------------------------------- #
 #                      precompute the restLen and restVol                      #
 # ---------------------------------------------------------------------------- #
-import taichi.math as tm
 
 restVol = ti.field(float, numTets)
 restLen = ti.field(float, numEdges)

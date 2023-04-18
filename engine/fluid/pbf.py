@@ -308,7 +308,7 @@ def main():
 
         # if frame == 201:
             # exit()
-        ti.profiler.print_kernel_profiler_info()
+        # ti.profiler.print_kernel_profiler_info()
 
 if __name__ == '__main__':
     main()

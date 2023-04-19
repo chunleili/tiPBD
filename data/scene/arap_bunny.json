@@ -14,7 +14,7 @@
 		"show_fine": false,
 		"compute_energy": false,
 		"use_log": false,
-		"initial_pause": false,
+		"initial_pause": true,
 		"use_autodiff": false,
 		"show_particles": false,
 		"show_mesh": true,
@@ -29,7 +29,7 @@
 			"type": "volumetric",
 			"geometry_file": "data/model/bunny_small/bunny_small.node",
 			"scale": [1.0, 1.0, 1.0],
-			"translation": [0.0, 0.15, -0.2],
+			"translation": [0.0, 0.05, -0.2],
 			"lame_lambda": 1e7
 		}
 	],

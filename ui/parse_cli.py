@@ -39,6 +39,8 @@ def parse_cli():
         args.arch = ti.cuda
     elif args.arch == "cpu":
         args.arch = ti.cpu
+    elif args.arch == "gpu":
+        args.arch = ti.gpu
     else:
         args.arch = None
 

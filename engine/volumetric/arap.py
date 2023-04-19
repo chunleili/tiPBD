@@ -132,12 +132,12 @@ class ARAP():
         # semi-Euler update pos & vel
         for v in self.model.mesh.verts:
             # if (v.inv_mass != 0.0):
-                v.vel = v.vel + dt_ * meta.gravity
+                v.vel +=  dt_ * meta.gravity
                 v.prev_pos = v.pos
-                v.pos = v.pos + dt_ * v.vel
+                v.pos += dt_ * v.vel
                 v.predict_pos = v.pos
                 collision_response(v, self.sdf)
-                # collision_response(v)
+                collision_response_ground(v)
 
     @ti.func
     def update_pos(self, c, dlambda, g0, g1, g2, g3):
@@ -203,28 +203,20 @@ class ARAP():
         meta.frame += 1
 
 
-# @ti.func
-# def collision_response(v:ti.template()):
-#     if v.pos[1] < meta.ground.y:
-#         v.pos[1] = meta.ground.y
+@ti.func
+def collision_response_ground(v:ti.template()):
+    if v.pos[1] < meta.ground.y:
+        v.pos[1] = meta.ground.y
 
 @ti.func
-def pos_to_grid_idx(pos, dx):
-    return ti.Vector([pos.x/dx, pos.y/dx, pos.z/dx], ti.i32)
-
-
-@ti.func
-def collision_response(vert:ti.template(), sdf):
+def collision_response(v:ti.template(), sdf):
     sdf_epsilon = 1e-4
-    grid_idx = pos_to_grid_idx(vert.pos, 1.0/sdf.resolution)
+    grid_idx = ti.Vector([v.pos.x * sdf.resolution, v.pos.y * sdf.resolution, v.pos.z * sdf.resolution], ti.i32)
     normal = sdf.grad[grid_idx]
-    assert(normal.norm() == 1.0)
     sdf_val = sdf.val[grid_idx]
+    assert(normal.norm() == 1.0)
     if sdf_val < sdf_epsilon:
-        vert.pos -= sdf_val * normal
-        # if vert.vel.dot(normal) < 0:
-        #     normal_component = normal.dot(vert.vel)
-        #     vert.vel -=  normal * ti.min(normal_component, 0.0)
+        v.pos -= sdf_val * normal
 
 
 @ti.func

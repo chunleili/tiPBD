@@ -214,7 +214,7 @@ def pos_to_grid_idx(pos, dx):
 
 
 @ti.func
-def collision_response(vert, sdf):
+def collision_response(vert:ti.template(), sdf):
     sdf_epsilon = 1e-4
     grid_idx = pos_to_grid_idx(vert.pos, 1.0/sdf.resolution)
     normal = sdf.grad[grid_idx]

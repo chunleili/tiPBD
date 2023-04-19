@@ -42,7 +42,7 @@ def add_surface_collider(    point,
 
 from engine.util import pos_to_grid_idx
 @ti.func
-def collision_response(pos, vel, sdf):
+def collision_response(pos:ti.template(), vel:ti.template(), sdf):
     sdf_epsilon = 1e-4
     grid_idx = pos_to_grid_idx(pos)
     normal = sdf.grad[grid_idx]

@@ -40,10 +40,10 @@ def transform():
 
 transform()
 
-if meta.get_materials("use_sdf"):
-    from engine.sdf import SDF
-    meta.sdf_mesh_path = meta.get_sdf_meshes("geometry_file")
-    sdf = SDF(meta.sdf_mesh_path, resolution=64, use_cache=meta.get_sdf_meshes("use_cache"))
+# if meta.get_materials("use_sdf"):
+from engine.sdf import SDF
+meta.sdf_mesh_path = meta.get_sdf_meshes("geometry_file")
+sdf = SDF(meta.sdf_mesh_path, resolution=64, use_cache=meta.get_sdf_meshes("use_cache"))
 
 # ---------------------------------------------------------------------------- #
 #                      precompute the restLen and restVol                      #
@@ -107,13 +107,13 @@ def preSolve():
         prevPos[i] = pos[i]
         vel[i] += g * dt 
         pos[i] += vel[i] * dt
-        # collision_response(pos[i], sdf)
+        collision_response(pos[i], sdf)
         if pos[i].y < 0.0:
             pos[i] = prevPos[i]
             pos[i].y = 0.0
 
 @ti.func
-def collision_response(pos, sdf):
+def collision_response(pos:ti.template(), sdf):
     sdf_epsilon = 1e-4
     grid_idx = ti.Vector([pos.x * sdf.resolution, pos.y * sdf.resolution, pos.z * sdf.resolution], ti.i32)
     normal = sdf.grad[grid_idx]

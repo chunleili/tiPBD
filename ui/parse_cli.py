@@ -26,14 +26,14 @@ def parse_cli():
                          help='config file path', default='args.ini')
     args = parser.parse_args()
     
-    if args.scene_file is not "":
+    if args.scene_file != "":
         root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
         args.scene_file =  root_path + args.scene_file
 
     # print("----------")
     # print(parser.format_help())
     # print("----------")
-    # print(parser.format_values())
+    print(parser.format_values())
 
     if args.arch == "cuda":
         args.arch = ti.cuda

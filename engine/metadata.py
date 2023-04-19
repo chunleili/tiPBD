@@ -27,9 +27,9 @@ class MetaData:
         self.step = 0
 
         self.args = parse_cli()
-        print("args:", self.args)
+        # print("args:", self.args)
 
-        if self.args.scene_file is "":
+        if self.args.scene_file == "":
             self.scene_path = filedialog()
         else:
             self.scene_path = self.args.scene_file

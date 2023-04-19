@@ -3,7 +3,7 @@ import taichi.math as tm
 import numpy as np
 
 from data.model.mass_spring_volumetric_meshdata import bunnyMesh
-ti.init()
+# ti.init()
 
 numParticles = len(bunnyMesh['verts']) // 3
 numEdges = len(bunnyMesh['tetEdgeIds']) // 2

@@ -1,4 +1,4 @@
-*.ini
+imgui.ini
 !args.ini
 *.pyc
 __pycache__

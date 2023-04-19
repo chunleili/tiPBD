@@ -5,7 +5,7 @@
 		"initial_pause": true,
 		"mesh_uniform_color": [1, 0, 0],
 		"show_particles": false,
-		"num_substeps": 100
+		"num_substeps": 10
 	},
 	"materials":[
 		{

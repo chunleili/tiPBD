@@ -30,6 +30,21 @@ tet.from_numpy(tet_np)
 edge.from_numpy(edge_np)
 surf.from_numpy(surf_np)
 
+from engine.metadata import meta
+def transform():
+    from engine.mesh_io import scale_ti, translation_ti
+    sx, sy, sz = meta.get_materials("scale")
+    tx, ty, tz = meta.get_materials("translation")
+    scale_ti(pos, sx, sy, sz)
+    translation_ti(pos, tx, ty, tz)
+
+transform()
+
+if meta.get_materials("use_sdf"):
+    from engine.sdf import SDF
+    meta.sdf_mesh_path = meta.get_sdf_meshes("geometry_file")
+    sdf = SDF(meta.sdf_mesh_path, resolution=64, use_cache=meta.get_sdf_meshes("use_cache"))
+
 # ---------------------------------------------------------------------------- #
 #                      precompute the restLen and restVol                      #
 # ---------------------------------------------------------------------------- #
@@ -69,10 +84,15 @@ init_invMass()
 
 # ti.init()
 
-numSubsteps = 10
+# numSubsteps = 10
+# edgeCompliance = 100.0
+# volumeCompliance = 0.0
+# dt = 1.0 / 60.0 / numSubsteps
+
+numSubsteps = meta.get_common("num_substeps",10)
 dt = 1.0 / 60.0 / numSubsteps
-edgeCompliance = 100.0
-volumeCompliance = 0.0
+edgeCompliance = meta.get_materials("edge_compliance",100.0)
+volumeCompliance = meta.get_materials("volume_compliance",0.0)
 
 prevPos = ti.Vector.field(3, float, numParticles)
 vel = ti.Vector.field(3, float, numParticles)
@@ -87,9 +107,20 @@ def preSolve():
         prevPos[i] = pos[i]
         vel[i] += g * dt 
         pos[i] += vel[i] * dt
+        # collision_response(pos[i], sdf)
         if pos[i].y < 0.0:
             pos[i] = prevPos[i]
             pos[i].y = 0.0
+
+@ti.func
+def collision_response(pos, sdf):
+    sdf_epsilon = 1e-4
+    grid_idx = ti.Vector([pos.x * sdf.resolution, pos.y * sdf.resolution, pos.z * sdf.resolution], ti.i32)
+    normal = sdf.grad[grid_idx]
+    sdf_val = sdf.val[grid_idx]
+    assert(normal.norm() == 1.0)
+    if sdf_val < sdf_epsilon:
+        pos -= sdf_val * normal
 
 def solve():
     solveEdge()
@@ -150,17 +181,20 @@ def substep_():
     postSolve()
 
 
-@ti.kernel
-def init_pos():
-    for i in range(numParticles):
-        pos[i] += tm.vec3(0.5,1,0)
+# @ti.kernel
+# def init_pos():
+#     for i in range(numParticles):
+#         pos[i] += tm.vec3(0.5,1,0)
 
-init_pos()
+# init_pos()
+
 
 class MassSpring():
     def __init__(self) -> None:
         self.pos_show = pos
         self.indices_show = surf_show
+        if meta.get_common("use_sdf", False):
+            self.sdf = sdf
     def substep(self):
         substep_()
 

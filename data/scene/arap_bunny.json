@@ -19,7 +19,9 @@
 		"show_particles": false,
 		"show_mesh": true,
 		"use_sdf": true,
-		"vis_sparse_grid":false
+		"vis_sparse_grid":false,
+		"camera_pos": [1.23, 0.48 , 0.88],
+		"camera_lookat": [0.38, 0.34, 0.37]
 	},
 	"materials": [
 		{
@@ -27,15 +29,16 @@
 			"type": "volumetric",
 			"geometry_file": "data/model/bunny_small/bunny_small.node",
 			"scale": [1.0, 1.0, 1.0],
-			"translation": [0.0, 0.2, 0.0],
+			"translation": [0.0, 0.15, -0.2],
 			"lame_lambda": 1e7
 		}
 	],
 	"sdf_meshes":[
 		{
 			"geometry_file": "data/model/chair.obj",
-			"scale": [0.5, 0.5, 0.5],
-			"translation": [0.0, -0.5, 0.0]
+			"scale": [0.6, 0.6, 0.6],
+			"translation": [0.0, -0.5, 0.0],
+			"use_cache": true
 		}
 	]
 }

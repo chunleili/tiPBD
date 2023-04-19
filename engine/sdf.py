@@ -7,7 +7,7 @@ class SDF:
     '''
     Signed Distance Field (SDF) class.
     '''
-    def __init__(self, mesh_path=None, resolution=64, dim=3):
+    def __init__(self, mesh_path=None, resolution=64, dim=3, use_cache=True):
         '''
         生成SDF体素场。其中有两个taichi field: val和grad，分别表示SDF体素场的值和梯度。
 
@@ -35,7 +35,7 @@ class SDF:
             # 检查是否存在cache
             val_cache_path = mesh_path+ "_sdf_cache_val.npy"
             grad_cache_path = mesh_path+ "_sdf_cache_grad.npy"
-            if not os.path.exists(val_cache_path) or not os.path.exists(grad_cache_path):
+            if not os.path.exists(val_cache_path) or not os.path.exists(grad_cache_path) or not use_cache:
                 print("No sdf cache found. Generating sdf cache...")
                 val_np, grad_np = gen_sdf_voxels(mesh_path, resolution, True)
                 np.save(val_cache_path, val_np)
@@ -80,3 +80,21 @@ def mesh_to_voxels(mesh, voxel_resolution=64, surface_point_method='scan', sign_
     surface_point_cloud = get_surface_point_cloud(mesh, surface_point_method, 3**0.5, scan_count, scan_resolution, sample_point_count, sign_method=='normal')
 
     return surface_point_cloud.get_voxels(voxel_resolution, sign_method=='depth', normal_sample_count, pad, check_result, return_gradients)
+
+
+@ti.func
+def pos_to_grid_idx(pos, dx):
+    return ti.Vector([pos.x/dx, pos.y/dx, pos.z/dx], ti.i32)
+
+@ti.func
+def collision_response(pos, sdf):
+    sdf_epsilon = 1e-4
+    grid_idx = ti.Vector([pos.x * sdf.resolution, pos.y * sdf.resolution, pos.z * sdf.resolution], ti.i32)
+    normal = sdf.grad[grid_idx]
+    sdf_val = sdf.val[grid_idx]
+    assert(normal.norm() == 1.0)
+    if sdf_val < sdf_epsilon:
+        pos -= sdf_val * normal
+        # if vel.dot(normal) < 0:
+        #     normal_component = normal.dot(vel)
+        #     vel -=  normal * min(normal_component, 0)

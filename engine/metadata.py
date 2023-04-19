@@ -51,14 +51,14 @@ class MetaData:
             logging.warning("Warning: key {} not found in common, return default value {}".format(key, default))
             return default
     
-    def get_materials(self, key, id_=0, default=None):
+    def get_materials(self, key, default=None, id_=0,):
         if key in self.materials[id_]:
             return self.materials[id_][key]
         else:
             logging.warning("Warning: key {} not found in materials, return default value {}".format(key, default))
             return default
     
-    def get_sdf_meshes(self, key, id_=0, default=None):
+    def get_sdf_meshes(self, key, default=None, id_=0,):
         if not hasattr(self, "sdf_meshes"):
             logging.warning("Warning: sdf_meshes not found in config file, return None".format(None))
             return None

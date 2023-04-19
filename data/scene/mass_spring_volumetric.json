@@ -1,11 +1,27 @@
 {
 	"common": 
 	{
-
+		"use_sdf": false,
+		"initial_pause": true,
+		"mesh_uniform_color": [1, 0, 0],
+		"show_particles": false,
+		"num_substeps": 100
 	},
 	"materials":[
 		{
-			"type": "mass_spring_volumetric"
+			"type": "mass_spring_volumetric",
+			"scale": [0.4, 0.4, 0.4],
+			"translation": [0.5, 0.3, 0.4],
+			"edge_compliance": 100,
+			"volume_compliance": 0.0
+		}
+	],
+	"sdf_meshes":[
+		{
+			"geometry_file": "data/model/chair.obj",
+			"scale": [0.6, 0.6, 0.6],
+			"translation": [0.0, -0.5, 0.0],
+			"use_cache": true
 		}
 	]
 }

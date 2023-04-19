@@ -109,7 +109,7 @@ class ARAP():
         if meta.get_common("use_sdf"):
             from engine.sdf import SDF
             meta.sdf_mesh_path = meta.get_sdf_meshes("geometry_file")
-            self.sdf = SDF(meta.sdf_mesh_path, resolution=64)
+            self.sdf = SDF(meta.sdf_mesh_path, resolution=64, use_cache=meta.get_sdf_meshes("use_cache"))
         # from engine.visualize import vis_sdf
         # vis_sdf(self.sdf.val)
 
@@ -136,8 +136,8 @@ class ARAP():
                 v.prev_pos = v.pos
                 v.pos = v.pos + dt_ * v.vel
                 v.predict_pos = v.pos
-                # collision_response(v.pos, v.vel, self.sdf)
-                collision_response(v)
+                collision_response(v, self.sdf)
+                # collision_response(v)
 
     @ti.func
     def update_pos(self, c, dlambda, g0, g1, g2, g3):
@@ -203,28 +203,28 @@ class ARAP():
         meta.frame += 1
 
 
-@ti.func
-def collision_response(v:ti.template()):
-    if v.pos[1] < meta.ground.y:
-        v.pos[1] = meta.ground.y
+# @ti.func
+# def collision_response(v:ti.template()):
+#     if v.pos[1] < meta.ground.y:
+#         v.pos[1] = meta.ground.y
 
 @ti.func
 def pos_to_grid_idx(pos, dx):
     return ti.Vector([pos.x/dx, pos.y/dx, pos.z/dx], ti.i32)
 
-# @ti.func
-# def collision_response(pos, vel, sdf):
-#     sdf_epsilon = 1e-4
-#     grid_idx = pos_to_grid_idx(pos, 1.0/sdf.resolution)
-#     normal = sdf.grad[grid_idx]
-#     sdf_val = sdf.val[grid_idx]
 
-#     if sdf_val < sdf_epsilon:
-#         # print("collision")
-#         pos -= sdf_val * normal
-#         if vel.dot(normal) < 0:
-#             normal_component = normal.dot(vel)
-#             vel -=  normal * min(normal_component, 0)
+@ti.func
+def collision_response(vert, sdf):
+    sdf_epsilon = 1e-4
+    grid_idx = pos_to_grid_idx(vert.pos, 1.0/sdf.resolution)
+    normal = sdf.grad[grid_idx]
+    assert(normal.norm() == 1.0)
+    sdf_val = sdf.val[grid_idx]
+    if sdf_val < sdf_epsilon:
+        vert.pos -= sdf_val * normal
+        # if vert.vel.dot(normal) < 0:
+        #     normal_component = normal.dot(vert.vel)
+        #     vert.vel -=  normal * ti.min(normal_component, 0.0)
 
 
 @ti.func

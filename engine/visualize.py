@@ -9,13 +9,13 @@ class GGUI():
         self.camera = ti.ui.Camera()
 
         self.canvas.set_background_color((1,1,1))
-        # self.cam_pos = [-.71, 1.78, 1.77]
-        # self.cam_lookat = [-.159, -1.1578, 1.213]
-        self.cam_pos = [.5, .5 , 2]
-        self.cam_lookat = [0.5, 0.5, 1.]
+        # self.cam_pos = [.5, .5 , 2]
+        # self.cam_lookat = [0.5, 0.5, 1.]
+        self.cam_pos = meta.get_common("camera_pos", default=[.5, .5 , 2])
+        self.cam_lookat = meta.get_common("camera_lookat", default=[.5, .5, 1])
         self.camera.position(self.cam_pos[0], self.cam_pos[1], self.cam_pos[2])
         self.camera.lookat(self.cam_lookat[0], self.cam_lookat[1], self.cam_lookat[2])
-        self.camera.fov(60) 
+        self.camera.fov(55) 
         self.gui = self.window.get_gui()
         self.show_widget = True
         self.show_wireframe = False
@@ -24,6 +24,10 @@ class GGUI():
         self.par_radius = 0.01
         self.uniform_color = (0.1229,0.2254,0.7207)
         self.par_color = None
+        self.mesh_uniform_color = meta.get_common("mesh_uniform_color", default=self.uniform_color)
+        self.mesh_uniform_color = tuple(self.mesh_uniform_color)
+        self.particle_uniform_color = meta.get_common("particle_uniform_color", default=self.uniform_color)
+        self.particle_uniform_color = tuple(self.particle_uniform_color)
 
         self.show_auxiliary_meshes = meta.get_common("show_auxiliary_meshes", default=True)
         if self.show_auxiliary_meshes:
@@ -58,9 +62,9 @@ class GGUI():
                 meta.num_substeps = self.gui.slider_int("num_substeps", meta.num_substeps, 0, 100)
 
         if indices_show is not None and self.show_mesh:
-            self.scene.mesh(pos_show, indices=indices_show, color=self.uniform_color, show_wireframe=self.show_wireframe)
+            self.scene.mesh(pos_show, indices=indices_show, color=self.mesh_uniform_color, show_wireframe=self.show_wireframe)
         if self.show_particles:
-            self.scene.particles(pos_show, radius=self.par_radius, color=self.uniform_color, per_vertex_color=self.par_color)
+            self.scene.particles(pos_show, radius=self.par_radius, color=self.particle_uniform_color, per_vertex_color=self.par_color)
         if self.show_auxiliary_meshes:
             self.scene.mesh(self.ground, indices=self.ground_indices, color=(0.5,0.5,0.5), show_wireframe=self.show_wireframe)
             self.scene.mesh(self.coord, indices=self.coord_indices, color=(0.5, 0, 0), show_wireframe=self.show_wireframe)

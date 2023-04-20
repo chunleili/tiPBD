@@ -101,6 +101,7 @@ numSubsteps = meta.get_common("num_substeps",10)
 dt = 1.0 / 60.0 / numSubsteps
 edgeCompliance = meta.get_materials("edge_compliance",100.0)
 volumeCompliance = meta.get_materials("volume_compliance",0.0)
+meta.relax_factor = meta.get_materials("relax_factor",0.1)
 
 prevPos = ti.Vector.field(3, float, numParticles)
 vel = ti.Vector.field(3, float, numParticles)
@@ -142,7 +143,6 @@ dpos_edge_1 = ti.Vector.field(3, float, numEdges)
 @ti.kernel
 def solveEdge():
     alpha = edgeCompliance / dt / dt
-    grads = tm.vec3(0,0,0)
     for i in range(numEdges):
         id0 = edge[i][0]
         id1 = edge[i][1]
@@ -158,6 +158,10 @@ def solveEdge():
         # pos[id1] += grads * (-s * invMass[id1])
         dpos_edge_0[i] = grads *   s * invMass[id0]
         dpos_edge_1[i] = grads * (-s * invMass[id1])
+
+    for i in range(numEdges):
+        pos[edge[i][0]] += meta.relax_factor*(dpos_edge_0[i])
+        pos[edge[i][1]] += meta.relax_factor*(dpos_edge_1[i])
 
 
 dpos_vol_0 = ti.Vector.field(3, float, numTets)
@@ -194,11 +198,11 @@ def solveVolume():
         dpos_vol_2[i] = grads[2] * s * invMass[id[2]]
         dpos_vol_3[i] = grads[3] * s * invMass[id[3]]
 
-
-@ti.kernel
-def apply_dpos():
-    for i in pos:
-        pos[i] += dpos_edge_0[i] + dpos_edge_1[i] + dpos_vol_0[i] + dpos_vol_1[i] + dpos_vol_2[i] + dpos_vol_3[i]
+    for i in range(numTets):
+        pos[tet[i][0]] += meta.relax_factor * dpos_vol_0[i]
+        pos[tet[i][1]] += meta.relax_factor * dpos_vol_0[i]
+        pos[tet[i][2]] += meta.relax_factor * dpos_vol_0[i]
+        pos[tet[i][3]] += meta.relax_factor * dpos_vol_0[i]
 
 
 @ti.kernel

@@ -1,9 +1,18 @@
 import taichi as ti
 import taichi.math as tm
 import numpy as np
+import logging
 
 from data.model.mass_spring_volumetric_meshdata import bunnyMesh
+from engine.metadata import meta
+
 # ti.init()
+
+if meta.args.arch != "cpu":
+    logging.error("This example only supports CPU arch for now. We will force switch to CPU arch")
+    meta.args.init_args["arch"] = "cpu"
+    ti.init(**meta.args.init_args)
+
 
 numParticles = len(bunnyMesh['verts']) // 3
 numEdges = len(bunnyMesh['tetEdgeIds']) // 2
@@ -30,7 +39,6 @@ tet.from_numpy(tet_np)
 edge.from_numpy(edge_np)
 surf.from_numpy(surf_np)
 
-from engine.metadata import meta
 def transform():
     from engine.mesh_io import scale_ti, translation_ti
     sx, sy, sz = meta.get_materials("scale")

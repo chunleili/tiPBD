@@ -23,7 +23,7 @@ class GGUI():
         meta.show_mesh = meta.get_common("show_mesh", default=True)
         meta.show_auxiliary_meshes = meta.get_common("show_auxiliary_meshes", default=True)
         meta.show_bounds = meta.get_common("show_bounds", default=True)
-        meta.show_sdf = meta.get_common("show_sdf", default=False)
+        meta.show_sdf = meta.get_common("show_sdf", default=True)
         self.par_radius = 0.01
         self.uniform_color = (0.1229,0.2254,0.7207)
         self.par_color = None

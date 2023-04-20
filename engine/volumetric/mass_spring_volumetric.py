@@ -116,9 +116,10 @@ def preSolve():
 def collision_response(pos:ti.template(), sdf):
     sdf_epsilon = 1e-4
     grid_idx = ti.Vector([pos.x * sdf.resolution, pos.y * sdf.resolution, pos.z * sdf.resolution], ti.i32)
+    grid_idx = ti.math.clamp(grid_idx, 0, sdf.resolution - 1)
     normal = sdf.grad[grid_idx]
     sdf_val = sdf.val[grid_idx]
-    assert(normal.norm() == 1.0)
+    assert 1 - 1e-4 < normal.norm() < 1 + 1e-4, f"sdf normal norm is not one: {normal.norm()}" 
     if sdf_val < sdf_epsilon:
         pos -= sdf_val * normal
 

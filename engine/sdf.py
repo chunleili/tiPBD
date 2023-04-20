@@ -1,6 +1,7 @@
 import taichi as ti
 import os
 import numpy as np
+import logging
 
 @ti.data_oriented
 class SDF:
@@ -15,23 +16,40 @@ class SDF:
             mesh_path (str): 网格文件路径，如果为None则需要手动填充SDF体素场。
             resolution (int): SDF体素场分辨率。默认为64。
             dim (int): SDF体素场维度。默认为3。
+            use_cache (bool): 是否使用缓存。默认为True。
         '''
         self.resolution = resolution
+        self.dim = dim
         if dim==2:
             self.shape = (resolution, resolution)
         elif dim==3:
             self.shape = (resolution, resolution, resolution)
         else:
             raise Exception("SDF only supports 2D/3D for now")
-        self.dim = dim
-        self.val =  ti.field(dtype=ti.f32, shape=self.shape)
-        self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=self.shape)
-
-        print("SDF resolution = ", self.shape)
+        print("SDF shape = ", self.shape)
         print("SDF initilizing...")
 
+        from engine.metadata import meta
+        meta.use_sparse = meta.get_sdf_meshes("use_sparse", False)
+        meta.narrow_band = meta.get_sdf_meshes("narrow_band", 0)
+
+        if meta.use_sparse:
+            print("Using sparse SDF...")
+            self.val =  ti.field(dtype=ti.f32)
+            self.grad = ti.Vector.field(self.dim, dtype=ti.f32)
+            if dim==2:
+                self.snode = ti.root.bitmasked(ti.ij, self.shape)
+            elif dim==3:
+                self.snode = ti.root.bitmasked(ti.ijk, self.shape)
+            self.snode.place(self.val)
+            self.snode.place(self.grad)
+        else:
+            self.val =  ti.field(dtype=ti.f32, shape=self.shape)
+            self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=self.shape)
+        
+
         if mesh_path is not None:
-            print(mesh_path)
+            print(f"sdf mesh path: {mesh_path}")
             # 检查是否存在cache
             val_cache_path = mesh_path+ "_sdf_cache_val.npy"
             grad_cache_path = mesh_path+ "_sdf_cache_grad.npy"
@@ -45,10 +63,24 @@ class SDF:
                 val_np = np.load(val_cache_path)
                 grad_np = np.load(grad_cache_path)
 
-            self.val.from_numpy(val_np)
-            self.grad.from_numpy(grad_np)
+        self.val.from_numpy(val_np)
+        self.grad.from_numpy(grad_np)
+
+        if (meta.narrow_band > 0 and meta.use_sparse):
+            print("Using narrow band...(Only when use_sparse is True)")
+            make_narrow_band(self, meta.narrow_band, resolution)
+
         
         print("SDF init done.")
+
+@ti.kernel
+def make_narrow_band(sdf:ti.template(), narrow_band:int, resolution:ti.i32):
+    dx = 1.0 / sdf.resolution
+    for I in ti.grouped(sdf.val):
+        if (sdf.val[I] > narrow_band * dx):
+            ti.deactivate(sdf.snode, I)
+        elif (sdf.val[I] < -narrow_band * dx):
+            ti.deactivate(sdf.snode, I)
 
 
 def gen_sdf_voxels(mesh_path, resolution=64, return_gradients=False):

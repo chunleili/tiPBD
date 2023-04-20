@@ -43,6 +43,10 @@ def solver_main():
         print("ggui.sparse_grid_anchors",ggui.sparse_grid_anchors)
         print("ggui.sparse_grid_indices",ggui.sparse_grid_indices)
 
+    indices_show = None
+    if hasattr(pbd_solver, "indices_show"):
+        indices_show = pbd_solver.indices_show
+    
     # if meta.use_multigrid:
         # coarse_to_fine()
     while ggui.window.running:
@@ -66,9 +70,6 @@ def solver_main():
             # if meta.use_multigrid:
                 # coarse_to_fine()
 
-        indices_show = None
-        if hasattr(pbd_solver, "indices_show"):
-            indices_show = pbd_solver.indices_show
         ggui.update(pos_show=pbd_solver.pos_show, indices_show=indices_show)
         ggui.canvas.scene(ggui.scene)
         ggui.window.show()

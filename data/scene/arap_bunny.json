@@ -28,7 +28,7 @@
 	},
 	"materials": [
 		{
-            "name": "bunny",
+			"name": "bunny",
 			"type": "volumetric",
 			"geometry_file": "data/model/bunny_small/bunny_small.node",
 			"scale": [1.0, 1.0, 1.0],
@@ -41,7 +41,9 @@
 			"geometry_file": "data/model/chair.obj",
 			"scale": [0.6, 0.6, 0.6],
 			"translation": [0.0, -0.5, 0.0],
-			"use_cache": true
+			"use_cache": true,
+			"use_sparse": false,
+			"narrow_band": 0
 		}
 	]
 }

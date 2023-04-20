@@ -1,8 +1,10 @@
 if __name__ == "__main__":
     import taichi as ti
+    import logging
     from ui.parse_cli import parse_cli
     
     args = parse_cli()
+    logging.basicConfig(level=logging.INFO)
 
     if args.use_dearpygui:
         import ui.dearpygui as dearpygui

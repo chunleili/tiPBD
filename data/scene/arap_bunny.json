@@ -17,6 +17,7 @@
 		"initial_pause": true,
 		"use_autodiff": false,
 		"show_particles": true,
+		"show_particle_radius": 0.005,
 		"show_mesh": true,
 		"show_bounds": true,
 		"show_auxiliary_meshes": true,
@@ -24,7 +25,8 @@
 		"use_sdf": true,
 		"vis_sparse_grid":false,
 		"camera_pos": [1.23, 0.48 , 0.88],
-		"camera_lookat": [0.38, 0.34, 0.37]
+		"camera_lookat": [0.38, 0.34, 0.37],
+		"initialize_random": false
 	},
 	"materials": [
 		{

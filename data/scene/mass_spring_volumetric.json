@@ -1,7 +1,7 @@
 {
 	"common": 
 	{
-		"use_sdf": true,
+		"use_sdf": false,
 		"initial_pause": true,
 		"mesh_uniform_color": [1, 0, 0],
 		"show_particles": false,

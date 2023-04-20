@@ -113,6 +113,9 @@ class ARAP():
         # from engine.visualize import vis_sdf
         # vis_sdf(self.sdf.val)
 
+        if meta.get_common("initialize_random"):
+            random_val = np.random.rand(self.model.mesh.verts.pos.shape[0], 3)
+            self.model.mesh.verts.pos.from_numpy(random_val)
 
     @ti.kernel
     def project_constraints(self):

@@ -24,7 +24,7 @@ class GGUI():
         meta.show_auxiliary_meshes = meta.get_common("show_auxiliary_meshes", default=True)
         meta.show_bounds = meta.get_common("show_bounds", default=True)
         meta.show_sdf = meta.get_common("show_sdf", default=True)
-        self.par_radius = 0.01
+        self.par_radius = meta.get_common("show_particle_radius", default=0.005)
         self.uniform_color = (0.1229,0.2254,0.7207)
         self.par_color = None
         self.mesh_uniform_color = meta.get_common("mesh_uniform_color", default=self.uniform_color)
@@ -166,13 +166,6 @@ def vis_sdf(grid, provide_render=True):
     threshold = 0.0
     @ti.kernel
     def occ():
-        # max = 0.0
-        # for i in range(grid.shape[0]):
-        #     for j in range(grid.shape[1]):
-        #         for k in range(grid.shape[2]):
-        #             if grid[i,j,k] > max:
-        #                 max = grid[i,j,k]
-
         for i,j,k in grid:
             if (grid[i,j,k] < threshold):
                 par_indx = i * grid.shape[1] * grid.shape[2] + j * grid.shape[2] + k
@@ -222,24 +215,14 @@ def vis_sdf(grid, provide_render=True):
 # FIXME
 def vis_sparse_grid(grid, resolution):
     threshold = 0.0
-    # resolution = grid.shape[0]
     dx = 1.0 / resolution
-
-    # num_grid = (resolution,) * 3
-
-    # num_grid = grid.shape[0] * grid.shape[1] * grid.shape[2]
-    # anchors = ti.Vector.field(3, dtype=ti.f32, shape = (grid.shape,8))
-    # indices = ti.field(dtype=ti.i32, shape = (grid.shape, 24))
     anchors = ti.Vector.field(3, dtype=ti.f32, shape = (resolution,resolution,resolution,8))
     indices = ti.field(dtype=ti.i32, shape = (resolution,resolution,resolution, 24))
-
 
     @ti.kernel
     def occ():
         for i,j,k in grid:
             if (grid[i,j,k] < threshold):
-                # par_indx = i * grid.shape[1] * grid.shape[2] + j * grid.shape[2] + k
-                # particles[par_indx] = ti.Vector([i,j,k]) / grid.shape[0]
                 x_min = i * dx
                 x_max = (i+1) * dx
                 y_min = j * dx
@@ -257,7 +240,6 @@ def vis_sparse_grid(grid, resolution):
 
                 for l, val in ti.static(enumerate([0, 1, 0, 2, 1, 3, 2, 3, 4, 5, 4, 6, 5, 7, 6, 7, 0, 4, 1, 5, 2, 6, 3, 7])):
                     indices[i,j,k, l] = val
-
     occ()
     return anchors, indices
 

@@ -8,10 +8,10 @@ from engine.metadata import meta
 
 # ti.init()
 
-if meta.args.arch != "cpu":
-    logging.error("This example only supports CPU arch for now. We will force switch to CPU arch")
-    meta.args.init_args["arch"] = "cpu"
-    ti.init(**meta.args.init_args)
+# if meta.args.arch != "cpu":
+#     logging.error("This example only supports CPU arch for now. We will force switch to CPU arch")
+#     meta.args.init_args["arch"] = "cpu"
+#     ti.init(**meta.args.init_args)
 
 
 numParticles = len(bunnyMesh['verts']) // 3
@@ -115,9 +115,9 @@ def preSolve():
         prevPos[i] = pos[i]
         vel[i] += g * dt 
         pos[i] += vel[i] * dt
-        collision_response(pos[i], sdf)
+        # collision_response(pos[i], sdf)
         if pos[i].y < 0.0:
-            pos[i] = prevPos[i]
+            # pos[i] = prevPos[i]
             pos[i].y = 0.0
 
 @ti.func
@@ -135,6 +135,10 @@ def solve():
     solveEdge()
     solveVolume()
 
+
+dpos_edge_0 = ti.Vector.field(3, float, numEdges)
+dpos_edge_1 = ti.Vector.field(3, float, numEdges)
+
 @ti.kernel
 def solveEdge():
     alpha = edgeCompliance / dt / dt
@@ -150,9 +154,16 @@ def solveEdge():
         w = invMass[id0] + invMass[id1]
         s = -C / (w + alpha)
 
-        pos[id0] += grads *   s * invMass[id0]
-        pos[id1] += grads * (-s * invMass[id1])
+        # pos[id0] += grads *   s * invMass[id0]
+        # pos[id1] += grads * (-s * invMass[id1])
+        dpos_edge_0[i] = grads *   s * invMass[id0]
+        dpos_edge_1[i] = grads * (-s * invMass[id1])
 
+
+dpos_vol_0 = ti.Vector.field(3, float, numTets)
+dpos_vol_1 = ti.Vector.field(3, float, numTets)
+dpos_vol_2 = ti.Vector.field(3, float, numTets)
+dpos_vol_3 = ti.Vector.field(3, float, numTets)
 
 @ti.kernel
 def solveVolume():
@@ -176,9 +187,20 @@ def solveVolume():
         C = (vol - restVol[i]) * 6.0
         s = -C /(w + alpha)
         
-        for j in ti.static(range(4)):
-            pos[tet[i][j]] += grads[j] * s * invMass[id[j]]
-        
+        # for j in ti.static(range(4)):
+        #     pos[tet[i][j]] += grads[j] * s * invMass[id[j]]
+        dpos_vol_0[i] = grads[0] * s * invMass[id[0]]
+        dpos_vol_1[i] = grads[1] * s * invMass[id[1]]
+        dpos_vol_2[i] = grads[2] * s * invMass[id[2]]
+        dpos_vol_3[i] = grads[3] * s * invMass[id[3]]
+
+
+@ti.kernel
+def apply_dpos():
+    for i in pos:
+        pos[i] += dpos_edge_0[i] + dpos_edge_1[i] + dpos_vol_0[i] + dpos_vol_1[i] + dpos_vol_2[i] + dpos_vol_3[i]
+
+
 @ti.kernel
 def postSolve():
     for i in pos:

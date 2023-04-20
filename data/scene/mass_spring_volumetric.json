@@ -5,7 +5,9 @@
 		"initial_pause": true,
 		"mesh_uniform_color": [1, 0, 0],
 		"show_particles": false,
-		"num_substeps": 10
+		"num_substeps": 10,
+		"camera_pos": [1.23, 0.48 , 0.88],
+		"camera_lookat": [0.38, 0.34, 0.37]
 	},
 	"materials":[
 		{

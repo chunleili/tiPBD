@@ -56,11 +56,10 @@ def solver_main():
             if e.key == ti.ui.SPACE:
                 meta.paused = not meta.paused
                 print("paused:", meta.paused)
-            if e.key == "f":
-                print("step: ", meta.step)
-                meta.step+=1
-                pbd_solver.substep()
-                print("step once")
+        if ggui.window.is_pressed("f"):
+            print("Step once, step: ", meta.step)
+            meta.step+=1
+            pbd_solver.substep()
 
         #do the simulation in each step
         if not meta.paused:

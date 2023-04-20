@@ -136,7 +136,8 @@ class ARAP():
                 v.prev_pos = v.pos
                 v.pos += dt_ * v.vel
                 v.predict_pos = v.pos
-                collision_response(v, self.sdf)
+                if ti.static(meta.get_common("use_sdf")):
+                    collision_response(v, self.sdf)
                 collision_response_ground(v)
 
     @ti.func

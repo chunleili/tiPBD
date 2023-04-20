@@ -17,10 +17,13 @@ class GGUI():
         self.camera.lookat(self.cam_lookat[0], self.cam_lookat[1], self.cam_lookat[2])
         self.camera.fov(55) 
         self.gui = self.window.get_gui()
-        self.show_widget = True
-        self.show_wireframe = False
-        self.show_particles = meta.get_common("show_particles", default=True)
-        self.show_mesh = meta.get_common("show_mesh", default=True)
+        meta.show_widget = meta.get_common("show_widget", default=True)
+        meta.show_wireframe = meta.get_common("show_wireframe", default=False)
+        meta.show_particles = meta.get_common("show_particles", default=True)
+        meta.show_mesh = meta.get_common("show_mesh", default=True)
+        meta.show_auxiliary_meshes = meta.get_common("show_auxiliary_meshes", default=True)
+        meta.show_bounds = meta.get_common("show_bounds", default=True)
+        meta.show_sdf = meta.get_common("show_sdf", default=False)
         self.par_radius = 0.01
         self.uniform_color = (0.1229,0.2254,0.7207)
         self.par_color = None
@@ -29,12 +32,10 @@ class GGUI():
         self.particle_uniform_color = meta.get_common("particle_uniform_color", default=self.uniform_color)
         self.particle_uniform_color = tuple(self.particle_uniform_color)
 
-        self.show_auxiliary_meshes = meta.get_common("show_auxiliary_meshes", default=True)
-        if self.show_auxiliary_meshes:
+        if meta.show_auxiliary_meshes:
             self.ground, self.coord, self.ground_indices, self.coord_indices = read_auxiliary_meshes()
         
-        self.show_bounds = True
-        if self.show_bounds:
+        if meta.show_bounds:
             self.box_anchors, self.box_lines_indices = draw_bounds(x_min=0, y_min=0, z_min=0, x_max=1, y_max=1, z_max=1)
 
         meta.use_sdf =  meta.get_common("use_sdf")
@@ -50,7 +51,7 @@ class GGUI():
         
         from engine.metadata import meta
 
-        if self.show_widget:
+        if meta.show_widget:
             with self.gui.sub_window("Options", 0, 0, 0.25, 0.3) as w:
                 self.gui.text("camera.curr_position: " + str(self.camera.curr_position))
                 self.gui.text("camera.curr_lookat: " + str(self.camera.curr_lookat))
@@ -61,18 +62,18 @@ class GGUI():
                     self.camera.fov(55) 
                 meta.num_substeps = self.gui.slider_int("num_substeps", meta.num_substeps, 0, 100)
 
-        if indices_show is not None and self.show_mesh:
-            self.scene.mesh(pos_show, indices=indices_show, color=self.mesh_uniform_color, show_wireframe=self.show_wireframe)
-        if self.show_particles:
+        if indices_show is not None and meta.show_mesh:
+            self.scene.mesh(pos_show, indices=indices_show, color=self.mesh_uniform_color, show_wireframe=meta.show_wireframe)
+        if meta.show_particles:
             self.scene.particles(pos_show, radius=self.par_radius, color=self.particle_uniform_color, per_vertex_color=self.par_color)
-        if self.show_auxiliary_meshes:
-            self.scene.mesh(self.ground, indices=self.ground_indices, color=(0.5,0.5,0.5), show_wireframe=self.show_wireframe)
-            self.scene.mesh(self.coord, indices=self.coord_indices, color=(0.5, 0, 0), show_wireframe=self.show_wireframe)
+        if meta.show_auxiliary_meshes:
+            self.scene.mesh(self.ground, indices=self.ground_indices, color=(0.5,0.5,0.5), show_wireframe=meta.show_wireframe)
+            self.scene.mesh(self.coord, indices=self.coord_indices, color=(0.5, 0, 0), show_wireframe=meta.show_wireframe)
 
-        if self.show_bounds:
+        if meta.show_bounds:
             self.scene.lines(self.box_anchors, indices=self.box_lines_indices, color = (0.99, 0.68, 0.28), width = 2.0)
 
-        if meta.use_sdf:
+        if meta.use_sdf and meta.show_sdf:
             self.scene.particles(self.sdf_vertices, radius=self.par_radius, color=self.uniform_color, per_vertex_color=self.par_color)
 
         # if meta.get_common("vis_sparse_grid"):

@@ -4,10 +4,17 @@ import trimesh
 
 ti.init(debug=True)
 
+vec3 = ti.types.vector(3, float)
+
 mesh = trimesh.load("data/model/bunny.obj")
 particles = mesh.vertices
 particles_ti = ti.Vector.field(3, dtype=ti.f32, shape=particles.shape[0])
 particles_ti.from_numpy(particles)
+
+f2 =  ti.Vector.field(3, dtype=ti.f32, shape=2)
+def to_field(a,b):
+    f2[0] = [a[0], a[1], a[2]]
+    f2[1] = [b[0], b[1], b[2]]
 
 
 verts = ti.Vector.field(2, dtype=ti.f32, shape=8)
@@ -38,7 +45,14 @@ view_ti = ti.Matrix(mat4x4, dt=ti.f32)
 def mat4x4_np2ti(mat_ti, mat_np):
     for i in range(4):
         for j in range(4):
-            mat_ti[i,j] = mat_np[j,i]
+            mat_ti[i,j] = mat_np[i,j]
+
+def to_mat4(arr):
+    M = ti.Matrix([[0] * 4 for _ in range(4)], ti.f32)
+    for i in range(4):
+        for j in range(4):
+            M[i, j] = float(arr[j][i])
+    return M
 
 
 @ti.kernel
@@ -48,12 +62,20 @@ def world_to_screen(world_pos: ti.template(), proj: ti.template(), view: ti.temp
         ndc =  proj @ view @ pos_homo
         ndc /= ndc[3]
 
-        screen_pos[i][0] = (ndc[0] + 1.0) * screen_w / 2.0
-        screen_pos[i][1] = (1.0 - ndc[1]) * screen_h / 2.0
-        
-        # print("world:", world_pos[i])
-        # print("screen:", screen_pos[i])
 
+@ti.dataclass
+class Ray:
+    ori: vec3
+    dir: vec3
+    t: float
+
+
+@ti.kernel
+def ray_from_mouse(mouse_x : ti.f32, mouse_y : ti.f32, cam2world:ti.types.matrix(4,4,ti.f32)) -> vec3:
+    p = ti.Matrix([[(mouse_x-0.5)], [(mouse_y-0.5)], [-1.0], [0.0]])
+    ray = vec3((cam2world @ p).xyz)   
+    ray = ti.math.normalize(ray)
+    return ray
 
 
 @ti.kernel
@@ -63,11 +85,14 @@ def judge_point_in_rect(screen_pos: ti.template(), start: ti.template(), end: ti
             is_in_rect[i] = True
             per_vertex_color[i] = [1,0,0]
 
-one_point = ti.Vector.field(3, float, (1))
 
-one_point[0] = [1,1,1]
-# one_point[0] = [0,0,0]
-# one_point[0] = particle_pos[0]
+
+@ti.kernel
+def judge_in_box(pos: ti.template(), min: ti.template(), max: ti.template()):
+    for i in pos:
+        if pos[i][0] < min[0] or pos[i][0] > max[0] or pos[i][1] < min[1] or pos[i][1] > max[1] or pos[i][2] < min[2] or pos[i][2] > max[2]:
+            per_vertex_color[i] = [1,0,0]
+    
 
 def visualize(particle_pos):
     window = ti.ui.Window("visualizer", (1024, 1024), vsync=True)
@@ -83,6 +108,8 @@ def visualize(particle_pos):
     camera.lookat(0,0,0)
     camera.fov(45) 
     canvas.set_background_color((1,1,1))
+    camera.z_near(0.1)
+    camera.z_far(100)
     
     start = (-1e5,-1e5)
     end   = (1e5,1e5)
@@ -107,16 +134,36 @@ def visualize(particle_pos):
             rect(start[0], start[1], end[0], end[1])
             canvas.lines(vertices=verts, color=(1,0,0), width=0.005)
 
-            proj = camera.get_projection_matrix(screen_w/screen_h)
             view = camera.get_view_matrix()
-            mat4x4_np2ti(proj_ti, proj)
-            mat4x4_np2ti(view_ti, view)
+            view_inv = np.linalg.inv(view)
 
-            world_to_screen(particle_pos, proj_ti, view_ti, screen_pos, screen_w, screen_h)
-            judge_point_in_rect(screen_pos, start, end)
-            pass
+            cam2world = to_mat4(view_inv)
+            r = ray_from_mouse(start[0], start[1], cam2world)
+            t = 1e-10
+            min = camera.curr_position + r * t
+            r = ray_from_mouse(start[0], start[1], cam2world)
+            t = 1e10
+            max = camera.curr_position + r * t
+            print("min:",min)
+            print("max:",max)
+            print()
+
+            judge_in_box(particle_pos, vec3(min), vec3(max))
+
+
+            dir = camera.curr_lookat - camera.curr_position
+            dir = (dir).normalized()
+            print("dir:",dir)
+
+        #     to_field(camera.curr_position, camera.curr_position + dir*100000)
+        # scene.lines(vertices=f2, color=(1,0,1), width=100)
+
+            # dir1 = (window.get_cursor_pos(), camera.z_near())
+
 
         canvas.scene(scene)
         window.show()
 
 visualize(particles_ti)
+
+

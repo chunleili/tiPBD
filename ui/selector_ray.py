@@ -139,10 +139,12 @@ def visualize(particle_pos):
 
             cam2world = to_mat4(view_inv)
             r = ray_from_mouse(start[0], start[1], cam2world)
-            t = 1e-10
+            t = 0.1
+            print("r1:",r)
             min = camera.curr_position + r * t
             r = ray_from_mouse(start[0], start[1], cam2world)
-            t = 1e10
+            print("r2:",r)
+            t = 100
             max = camera.curr_position + r * t
             print("min:",min)
             print("max:",max)

@@ -1,7 +1,8 @@
 import taichi as ti
+import numpy as np
 import trimesh
 
-ti.init()
+ti.init(debug=True)
 
 mesh = trimesh.load("data/model/bunny.obj")
 particles = mesh.vertices
@@ -21,11 +22,54 @@ def rect(x_min, y_min, x_max, y_max):
     verts[6] = [x_max, y_min]
     verts[7] = [x_max, y_max]
     
+# pos4 = ti.Vector.field(4, dtype=ti.f32, shape=particles.shape[0])
+pos_screen = ti.Vector.field(2, dtype=ti.f32, shape=particles.shape[0])
+is_in_rect = ti.field(dtype=ti.i32, shape=particles.shape[0])
+per_vertex_color = ti.Vector.field(3, dtype=ti.f32, shape=particles.shape[0])
+
+per_vertex_color.fill([0.1229,0.2254,0.7207])
+
+
+mat4x4 = [[0] * 4 for _ in range(4)]
+proj_ti = ti.Matrix(mat4x4, dt=ti.f32)
+view_ti = ti.Matrix(mat4x4, dt=ti.f32)
+
+
+def mat4x4_np2ti(mat_ti, mat_np):
+    for i in range(4):
+        for j in range(4):
+            mat_ti[i,j] = mat_np[i,j]
+
+
+@ti.kernel
+def world_to_screen(world_pos: ti.template(), proj: ti.template(), view: ti.template(), pos_screen: ti.template(),screen_w:ti.i32, screen_h:ti.i32):
+    for i in world_pos:
+        pos_homo = ti.Vector([world_pos[i][0], world_pos[i][1], world_pos[i][2], 1.0])
+        ndc = proj @ view @ pos_homo
+        ndc /= ndc[3]
+
+        ndc[0] = (ndc[0] + 1.0) * screen_w / 2.0
+        ndc[1] = (1.0 - ndc[1]) * screen_h / 2.0
+        
+        pos_screen[i] = ti.Vector([ndc[0], ndc[1]])
+
+
+@ti.kernel
+def judge_point_in_rect(pos_screen: ti.template(), start: ti.template(), end: ti.template()):
+    for i in pos_screen:
+        if pos_screen[i][0] > start[0] and pos_screen[i][0] < end[0] and pos_screen[i][1] > start[1] and pos_screen[i][1] < end[1]:
+            is_in_rect[i] = True
+            per_vertex_color[i] = [1,0,0]
+            # print(i)
+
+
 def visualize(particle_pos):
     window = ti.ui.Window("visualizer", (1024, 1024), vsync=True)
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
     camera = ti.ui.Camera()
+
+    screen_w, screen_h = window.get_window_shape()
 
     camera.position(-4.1016811, -1.05783201, 6.2282803)
     camera.lookat(-3.50212255, -0.9375709, 5.43703646)
@@ -41,15 +85,27 @@ def visualize(particle_pos):
         scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
         scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
         scene.ambient_light((0.5, 0.5, 0.5))
-        scene.particles(particle_pos, radius=0.01, color=(0.1229,0.2254,0.7207))
+        # scene.particles(particle_pos, radius=0.01, color=(0.1229,0.2254,0.7207)
+        scene.particles(particle_pos, radius=0.01, per_vertex_color=per_vertex_color)
         
+
         if window.is_pressed(ti.ui.LMB):
+            per_vertex_color.fill([0.1229,0.2254,0.7207])
             start = window.get_cursor_pos()
             if window.get_event(ti.ui.RELEASE):
                 end = window.get_cursor_pos()
+                print("rect start:",start,"\nrect end:", end, "\n")
+
             rect(start[0], start[1], end[0], end[1])
             canvas.lines(vertices=verts, color=(1,0,0), width=0.005)
-            
+
+            proj = camera.get_projection_matrix(screen_w/screen_h)
+            view = camera.get_view_matrix()
+            mat4x4_np2ti(proj_ti, proj)
+            mat4x4_np2ti(view_ti, view)
+            world_to_screen(particle_pos, proj_ti, view_ti, pos_screen, screen_w, screen_h)
+            judge_point_in_rect(pos_screen, start, end)
+
         canvas.scene(scene)
         window.show()
 

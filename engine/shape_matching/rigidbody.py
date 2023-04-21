@@ -133,7 +133,7 @@ window = ti.ui.Window("rigidbody", (1024, 1024),vsync=True)
 canvas = window.get_canvas()
 scene = ti.ui.Scene()
 camera = ti.ui.Camera()
-# canvas.set_background_color((1,1,1))
+canvas.set_background_color((1,1,1))
 
 #initial camera position
 camera.position(0.5, 1.0, 1.95)
@@ -181,7 +181,7 @@ def main():
         
         #draw particles
         world_scale()
-        scene.particles(pos_show, radius=0.001, color=(0, 1, 1))
+        scene.particles(pos_show, radius=0.005, color=(0, 0, 1))
         scene.lines(vertices=anchors, indices=line_indices, color=(1, 0, 0), width=2)
         scene.mesh(ground, indices=ground_indices, color=(0.5,0.5,0.5))
         scene.mesh(coord, indices=coord_indices, color=(0.5, 0, 0))

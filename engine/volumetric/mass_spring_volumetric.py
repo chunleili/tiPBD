@@ -8,10 +8,10 @@ from engine.metadata import meta
 
 # ti.init()
 
-# if meta.args.arch != "cpu":
-#     logging.error("This example only supports CPU arch for now. We will force switch to CPU arch")
-#     meta.args.init_args["arch"] = "cpu"
-#     ti.init(**meta.args.init_args)
+if meta.get_common("force_serialize") and meta.args.arch != "cpu":
+    logging.warning("force to use cpu mode")
+    meta.args.init_args["arch"] = "cpu"
+    ti.init(**meta.args.init_args)
 
 
 numParticles = len(bunnyMesh['verts']) // 3
@@ -101,7 +101,7 @@ numSubsteps = meta.get_common("num_substeps",10)
 dt = 1.0 / 60.0 / numSubsteps
 edgeCompliance = meta.get_materials("edge_compliance",100.0)
 volumeCompliance = meta.get_materials("volume_compliance",0.0)
-meta.relax_factor = meta.get_materials("relax_factor",0.1)
+meta.relax_factor = meta.get_materials("relax_factor",1.0)
 
 prevPos = ti.Vector.field(3, float, numParticles)
 vel = ti.Vector.field(3, float, numParticles)
@@ -116,13 +116,13 @@ def preSolve():
         prevPos[i] = pos[i]
         vel[i] += g * dt 
         pos[i] += vel[i] * dt
-        # collision_response(pos[i], sdf)
         if pos[i].y < 0.0:
-            # pos[i] = prevPos[i]
             pos[i].y = 0.0
+        if ti.static(meta.get_common("use_sdf")):
+            collision_response_sdf(pos[i], sdf)
 
 @ti.func
-def collision_response(pos:ti.template(), sdf):
+def collision_response_sdf(pos:ti.template(), sdf):
     sdf_epsilon = 1e-4
     grid_idx = ti.Vector([pos.x * sdf.resolution, pos.y * sdf.resolution, pos.z * sdf.resolution], ti.i32)
     grid_idx = ti.math.clamp(grid_idx, 0, sdf.resolution - 1)
@@ -154,14 +154,17 @@ def solveEdge():
         w = invMass[id0] + invMass[id1]
         s = -C / (w + alpha)
 
-        # pos[id0] += grads *   s * invMass[id0]
-        # pos[id1] += grads * (-s * invMass[id1])
         dpos_edge_0[i] = grads *   s * invMass[id0]
         dpos_edge_1[i] = grads * (-s * invMass[id1])
 
+        if ti.static(meta.get_common("force_serialize")):
+            pos[id0] += dpos_edge_0[i]
+            pos[id1] += dpos_edge_1[i]
+
     for i in range(numEdges):
-        pos[edge[i][0]] += meta.relax_factor*(dpos_edge_0[i])
-        pos[edge[i][1]] += meta.relax_factor*(dpos_edge_1[i])
+        if ti.static(not meta.get_common("force_serialize")):
+            pos[edge[i][0]] += meta.relax_factor*(dpos_edge_0[i])
+            pos[edge[i][1]] += meta.relax_factor*(dpos_edge_1[i])
 
 
 dpos_vol_0 = ti.Vector.field(3, float, numTets)
@@ -191,18 +194,23 @@ def solveVolume():
         C = (vol - restVol[i]) * 6.0
         s = -C /(w + alpha)
         
-        # for j in ti.static(range(4)):
-        #     pos[tet[i][j]] += grads[j] * s * invMass[id[j]]
         dpos_vol_0[i] = grads[0] * s * invMass[id[0]]
         dpos_vol_1[i] = grads[1] * s * invMass[id[1]]
         dpos_vol_2[i] = grads[2] * s * invMass[id[2]]
         dpos_vol_3[i] = grads[3] * s * invMass[id[3]]
 
+        if ti.static(meta.get_common("force_serialize")):
+            pos[tet[i][0]] += dpos_vol_0[i]
+            pos[tet[i][1]] += dpos_vol_1[i]
+            pos[tet[i][2]] += dpos_vol_2[i]
+            pos[tet[i][3]] += dpos_vol_3[i]
+
     for i in range(numTets):
-        pos[tet[i][0]] += meta.relax_factor * dpos_vol_0[i]
-        pos[tet[i][1]] += meta.relax_factor * dpos_vol_0[i]
-        pos[tet[i][2]] += meta.relax_factor * dpos_vol_0[i]
-        pos[tet[i][3]] += meta.relax_factor * dpos_vol_0[i]
+        if ti.static(not meta.get_common("force_serialize")):
+            pos[tet[i][0]] += meta.relax_factor * dpos_vol_0[i]
+            pos[tet[i][1]] += meta.relax_factor * dpos_vol_0[i]
+            pos[tet[i][2]] += meta.relax_factor * dpos_vol_0[i]
+            pos[tet[i][3]] += meta.relax_factor * dpos_vol_0[i]
 
 
 @ti.kernel

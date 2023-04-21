@@ -45,16 +45,15 @@ def mat4x4_np2ti(mat_ti, mat_np):
 def world_to_screen(world_pos: ti.template(), proj: ti.template(), view: ti.template(), screen_pos: ti.template(),screen_w:ti.i32, screen_h:ti.i32):
     for i in world_pos:
         pos_homo = ti.Vector([world_pos[i][0], world_pos[i][1], world_pos[i][2], 1.0])
-        ndc =  proj @ view.transpose() @ pos_homo
+        ndc =  proj @ view @ pos_homo
         ndc /= ndc[3]
 
-        screen_pos[i][0] = (ndc[0] + 1.0) * screen_w / 2.0
-        screen_pos[i][1] = (1.0 - ndc[1]) * screen_h / 2.0
+        # screen_pos[i][0] = (ndc[0] + 1.0) * screen_w / 2.0
+        # screen_pos[i][1] = (1.0 - ndc[1]) * screen_h / 2.0
         
-        print("world:", world_pos[i])
-        print("screen:", screen_pos[i])
+        # print("world:", world_pos[i])
+        # print("screen:", screen_pos[i])
 
-        # assert 0<screen_pos[i][0]<1, f"{screen_pos[i][0]}, {screen_pos[i][1]}"
 
 
 @ti.kernel
@@ -115,8 +114,8 @@ def visualize(particle_pos):
             mat4x4_np2ti(view_ti, view)
 
             world_to_screen(one_point, proj_ti, view_ti, screen_pos, screen_w, screen_h)
+            judge_point_in_rect(screen_pos, start, end)
             pass
-            # judge_point_in_rect(screen_pos, start, end)
 
         canvas.scene(scene)
         window.show()

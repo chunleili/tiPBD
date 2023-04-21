@@ -138,7 +138,7 @@ canvas.set_background_color((1,1,1))
 #initial camera position
 camera.position(0.5, 1.0, 1.95)
 camera.lookat(0.5, 0.3, 0.5)
-camera.fov(55)
+camera.fov(45)
 
 def main():
     indices_show_np = init_particles()

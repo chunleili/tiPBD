@@ -15,7 +15,7 @@ class GGUI():
         self.cam_lookat = meta.get_common("camera_lookat", default=[.5, .5, 1])
         self.camera.position(self.cam_pos[0], self.cam_pos[1], self.cam_pos[2])
         self.camera.lookat(self.cam_lookat[0], self.cam_lookat[1], self.cam_lookat[2])
-        self.camera.fov(55) 
+        self.camera.fov(45) 
         self.gui = self.window.get_gui()
         meta.show_widget = meta.get_common("show_widget", default=True)
         meta.show_wireframe = meta.get_common("show_wireframe", default=False)
@@ -59,7 +59,7 @@ class GGUI():
                 if reset_camera:
                     self.camera.position(self.cam_pos[0], self.cam_pos[1], self.cam_pos[2])
                     self.camera.lookat(self.cam_lookat[0], self.cam_lookat[1], self.cam_lookat[2])
-                    self.camera.fov(55) 
+                    self.camera.fov(45) 
                 meta.num_substeps = self.gui.slider_int("num_substeps", meta.num_substeps, 0, 100)
 
         if indices_show is not None and meta.show_mesh:
@@ -127,7 +127,7 @@ def visualize(par_pos=None, par_radius=0.01, mesh_pos=None, mesh_indices=None, t
 
     camera.position(-4.1016811, -1.05783201, 6.2282803)
     camera.lookat(-3.50212255, -0.9375709, 5.43703646)
-    camera.fov(55) 
+    camera.fov(45) 
     canvas.set_background_color(background_color)
     gui = window.get_gui()
     while window.running:
@@ -184,7 +184,7 @@ def vis_sdf(grid, provide_render=True):
 
         camera.position(cam_pos[0], cam_pos[1], cam_pos[2])
         camera.lookat(cam_lookat[0], cam_lookat[1], cam_lookat[2])
-        camera.fov(55) 
+        camera.fov(45) 
         canvas.set_background_color((1,1,1))
         gui = window.get_gui()
         show_widget = True
@@ -204,7 +204,7 @@ def vis_sdf(grid, provide_render=True):
                     if reset_camera:
                         camera.position(cam_pos[0], cam_pos[1], cam_pos[2])
                         camera.lookat(cam_lookat[0], cam_lookat[1], cam_lookat[2])
-                        camera.fov(55) 
+                        camera.fov(45) 
             
             scene.particles(particles, radius=0.001, per_vertex_color=par_color)
 

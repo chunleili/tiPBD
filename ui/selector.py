@@ -23,7 +23,7 @@ def rect(x_min, y_min, x_max, y_max):
     verts[7] = [x_max, y_max]
     
 # pos4 = ti.Vector.field(4, dtype=ti.f32, shape=particles.shape[0])
-pos_screen = ti.Vector.field(2, dtype=ti.f32, shape=particles.shape[0])
+screen_pos = ti.Vector.field(2, dtype=ti.f32, shape=particles.shape[0])
 is_in_rect = ti.field(dtype=ti.i32, shape=particles.shape[0])
 per_vertex_color = ti.Vector.field(3, dtype=ti.f32, shape=particles.shape[0])
 
@@ -42,26 +42,34 @@ def mat4x4_np2ti(mat_ti, mat_np):
 
 
 @ti.kernel
-def world_to_screen(world_pos: ti.template(), proj: ti.template(), view: ti.template(), pos_screen: ti.template(),screen_w:ti.i32, screen_h:ti.i32):
+def world_to_screen(world_pos: ti.template(), proj: ti.template(), view: ti.template(), screen_pos: ti.template(),screen_w:ti.i32, screen_h:ti.i32):
     for i in world_pos:
         pos_homo = ti.Vector([world_pos[i][0], world_pos[i][1], world_pos[i][2], 1.0])
-        ndc = proj @ view @ pos_homo
+        ndc =  proj @ view.transpose() @ pos_homo
         ndc /= ndc[3]
 
-        ndc[0] = (ndc[0] + 1.0) * screen_w / 2.0
-        ndc[1] = (1.0 - ndc[1]) * screen_h / 2.0
+        screen_pos[i][0] = (ndc[0] + 1.0) * screen_w / 2.0
+        screen_pos[i][1] = (1.0 - ndc[1]) * screen_h / 2.0
         
-        pos_screen[i] = ti.Vector([ndc[0], ndc[1]])
+        print("world:", world_pos[i])
+        print("screen:", screen_pos[i])
+
+        # assert 0<screen_pos[i][0]<1, f"{screen_pos[i][0]}, {screen_pos[i][1]}"
 
 
 @ti.kernel
-def judge_point_in_rect(pos_screen: ti.template(), start: ti.template(), end: ti.template()):
-    for i in pos_screen:
-        if pos_screen[i][0] > start[0] and pos_screen[i][0] < end[0] and pos_screen[i][1] > start[1] and pos_screen[i][1] < end[1]:
+def judge_point_in_rect(screen_pos: ti.template(), start: ti.template(), end: ti.template()):
+    for i in screen_pos:
+        if screen_pos[i][0] > start[0] and screen_pos[i][0] < end[0] and screen_pos[i][1] > start[1] and screen_pos[i][1] < end[1]:
             is_in_rect[i] = True
             per_vertex_color[i] = [1,0,0]
             # print(i)
 
+one_point = ti.Vector.field(3, float, (1))
+
+one_point[0] = [1,1,1]
+# one_point[0] = [0,0,0]
+# one_point[0] = particle_pos[0]
 
 def visualize(particle_pos):
     window = ti.ui.Window("visualizer", (1024, 1024), vsync=True)
@@ -71,9 +79,11 @@ def visualize(particle_pos):
 
     screen_w, screen_h = window.get_window_shape()
 
-    camera.position(-4.1016811, -1.05783201, 6.2282803)
-    camera.lookat(-3.50212255, -0.9375709, 5.43703646)
-    camera.fov(55) 
+    # camera.position(-4.1016811, -1.05783201, 6.2282803)
+    # camera.lookat(-3.50212255, -0.9375709, 5.43703646)
+    camera.position(0,0,1)
+    camera.lookat(0,0,0)
+    camera.fov(45) 
     canvas.set_background_color((1,1,1))
     
     start = (-1e5,-1e5)
@@ -103,8 +113,10 @@ def visualize(particle_pos):
             view = camera.get_view_matrix()
             mat4x4_np2ti(proj_ti, proj)
             mat4x4_np2ti(view_ti, view)
-            world_to_screen(particle_pos, proj_ti, view_ti, pos_screen, screen_w, screen_h)
-            judge_point_in_rect(pos_screen, start, end)
+
+            world_to_screen(one_point, proj_ti, view_ti, screen_pos, screen_w, screen_h)
+            pass
+            # judge_point_in_rect(screen_pos, start, end)
 
         canvas.scene(scene)
         window.show()

@@ -143,7 +143,7 @@ camera = ti.ui.make_camera()
 #initial camera position
 camera.position(0.36801182, 1.20798075, 3.1301154)
 camera.lookat(0.37387108, 1.21329924, 2.13014676)
-camera.fov(55)
+camera.fov(45)
 
 @ti.kernel
 def init_pos():

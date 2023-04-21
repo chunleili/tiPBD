@@ -250,7 +250,7 @@ class MassSpring():
 # #initial camera position
 # camera.position(0.5, 1.0, 1.95)
 # camera.lookat(0.5, 0.3, 0.5)
-# camera.fov(55)
+# camera.fov(45)
 # def main():
 #     while window.running:
 #         #do the simulation in each step

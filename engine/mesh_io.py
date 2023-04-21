@@ -204,3 +204,7 @@ def tet_indices_to_edge_indices(tets:ti.template(), edges: ti.template()):
         edges[tid*6+4][1] = tets[tid][ind[4][1]]
         edges[tid*6+5][0] = tets[tid][ind[5][0]]
         edges[tid*6+5][1] = tets[tid][ind[5][1]]
+
+
+def make_no_ext(filename):
+    return  filename.split(".")[0]     

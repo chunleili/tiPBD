@@ -126,6 +126,46 @@ def sample_ray(ray_origin, ray_dir, ray_show):
         ray_show[i] = ray_origin + ray_dir * i * 0.1
 
 
+
+def select_particles(world_pos, proj, view, start, end):
+    mat4 = ti.math.mat4
+    vec4 = ti.math.vec4
+    # screen_pos = ti.ndarray(dtype=ti.math.vec2, shape=(particles.shape[0]))
+    screen_pos = ti.Vector.field(2, shape=world_pos.shape[0], dtype=float)
+
+    view_ti = mat4(view)
+    proj_ti = mat4(proj)
+    leftbottom = [min(start[0], end[0]), min(start[1], end[1])]
+    righttop   = [max(start[0], end[0]), max(start[1], end[1])]
+
+    @ti.kernel
+    def world_to_screen_kernel(world_pos:ti.template()):
+        for i in range(world_pos.shape[0]):
+            pos_homo = vec4([world_pos[i][0], world_pos[i][1], world_pos[i][2], 1.0])
+            # ndc =  proj @ view @ pos_homo
+            ndc = pos_homo @ view_ti @ proj_ti
+            ndc /= ndc[3]
+
+            screen_pos[i][0] = ndc[0]
+            screen_pos[i][1] = ndc[1]
+            #from [-1,1] scale to [0,1]
+            screen_pos[i][0] = (screen_pos[i][0] + 1) /2
+            screen_pos[i][1] = (screen_pos[i][1] + 1) /2
+        
+    @ti.kernel
+    def judge_point_in_rect_kernel():
+        for i in range(screen_pos.shape[0]):
+            if  screen_pos[i][0] > leftbottom[0] and\
+                screen_pos[i][0] < righttop[0] and\
+                screen_pos[i][1] > leftbottom[1] and\
+                screen_pos[i][1] < righttop[1]:
+                is_in_rect[i] = True
+                per_vertex_color[i] = [1,0,0]
+    
+    world_to_screen_kernel(world_pos)
+    judge_point_in_rect_kernel()
+
+
 def visualize(particle_pos):
     window = ti.ui.Window("visualizer", (1024, 1024), vsync=True)
     canvas = window.get_canvas()
@@ -167,8 +207,9 @@ def visualize(particle_pos):
 
             proj = camera.get_projection_matrix(screen_w/screen_h)
             view = camera.get_view_matrix()
-            pos_screen = world_to_screen(particle_pos.to_numpy(), proj, view)
-            judge_point_in_rect(pos_screen, start, end)
+            # pos_screen = world_to_screen(particle_pos.to_numpy(), proj, view)
+            # judge_point_in_rect(pos_screen, start, end)
+            select_particles(particle_pos, proj, view, start, end)
 
             # world_min = screen_to_world(np.array([start[0],start[1]],float), view, proj, -1)
             # world_max = screen_to_world(np.array([end[0],end[1]],float), view, proj, 1)

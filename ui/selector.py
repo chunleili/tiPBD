@@ -5,23 +5,25 @@ import trimesh
 ti.init(debug=True)
 
 vec3 = ti.types.vector(3,float)
+ndarray = ti.types.ndarray()
+
 
 mesh = trimesh.load("data/model/bunny.obj")
 particles = mesh.vertices
 particles_ti = ti.Vector.field(3, dtype=ti.f32, shape=particles.shape[0])
 particles_ti.from_numpy(particles)
 
-verts = ti.Vector.field(2, dtype=ti.f32, shape=8)
+rect_verts = ti.Vector.field(2, dtype=ti.f32, shape=8)
 
 def rect(x_min, y_min, x_max, y_max):
-    verts[0] = [x_min, y_min]
-    verts[1] = [x_max, y_min]
-    verts[2] = [x_min, y_max]
-    verts[3] = [x_max, y_max]
-    verts[4] = [x_min, y_min]
-    verts[5] = [x_min, y_max]
-    verts[6] = [x_max, y_min]
-    verts[7] = [x_max, y_max]
+    rect_verts[0] = [x_min, y_min]
+    rect_verts[1] = [x_max, y_min]
+    rect_verts[2] = [x_min, y_max]
+    rect_verts[3] = [x_max, y_max]
+    rect_verts[4] = [x_min, y_min]
+    rect_verts[5] = [x_min, y_max]
+    rect_verts[6] = [x_max, y_min]
+    rect_verts[7] = [x_max, y_max]
     
 # pos4 = ti.Vector.field(4, dtype=ti.f32, shape=particles.shape[0])
 screen_pos = ti.Vector.field(2, dtype=ti.f32, shape=particles.shape[0])
@@ -48,16 +50,19 @@ def judge_in_box(pos: ti.template(), min: ti.types.ndarray(), max: ti.types.ndar
             per_vertex_color[i] = [1,0,0]
 
 
-@ti.kernel
-def world_to_screen(world_pos: ti.template(), proj: ti.template(), view: ti.template(), screen_pos: ti.template(),screen_w:ti.i32, screen_h:ti.i32):
-    for i in world_pos:
-        pos_homo = ti.Vector([world_pos[i][0], world_pos[i][1], world_pos[i][2], 1.0])
-        ndc =  proj @ view @ pos_homo
+def world_to_screen(world_pos, proj, view):
+    screen_pos = np.zeros((world_pos.shape[0], 2), dtype=float)
+    for i in range(world_pos.shape[0]):
+        pos_homo = np.array([world_pos[i][0], world_pos[i][1], world_pos[i][2], 1.0])
+        # ndc =  proj @ view @ pos_homo
+        ndc = pos_homo @ view @ proj
         ndc /= ndc[3]
 
-        screen_pos[i][0] = (ndc[0] + 1.0) * screen_w / 2.0
-        screen_pos[i][1] = (1.0 - ndc[1]) * screen_h / 2.0
-        
+        screen_pos[i][:2] = ndc[:2]
+        #from [-1,1] scale to [0,1]
+        screen_pos[i] = (screen_pos[i] + 1) /2
+    return screen_pos
+
 
 def screen_to_world(p, view, proj, depth=-1):
     # p is [0,1]x[0,1], first scale it to [-1,1] and get clip space
@@ -94,13 +99,24 @@ def screen_ray(p, view, proj):
     return dir
 
 
-@ti.kernel
-def judge_point_in_rect(screen_pos: ti.template(), start: ti.template(), end: ti.template()):
-    for i in screen_pos:
-        if screen_pos[i][0] > start[0] and screen_pos[i][0] < end[0] and screen_pos[i][1] > start[1] and screen_pos[i][1] < end[1]:
+# @ti.kernel
+# def judge_point_in_rect(screen_pos: ti.template(), start: ti.template(), end: ti.template()):
+#     for i in screen_pos:
+#         if screen_pos[i][0] > start[0] and screen_pos[i][0] < end[0] and screen_pos[i][1] > start[1] and screen_pos[i][1] < end[1]:
+#             is_in_rect[i] = True
+#             per_vertex_color[i] = [1,0,0]
+
+def judge_point_in_rect(screen_pos, start, end):
+    leftbottom = [min(start[0], end[0]), min(start[1], end[1])]
+    righttop   = [max(start[0], end[0]), max(start[1], end[1])]
+
+    for i in range(screen_pos.shape[0]):
+        if  screen_pos[i][0] > leftbottom[0] and\
+            screen_pos[i][0] < righttop[0] and\
+            screen_pos[i][1] > leftbottom[1] and\
+            screen_pos[i][1] < righttop[1]:
             is_in_rect[i] = True
             per_vertex_color[i] = [1,0,0]
-
 
 
 ray_show = ti.Vector.field(3, float, 100)
@@ -147,11 +163,13 @@ def visualize(particle_pos):
                 print("rect start:",start,"\nrect end:", end, "\n")
 
             rect(start[0], start[1], end[0], end[1])
-            canvas.lines(vertices=verts, color=(1,0,0), width=0.005)
+            canvas.lines(vertices=rect_verts, color=(1,0,0), width=0.005)
 
             proj = camera.get_projection_matrix(screen_w/screen_h)
             view = camera.get_view_matrix()
-            # world_to_screen(particle_pos, proj_ti, view_ti, screen_pos, screen_w, screen_h)
+            pos_screen = world_to_screen(particle_pos.to_numpy(), proj, view)
+            judge_point_in_rect(pos_screen, start, end)
+
             # world_min = screen_to_world(np.array([start[0],start[1]],float), view, proj, -1)
             # world_max = screen_to_world(np.array([end[0],end[1]],float), view, proj, 1)
             # world_min = screen_to_world(np.array([0.5,0.5],float), view, proj, 0)
@@ -160,11 +178,11 @@ def visualize(particle_pos):
             # print("world:", world_min, world_max)
             # judge_in_box(particle_pos, world_min, world_max)
 
-            ray_dir = screen_ray(np.array([start[0],start[1]],float), view, proj)
-            # ray_dir = (camera.curr_lookat - camera.curr_position).normalized().to_numpy()
-            ray_origin = (camera.curr_position).to_numpy()
-            sample_ray(ray_origin, ray_dir, ray_show)
-            print("ray_dir:", ray_dir, ray_origin)
+            # ray_dir = screen_ray(np.array([start[0],start[1]],float), view, proj)
+            # # ray_dir = (camera.curr_lookat - camera.curr_position).normalized().to_numpy()
+            # ray_origin = (camera.curr_position).to_numpy()
+            # sample_ray(ray_origin, ray_dir, ray_show)
+            # print("ray_dir:", ray_dir, ray_origin)
         scene.particles(ray_show, color=(1,0,1),radius=0.01)
 
         canvas.scene(scene)

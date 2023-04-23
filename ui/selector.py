@@ -2,231 +2,164 @@ import taichi as ti
 import numpy as np
 import trimesh
 
-ti.init(debug=True)
-
-vec3 = ti.types.vector(3,float)
-ndarray = ti.types.ndarray()
-
+ti.init()
 
 mesh = trimesh.load("data/model/bunny.obj")
-particles = mesh.vertices
-particles_ti = ti.Vector.field(3, dtype=ti.f32, shape=particles.shape[0])
-particles_ti.from_numpy(particles)
-
-rect_verts = ti.Vector.field(2, dtype=ti.f32, shape=8)
-
-def rect(x_min, y_min, x_max, y_max):
-    rect_verts[0] = [x_min, y_min]
-    rect_verts[1] = [x_max, y_min]
-    rect_verts[2] = [x_min, y_max]
-    rect_verts[3] = [x_max, y_max]
-    rect_verts[4] = [x_min, y_min]
-    rect_verts[5] = [x_min, y_max]
-    rect_verts[6] = [x_max, y_min]
-    rect_verts[7] = [x_max, y_max]
-    
-# pos4 = ti.Vector.field(4, dtype=ti.f32, shape=particles.shape[0])
-screen_pos = ti.Vector.field(2, dtype=ti.f32, shape=particles.shape[0])
-is_in_rect = ti.field(dtype=ti.i32, shape=particles.shape[0])
-per_vertex_color = ti.Vector.field(3, dtype=ti.f32, shape=particles.shape[0])
-
-per_vertex_color.fill([0.1229,0.2254,0.7207])
+particles = ti.Vector.field(3, dtype=ti.f32, shape=mesh.vertices.shape[0])
+particles.from_numpy(mesh.vertices)
 
 
-mat4x4 = [[0] * 4 for _ in range(4)]
-proj_ti = ti.Matrix(mat4x4, dt=ti.f32)
-view_ti = ti.Matrix(mat4x4, dt=ti.f32)
+@ti.data_oriented
+class Selector:
+    """
+    A particle selector. Use your left mouse botton to draw a rectangle on the screen and select the particles in the rectangle.
 
+    Example::
 
-def mat4x4_np2ti(mat_ti, mat_np):
-    for i in range(4):
-        for j in range(4):
-            mat_ti[i,j] = mat_np[j,i]
+        # First, instantiate a selector
+        selector = Selector(camera, window, particle_pos)
 
-@ti.kernel
-def judge_in_box(pos: ti.template(), min: ti.types.ndarray(), max: ti.types.ndarray()):
-    for i in pos:
-        if pos[i][0] < min[0] or pos[i][0] > max[0] or pos[i][1] < min[1] or pos[i][1] > max[1] or pos[i][2] < min[2] or pos[i][2] > max[2]:
-            per_vertex_color[i] = [1,0,0]
+        while window.running:
+            #select the particles in the rectangle when dragging the mouse
+            selector.select() 
 
+            #clear the selection when press "c"
+            if window.is_pressed("c"):
+                selector.clear()
+            
+            #print the selected particle ids when press "i"
+            if window.is_pressed("i"):
+                print(selector.get_ids())
+            
+            #draw the selected particles in red
+            scene.particles(particle_pos, radius=0.01, per_vertex_color=selector.per_vertex_color)
+    """
+    def __init__(self, camera, window, particle_pos) -> None:
+        """
+        Args:
 
-def world_to_screen(world_pos, proj, view):
-    screen_pos = np.zeros((world_pos.shape[0], 2), dtype=float)
-    for i in range(world_pos.shape[0]):
-        pos_homo = np.array([world_pos[i][0], world_pos[i][1], world_pos[i][2], 1.0])
-        # ndc =  proj @ view @ pos_homo
-        ndc = pos_homo @ view @ proj
-        ndc /= ndc[3]
+            camera (ti.ui.Camera): the camera used in the scene
+            window (ti.ui.Window): the window used in the scene
+            particle_pos (3d ti.Vector.field): the position of all the particles which could be selected
+        """
+        self.camera = camera
+        self.window = window
+        self.aspect = window.get_window_shape()[0]/window.get_window_shape()[1]
+        self.start = (-1e5,-1e5)
+        self.end   = (1e5,1e5)
+        self.canvas = window.get_canvas()
+        self.per_vertex_color = ti.Vector.field(3, dtype=ti.f32, shape=particles.shape[0])
+        self.per_vertex_color.fill([0.1229,0.2254,0.7207])
+        self.screen_pos = ti.Vector.field(2, shape=particles.shape[0], dtype=float)
+        self.is_in_rect = ti.field(dtype=ti.i32, shape=particles.shape[0])
+        self.rect_verts = ti.Vector.field(2, dtype=ti.f32, shape=8)
+        self.particle_pos = particle_pos
+        self.num_selected = ti.field(dtype=int, shape=())
+        self.selected_ids = ti.field(shape=particles.shape[0], dtype=int)
+        self.selected_ids.fill(-1)
 
-        screen_pos[i][:2] = ndc[:2]
-        #from [-1,1] scale to [0,1]
-        screen_pos[i] = (screen_pos[i] + 1) /2
-    return screen_pos
+    def select_particles(self, start, end):
+        world_pos = self.particle_pos
+        leftbottom = [min(start[0], end[0]), min(start[1], end[1])]
+        righttop   = [max(start[0], end[0]), max(start[1], end[1])]
+        view_ti = ti.math.mat4(self.camera.get_view_matrix())
+        proj_ti = ti.math.mat4(self.camera.get_projection_matrix(self.aspect))
 
+        @ti.kernel
+        def world_to_screen_kernel(world_pos:ti.template()):
+            for i in range(world_pos.shape[0]):
+                pos_homo = ti.math.vec4([world_pos[i][0], world_pos[i][1], world_pos[i][2], 1.0])
+                ndc = pos_homo @ view_ti @ proj_ti #CAUTION: right multiply
+                ndc /= ndc[3]
 
-def screen_to_world(p, view, proj, depth=-1):
-    # p is [0,1]x[0,1], first scale it to [-1,1] and get clip space
-    pxy = (p - 0.5)*2
-    x = pxy[0]
-    y = pxy[1]
-    z = depth
-    w = 1.0
-    clip = np.array([x,y,z,w], dtype=float)
-
-    proj_view = proj.transpose() @ view.transpose()
-    proj_view_inv = np.linalg.inv(proj_view)
-
-    world = proj_view_inv @ clip
-    world /= world[3] 
-    return np.array([world[0],world[1],world[2]], float)
-
-
-def screen_ray(p, view, proj):
-    # p is [0,1]x[0,1], first scale it to [-1,1] and get clip space
-    pxy = (p - 0.5)*2
-    x = pxy[0]
-    y = pxy[1]
-
-    inv = np.linalg.inv(proj.transpose() @ view.transpose())
-    near = np.array([x,y,-1,1],float)
-    far = np.array([x,y,1,1],float)
-    near_res = inv @ near
-    far_res = inv @ far
-    near_res /= near_res[3]
-    far_res /= far_res[3]
-    dir = np.array([far_res[0]-near_res[0], far_res[1]-near_res[1], far_res[2]-near_res[2]], float)
-    dir = dir / np.linalg.norm(dir)
-    return dir
-
-
-# @ti.kernel
-# def judge_point_in_rect(screen_pos: ti.template(), start: ti.template(), end: ti.template()):
-#     for i in screen_pos:
-#         if screen_pos[i][0] > start[0] and screen_pos[i][0] < end[0] and screen_pos[i][1] > start[1] and screen_pos[i][1] < end[1]:
-#             is_in_rect[i] = True
-#             per_vertex_color[i] = [1,0,0]
-
-def judge_point_in_rect(screen_pos, start, end):
-    leftbottom = [min(start[0], end[0]), min(start[1], end[1])]
-    righttop   = [max(start[0], end[0]), max(start[1], end[1])]
-
-    for i in range(screen_pos.shape[0]):
-        if  screen_pos[i][0] > leftbottom[0] and\
-            screen_pos[i][0] < righttop[0] and\
-            screen_pos[i][1] > leftbottom[1] and\
-            screen_pos[i][1] < righttop[1]:
-            is_in_rect[i] = True
-            per_vertex_color[i] = [1,0,0]
-
-
-ray_show = ti.Vector.field(3, float, 100)
-
-def sample_ray(ray_origin, ray_dir, ray_show):
-    for i in range(ray_show.shape[0]):
-        ray_show[i] = ray_origin + ray_dir * i * 0.1
-
-
-
-def select_particles(world_pos, proj, view, start, end):
-    mat4 = ti.math.mat4
-    vec4 = ti.math.vec4
-    # screen_pos = ti.ndarray(dtype=ti.math.vec2, shape=(particles.shape[0]))
-    screen_pos = ti.Vector.field(2, shape=world_pos.shape[0], dtype=float)
-
-    view_ti = mat4(view)
-    proj_ti = mat4(proj)
-    leftbottom = [min(start[0], end[0]), min(start[1], end[1])]
-    righttop   = [max(start[0], end[0]), max(start[1], end[1])]
-
-    @ti.kernel
-    def world_to_screen_kernel(world_pos:ti.template()):
-        for i in range(world_pos.shape[0]):
-            pos_homo = vec4([world_pos[i][0], world_pos[i][1], world_pos[i][2], 1.0])
-            # ndc =  proj @ view @ pos_homo
-            ndc = pos_homo @ view_ti @ proj_ti
-            ndc /= ndc[3]
-
-            screen_pos[i][0] = ndc[0]
-            screen_pos[i][1] = ndc[1]
-            #from [-1,1] scale to [0,1]
-            screen_pos[i][0] = (screen_pos[i][0] + 1) /2
-            screen_pos[i][1] = (screen_pos[i][1] + 1) /2
+                self.screen_pos[i][0] = ndc[0]
+                self.screen_pos[i][1] = ndc[1]
+                #from [-1,1] scale to [0,1]
+                self.screen_pos[i][0] = (self.screen_pos[i][0] + 1) /2
+                self.screen_pos[i][1] = (self.screen_pos[i][1] + 1) /2
+            
+        @ti.kernel
+        def judge_point_in_rect_kernel():
+            for i in range(self.screen_pos.shape[0]):
+                if  self.screen_pos[i][0] > leftbottom[0] and\
+                    self.screen_pos[i][0] < righttop[0] and\
+                    self.screen_pos[i][1] > leftbottom[1] and\
+                    self.screen_pos[i][1] < righttop[1]:
+                    self.is_in_rect[i] = True
+                    self.per_vertex_color[i] = [1,0,0]
         
-    @ti.kernel
-    def judge_point_in_rect_kernel():
-        for i in range(screen_pos.shape[0]):
-            if  screen_pos[i][0] > leftbottom[0] and\
-                screen_pos[i][0] < righttop[0] and\
-                screen_pos[i][1] > leftbottom[1] and\
-                screen_pos[i][1] < righttop[1]:
-                is_in_rect[i] = True
-                per_vertex_color[i] = [1,0,0]
+        world_to_screen_kernel(world_pos)
+        judge_point_in_rect_kernel()
     
-    world_to_screen_kernel(world_pos)
-    judge_point_in_rect_kernel()
+    def select(self):
+        if self.window.is_pressed(ti.ui.LMB):
+            self.clear()
+            self.start = self.window.get_cursor_pos()
+            if self.window.get_event(ti.ui.RELEASE):
+                self.end = self.window.get_cursor_pos()
+            self.rect(self.start[0], self.start[1], self.end[0], self.end[1])
+            self.canvas.lines(vertices=self.rect_verts, color=(1,0,0), width=0.005)
+
+            self.select_particles(self.start, self.end)
+
+    def clear(self):
+        self.per_vertex_color.fill([0.1229,0.2254,0.7207])
+        self.is_in_rect.fill(0)
+
+    def rect(self, x_min, y_min, x_max, y_max):
+        self.rect_verts[0] = [x_min, y_min]
+        self.rect_verts[1] = [x_max, y_min]
+        self.rect_verts[2] = [x_min, y_max]
+        self.rect_verts[3] = [x_max, y_max]
+        self.rect_verts[4] = [x_min, y_min]
+        self.rect_verts[5] = [x_min, y_max]
+        self.rect_verts[6] = [x_max, y_min]
+        self.rect_verts[7] = [x_max, y_max]
+
+    def get_ids(self):
+        @ti.kernel
+        def get_ids_kernel():
+            self.num_selected[None] = 0
+            for i in range(self.is_in_rect.shape[0]):
+                if self.is_in_rect[i]:
+                    self.selected_ids[self.num_selected[None]] = i
+                    self.num_selected[None] += 1
+        get_ids_kernel()
+        ids_np = self.selected_ids.to_numpy()
+        ids_np = ids_np[:self.num_selected[None]]
+        return ids_np
+    
+    def get_num_selected(self):
+        return self.num_selected[None]
 
 
 def visualize(particle_pos):
-    window = ti.ui.Window("visualizer", (1024, 1024), vsync=True)
-    canvas = window.get_canvas()
-    scene = ti.ui.Scene()
+    window = ti.ui.Window("visualizer", (1080, 720), vsync=True)
     camera = ti.ui.Camera()
-
-    screen_w, screen_h = window.get_window_shape()
-
-    # camera.position(-4.1016811, -1.05783201, 6.2282803)
-    # camera.lookat(-3.50212255, -0.9375709, 5.43703646)
     camera.position(0,0,0)
     camera.lookat(0,0,-1)
     camera.fov(45) 
+    canvas = window.get_canvas()
     canvas.set_background_color((1,1,1))
+    scene = ti.ui.Scene()
     
-    start = (-1e5,-1e5)
-    end   = (1e5,1e5)
-
+    selector = Selector(camera, window, particle_pos)
 
     while window.running:
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
         scene.set_camera(camera)
         scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
-        scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
         scene.ambient_light((0.5, 0.5, 0.5))
-        # scene.particles(particle_pos, radius=0.01, color=(0.1229,0.2254,0.7207)
-        scene.particles(particle_pos, radius=0.01, per_vertex_color=per_vertex_color)
-        
 
-        if window.is_pressed(ti.ui.LMB):
-            per_vertex_color.fill([0.1229,0.2254,0.7207])
-            start = window.get_cursor_pos()
-            if window.get_event(ti.ui.RELEASE):
-                end = window.get_cursor_pos()
-                print("rect start:",start,"\nrect end:", end, "\n")
-
-            rect(start[0], start[1], end[0], end[1])
-            canvas.lines(vertices=rect_verts, color=(1,0,0), width=0.005)
-
-            proj = camera.get_projection_matrix(screen_w/screen_h)
-            view = camera.get_view_matrix()
-            # pos_screen = world_to_screen(particle_pos.to_numpy(), proj, view)
-            # judge_point_in_rect(pos_screen, start, end)
-            select_particles(particle_pos, proj, view, start, end)
-
-            # world_min = screen_to_world(np.array([start[0],start[1]],float), view, proj, -1)
-            # world_max = screen_to_world(np.array([end[0],end[1]],float), view, proj, 1)
-            # world_min = screen_to_world(np.array([0.5,0.5],float), view, proj, 0)
-            # world_max= screen_to_world(np.array([0.5,0.5],float), view, proj, 1)
-
-            # print("world:", world_min, world_max)
-            # judge_in_box(particle_pos, world_min, world_max)
-
-            # ray_dir = screen_ray(np.array([start[0],start[1]],float), view, proj)
-            # # ray_dir = (camera.curr_lookat - camera.curr_position).normalized().to_numpy()
-            # ray_origin = (camera.curr_position).to_numpy()
-            # sample_ray(ray_origin, ray_dir, ray_show)
-            # print("ray_dir:", ray_dir, ray_origin)
-        scene.particles(ray_show, color=(1,0,1),radius=0.01)
+        selector.select()
+        if window.is_pressed("c"):
+            selector.clear()
+        if window.is_pressed("i"):
+            print(selector.get_ids())
+        scene.particles(particle_pos, radius=0.01, per_vertex_color=selector.per_vertex_color)
 
         canvas.scene(scene)
         window.show()
 
-visualize(particles_ti)
+
+visualize(particles)

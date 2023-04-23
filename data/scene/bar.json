@@ -1,0 +1,10 @@
+{
+    "common":
+    {},
+    "materials":[
+        {
+            "youngs_modulus": 1.0,
+			"poisson_ratio": 0.3
+        }
+    ]
+}

@@ -81,6 +81,10 @@ if meta.get_common("initialize_random"):
     random_val = np.random.rand(pos.shape[0], 3)
     pos.from_numpy(random_val)
 
+dx0 = ti.Vector.field(3, float, pos.shape[0])
+dx1 = ti.Vector.field(3, float, pos.shape[0])
+dx2 = ti.Vector.field(3, float, pos.shape[0])
+dx3 = ti.Vector.field(3, float, pos.shape[0])
 @ti.kernel
 def project_constraints():
     for t in tet:
@@ -103,11 +107,22 @@ def project_constraints():
         dlambda = -(constraint + alpha[t] * lagrangian[t]) / (denorminator + alpha[t])
 
         lagrangian[t] += dlambda
-        
-        pos[p0] += meta.relax_factor * inv_mass[p0] * dlambda * g0
-        pos[p1] += meta.relax_factor * inv_mass[p1] * dlambda * g1
-        pos[p2] += meta.relax_factor * inv_mass[p2] * dlambda * g2
-        pos[p3] += meta.relax_factor * inv_mass[p3] * dlambda * g3
+
+        dx0[p0] = inv_mass[p0] * dlambda * g0
+        dx1[p1] = inv_mass[p1] * dlambda * g1
+        dx2[p2] = inv_mass[p2] * dlambda * g2
+        dx3[p3] = inv_mass[p3] * dlambda * g3
+
+    for t in tet:
+        p0 = tet[t][0]
+        p1 = tet[t][1]
+        p2 = tet[t][2]
+        p3 = tet[t][3]
+
+        pos[p0] += meta.relax_factor * dx0[p0]
+        pos[p1] += meta.relax_factor * dx1[p1]
+        pos[p2] += meta.relax_factor * dx2[p2]
+        pos[p3] += meta.relax_factor * dx3[p3]
 
 
 @ti.kernel
@@ -138,11 +153,12 @@ def post_solve(dt:float):
     for i in pos:
         vel[i] = (pos[i] - prev_pos[i]) / dt
 
-
+ 
 def substep_():
-    pre_solve(meta.dt/meta.num_substeps)
+    pre_solve(meta.dt/meta.num_substeps) 
     lagrangian.fill(0.0)
     for ite in range(meta.max_iter):
+        meta.iter = ite+1
         project_constraints()
     post_solve(meta.dt/meta.num_substeps)
 

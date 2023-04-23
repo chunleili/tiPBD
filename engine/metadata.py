@@ -22,9 +22,6 @@ class MetaData:
         self.root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
         self.result_path = os.path.join(self.root_path, "result")
         print("root_path:", self.root_path)
-        
-        self.frame = 0
-        self.step = 0
 
         self.args = parse_cli()
         # print("args:", self.args)

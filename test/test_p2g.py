@@ -1,7 +1,9 @@
-import sys,os
 import taichi as ti
 import numpy as np
+
+import sys,os
 sys.path.append(os.getcwd())
+
 from engine.debug_info import debug_info
 from engine.p2g import *
 

@@ -47,6 +47,8 @@ def solver_main():
     if hasattr(pbd_solver, "indices_show"):
         indices_show = pbd_solver.indices_show
     
+    meta.frame=0
+    meta.step_num=0
     # if meta.use_multigrid:
         # coarse_to_fine()
     while ggui.window.running:
@@ -56,21 +58,28 @@ def solver_main():
             if e.key == ti.ui.SPACE:
                 meta.paused = not meta.paused
                 print("paused:", meta.paused)
-        if ggui.window.is_pressed("f"):
-            print("Step once, step: ", meta.step)
-            meta.step+=1
+            if e.key == "f":
+                print("Step once, step: ", meta.step_num)
+                pbd_solver.substep()
+                meta.step_num+=1 
+        if ggui.window.is_pressed("g"):
+            print("Step once, step: ", meta.step_num)
             pbd_solver.substep()
+            meta.step_num+=1 
 
         #do the simulation in each step
         if not meta.paused:
             for _ in range(meta.num_substeps):
+                meta.iter = 0
                 pbd_solver.substep()
+                meta.step_num+=1
                 # print("pbd_solver.mesh.mesh.verts.pos",pbd_solver.mesh.mesh.verts.pos)
             # if meta.use_multigrid:
                 # coarse_to_fine()
 
         ggui.update(pos_show=pbd_solver.pos_show, indices_show=indices_show)
         ggui.canvas.scene(ggui.scene)
+        meta.frame += 1
         ggui.window.show()
 
         if meta.args.kernel_profiler:

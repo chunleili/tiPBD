@@ -1,0 +1,23 @@
+{
+	"common": 
+	{
+		"dt": 1e-3,
+		"relax_factor": 0.1,
+		"gravity": [0.0, -9.81, 0.0],
+		"ground": [0.0, 0.0, 0.0],
+		"max_iter": 3,
+		"num_substeps": 2,
+		"camera_pos": [1.23, 0.48 , 0.88],
+		"camera_lookat": [0.38, 0.34, 0.37]
+	},
+	"materials": [
+		{
+			"name": "bunny",
+			"type": "strain_based_dynamics",
+			"geometry_file": "data/model/bunny_small/bunny_small.node",
+			"scale": [1.0, 1.0, 1.0],
+			"translation": [0.0, 0.05, -0.2],
+			"lame_lambda": 1e7
+		}
+	]
+}

@@ -23,6 +23,9 @@ def solver_main():
     elif meta.get_materials("type") == "mass_spring_volumetric":
         from engine.volumetric.mass_spring_volumetric import MassSpring
         pbd_solver = MassSpring()
+    elif meta.get_materials("type") == "strain_based_dynamics":
+        from engine.volumetric.strain_based_dynamics import StrainBasedDynamics
+        pbd_solver = StrainBasedDynamics()
     
     if meta.get_common("self_main", False):
         return

@@ -87,6 +87,10 @@ grad_s = ti.Matrix.field(3,3,dtype=float, shape=(3,3))
 
 @ti.kernel
 def project_constraints():
+    normalize_shear = False
+    normalize_stretch = False
+    stretch_stiffness = vec3(1.)
+    shear_stiffness = vec3(1.)
     for t in tet:
         p0 = tet[t][0]
         p1 = tet[t][1]
@@ -96,163 +100,81 @@ def project_constraints():
         x1 = pos[p1] - x0
         x2 = pos[p2] - x0
         x3 = pos[p3] - x0
+        inv_mass0 = inv_mass[p0]
+        inv_mass1 = inv_mass[p1]
+        inv_mass2 = inv_mass[p2]
+        inv_mass3 = inv_mass[p3]
+        solve_StrainTetraConstraint(x0, x1, x2, x3, inv_mass0, inv_mass1, inv_mass2, inv_mass3, B[t], stretch_stiffness, shear_stiffness, normalize_shear, normalize_stretch, dx0[p0], dx1[p1], dx2[p2], dx3[p3])
 
-        D_s = ti.Matrix.cols([x1 , x2 , x3 ])
-        F  = D_s @ B[t]
-        # S = F.transpose() @ F 
-        #S是3x3的矩阵，S[i,j]是个标量
-        # compute_grad_s(F, B[t], grad_s)
+        
 
-        # 先计算stretch约束
-        for i,j in ti.static([0,0],[0,1],[2,2]):
-            fi = get_column(F,i)
-            fj = get_column(F,j)
-            ci = get_column(B[t],i)
-            cj = get_column(B[t],j)
-            gradSij = fj.outer_product(ci) + fi.outer_product(cj)
-            gradSij_p1 = get_column(gradSij,0)
-            gradSij_p2 = get_column(gradSij,1)
-            gradSij_p3 = get_column(gradSij,2)
-            denorminator =  inv_mass[p1] * gradSij_p1.norm_sqr() + inv_mass[p2] * gradSij_p2.norm_sqr() + inv_mass[p3] * gradSij_p3.norm_sqr()
-            Sij = fi.dot(fj)
-            lambda_ = (Sij - 1.0) / denorminator 
-            gradSij_p0 = -gradSij_p1 - gradSij_p2 - gradSij_p3
-            dx0[p0] += -lambda_*inv_mass[p0]* gradSij_p0
-            dx1[p1] += -lambda_*inv_mass[p1]* gradSij_p1
-            dx2[p2] += -lambda_*inv_mass[p2]* gradSij_p2
-            dx3[p3] += -lambda_*inv_mass[p3]* gradSij_p3
-
-        # 再计算shear约束
-        for i,j in ti.static([0,1],[0,2],[1,2]):
-            fi = get_column(F,i)
-            fj = get_column(F,j)
-            ci = get_column(B[t],i)
-            cj = get_column(B[t],j)
-            gradSij = fj.outer_product(ci) + fi.outer_product(cj)
-            gradSij_p1 = get_column(gradSij,0)
-            gradSij_p2 = get_column(gradSij,1)
-            gradSij_p3 = get_column(gradSij,2)
-            denorminator =  inv_mass[p1] * gradSij_p1.norm_sqr() + inv_mass[p2] * gradSij_p2.norm_sqr() + inv_mass[p3] * gradSij_p3.norm_sqr()
-            Sij = fi.dot(fj)
-            lambda_ = Sij / denorminator 
-            gradSij_p0 = -gradSij_p1 - gradSij_p2 - gradSij_p3
-            dx0[p0] += -lambda_*inv_mass[p0]* gradSij_p0
-            dx1[p1] += -lambda_*inv_mass[p1]* gradSij_p1
-            dx2[p2] += -lambda_*inv_mass[p2]* gradSij_p2
-            dx3[p3] += -lambda_*inv_mass[p3]* gradSij_p3
-
-
+    #Jacobian iteration
     for t in tet:
         p0 = tet[t][0]
         p1 = tet[t][1]
         p2 = tet[t][2]
         p3 = tet[t][3]
-        pos[p0] += meta.relax_factor * dx0[p0]
-        pos[p1] += meta.relax_factor * dx1[p1]
-        pos[p2] += meta.relax_factor * dx2[p2]
-        pos[p3] += meta.relax_factor * dx3[p3]
-
-# bool PositionBasedDynamics::solve_StrainTetraConstraint(
-# 	const Vector3r &p0, Real invMass0, 
-# 	const Vector3r &p1, Real invMass1,
-# 	const Vector3r &p2, Real invMass2,
-# 	const Vector3r &p3, Real invMass3,
-# 	const Matrix3r &invRestMat,
-# 	const Vector3r &stretchStiffness,	
-# 	const Vector3r &shearStiffness,	
-# 	const bool normalizeStretch,
-# 	const bool normalizeShear,
-# 	Vector3r &corr0, Vector3r &corr1, Vector3r &corr2, Vector3r &corr3)
-# {
-# 	corr0.setZero();
-# 	corr1.setZero();
-# 	corr2.setZero();
-# 	corr3.setZero();
-
-# 	Vector3r c[3];
-# 	c[0] = invRestMat.col(0);
-# 	c[1] = invRestMat.col(1);
-# 	c[2] = invRestMat.col(2);
-
-# 	for (int i = 0; i < 3; i++) {
-# 		for (int j = 0; j <= i; j++) {
-
-# 			Matrix3r P;
-# // 			P.col(0) = p1 - p0;		// Jacobi
-# // 			P.col(1) = p2 - p0;
-# // 			P.col(2) = p3 - p0;
-
-# 			P.col(0) = (p1 + corr1) - (p0 + corr0);		// Gauss - Seidel
-# 			P.col(1) = (p2 + corr2) - (p0 + corr0);
-# 			P.col(2) = (p3 + corr3) - (p0 + corr0);
-
-# 			Vector3r fi = P * c[i];
-# 			Vector3r fj = P * c[j];
-
-# 			Real Sij = fi.dot(fj);
-
-# 			Real wi,wj,s1,s3;
-# 			if (normalizeShear && i != j) {
-# 				wi = fi.norm();
-# 				wj = fj.norm();
-# 				s1 = static_cast<Real>(1.0) / (wi*wj);
-# 				s3 = s1 * s1 * s1;
-# 			}
-
-# 			Vector3r d[4];
-# 			d[0] = Vector3r(0.0, 0.0, 0.0);
-
-# 			for (int k = 0; k < 3; k++) {
-# 				d[k+1] = fj * invRestMat(k,i) + fi * invRestMat(k,j);
-
-# 				if (normalizeShear && i != j) {
-# 					d[k+1] = s1 * d[k+1] - Sij*s3 * (wj*wj * fi*invRestMat(k,i) + wi*wi * fj*invRestMat(k,j));
-# 				}
-
-# 				d[0] -= d[k+1];
-# 			}
-
-# 			if (normalizeShear && i != j)
-# 				Sij *= s1;
-
-# 			Real lambda = 
-# 				invMass0 * d[0].squaredNorm() +
-# 				invMass1 * d[1].squaredNorm() +
-# 				invMass2 * d[2].squaredNorm() +
-# 				invMass3 * d[3].squaredNorm();
-
-# 			if (fabs(lambda) < eps)		// foo: threshold should be scale dependent
-# 				continue;
-
-# 			if (i == j) {	// diagonal, stretch
-# 				if (normalizeStretch)  {
-# 					Real s = sqrt(Sij);
-# 					lambda = static_cast<Real>(2.0) * s * (s - static_cast<Real>(1.0)) / lambda * stretchStiffness[i];
-# 				}
-# 				else {
-# 					lambda = (Sij - static_cast<Real>(1.0)) / lambda * stretchStiffness[i];
-# 				}
-# 			}
-# 			else {		// off diagonal, shear
-# 				lambda = Sij / lambda * shearStiffness[i + j - 1];
-# 			}
-
-# 			corr0 -= lambda * invMass0 * d[0];
-# 			corr1 -= lambda * invMass1 * d[1];
-# 			corr2 -= lambda * invMass2 * d[2];
-# 			corr3 -= lambda * invMass3 * d[3];
-# 		}
-# 	}
-# 	return true;
-# }
+        if (inv_mass[p0] != 0.0):
+            pos[p0] += dx0[p0]
+        if (inv_mass[p1] != 0.0):
+            pos[p1] += dx1[p1]
+        if (inv_mass[p2] != 0.0):
+            pos[p2] += dx2[p2]
+        if (inv_mass[p3] != 0.0):
+            pos[p3] += dx3[p3]
 
 @ti.func
-def get_columns(m:mat3):
-    return ti.Vector([m[0, 0], m[1, 0], m[2, 0]]), ti.Vector([m[0, 1], m[1, 1], m[2, 1]]), ti.Vector([m[0, 2], m[1, 2], m[2, 2]])
+def solve_StrainTetraConstraint(x0, x1, x2, x3, inv_mass0, inv_mass1, inv_mass2, inv_mass3, B, stretch_stiffness, shear_stiffness, normalize_shear, normalize_stretch, dx0:ti.template(), dx1:ti.template(), dx2:ti.template(), dx3:ti.template()):
 
-@ti.func
-def get_column(m:mat3, i:int):
-    return vec3(m[0, i], m[1, i], m[2, i])
+    dx0, dx1, dx2, dx3 = vec3(0), vec3(0), vec3(0), vec3(0)
+    c=B
+    for i in (range(3)):
+        for j in ti.static(range(3)):
+            if j <= i:
+                P = mat3(0)
+                P[:,0] = x1 - x0
+                P[:,1] = x2 - x0
+                P[:,2] = x3 - x0
+                
+                fi = vec3(P@c[i,:])
+                fj = vec3(P@c[j,:])
+                
+                Sij = fi.dot(fj)
+                wi,wj,s1,s3=0.,0.,0.,0.
+                if normalize_shear and i!=j:
+                    wi = fi.norm()
+                    wj = fj.norm()
+                    s1 = 1.0/(wi*wj)
+                    s3 = s1**3
+
+                d = [vec3(0),vec3(0),vec3(0),vec3(0)]
+                for k in ti.static(range(3)):
+                    d[k+1] = fj * B[k,i] + fi * B[k,j]
+
+                    if normalize_shear and i!=j:
+                        d[k+1] += s1 * d[k+1] - Sij * s3 * (wj * wj * fi * B[k,i] + wi * wi * fj * B[k,j])
+                    d[0] -= d[k+1]
+                
+                if normalize_shear and i!=j:
+                    Sij *= s1
+
+                lam = inv_mass0 * d[0].norm_sqr() + inv_mass1 * d[1].norm_sqr() + inv_mass2 * d[2].norm_sqr() + inv_mass3 * d[3].norm_sqr()
+
+                if(i==j):
+                    if(normalize_stretch):
+                        s = ti.sqrt(Sij)
+                        lam = 2. * s * (s-1.) / lam * stretch_stiffness[i]
+                    else:
+                        lam = ( Sij - 1. ) / lam * stretch_stiffness[i]
+                else:
+                    lam = Sij / lam * shear_stiffness[i+j-1]
+
+                dx0 += -lam * inv_mass0 * d[0]
+                dx1 += -lam * inv_mass1 * d[1]
+                dx2 += -lam * inv_mass2 * d[2]
+                dx3 += -lam * inv_mass3 * d[3]
+
+
 
 def clear_dx():
     dx0.fill(vec3(0))

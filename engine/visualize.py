@@ -9,8 +9,6 @@ class GGUI():
         self.camera = ti.ui.Camera()
 
         self.canvas.set_background_color((1,1,1))
-        # self.cam_pos = [.5, .5 , 2]
-        # self.cam_lookat = [0.5, 0.5, 1.]
         self.cam_pos = meta.get_common("camera_pos", default=[.5, .5 , 2])
         self.cam_lookat = meta.get_common("camera_lookat", default=[.5, .5, 1])
         self.camera.position(self.cam_pos[0], self.cam_pos[1], self.cam_pos[2])
@@ -24,13 +22,13 @@ class GGUI():
         meta.show_auxiliary_meshes = meta.get_common("show_auxiliary_meshes", default=True)
         meta.show_bounds = meta.get_common("show_bounds", default=True)
         meta.show_sdf = meta.get_common("show_sdf", default=True)
-        self.par_radius = meta.get_common("show_particle_radius", default=0.005)
+        meta.particle_radius_show = meta.get_common("particle_radius_show", default=0.005)
         self.uniform_color = (0.1229,0.2254,0.7207)
         self.par_color = None
-        self.mesh_uniform_color = meta.get_common("mesh_uniform_color", default=self.uniform_color)
-        self.mesh_uniform_color = tuple(self.mesh_uniform_color)
-        self.particle_uniform_color = meta.get_common("particle_uniform_color", default=self.uniform_color)
-        self.particle_uniform_color = tuple(self.particle_uniform_color)
+        meta.mesh_uniform_color = meta.get_common("mesh_uniform_color", default=self.uniform_color)
+        meta.mesh_uniform_color = tuple(meta.mesh_uniform_color)
+        meta.particle_uniform_color = meta.get_common("particle_uniform_color", default=self.uniform_color)
+        meta.particle_uniform_color = tuple(meta.particle_uniform_color)
 
         if meta.show_auxiliary_meshes:
             self.ground, self.coord, self.ground_indices, self.coord_indices = read_auxiliary_meshes()
@@ -53,8 +51,8 @@ class GGUI():
 
         if meta.show_widget:
             with self.gui.sub_window("Options", 0, 0, 0.25, 0.3) as w:
-                self.gui.text("camera.curr_position: " + str(self.camera.curr_position))
-                self.gui.text("camera.curr_lookat: " + str(self.camera.curr_lookat))
+                self.gui.text("cam pos: " + f"{self.camera.curr_position}")
+                self.gui.text("cam lookat: " + f"{self.camera.curr_lookat}")
                 reset_camera = self.gui.button("Reset Camera")
                 if reset_camera:
                     self.camera.position(self.cam_pos[0], self.cam_pos[1], self.cam_pos[2])
@@ -64,11 +62,30 @@ class GGUI():
                 meta.max_iter = self.gui.slider_int("max_iter", meta.max_iter, 0, 100)
                 self.gui.text("step number: " + str(meta.step_num))
                 # self.gui.text("current iter: " + str(getattr(meta,"iter", 0))+"/"+str(meta.max_iter))
+                if self.gui.button("show particles"):
+                    meta.show_particles = not meta.show_particles
+                meta.particle_radius_show = self.gui.slider_float("particle radius", meta.particle_radius_show, 0, 0.01)
+                meta.particle_uniform_color = self.gui.color_edit_3("particle color", meta.particle_uniform_color)
+                meta.mesh_uniform_color = self.gui.color_edit_3("mesh color", meta.mesh_uniform_color)
+                if self.gui.button("show mesh"):
+                    meta.show_mesh = not meta.show_mesh
+                if self.gui.button("show auxiliary meshes"):
+                    meta.show_auxiliary_meshes = not meta.show_auxiliary_meshes
+                if self.gui.button("show bounds"):
+                    meta.show_bounds = not meta.show_bounds
+                if self.gui.button("show sdf"):
+                    meta.show_sdf = not meta.show_sdf
+                if self.gui.button("show wireframe"):
+                    meta.show_wireframe = not meta.show_wireframe
+                if self.gui.button("pause"):
+                    meta.paused = not meta.paused
+                self.gui.text("paused: " + str(meta.paused))
+                
 
         if indices_show is not None and meta.show_mesh:
-            self.scene.mesh(pos_show, indices=indices_show, color=self.mesh_uniform_color, show_wireframe=meta.show_wireframe)
+            self.scene.mesh(pos_show, indices=indices_show, color=meta.mesh_uniform_color, show_wireframe=meta.show_wireframe)
         if meta.show_particles:
-            self.scene.particles(pos_show, radius=self.par_radius, color=self.particle_uniform_color, per_vertex_color=self.par_color)
+            self.scene.particles(pos_show, radius=meta.particle_radius_show, color=meta.particle_uniform_color, per_vertex_color=self.par_color)
         if meta.show_auxiliary_meshes:
             self.scene.mesh(self.ground, indices=self.ground_indices, color=(0.5,0.5,0.5), show_wireframe=meta.show_wireframe)
             self.scene.mesh(self.coord, indices=self.coord_indices, color=(0.5, 0, 0), show_wireframe=meta.show_wireframe)
@@ -77,7 +94,7 @@ class GGUI():
             self.scene.lines(self.box_anchors, indices=self.box_lines_indices, color = (0.99, 0.68, 0.28), width = 2.0)
 
         if meta.use_sdf and meta.show_sdf:
-            self.scene.particles(self.sdf_vertices, radius=self.par_radius, color=self.uniform_color, per_vertex_color=self.par_color)
+            self.scene.particles(self.sdf_vertices, radius=meta.particle_radius_show, color=self.uniform_color, per_vertex_color=self.par_color)
 
         # if meta.get_common("vis_sparse_grid"):
         #     self.scene.lines(self.sparse_grid_anchors, indices=self.sparse_grid_indices, color = (0.99, 0.68, 0.28), width = 2.0)
@@ -113,7 +130,7 @@ def read_auxiliary_meshes():
     return ground, coord, ground_indices, coord_indices
 
 
-def visualize(par_pos=None, par_radius=0.01, mesh_pos=None, mesh_indices=None, ti_init=False, background_color=(1,1,1), show_widget=False, par_color=(0.1229,0.2254,0.7207)):
+def visualize(par_pos=None, particle_radius_show=0.01, mesh_pos=None, mesh_indices=None, ti_init=False, background_color=(1,1,1), show_widget=False, par_color=(0.1229,0.2254,0.7207)):
     import numpy as np
     if ti_init:
         ti.init()
@@ -146,7 +163,7 @@ def visualize(par_pos=None, par_radius=0.01, mesh_pos=None, mesh_indices=None, t
                 gui.text("camera.curr_lookat: " + str(camera.curr_lookat))
         
         if par_pos is not None:
-            scene.particles(par_pos_ti, radius=par_radius, color=par_color)
+            scene.particles(par_pos_ti, radius=particle_radius_show, color=par_color)
         if mesh_pos and mesh_indices is not None:
             scene.mesh(mesh_pos, indices=mesh_indices, color=(0.1229,0.2254,0.7207))
 

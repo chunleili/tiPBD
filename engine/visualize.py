@@ -50,7 +50,7 @@ class GGUI():
         from engine.metadata import meta
 
         if meta.show_widget:
-            with self.gui.sub_window("Options", 0, 0, 0.25, 0.3) as w:
+            with self.gui.sub_window("Options", 0, 0, 0.3, 0.45) as w:
                 self.gui.text("cam pos: " + f"{self.camera.curr_position}")
                 self.gui.text("cam lookat: " + f"{self.camera.curr_lookat}")
                 reset_camera = self.gui.button("Reset Camera")
@@ -59,7 +59,7 @@ class GGUI():
                     self.camera.lookat(self.cam_lookat[0], self.cam_lookat[1], self.cam_lookat[2])
                     self.camera.fov(45) 
                 meta.num_substeps = self.gui.slider_int("num_substeps", meta.num_substeps, 0, 100)
-                meta.max_iter = self.gui.slider_int("max_iter", meta.max_iter, 0, 100)
+                meta.max_iter = self.gui.slider_int("max_iter", meta.max_iter, 0, 50)
                 self.gui.text("step number: " + str(meta.step_num))
                 # self.gui.text("current iter: " + str(getattr(meta,"iter", 0))+"/"+str(meta.max_iter))
                 if self.gui.button("show particles"):
@@ -80,6 +80,9 @@ class GGUI():
                 if self.gui.button("pause"):
                     meta.paused = not meta.paused
                 self.gui.text("paused: " + str(meta.paused))
+                if self.gui.button("selector on/off"):
+                    meta.use_selector = not meta.use_selector
+                self.gui.text("use selector: " + str(meta.use_selector))
                 
 
         if indices_show is not None and meta.show_mesh:

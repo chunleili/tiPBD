@@ -51,11 +51,11 @@ def solver_main():
         indices_show = pbd_solver.indices_show
     
     # 粒子拾取器
-    meta.use_selector = meta.get_common("use_selector", default=True)
-    if meta.use_selector:
-        from ui.selector import Selector
-        meta.selector = Selector(ggui.camera, ggui.window, pbd_solver.pos_show)
-        meta.ggui.par_color = meta.selector.per_vertex_color
+    meta.use_selector = meta.get_common("use_selector", default=False)
+    # if meta.use_selector:
+    from ui.selector import Selector
+    meta.selector = Selector(ggui.camera, ggui.window, pbd_solver.pos_show)
+    meta.ggui.par_color = meta.selector.per_vertex_color
 
     meta.frame=0
     meta.step_num=0
@@ -88,7 +88,8 @@ def solver_main():
             pbd_solver.substep()
             meta.step_num+=1 
 
-        meta.selector.select()
+        if meta.use_selector:
+            meta.selector.select()
 
         #do the simulation in each step
         if not meta.paused:

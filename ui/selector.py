@@ -1,14 +1,5 @@
 import taichi as ti
 import numpy as np
-import trimesh
-
-ti.init()
-
-mesh = trimesh.load("data/model/bunny.obj")
-particles = ti.Vector.field(3, dtype=ti.f32, shape=mesh.vertices.shape[0])
-particles.from_numpy(mesh.vertices)
-
-
 @ti.data_oriented
 class Selector:
     """
@@ -44,18 +35,19 @@ class Selector:
         """
         self.camera = camera
         self.window = window
-        self.aspect = window.get_window_shape()[0]/window.get_window_shape()[1]
+        w, h = window.get_window_shape()
+        self.aspect = w/h
         self.start = (-1e5,-1e5)
         self.end   = (1e5,1e5)
         self.canvas = window.get_canvas()
-        self.per_vertex_color = ti.Vector.field(3, dtype=ti.f32, shape=particles.shape[0])
+        self.per_vertex_color = ti.Vector.field(3, dtype=ti.f32, shape=particle_pos.shape[0])
         self.per_vertex_color.fill([0.1229,0.2254,0.7207])
-        self.screen_pos = ti.Vector.field(2, shape=particles.shape[0], dtype=float)
-        self.is_in_rect = ti.field(dtype=ti.i32, shape=particles.shape[0])
+        self.screen_pos = ti.Vector.field(2, shape=particle_pos.shape[0], dtype=float)
+        self.is_in_rect = ti.field(dtype=ti.i32, shape=particle_pos.shape[0])
         self.rect_verts = ti.Vector.field(2, dtype=ti.f32, shape=8)
         self.particle_pos = particle_pos
         self.num_selected = ti.field(dtype=int, shape=())
-        self.selected_ids = ti.field(shape=particles.shape[0], dtype=int)
+        self.selected_ids = ti.field(shape=particle_pos.shape[0], dtype=int)
         self.selected_ids.fill(-1)
 
     def select_particles(self, start, end):
@@ -78,9 +70,9 @@ class Selector:
                 self.screen_pos[i][0] = (self.screen_pos[i][0] + 1) /2
                 self.screen_pos[i][1] = (self.screen_pos[i][1] + 1) /2
             
-        @ti.kernel
-        def judge_point_in_rect_kernel():
-            for i in range(self.screen_pos.shape[0]):
+        # @ti.kernel
+        # def judge_point_in_rect_kernel():
+            # for i in range(self.screen_pos.shape[0]):
                 if  self.screen_pos[i][0] > leftbottom[0] and\
                     self.screen_pos[i][0] < righttop[0] and\
                     self.screen_pos[i][1] > leftbottom[1] and\
@@ -89,11 +81,12 @@ class Selector:
                     self.per_vertex_color[i] = [1,0,0]
         
         world_to_screen_kernel(world_pos)
-        judge_point_in_rect_kernel()
+        # judge_point_in_rect_kernel()
     
     def select(self):
         if self.window.is_pressed(ti.ui.LMB):
-            self.clear()
+        # if True:
+            # self.clear()
             self.start = self.window.get_cursor_pos()
             if self.window.get_event(ti.ui.RELEASE):
                 self.end = self.window.get_cursor_pos()
@@ -160,6 +153,12 @@ def visualize(particle_pos):
 
         canvas.scene(scene)
         window.show()
+        ti.profiler.print_kernel_profiler_info()
 
-
-visualize(particles)
+if __name__ == "__main__":
+    import trimesh
+    ti.init(kernel_profiler=True)
+    mesh = trimesh.load("data/model/bunny.obj")
+    particles = ti.Vector.field(3, dtype=ti.f32, shape=mesh.vertices.shape[0])
+    particles.from_numpy(mesh.vertices)
+    visualize(particles)

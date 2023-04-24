@@ -50,6 +50,13 @@ def solver_main():
     if hasattr(pbd_solver, "indices_show"):
         indices_show = pbd_solver.indices_show
     
+    # 粒子拾取器
+    meta.use_selector = meta.get_common("use_selector", default=True)
+    if meta.use_selector:
+        from ui.selector import Selector
+        meta.selector = Selector(ggui.camera, ggui.window, pbd_solver.pos_show)
+        meta.ggui.par_color = meta.selector.per_vertex_color
+
     meta.frame=0
     meta.step_num=0
     # if meta.use_multigrid:
@@ -65,10 +72,23 @@ def solver_main():
                 print("Step once, step: ", meta.step_num)
                 pbd_solver.substep()
                 meta.step_num+=1 
+
+            if e.key == "r":
+                print("Reset")
+                pbd_solver.__init__()
+                meta.step_num=0
+                meta.frame=0
+            if e.key == "c":
+                meta.selector.clear()
+            if e.key == "i":
+                print(meta.selector.get_ids())
+            
         if ggui.window.is_pressed("g"):
             print("Step once, step: ", meta.step_num)
             pbd_solver.substep()
             meta.step_num+=1 
+
+        meta.selector.select()
 
         #do the simulation in each step
         if not meta.paused:

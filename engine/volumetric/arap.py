@@ -122,7 +122,6 @@ class ARAP():
         for c in self.model.mesh.cells:
             p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
             F = self.compute_F(p0.pos, p1.pos, p2.pos, p3.pos, c.B)
-            # F = ti.max(0.0, F)
             U, S, V = ti.svd(F)
             constraint = ti.sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
             c.fem_constraint = constraint
@@ -215,12 +214,12 @@ def collision_response_ground(v:ti.template()):
 
 @ti.func
 def collision_response(v:ti.template(), sdf):
+    sdf_epsilon = 1e-4
     grid_idx = ti.Vector([v.pos.x * sdf.resolution, v.pos.y * sdf.resolution, v.pos.z * sdf.resolution], ti.i32)
     grid_idx = ti.math.clamp(grid_idx, 0, sdf.resolution - 1)
     normal = sdf.grad[grid_idx]
     sdf_val = sdf.val[grid_idx]
-    assert 1 - 1e-4 < normal.norm() < 1 + 1e-4, f"normal norm is {normal.norm()}" 
-    if sdf_val < 0.0:
+    if sdf_val < sdf_epsilon:
         v.pos -= sdf_val * normal
 
 

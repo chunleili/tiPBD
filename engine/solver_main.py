@@ -4,7 +4,7 @@ def solver_main():
     from engine.metadata import meta #此处是第一次打开meta，因此也是打开filediag的地方
     if 'constitutive_model' in meta.common:
         if meta.common['constitutive_model'] == 'arap':
-            from engine.volumetric.arap_new import ARAP
+            from engine.volumetric.arap import ARAP
             pbd_solver = ARAP()
         elif meta.common['constitutive_model'] == 'neohooken':
             from engine.volumetric.neohooken import NeoHooken

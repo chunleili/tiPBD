@@ -1,7 +1,6 @@
 from engine.metadata import meta
 import numpy as np
 import logging
-logging.basicConfig(level=logging.INFO)
 def log_energy(model, write_energy_to_file=False, interval=100):
     if meta.frame%interval==0:
         # print(f"frame: {meta.frame} potential: {model.potential_energy[None]:.3e} inertial: {model.inertial_energy[None]:.3e} total: {model.total_energy[None]:.3e}")

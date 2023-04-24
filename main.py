@@ -4,7 +4,9 @@ if __name__ == "__main__":
     from ui.parse_cli import parse_cli
     
     args = parse_cli()
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO,
+                        format=' %(levelname)s %(message)s')
+
 
     if args.use_dearpygui:
         import ui.dearpygui as dearpygui

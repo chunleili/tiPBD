@@ -22,7 +22,7 @@
 		"show_bounds": true,
 		"show_auxiliary_meshes": true,
 		"show_sdf": true,
-		"use_sdf": true,
+		"use_sdf": false,
 		"vis_sparse_grid":false,
 		"camera_pos": [1.23, 0.48 , 0.88],
 		"camera_lookat": [0.38, 0.34, 0.37],

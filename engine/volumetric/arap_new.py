@@ -117,10 +117,10 @@ def project_constraints():
         dx3[p3] = inv_mass[p3] * dlambda * g3
 
         if ti.static(meta.use_gauss_seidel):
-            pos[p0] += dx0[p0]
-            pos[p1] += dx1[p1]
-            pos[p2] += dx2[p2]
-            pos[p3] += dx3[p3]
+            pos[p0] += meta.relax_factor *dx0[p0]
+            pos[p1] += meta.relax_factor *dx1[p1]
+            pos[p2] += meta.relax_factor *dx2[p2]
+            pos[p3] += meta.relax_factor *dx3[p3]
 
     for t in tet:
         if ti.static(meta.use_jacobian):

@@ -1,6 +1,7 @@
 {
 	"common": 
 	{
+		"simulation_method": "pbf",
 		"dt": 1e-3,
 		"num_substeps": 1,
 		"initial_pause": true,
@@ -8,9 +9,7 @@
 	},
 	"materials": [
 		{
-			"name": "bunny_fluid",
 			"geometry_file": "data/model/bunny_fluid.ply",
-			"type": "fluid",
 			"max_iter": 8,
 			"particle_radius": 0.025,
 			"rho0": 1000.0,

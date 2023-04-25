@@ -106,7 +106,6 @@ def project_constraints():
         inv_mass3 = inv_mass[p3]
         solve_StrainTetraConstraint(x0, x1, x2, x3, inv_mass0, inv_mass1, inv_mass2, inv_mass3, B[t], stretch_stiffness, shear_stiffness, normalize_shear, normalize_stretch, dx0[p0], dx1[p1], dx2[p2], dx3[p3])
 
-        
 
     #Jacobian iteration
     for t in tet:
@@ -115,6 +114,8 @@ def project_constraints():
         p2 = tet[t][2]
         p3 = tet[t][3]
         if (inv_mass[p0] != 0.0):
+            if t ==0:
+                print(dx0[p0], dx1[p1], dx2[p2], dx3[p3])
             pos[p0] += dx0[p0]
         if (inv_mass[p1] != 0.0):
             pos[p1] += dx1[p1]
@@ -227,5 +228,6 @@ class StrainBasedDynamics():
     def __init__(self):
         self.pos_show = pos
         self.indices_show = face
+        init_physics()
     def substep(self):
         substep_()

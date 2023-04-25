@@ -1,6 +1,7 @@
 {
 	"common": 
 	{
+		"simulation_method": "strain_based_dynamics",
 		"dt": 1e-3,
 		"relax_factor": 0.1,
 		"gravity": [0.0, -9.81, 0.0],
@@ -12,8 +13,6 @@
 	},
 	"materials": [
 		{
-			"name": "bunny",
-			"type": "strain_based_dynamics",
 			"geometry_file": "data/model/bunny_small/bunny_small.node",
 			"scale": [1.0, 1.0, 1.0],
 			"translation": [0.0, 0.05, -0.2],

@@ -1,11 +1,11 @@
 {
 	"common": 
 	{
+		"simulation_method": "shape_matching_rigidbody",
 		"self_main": true
 	},
 	"materials":[
 		{
-			"type": "shape_matching_rigidbody",
 			"geometry_file": "data/model/bunny.obj",
 			"scale": [0.1, 0.1, 0.1],
 			"translation": [0.5, 0.5, 0.5]

@@ -1,31 +1,28 @@
 import taichi as ti
 
 def solver_main():
-    from engine.metadata import meta #此处是第一次打开meta，因此也是打开filediag的地方
-    if 'constitutive_model' in meta.common:
-        if meta.common['constitutive_model'] == 'arap':
-            from engine.volumetric.arap import ARAP
-            pbd_solver = ARAP()
-        elif meta.common['constitutive_model'] == 'neohooken':
-            from engine.volumetric.neohooken import NeoHooken
-            pbd_solver = NeoHooken()
-        else:
-            raise NotImplementedError(f"constitutive_model {meta.common['constitutive_model']} not implemented")
-    elif meta.get_materials('type') == 'fluid':
+    from engine.metadata import meta
+    if meta.get_common('simulation_method') == 'arap':
+        from engine.volumetric.arap_new import ARAP as Solver
+        pbd_solver = Solver()
+    elif  meta.get_common('simulation_method') == 'neohooken':
+        from engine.volumetric.neohooken import NeoHooken as Solver
+        pbd_solver = Solver()
+    elif meta.get_common('simulation_method') == "mass_spring_volumetric":
+        from engine.volumetric.mass_spring_volumetric import MassSpring as Solver
+        pbd_solver = Solver()
+    elif meta.get_common('simulation_method') == "strain_based_dynamics":
+        from engine.volumetric.strain_based_dynamics import StrainBasedDynamics as Solver
+        pbd_solver = Solver()
+    elif meta.get_common('simulation_method') == 'pbf':
         import engine.fluid.pbf as pbf
         pbf.main()
-    elif meta.get_materials("type") == "fluid2d":
+    elif meta.get_common('simulation_method') == "pbf2d":
         import engine.fluid.pbf2d_sparse as pbf2d
         pbf2d.main()
-    if meta.get_materials("type") == "shape_matching_rigidbody":
+    elif meta.get_common('simulation_method') == "shape_matching_rigidbody":
         import engine.shape_matching.rigidbody as rigidbody
         rigidbody.main()
-    elif meta.get_materials("type") == "mass_spring_volumetric":
-        from engine.volumetric.mass_spring_volumetric import MassSpring
-        pbd_solver = MassSpring()
-    elif meta.get_materials("type") == "strain_based_dynamics":
-        from engine.volumetric.strain_based_dynamics import StrainBasedDynamics
-        pbd_solver = StrainBasedDynamics()
     
     if meta.get_common("self_main", False):
         return

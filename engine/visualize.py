@@ -59,7 +59,8 @@ class GGUI():
                     self.camera.lookat(self.cam_lookat[0], self.cam_lookat[1], self.cam_lookat[2])
                     self.camera.fov(45) 
                 meta.num_substeps = self.gui.slider_int("num_substeps", meta.num_substeps, 0, 100)
-                meta.max_iter = self.gui.slider_int("max_iter", meta.max_iter, 0, 50)
+                if hasattr(meta, "max_iter"):
+                    meta.max_iter = self.gui.slider_int("max_iter", meta.max_iter, 0, 50)
                 self.gui.text("step number: " + str(meta.step_num))
                 # self.gui.text("current iter: " + str(getattr(meta,"iter", 0))+"/"+str(meta.max_iter))
                 if self.gui.button("show particles"):

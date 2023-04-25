@@ -70,7 +70,8 @@ def init_physics():
         inv_vol = 6.0/ abs(Dm.determinant()) 
         alpha[t] = meta.inv_h2 * meta.inv_lame_lambda * inv_vol
 
-
+meta.use_jacobian = meta.get_common("Jacobian",default=False)
+meta.use_gauss_seidel = meta.get_common("use_gauss_seidel",default=True)
         
 if meta.get_common("use_sdf"):
     from engine.sdf import SDF
@@ -87,6 +88,8 @@ dx2 = ti.Vector.field(3, float, pos.shape[0])
 dx3 = ti.Vector.field(3, float, pos.shape[0])
 @ti.kernel
 def project_constraints():
+    if meta.use_gauss_seidel:
+        ti.loop_config(serialize=True)
     for t in tet:
         p0 = tet[t][0]
         p1 = tet[t][1]
@@ -113,16 +116,23 @@ def project_constraints():
         dx2[p2] = inv_mass[p2] * dlambda * g2
         dx3[p3] = inv_mass[p3] * dlambda * g3
 
-    for t in tet:
-        p0 = tet[t][0]
-        p1 = tet[t][1]
-        p2 = tet[t][2]
-        p3 = tet[t][3]
+        if ti.static(meta.use_gauss_seidel):
+            pos[p0] += dx0[p0]
+            pos[p1] += dx1[p1]
+            pos[p2] += dx2[p2]
+            pos[p3] += dx3[p3]
 
-        pos[p0] += meta.relax_factor * dx0[p0]
-        pos[p1] += meta.relax_factor * dx1[p1]
-        pos[p2] += meta.relax_factor * dx2[p2]
-        pos[p3] += meta.relax_factor * dx3[p3]
+    for t in tet:
+        if ti.static(meta.use_jacobian):
+            p0 = tet[t][0]
+            p1 = tet[t][1]
+            p2 = tet[t][2]
+            p3 = tet[t][3]
+
+            pos[p0] += meta.relax_factor * dx0[p0]
+            pos[p1] += meta.relax_factor * dx1[p1]
+            pos[p2] += meta.relax_factor * dx2[p2]
+            pos[p3] += meta.relax_factor * dx3[p3]
 
 
 @ti.kernel
@@ -234,6 +244,7 @@ class ARAP():
     def __init__(self):
         self.pos_show = pos
         self.indices_show = face
-        self.sdf = sdf
+        # self.sdf = sdf
+        init_physics()
     def substep(self):
         substep_()

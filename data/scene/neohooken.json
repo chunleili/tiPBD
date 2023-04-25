@@ -1,7 +1,7 @@
 {
 	"common": 
 	{
-		"constitutive_model": "neohooken",
+		"simulation_method": "neohooken",
 		"dt": 1e-4,
 		"relax_factor": 0.5,
 		"gravity": [0.0, -9.81, 0.0],

@@ -1,6 +1,7 @@
 {
 	"common": 
 	{
+		"simulation_method": "mass_spring_volumetric",
 		"initial_pause": true,
 		"mesh_uniform_color": [1, 0, 0],
 		"show_particles": false,
@@ -8,13 +9,12 @@
 		"camera_pos": [1.23, 0.48 , 0.88],
 		"camera_lookat": [0.38, 0.34, 0.37],
 		"relax_factor": 1.0,
-		"use_sdf": true,
+		"use_sdf": false,
 		"show_sdf": true,
 		"force_serialize":true
 	},
 	"materials":[
 		{
-			"type": "mass_spring_volumetric",
 			"scale": [0.4, 0.4, 0.4],
 			"translation": [0.5, 0.3, 0.4],
 			"edge_compliance": 100,

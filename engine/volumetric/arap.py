@@ -3,7 +3,9 @@ import meshtaichi_patcher as patcher
 import numpy as np
 import taichi.math as tm
 from engine.metadata import meta
-from engine.log import log_energy
+from engine.mesh_io import read_tetgen
+from engine.mesh_io import scale_ti, translation_ti
+
 
 meta.dt = meta.common["dt"]
 meta.relax_factor = meta.common["relax_factor"]
@@ -21,206 +23,150 @@ meta.inv_h2 = 1.0 / meta.dt / meta.dt
 meta.geometry_file = meta.materials[0]["geometry_file"] # only support one solid for now
 meta.lame_lambda = meta.materials[0]["lame_lambda"]
 meta.inv_lame_lambda = 1.0/meta.lame_lambda
+meta.geometry_file_noext = meta.geometry_file.split(".")[0]
 
+pos_np, tet_np, face_np = read_tetgen(meta.geometry_file_noext)
+face_np = face_np.flatten()
+pos = ti.Vector.field(3, dtype=ti.f32, shape=pos_np.shape[0])
+tet = ti.Vector.field(4, dtype=ti.i32, shape=tet_np.shape[0])
+face = ti.field(dtype=ti.i32, shape=face_np.shape[0])
+pos.from_numpy(pos_np)
+tet.from_numpy(tet_np)
+face.from_numpy(face_np)
 
-@ti.data_oriented
-class Model:
-    def __init__(self, geometry_file, direct_import_faces=True):
-        geometry_file_no_ext = geometry_file.split(".")[0]        
-        node_file = geometry_file_no_ext + ".node"
-        self.mesh = patcher.load_mesh(node_file, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
+sx,sy,sz = meta.get_materials("scale", 0)
+tx,ty,tz = meta.get_materials("translation", 0)
+scale_ti(pos, sx,sy,sz)
+translation_ti(pos, tx,ty,tz)
 
-        self.mesh.verts.place({ 'vel' : ti.math.vec3,
-                               'pos' : ti.math.vec3,
-                                'prev_pos' : ti.math.vec3,
-                                'predict_pos' : ti.math.vec3,
-                                'inv_mass' : ti.f32})
-        self.mesh.cells.place({'inv_vol' : ti.f32,
-                               'B': ti.math.mat3,
-                               'lagrangian': ti.f32,
-                               'fem_constraint': ti.f32,
-                               'alpha': ti.f32})
+potential_energy = ti.field(float, ())
+inertial_energy = ti.field(float, ())
+total_energy = ti.field(float, ())
 
-        self.mesh.verts.pos.from_numpy(self.mesh.get_position_as_numpy())
-        self.pos = self.mesh.verts.pos
-        from engine.mesh_io import scale_ti, translation_ti
-        sx,sy,sz = meta.get_materials("scale", 0)
-        tx,ty,tz = meta.get_materials("translation", 0)
-        scale_ti(self.pos, sx,sy,sz)
-        translation_ti(self.pos, tx,ty,tz)
+inv_mass = ti.field(float, pos.shape[0])
+B = ti.Matrix.field(3, 3, float, tet.shape[0])
+alpha = ti.field(float, tet.shape[0])
+lagrangian = ti.field(float, tet.shape[0])
+vel = ti.Vector.field(3, float, pos.shape[0])
+prev_pos = ti.Vector.field(3, float, pos.shape[0])
 
-        self.potential_energy = ti.field(float, ())
-        self.inertial_energy = ti.field(float, ())
-        self.total_energy = ti.field(float, ())
+@ti.kernel
+def init_physics():
+    for i in inv_mass:
+        inv_mass[i] = 1.0
 
-        self.init_physics()
+    for t in tet:
+        # p0, p1, p2, p3= c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos
+        p0 = pos[tet[t][0]]
+        p1 = pos[tet[t][1]]
+        p2 = pos[tet[t][2]]
+        p3 = pos[tet[t][3]]
 
-        # 设置显示三角面的indices
-        # 自己计算 indices_show
-        if not direct_import_faces:
-            self.indices_show = ti.field(int, len(self.mesh.cells) * 4 * 3)
-            self.init_tet_indices(self.mesh, self.indices_show)
-        # 直接读取 indices_show
-        else:
-            indices_show_np = self.directly_import_faces(geometry_file_no_ext + '.face')
-            self.indices_show = ti.field(ti.i32, indices_show_np.shape[0] * 3)
-            self.indices_show.from_numpy(indices_show_np.reshape(indices_show_np.shape[0] * 3))
+        Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
+        B[t] = Dm.inverse().transpose()
+        inv_vol = 6.0/ abs(Dm.determinant()) 
+        alpha[t] = meta.inv_h2 * meta.inv_lame_lambda * inv_vol
 
-    @staticmethod
-    @ti.kernel
-    def init_tet_indices(mesh: ti.template(), indices: ti.template()):
-        for c in mesh.cells:
-            ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
-            for i in ti.static(range(4)):
-                for j in ti.static(range(3)):
-                    indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
-
-    @staticmethod
-    def directly_import_faces(face_file_name):
-        with open(face_file_name, 'r') as f:
-            lines = f.readlines()
-            NF = int(lines[0].split()[0])
-            face_indices = np.zeros((NF, 3), dtype=np.int32)
-            for i in range(NF):
-                face_indices[i] = np.array(lines[i + 1].split()[1:-1],
-                                        dtype=np.int32)
-        return face_indices
-
-    @ti.kernel
-    def init_physics(self):
-        for v in self.mesh.verts:
-            v.inv_mass = 1.0
-
-        for c in self.mesh.cells:
-            p0, p1, p2, p3= c.verts[0].pos, c.verts[1].pos, c.verts[2].pos, c.verts[3].pos
-            Dm = tm.mat3([p1 - p0, p2 - p0, p3 - p0])
-            c.B = Dm.inverse().transpose()
-            c.inv_vol = 6.0/ abs(Dm.determinant()) 
-            c.alpha = meta.inv_h2 * meta.inv_lame_lambda * c.inv_vol
-
-@ti.data_oriented
-class ARAP():
-    def __init__(self):
-        self.model = Model(geometry_file=meta.geometry_file)
-        super().__init__()
-        self.pos_show = self.model.mesh.verts.pos
-        self.indices_show = self.model.indices_show
+# meta.use_jacobian = meta.get_common("Jacobian",default=False)
+# meta.use_gauss_seidel = meta.get_common("use_gauss_seidel",default=True)
+meta.serialize = meta.get_common("serialize",default=True)
         
-        if meta.get_common("use_sdf"):
-            from engine.sdf import SDF
-            meta.sdf_mesh_path = meta.get_sdf_meshes("geometry_file")
-            self.sdf = SDF(meta.sdf_mesh_path, resolution=64, use_cache=meta.get_sdf_meshes("use_cache"))
-        # from engine.visualize import vis_sdf
-        # vis_sdf(self.sdf.val)
+if meta.get_common("use_sdf"):
+    from engine.sdf import SDF
+    meta.sdf_mesh_path = meta.get_sdf_meshes("geometry_file")
+    sdf = SDF(meta.sdf_mesh_path, resolution=64, use_cache=meta.get_sdf_meshes("use_cache"))
 
-        if meta.get_common("initialize_random"):
-            random_val = np.random.rand(self.model.mesh.verts.pos.shape[0], 3)
-            self.model.mesh.verts.pos.from_numpy(random_val)
+if meta.get_common("initialize_random"):
+    random_val = np.random.rand(pos.shape[0], 3)
+    pos.from_numpy(random_val)
 
-    @ti.kernel
-    def project_constraints(self):
-        for c in self.model.mesh.cells:
-            p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-            F = self.compute_F(p0.pos, p1.pos, p2.pos, p3.pos, c.B)
-            U, S, V = ti.svd(F)
-            constraint = ti.sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
-            c.fem_constraint = constraint
-            g0, g1, g2, g3 = computeGradient(c.B, U, S, V)
-            dlambda =  self.compute_dlambda(c, constraint, c.alpha, c.lagrangian, g0, g1, g2, g3)
-            c.lagrangian += dlambda
-            self.update_pos(c, dlambda, g0, g1, g2, g3)
+dx0 = ti.Vector.field(3, float, pos.shape[0])
+dx1 = ti.Vector.field(3, float, pos.shape[0])
+dx2 = ti.Vector.field(3, float, pos.shape[0])
+dx3 = ti.Vector.field(3, float, pos.shape[0])
+@ti.kernel
+def project_constraints():
+    # ti.loop_config(serialize=meta.serialize)
+    for t in range(tet.shape[0]):
+        p0 = tet[t][0]
+        p1 = tet[t][1]
+        p2 = tet[t][2]
+        p3 = tet[t][3]
 
-    @ti.kernel
-    def pre_solve(self, dt_: ti.f32):
-        # semi-Euler update pos & vel
-        for v in self.model.mesh.verts:
-            # if (v.inv_mass != 0.0):
-                v.vel +=  dt_ * meta.gravity
-                v.prev_pos = v.pos
-                v.pos += dt_ * v.vel
-                v.predict_pos = v.pos
-                collision_response_ground(v)
-                if ti.static(meta.get_common("use_sdf")):
-                    collision_response(v, self.sdf)
+        x0 = pos[p0]
+        x1 = pos[p1]
+        x2 = pos[p2]
+        x3 = pos[p3]
 
-    @ti.func
-    def update_pos(self, c, dlambda, g0, g1, g2, g3):
-        c.verts[0].pos += meta.relax_factor * c.verts[0].inv_mass * dlambda * g0
-        c.verts[1].pos += meta.relax_factor * c.verts[1].inv_mass * dlambda * g1
-        c.verts[2].pos += meta.relax_factor * c.verts[2].inv_mass * dlambda * g2
-        c.verts[3].pos += meta.relax_factor * c.verts[3].inv_mass * dlambda * g3
-
-    @ti.kernel
-    def compute_potential_energy(self):
-        self.model.potential_energy[None] = 0.0
-        for c in self.model.mesh.cells:
-            invAlpha = meta.inv_lame_lambda * c.inv_vol
-            self.model.potential_energy[None] += 0.5 * invAlpha *  c.fem_constraint ** 2 
-
-    @ti.kernel
-    def compute_inertial_energy(self):
-        self.model.inertial_energy[None] = 0.0
-        for v in self.model.mesh.verts:
-            self.model.inertial_energy[None] += 0.5 / v.inv_mass * (v.pos - v.predict_pos).norm_sqr() * meta.inv_h2
-
-    
-    @ti.kernel
-    def post_solve(self, dt_: ti.f32):
-        for v in self.model.mesh.verts:
-            if v.inv_mass != 0.0:
-                v.vel = (v.pos - v.prev_pos) / dt_
-
-    @ti.func
-    def compute_denorminator(self, c, g0, g1, g2, g3):
-        p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
-        res = p0.inv_mass * g0.norm_sqr() + p1.inv_mass * g1.norm_sqr() + p2.inv_mass * g2.norm_sqr() + p3.inv_mass * g3.norm_sqr()
-        return res
-    
-    @ti.func
-    def compute_F(self, x0,x1,x2,x3, B):
         D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
-        res = D_s @ B
-        return res
+        F  = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint = ti.sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
+        g0, g1, g2, g3 = computeGradient(B[t], U, S, V)
+        denorminator = inv_mass[p0] * g0.norm_sqr() + inv_mass[p1] * g1.norm_sqr() + inv_mass[p2] * g2.norm_sqr() + inv_mass[p3] * g3.norm_sqr()
+        dlambda = -(constraint + alpha[t] * lagrangian[t]) / (denorminator + alpha[t])
 
-    @ti.func
-    def compute_dlambda(self, c, constraint, alpha, lagrangian, g0, g1, g2, g3):
-        denorminator = self.compute_denorminator(c, g0, g1, g2, g3)
-        dlambda = -(constraint + alpha * lagrangian) / (denorminator + alpha)
-        return dlambda
+        lagrangian[t] += dlambda
 
-    def reset_lagrangian(self):
-        self.model.mesh.cells.lagrangian.fill(0.0)
+        dx0[p0] = inv_mass[p0] * dlambda * g0
+        dx1[p1] = inv_mass[p1] * dlambda * g1
+        dx2[p2] = inv_mass[p2] * dlambda * g2
+        dx3[p3] = inv_mass[p3] * dlambda * g3
 
-    def substep(self):
-        self.pre_solve(meta.dt/meta.num_substeps)
-        self.reset_lagrangian()
-        for ite in range(meta.max_iter):
-            self.project_constraints()
-            # collsion_response(self.model.mesh.verts)
-        self.post_solve(meta.dt/meta.num_substeps)
+        pos[p0] += meta.relax_factor *dx0[p0]
+        pos[p1] += meta.relax_factor *dx1[p1]
+        pos[p2] += meta.relax_factor *dx2[p2]
+        pos[p3] += meta.relax_factor *dx3[p3]
 
-        if meta.compute_energy:
-            self.compute_potential_energy()
-            self.compute_inertial_energy()
-            self.model.total_energy[None] = self.model.potential_energy[None] + self.model.inertial_energy[None]
-            log_energy(self.model)
-        meta.frame += 1
+    # for t in tet:
+    #     if ti.static(meta.use_jacobian):
+    #         p0 = tet[t][0]
+    #         p1 = tet[t][1]
+    #         p2 = tet[t][2]
+    #         p3 = tet[t][3]
 
+    #         pos[p0] += meta.relax_factor * dx0[p0]
+    #         pos[p1] += meta.relax_factor * dx1[p1]
+    #         pos[p2] += meta.relax_factor * dx2[p2]
+    #         pos[p3] += meta.relax_factor * dx3[p3]
+
+
+@ti.kernel
+def pre_solve(dt:float):
+    g = tm.vec3(0, -1, 0)
+    for i in pos:
+        prev_pos[i] = pos[i]
+        vel[i] += g * dt 
+        pos[i] += vel[i] * dt
+        if pos[i].y < 0.0:
+            pos[i].y = 0.0
+        if ti.static(meta.get_common("use_sdf")):
+            collision_response_sdf(pos[i], sdf)
 
 @ti.func
-def collision_response_ground(v:ti.template()):
-    if v.pos[1] < meta.ground.y:
-        v.pos[1] = meta.ground.y
-
-@ti.func
-def collision_response(v:ti.template(), sdf):
+def collision_response_sdf(pos:ti.template(), sdf):
     sdf_epsilon = 1e-4
-    grid_idx = ti.Vector([v.pos.x * sdf.resolution, v.pos.y * sdf.resolution, v.pos.z * sdf.resolution], ti.i32)
+    grid_idx = ti.Vector([pos.x * sdf.resolution, pos.y * sdf.resolution, pos.z * sdf.resolution], ti.i32)
     grid_idx = ti.math.clamp(grid_idx, 0, sdf.resolution - 1)
     normal = sdf.grad[grid_idx]
     sdf_val = sdf.val[grid_idx]
+    assert 1 - 1e-4 < normal.norm() < 1 + 1e-4, f"sdf normal norm is not one: {normal.norm()}" 
     if sdf_val < sdf_epsilon:
-        v.pos -= sdf_val * normal
+        pos -= sdf_val * normal
+
+@ti.kernel
+def post_solve(dt:float):
+    for i in pos:
+        vel[i] = (pos[i] - prev_pos[i]) / dt
+
+ 
+def substep_():
+    pre_solve(meta.dt/meta.num_substeps) 
+    lagrangian.fill(0.0)
+    for ite in range(meta.max_iter):
+        project_constraints()
+        meta.iter = ite+1
+    post_solve(meta.dt/meta.num_substeps)
 
 
 @ti.func
@@ -286,3 +232,15 @@ def computeGradient(B, U, S, V):
 #     coarse_pos = mesh.mesh.verts.pos.to_numpy()
 #     fine_pos = P @ coarse_pos
 #     fine_mesh.mesh.verts.pos.from_numpy(fine_pos)
+
+
+
+@ti.data_oriented
+class ARAP():
+    def __init__(self):
+        self.pos_show = pos
+        self.indices_show = face
+        # self.sdf = sdf
+        init_physics()
+    def substep(self):
+        substep_()

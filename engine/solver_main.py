@@ -3,7 +3,7 @@ import taichi as ti
 def solver_main():
     from engine.metadata import meta
     if meta.get_common('simulation_method') == 'arap':
-        from engine.volumetric.arap_new import ARAP as Solver
+        from engine.volumetric.arap import ARAP as Solver
         pbd_solver = Solver()
     elif  meta.get_common('simulation_method') == 'neohooken':
         from engine.volumetric.neohooken import NeoHooken as Solver
@@ -23,6 +23,9 @@ def solver_main():
     elif meta.get_common('simulation_method') == "shape_matching_rigidbody":
         import engine.shape_matching.rigidbody as rigidbody
         rigidbody.main()
+    elif meta.get_common('simulation_method') == "arap_multigrid":
+        import engine.volumetric.arap_multigrid as standalone_solver
+        standalone_solver.main()
     
     if meta.get_common("self_main", False):
         return

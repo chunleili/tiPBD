@@ -3,7 +3,7 @@
 	{
 		"simulation_method": "arap",
 		"dt": 1e-3,
-		"relax_factor": 0.5,
+		"relax_factor": 0.1,
 		"gravity": [0.0, -9.81, 0.0],
 		"ground": [0.0, 0.0, 0.0],
 		"max_iter": 4,

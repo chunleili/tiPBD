@@ -61,6 +61,8 @@ class GGUI():
                 meta.num_substeps = self.gui.slider_int("num_substeps", meta.num_substeps, 0, 100)
                 if hasattr(meta, "max_iter"):
                     meta.max_iter = self.gui.slider_int("max_iter", meta.max_iter, 0, 50)
+                if hasattr(meta, "relax_factor"):
+                    meta.relax_factor = self.gui.slider_float("relax_factor", meta.relax_factor, 0, 1)
                 self.gui.text("step number: " + str(meta.step_num))
                 # self.gui.text("current iter: " + str(getattr(meta,"iter", 0))+"/"+str(meta.max_iter))
                 if self.gui.button("show particles"):
@@ -89,7 +91,7 @@ class GGUI():
         if indices_show is not None and meta.show_mesh:
             self.scene.mesh(pos_show, indices=indices_show, color=meta.mesh_uniform_color, show_wireframe=meta.show_wireframe)
         if meta.show_particles:
-            self.scene.particles(pos_show, radius=meta.particle_radius_show, color=meta.particle_uniform_color, per_vertex_color=self.par_color)
+            self.scene.particles(pos_show, radius=meta.particle_radius_show, color=meta.particle_uniform_color)
         if meta.show_auxiliary_meshes:
             self.scene.mesh(self.ground, indices=self.ground_indices, color=(0.5,0.5,0.5), show_wireframe=meta.show_wireframe)
             self.scene.mesh(self.coord, indices=self.coord_indices, color=(0.5, 0, 0), show_wireframe=meta.show_wireframe)
@@ -98,7 +100,7 @@ class GGUI():
             self.scene.lines(self.box_anchors, indices=self.box_lines_indices, color = (0.99, 0.68, 0.28), width = 2.0)
 
         if meta.use_sdf and meta.show_sdf:
-            self.scene.particles(self.sdf_vertices, radius=meta.particle_radius_show, color=self.uniform_color, per_vertex_color=self.par_color)
+            self.scene.particles(self.sdf_vertices, radius=meta.particle_radius_show, color=self.particle_uniform_color)
 
         # if meta.get_common("vis_sparse_grid"):
         #     self.scene.lines(self.sparse_grid_anchors, indices=self.sparse_grid_indices, color = (0.99, 0.68, 0.28), width = 2.0)

@@ -9,7 +9,7 @@
 		"camera_pos": [1.23, 0.48 , 0.88],
 		"camera_lookat": [0.38, 0.34, 0.37],
 		"relax_factor": 1.0,
-		"use_sdf": false,
+		"use_sdf": true,
 		"show_sdf": true,
 		"force_serialize":true
 	},

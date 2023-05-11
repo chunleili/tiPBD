@@ -1,0 +1,50 @@
+{
+	"common": 
+	{
+		"simulation_method": "arap_hpbd",
+		"dt": 1e-3,
+		"relax_factor": 0.1,
+		"gravity": [0.0, -9.81, 0.0],
+		"ground": [0.0, 0.0, 0.0],
+		"max_iter": 4,
+		"num_substeps": 2,
+		"use_multigrid": true,
+		"show_coarse": true,
+		"show_fine": false,
+		"compute_energy": false,
+		"use_log": false,
+		"initial_pause": true,
+		"use_autodiff": false,
+		"show_particles": true,
+		"show_particle_radius": 0.005,
+		"show_mesh": true,
+		"show_bounds": true,
+		"show_auxiliary_meshes": true,
+		"show_sdf": false,
+		"use_sdf": false,
+		"vis_sparse_grid":false,
+		"camera_pos": [1.23, 0.48 , 0.88],
+		"camera_lookat": [0.38, 0.34, 0.37],
+		"initialize_random": false
+	},
+	"materials": [
+		{
+			"name": "bunny",
+			"type": "volumetric",
+			"geometry_file": "data/model/bunny_small/bunny_small.node",
+			"scale": [1.0, 1.0, 1.0],
+			"translation": [0.0, 0.05, -0.2],
+			"lame_lambda": 1e7
+		}
+	],
+	"sdf_meshes":[
+		{
+			"geometry_file": "data/model/chair.obj",
+			"scale": [0.6, 0.6, 0.6],
+			"translation": [0.0, -0.5, 0.0],
+			"use_cache": true,
+			"use_sparse": false,
+			"narrow_band": 0
+		}
+	]
+}

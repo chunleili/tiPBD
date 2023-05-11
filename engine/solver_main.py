@@ -14,20 +14,28 @@ def solver_main():
     elif meta.get_common('simulation_method') == "strain_based_dynamics":
         from engine.volumetric.strain_based_dynamics import StrainBasedDynamics as Solver
         pbd_solver = Solver()
+    elif meta.get_common('simulation_method') == "arap_hpbd":
+        from engine.volumetric.arap_hpbd import HPBD as Solver
+        pbd_solver = Solver()
+
     elif meta.get_common('simulation_method') == 'pbf':
-        import engine.fluid.pbf as pbf
-        pbf.main()
+        import engine.fluid.pbf as standalone_solver
+        is_standalone = True
+        standalone_solver.main()
     elif meta.get_common('simulation_method') == "pbf2d":
-        import engine.fluid.pbf2d_sparse as pbf2d
-        pbf2d.main()
+        import engine.fluid.pbf2d_sparse as standalone_solver
+        is_standalone = True
+        standalone_solver.main()
     elif meta.get_common('simulation_method') == "shape_matching_rigidbody":
-        import engine.shape_matching.rigidbody as rigidbody
-        rigidbody.main()
+        import engine.shape_matching.rigidbody as standalone_solver
+        is_standalone = True
+        standalone_solver.main()
     elif meta.get_common('simulation_method') == "arap_multigrid":
         import engine.volumetric.arap_multigrid as standalone_solver
+        is_standalone = True
         standalone_solver.main()
     
-    if meta.get_common("self_main", False):
+    if meta.get_common("self_main", False) or is_standalone:
         return
 
     from engine.visualize import GGUI, vis_sdf, vis_sparse_grid

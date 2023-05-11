@@ -15,7 +15,7 @@ if __name__ == "__main__":
     if args.use_webui:
         import ui.webui as webui
         webui.run()
-
+    exit()
     ti.init(**args.init_args)
 
     from  engine.solver_main import solver_main

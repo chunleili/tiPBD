@@ -6,8 +6,6 @@ def parse_cli():
     parser = configargparse.ArgumentParser(description='taichi PBD')
     parser.add_argument('--scene_file', type=str, default="",
                         help='manually specify scene file, if not specified, use gui to select')
-    parser.add_argument('--no-gui', action='store_true', default=False,
-                        help='no gui mode')
     parser.add_argument("--arch", type=str, default="cuda",
                         help="backend(arch) of taichi)")
     parser.add_argument("--debug", action='store_true', default=False,
@@ -62,7 +60,7 @@ def parse_cli():
 #     parser = argparse.ArgumentParser(description='taichi PBD')
 #     parser.add_argument('--scene_file', type=str, default="",
 #                         help='manually specify scene file, if not specified, use gui to select')
-#     parser.add_argument('--no-gui', action='store_true', default=False,
+#     parser.add_argument('--no_gui', action='store_true', default=False,
 #                         help='no gui mode')
 #     parser.add_argument("--arch", type=str, default="cuda",
 #                         help="backend(arch) of taichi)")

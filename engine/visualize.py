@@ -2,7 +2,7 @@ import taichi as ti
 class GGUI():
     def __init__(self) -> None:
         from engine.metadata import meta
-        self.vsync = meta.get_common("sync", default=False)
+        self.vsync = meta.get_common("sync", default=False, no_warning=True)
         self.window = ti.ui.Window("pbd", (1024, 1024),vsync=self.vsync)
         self.canvas = self.window.get_canvas()
         self.scene = ti.ui.Scene()
@@ -15,17 +15,17 @@ class GGUI():
         self.camera.lookat(self.cam_lookat[0], self.cam_lookat[1], self.cam_lookat[2])
         self.camera.fov(45) 
         self.gui = self.window.get_gui()
-        meta.show_widget = meta.get_common("show_widget", default=True)
-        meta.show_wireframe = meta.get_common("show_wireframe", default=False)
-        meta.show_particles = meta.get_common("show_particles", default=True)
-        meta.show_mesh = meta.get_common("show_mesh", default=True)
-        meta.show_auxiliary_meshes = meta.get_common("show_auxiliary_meshes", default=True)
-        meta.show_bounds = meta.get_common("show_bounds", default=True)
+        meta.show_widget = meta.get_common("show_widget", default=True, no_warning=True)
+        meta.show_wireframe = meta.get_common("show_wireframe", default=False, no_warning=True)
+        meta.show_particles = meta.get_common("show_particles", default=True, no_warning=True)
+        meta.show_mesh = meta.get_common("show_mesh", default=True, no_warning=True)
+        meta.show_auxiliary_meshes = meta.get_common("show_auxiliary_meshes", default=True, no_warning=True)
+        meta.show_bounds = meta.get_common("show_bounds", default=True, no_warning=True)
         meta.show_sdf = meta.get_common("show_sdf", default=True)
-        meta.particle_radius_show = meta.get_common("particle_radius_show", default=0.002)
+        meta.particle_radius_show = meta.get_common("particle_radius_show", default=0.002, no_warning=True)
         self.uniform_color = (0.1229,0.2254,0.7207)
-        meta.mesh_uniform_color = tuple(meta.get_common("mesh_uniform_color", default=self.uniform_color))
-        meta.particle_uniform_color = tuple(meta.get_common("particle_uniform_color", default=self.uniform_color))
+        meta.mesh_uniform_color = tuple(meta.get_common("mesh_uniform_color", default=self.uniform_color, no_warning=True))
+        meta.particle_uniform_color = tuple(meta.get_common("particle_uniform_color", default=self.uniform_color, no_warning=True))
         meta.particle_per_vertex_color = None
 
         if meta.show_auxiliary_meshes:
@@ -120,7 +120,7 @@ class GGUI():
             self.scene.lines(self.box_anchors, indices=self.box_lines_indices, color = (0.99, 0.68, 0.28), width = 2.0)
 
         if meta.use_sdf and meta.show_sdf:
-            self.scene.particles(self.sdf_vertices, radius=meta.particle_radius_show, color=self.particle_uniform_color)
+            self.scene.particles(self.sdf_vertices, radius=meta.particle_radius_show, color=meta.particle_uniform_color)
 
         # if meta.get_common("vis_sparse_grid"):
         #     self.scene.lines(self.sparse_grid_anchors, indices=self.sparse_grid_indices, color = (0.99, 0.68, 0.28), width = 2.0)

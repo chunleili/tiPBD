@@ -41,28 +41,32 @@ class MetaData:
         # if "num_substeps" not in self.common:
         #     self.num_substeps = 1
 
-    def get_common(self, key, default=None):
+    def get_common(self, key, default=None, no_warning=False):
         if key in self.common:
             return self.common[key]
         else:
-            logging.warning("Warning: key {} not found in common, return default value {}".format(key, default))
+            if not no_warning:
+                logging.warning("key {} not found in common, use default value {}".format(key, default))
             return default
     
-    def get_materials(self, key, default=None, id_=0,):
+    def get_materials(self, key, default=None, id_=0, no_warning=False):
         if key in self.materials[id_]:
             return self.materials[id_][key]
         else:
-            logging.warning("Warning: key {} not found in materials, return default value {}".format(key, default))
+            if not no_warning:
+                logging.warning("key {} not found in materials, use default value {}".format(key, default))
             return default
     
-    def get_sdf_meshes(self, key, default=None, id_=0,):
+    def get_sdf_meshes(self, key, default=None, id_=0, no_warning=False):
         if not hasattr(self, "sdf_meshes"):
-            logging.warning("Warning: sdf_meshes not found in config file, return None".format(None))
+            if not no_warning:
+                logging.warning("sdf_meshes not found in config file, return None".format(None))
             return None
         if key in self.sdf_meshes[id_]:
             return self.sdf_meshes[id_][key]
         else:
-            logging.warning("Warning: key {} not found in sdf_meshes, return default value {}".format(key, default))
+            if not no_warning:
+                logging.warning("key {} not found in sdf_meshes, use default value {}".format(key, default))
             return default
 
 meta = MetaData()

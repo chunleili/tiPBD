@@ -41,34 +41,39 @@ def solver_main():
 
     meta.pbd_solver = pbd_solver
 
+    meta.paused = meta.get_common("initial_pause", False)
+    meta.num_substeps = meta.get_common("num_substeps", 1)
+    meta.frame=0
+    meta.step_num=0
+
+    # no gui mode
+    meta.no_gui = meta.get_common("no_gui", False)
+    if meta.no_gui:
+        meta.max_frame = meta.get_common("max_frame", 1000)
+        while meta.frame < meta.max_frame:
+            for _ in range(meta.num_substeps):
+                pbd_solver.substep()
+                meta.iter = 0
+                meta.step_num+=1
+            meta.frame += 1
+            print("frame", meta.frame)
+        return
+
     from engine.visualize import GGUI, vis_sdf, vis_sparse_grid
     ggui = GGUI()
     meta.ggui = ggui
-
-    meta.paused = meta.get_common("initial_pause", False)
-    meta.num_substeps = meta.get_common("num_substeps", 1)
-
-    if meta.get_common("use_sdf"):
-        ggui.sdf_vertices = vis_sdf(pbd_solver.sdf.val, False)
-
-    if meta.get_common("vis_sparse_grid"):
-        ggui.sparse_grid_anchors, ggui.sparse_grid_indices = vis_sparse_grid(pbd_solver.sdf.val, pbd_solver.sdf.resolution)
-        print("ggui.sparse_grid_anchors",ggui.sparse_grid_anchors)
-        print("ggui.sparse_grid_indices",ggui.sparse_grid_indices)
-
     indices_show = None
     if hasattr(pbd_solver, "indices_show"):
         indices_show = pbd_solver.indices_show
-    
-    # 粒子拾取器
+    if meta.get_common("use_sdf"):
+        ggui.sdf_vertices = vis_sdf(pbd_solver.sdf.val, False)
+    # if meta.get_common("vis_sparse_grid"):
+    #     ggui.sparse_grid_anchors, ggui.sparse_grid_indices = vis_sparse_grid(pbd_solver.sdf.val, pbd_solver.sdf.resolution)
+    #     print("ggui.sparse_grid_anchors",ggui.sparse_grid_anchors)
+    #     print("ggui.sparse_grid_indices",ggui.sparse_grid_indices)
     meta.use_selector = meta.get_common("use_selector", default=False)
-    if meta.use_selector and not hasattr(meta, "selector"):
-        from ui.selector import Selector
-        meta.selector = Selector(ggui.camera, ggui.window, pbd_solver.pos_show)
-        meta.particle_per_vertex_color = meta.selector.per_vertex_color
 
-    meta.frame=0
-    meta.step_num=0
+
     # if meta.use_multigrid:
         # coarse_to_fine()
     while ggui.window.running:

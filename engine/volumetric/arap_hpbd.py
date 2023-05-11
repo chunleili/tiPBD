@@ -31,7 +31,7 @@ class Model:
         self.mesh = patcher.load_mesh(node_file, relations=["CV","CE","CF","VC","VE","VF","EV","EF","FE",])
 
         self.mesh.verts.place({ 'vel' : ti.math.vec3,
-                               'pos' : ti.math.vec3,
+                                'pos' : ti.math.vec3,
                                 'prev_pos' : ti.math.vec3,
                                 'predict_pos' : ti.math.vec3,
                                 'inv_mass' : ti.f32})
@@ -119,6 +119,7 @@ class HPBD():
 
     @ti.kernel
     def project_constraints(self):
+        ti.loop_config(parallelize=1)
         for c in self.model.mesh.cells:
             p0, p1, p2, p3 = c.verts[0], c.verts[1], c.verts[2], c.verts[3]
             F = self.compute_F(p0.pos, p1.pos, p2.pos, p3.pos, c.B)
@@ -134,7 +135,7 @@ class HPBD():
     def pre_solve(self, dt_: ti.f32):
         # semi-Euler update pos & vel
         for v in self.model.mesh.verts:
-            # if (v.inv_mass != 0.0):
+            if (v.inv_mass != 0.0):
                 v.vel +=  dt_ * meta.gravity
                 v.prev_pos = v.pos
                 v.pos += dt_ * v.vel

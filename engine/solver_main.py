@@ -2,6 +2,7 @@ import taichi as ti
 
 def solver_main():
     from engine.metadata import meta
+    is_standalone = False
     if meta.get_common('simulation_method') == 'arap':
         from engine.volumetric.arap import ARAP as Solver
         pbd_solver = Solver()

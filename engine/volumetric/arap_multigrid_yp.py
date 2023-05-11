@@ -1,5 +1,5 @@
 """
-Modified YP multi-grid solver for ARAP
+YP multi-grid solver for ARAP
 """
 import taichi as ti
 from taichi.lang.ops import sqrt

@@ -308,7 +308,7 @@ def main():
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
     gui = window.get_gui()
     wire_frame = True
-    pause = True
+    pause = False
     show_coarse_mesh = True
     show_fine_mesh = True
     simulate_fine_mesh = True

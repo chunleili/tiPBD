@@ -24,11 +24,9 @@ class GGUI():
         meta.show_sdf = meta.get_common("show_sdf", default=True)
         meta.particle_radius_show = meta.get_common("particle_radius_show", default=0.002)
         self.uniform_color = (0.1229,0.2254,0.7207)
-        self.par_color = None
-        meta.mesh_uniform_color = meta.get_common("mesh_uniform_color", default=self.uniform_color)
-        meta.mesh_uniform_color = tuple(meta.mesh_uniform_color)
-        meta.particle_uniform_color = meta.get_common("particle_uniform_color", default=self.uniform_color)
-        meta.particle_uniform_color = tuple(meta.particle_uniform_color)
+        meta.mesh_uniform_color = tuple(meta.get_common("mesh_uniform_color", default=self.uniform_color))
+        meta.particle_uniform_color = tuple(meta.get_common("particle_uniform_color", default=self.uniform_color))
+        meta.particle_per_vertex_color = None
 
         if meta.show_auxiliary_meshes:
             self.ground, self.coord, self.ground_indices, self.coord_indices = read_auxiliary_meshes()
@@ -50,7 +48,7 @@ class GGUI():
         from engine.metadata import meta
 
         if meta.show_widget:
-            with self.gui.sub_window("Options", 0, 0, 0.3, 0.45) as w:
+            with self.gui.sub_window("Options", 0, 0, 0.3, 0.5) as w:
                 self.gui.text("cam pos: " + f"{self.camera.curr_position}")
                 self.gui.text("cam lookat: " + f"{self.camera.curr_lookat}")
                 reset_camera = self.gui.button("Reset Camera")
@@ -65,33 +63,55 @@ class GGUI():
                     meta.relax_factor = self.gui.slider_float("relax_factor", meta.relax_factor, 0, 1)
                 self.gui.text("step number: " + str(meta.step_num))
                 # self.gui.text("current iter: " + str(getattr(meta,"iter", 0))+"/"+str(meta.max_iter))
-                if self.gui.button("show particles"):
-                    meta.show_particles = not meta.show_particles
+                # if self.gui.button("show particles"):
+                #     meta.show_particles = not meta.show_particles
                 meta.particle_radius_show = self.gui.slider_float("particle radius", meta.particle_radius_show, 0, 0.01)
                 meta.particle_uniform_color = self.gui.color_edit_3("particle color", meta.particle_uniform_color)
                 meta.mesh_uniform_color = self.gui.color_edit_3("mesh color", meta.mesh_uniform_color)
-                if self.gui.button("show mesh"):
-                    meta.show_mesh = not meta.show_mesh
-                if self.gui.button("show auxiliary meshes"):
-                    meta.show_auxiliary_meshes = not meta.show_auxiliary_meshes
-                if self.gui.button("show bounds"):
-                    meta.show_bounds = not meta.show_bounds
-                if self.gui.button("show sdf"):
-                    meta.show_sdf = not meta.show_sdf
-                if self.gui.button("show wireframe"):
-                    meta.show_wireframe = not meta.show_wireframe
-                if self.gui.button("pause"):
-                    meta.paused = not meta.paused
-                self.gui.text("paused: " + str(meta.paused))
-                if self.gui.button("selector on/off"):
-                    meta.use_selector = not meta.use_selector
-                self.gui.text("use selector: " + str(meta.use_selector))
-                
+
+                # if self.gui.button("show mesh"):
+                #     meta.show_mesh = not meta.show_mesh
+                # if self.gui.button("show auxiliary meshes"):
+                #     meta.show_auxiliary_meshes = not meta.show_auxiliary_meshes
+                # if self.gui.button("show bounds"):
+                #     meta.show_bounds = not meta.show_bounds
+                # if self.gui.button("show sdf"):
+                #     meta.show_sdf = not meta.show_sdf
+                # if self.gui.button("show wireframe"):
+                #     meta.show_wireframe = not meta.show_wireframe
+                # if self.gui.button("pause"):
+                #     meta.paused = not meta.paused
+                # self.gui.text("paused: " + str(meta.paused))
+                # if self.gui.button("selector on/off"):
+                #     meta.use_selector = not meta.use_selector
+                # self.gui.text("use selector: " + str(meta.use_selector))
+
+                meta.paused = self.gui.checkbox("pause(SPACE)", meta.paused)
+                if self.gui.button("step once(f:discrete/g:coninuously)"):
+                    print("Step once, step num: ", meta.step_num)
+                    meta.pbd_solver.substep()
+                    meta.step_num+=1 
+                meta.show_mesh = self.gui.checkbox("show mesh", meta.show_mesh)
+                meta.show_particles = self.gui.checkbox("show particles", meta.show_particles)
+                meta.show_auxiliary_meshes = self.gui.checkbox("show auxiliary meshes", meta.show_auxiliary_meshes)
+                meta.show_bounds = self.gui.checkbox("show bounds", meta.show_bounds)
+                meta.show_wireframe = self.gui.checkbox("show wireframe", meta.show_wireframe)
+                meta.show_sdf = self.gui.checkbox("show sdf", meta.show_sdf)
+                meta.use_selector = self.gui.checkbox("use selector", meta.use_selector)
+                if self.gui.button("clear selector(c)") and meta.use_selector and hasattr(meta, "selector"):
+                    meta.selector.clear()
+                if self.gui.button("get selected ids(i)") and meta.use_selector and hasattr(meta, "selector"):
+                    meta.selected_ids = meta.selector.get_ids()
+
 
         if indices_show is not None and meta.show_mesh:
             self.scene.mesh(pos_show, indices=indices_show, color=meta.mesh_uniform_color, show_wireframe=meta.show_wireframe)
         if meta.show_particles:
-            self.scene.particles(pos_show, radius=meta.particle_radius_show, color=meta.particle_uniform_color)
+            if meta.use_selector:
+                self.scene.particles(pos_show, radius=meta.particle_radius_show, per_vertex_color=meta.particle_per_vertex_color)
+            else:
+                self.scene.particles(pos_show, radius=meta.particle_radius_show, color=meta.particle_uniform_color)
+
         if meta.show_auxiliary_meshes:
             self.scene.mesh(self.ground, indices=self.ground_indices, color=(0.5,0.5,0.5), show_wireframe=meta.show_wireframe)
             self.scene.mesh(self.coord, indices=self.coord_indices, color=(0.5, 0, 0), show_wireframe=meta.show_wireframe)

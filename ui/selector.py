@@ -113,13 +113,15 @@ class Selector:
         @ti.kernel
         def get_ids_kernel():
             self.num_selected[None] = 0
+            ti.loop_config(serialize=True)
             for i in range(self.is_in_rect.shape[0]):
                 if self.is_in_rect[i]:
                     self.selected_ids[self.num_selected[None]] = i
                     self.num_selected[None] += 1
         get_ids_kernel()
         ids_np = self.selected_ids.to_numpy()
-        ids_np = ids_np[:self.num_selected[None]]
+        # ids_np = ids_np[:self.num_selected[None]]
+        ids_np = ids_np[ids_np != -1]
         return ids_np
     
     def get_num_selected(self):

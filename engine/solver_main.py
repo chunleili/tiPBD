@@ -39,9 +39,10 @@ def solver_main():
     if meta.get_common("self_main", False) or is_standalone:
         return
 
+    meta.pbd_solver = pbd_solver
+
     from engine.visualize import GGUI, vis_sdf, vis_sparse_grid
     ggui = GGUI()
-
     meta.ggui = ggui
 
     meta.paused = meta.get_common("initial_pause", False)
@@ -61,10 +62,10 @@ def solver_main():
     
     # 粒子拾取器
     meta.use_selector = meta.get_common("use_selector", default=False)
-    # if meta.use_selector:
-    from ui.selector import Selector
-    meta.selector = Selector(ggui.camera, ggui.window, pbd_solver.pos_show)
-    meta.ggui.par_color = meta.selector.per_vertex_color
+    if meta.use_selector and not hasattr(meta, "selector"):
+        from ui.selector import Selector
+        meta.selector = Selector(ggui.camera, ggui.window, pbd_solver.pos_show)
+        meta.particle_per_vertex_color = meta.selector.per_vertex_color
 
     meta.frame=0
     meta.step_num=0
@@ -81,7 +82,6 @@ def solver_main():
                 print("Step once, step: ", meta.step_num)
                 pbd_solver.substep()
                 meta.step_num+=1 
-
             if e.key == "r":
                 print("Reset")
                 pbd_solver.__init__()
@@ -90,13 +90,22 @@ def solver_main():
             if e.key == "c":
                 meta.selector.clear()
             if e.key == "i":
-                print(meta.selector.get_ids())
-            
+                meta.selected_ids = meta.selector.get_ids()
+                print(meta.selected_ids)
+        
+        # step once coninuously
         if ggui.window.is_pressed("g"):
             print("Step once, step: ", meta.step_num)
             pbd_solver.substep()
             meta.step_num+=1 
 
+        ## initialize the selector
+        if meta.use_selector and not hasattr(meta, "selector"):
+            from ui.selector import Selector
+            meta.selector = Selector(ggui.camera, ggui.window, pbd_solver.pos_show)
+            meta.particle_per_vertex_color = meta.selector.per_vertex_color
+
+        # use the selector
         if meta.use_selector:
             meta.selector.select()
 

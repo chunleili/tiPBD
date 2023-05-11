@@ -42,7 +42,7 @@ python main.py
   - dearpygui(optional) # 基于dearpygui的gui, 独立进程运行
   - webui(optional) # 基于gradio的gui, 独立进程运行
 - resutl # 结果
-- args # 默认的命令行参数
+- args.ini # 默认的命令行参数, 更改此文件相当于给定命令行参数
 
 
 ## 自定义程序
@@ -56,4 +56,41 @@ python main.py
 因此，所有的功能模块尽量以搭积木的方式使用。例如要实现一个新的软体模拟NewSoftBody，本程序提供的积木为：
 1. GGUI可视化。需要更改solver_main.py。在solver_main函数开头的if语句中增加import new_softbody, 然后pbd_solver = NewSoftBody()。NewSoftBody实例至少要实现substep方法，并且至少要有pos_show属性，代表粒子的位置。如果要显示三角面，还可以定义indices_show属性，代表三角面的顶点索引。
 
-2. 从json解析参数。json文件必须要有common和materials两个顶层的key。分别代表通用的参数和某个物体特有的参数。其中materials是个list，因为可能会有多个物体。在new_softbody需要使用到参数的时候，from engine.metadata import meta。 然后使用meta.get_common("key名")和meta.get_materials("key名")获取参数。json文件请放在data/scene目录下。
+2. 从json解析参数。json文件必须要有common和materials两个顶层的key。分别代表通用的参数和某个物体特有的参数。其中materials是个list。在new_softbody需要使用到参数的时候，from engine.metadata import meta。 然后使用meta.get_common("key名")和meta.get_materials("key名")获取参数。json文件请放在data/scene目录下。
+
+3. 网格读入。参见engine/mesh_io中的网格解析器。支持tetgen/obj/ply等格式。
+
+## 其他说明
+### 跳过json选择器
+如果不想要json选择器，而是直接给定json路径来指定参数，可以在args.ini中指定scene_file = "/data/scene/arap_bunny.json"。或者从命令行给定--scene_file。当scene_file不为空时，会直接读取该文件，而不会弹出选择器。
+
+另外，还可以搭配no_gui（在json中指定）
+
+### 万能的meta
+
+在本程序中meta是个万能的instance。所有的参数都作为它的属性。包括物理参数（例如杨氏模量，时间步长等）和模拟的超参数（比如当前的帧号）。meta可以作为沟通不同模块的中转站。值得小心的是属性的先后顺序，因为后添加的同名属性可能会覆盖前面的。solver_main函数是第一次使用meta的地方。
+
+
+## Roadmap
+
+- volumetric(softbody)
+  - [x]  arap
+  - [x] mass_spring_volumetric
+  - [x] neohooken
+  - [ ] strain_based_dynamics
+  - [ ] xpbd_bar
+- fluid
+  - [x] pbf2d
+  - [x] pbf3d
+- shape matching
+  - [x] rigidbody
+- sdf collider
+  - [ ] implicit(box/cylinder/sphere/torus etc.)
+  - [x] explicit sdf(from mesh)
+  - [ ] dynamic sdf
+- other
+  - [x] particle selector
+  - [x] mesh reading(obj/tetgen/ply)
+  - [x] scene file(json) parser
+  - [x] command line parser 
+  - [ ] logger

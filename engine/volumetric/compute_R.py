@@ -1,142 +1,142 @@
-import sys,os
-sys.path.append(os.getcwd())
-
-from engine.mesh_io import read_tetgen
+import os
+import sys
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.io import mmwrite
+import tqdm
 
-def get_barycentric_coord(p,a,b,c,d):
-    vap = p-a
-    vbp = p-b
-    vab = b-a
-    vac = c-a
-    vad = d-a
-    vbc = c-b
-    vbd = d-b
-    va6 = np.dot(np.cross(vbp,vbd),vbc)
-    vb6 = np.dot(np.cross(vap,vac),vad)
-    vc6 = np.dot(np.cross(vap,vad),vab)
-    vd6 = np.dot(np.cross(vap,vab),vac)
-    v6 = 1/np.dot(vab,np.cross(vac,vad))
-    is_in_tet_flag = (va6>=0 and vb6>=0 and vc6>=0 and vd6>=0 and va6+vb6+vc6+vd6<=1)
-    return  is_in_tet_flag, np.array([va6*v6,vb6*v6,vc6*v6,vd6*v6])
+sys.path.append(os.getcwd())
+from engine.mesh_io import read_tetgen
 
 
-def is_in_tet(p, pos, tet_indices):
-    a, b, c, d = tet_indices
-    p0, p1, p2, p3 = pos[a], pos[b], pos[c], pos[d]
-    A = np.array([p1-p0, p2-p0, p3-p0]).transpose()
+def is_in_tet(p, p0, p1, p2, p3):
+    A = np.array([p1 - p0, p2 - p0, p3 - p0]).transpose()
     b = p - p0
     x = np.linalg.solve(A, b)
     return (all(x >= 0) and sum(x) <= 1), x
 
-def compute_mapping(coarse_pos,coarse_tet_indices, fine_pos, fine_tet_indices):
+
+def compute(des_pos, des_nv, src_pos, src_nt, src_tet_indices,
+            des_in_src_tet_indx, des_in_src_tet_coord):
+    pbar = tqdm.tqdm(total=des_nv)
+    for i in range(des_nv):
+        pbar.update(1)
+        p = des_pos[i]
+        for t in range(src_nt):
+            a, b, c, d = src_tet_indices[t]
+            p0, p1, p2, p3 = src_pos[a], src_pos[b], src_pos[c], src_pos[d]
+            flag, x = is_in_tet(p, p0, p1, p2, p3)
+            if flag:
+                des_in_src_tet_indx[i] = t
+                des_in_src_tet_coord[i] = x
+                break
+        # if des pos not in all tets, find the nearest tet
+        if not flag or des_in_src_tet_indx[i] < 0:
+            min_dis = 1e10
+            min_idx = -1
+            for t in range(src_nt):
+                a, b, c, d = src_tet_indices[t]
+                p_tet = [src_pos[a], src_pos[b], src_pos[c], src_pos[d]]
+                for idx in range(4):
+                    dis = np.linalg.norm(p_tet[idx] - p)
+                    if dis < min_dis:
+                        min_dis = dis
+                        min_idx = t
+            a, b, c, d = src_tet_indices[min_idx]
+            p0, p1, p2, p3 = src_pos[a], src_pos[b], src_pos[c], src_pos[d]
+            flag, x = is_in_tet(p, p0, p1, p2, p3)
+            des_in_src_tet_indx[i] = min_idx
+            des_in_src_tet_coord[i] = x
+    pbar.close()
+
+
+def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos,
+                    fine_tet_indices):
     coarse_nv = coarse_pos.shape[0]
     coarse_nt = coarse_tet_indices.shape[0]
     fine_nv = fine_pos.shape[0]
     fine_nt = fine_tet_indices.shape[0]
-    coarse_in_fine_tet_indx = np.zeros(coarse_nv, dtype=np.int32)
-    coarse_in_fine_tet_indx.fill(-1)
-    coarse_in_fine_tet_coord = np.zeros((coarse_nv, 3), dtype=np.float64)
 
-    fine_in_coarse_tet_indx = np.zeros(fine_nv, dtype=np.int32)
-    fine_in_coarse_tet_indx.fill(-1)
+    coarse_in_fine_tet_indx = np.empty(coarse_nv, dtype=np.int32)
+    coarse_in_fine_tet_coord = np.zeros((coarse_nv, 3), dtype=np.float64)
+    fine_in_coarse_tet_indx = np.empty(fine_nv, dtype=np.int32)
     fine_in_coarse_tet_coord = np.zeros((fine_nv, 3), dtype=np.float64)
 
-    for i in range(coarse_nv):
-        for t in range(fine_nt):
-            flag, x =  is_in_tet(coarse_pos[i], fine_pos, fine_tet_indices[t])
-            flag1, x1 = get_barycentric_coord(coarse_pos[i], fine_pos[fine_tet_indices[t][0]], fine_pos[fine_tet_indices[t][1]], fine_pos[fine_tet_indices[t][2]], fine_pos[fine_tet_indices[t][3]])
-            # if(flag==flag1):
-            #     print("flag is equal")
-            # else:
-            #     print("flag is not equal")
-            if (x==x1):
-                print("x is equal")
-            
+    fine_in_coarse_tet_indx.fill(-1)
+    coarse_in_fine_tet_indx.fill(-1)
+    compute(fine_pos, fine_nv, coarse_pos, coarse_nt, coarse_tet_indices,
+            fine_in_coarse_tet_indx, fine_in_coarse_tet_coord)
+    compute(coarse_pos, coarse_nv, fine_pos, fine_nt, fine_tet_indices,
+            coarse_in_fine_tet_indx, coarse_in_fine_tet_coord)
 
-            if flag:
-                coarse_in_fine_tet_indx[i] = t
-                coarse_in_fine_tet_coord[i] = x
-                break
-            
-    for i in range(fine_nv):
-        for t in range(coarse_nt):
-            flag, x =  is_in_tet(fine_pos[i], coarse_pos, coarse_tet_indices[t])
-            if flag:
-                fine_in_coarse_tet_indx[i] = t
-                fine_in_coarse_tet_coord[i] = x
-                break
     return coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord
 
-"""
-    Compute restriction operator R: 
-            x_c = R @ x_f, x_c is coarse vertex positions, x_f is fine vertex positions
-    Parameters:
-    n: number of fine vertices
-    m: number of coarse vertices
-    Output:
-        R_coo: restriction operator in coo format
-"""
-def compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_tet_indices):
-    row = np.zeros(4 * m,dtype=np.int32)
-    col = np.zeros(4 * m,dtype=np.int32)
-    val = np.zeros(4 * m,dtype=np.float64)
+
+def compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord,
+              fine_tet_indices):
+    """
+        Compute restriction operator R: 
+                x_c = R @ x_f, x_c is coarse vertex positions, x_f is fine vertex positions
+        Parameters:
+        n: number of fine vertices
+        m: number of coarse vertices
+        Output:
+            R_coo: restriction operator in coo format
+    """
+    row = np.zeros(4 * m, dtype=np.int32)
+    col = np.zeros(4 * m, dtype=np.int32)
+    val = np.zeros(4 * m, dtype=np.float64)
     for i in range(m):
-        row[4 * i: 4 * i + 4] = [i, i, i, i]
+        row[4 * i:4 * i + 4] = [i, i, i, i]
         fine_idx = coarse_in_fine_tet_indx[i]
         a, b, c, d = fine_tet_indices[fine_idx]
         u, v, w = coarse_in_fine_tet_coord[i]
-        col[4 * i: 4 * i + 4] = [a, b, c, d]
-        val[4 * i: 4 * i + 4] = [1-u-v-w, u, v, w]
+        col[4 * i:4 * i + 4] = [a, b, c, d]
+        val[4 * i:4 * i + 4] = [1 - u - v - w, u, v, w]
     R_coo = coo_matrix((val, (row, col)), shape=(m, n))
     return R_coo
 
-"""
-    Compute prolongation operator P
-    n: number of fine vertices
-    m: number of coarse vertices
-"""
-def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices):
-    row = np.zeros(4 * n,dtype=np.int32)
-    col = np.zeros(4 * n,dtype=np.int32)
-    val = np.zeros(4 * n,dtype=np.float64)
+
+def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord,
+              coarse_tet_indices):
+    """
+        Compute prolongation operator P
+        n: number of fine vertices
+        m: number of coarse vertices
+    """
+    row = np.zeros(4 * n, dtype=np.int32)
+    col = np.zeros(4 * n, dtype=np.int32)
+    val = np.zeros(4 * n, dtype=np.float64)
     for i in range(n):
-        row[4 * i: 4 * i + 4] = [i, i, i, i]
+        row[4 * i:4 * i + 4] = [i, i, i, i]
         coarse_idx = fine_in_coarse_tet_indx[i]
         a, b, c, d = coarse_tet_indices[coarse_idx]
-        col[4 * i: 4 * i + 4] = [a, b, c, d]
+        col[4 * i:4 * i + 4] = [a, b, c, d]
         u, v, w = fine_in_coarse_tet_coord[i]
-        val[4 * i: 4 * i + 4] = [1-u-v-w, u, v, w]
+        val[4 * i:4 * i + 4] = [1 - u - v - w, u, v, w]
     P_coo = coo_matrix((val, (row, col)), shape=(n, m))
     return P_coo
 
 
 if __name__ == "__main__":
-    is_mapping_computed = False
-    fine_mesh = "model/bunny1k2k/bunny2k"
-    coarse_mesh = "model/bunny1k2k/bunny1k"
-    
+    path = "data/model/cube_64k/"
+
+    fine_mesh = path + "fine"
+    coarse_mesh = path + "coarse"
+
+    print(">> Reading mesh...")
     coarse_pos, coarse_tet_indices, coarse_face_indices = read_tetgen(coarse_mesh)
     fine_pos, fine_tet_indices, fine_face_indices = read_tetgen(fine_mesh)
-    
-    if not is_mapping_computed:
-        coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx,  fine_in_coarse_tet_coord = compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices)
-        np.savetxt("model/bunny1k2k/coarse_in_fine_tet_indx.txt", coarse_in_fine_tet_indx, fmt="%d")
-        np.savetxt("model/bunny1k2k/coarse_in_fine_tet_coord.txt", coarse_in_fine_tet_coord, fmt="%.6f")
 
-        np.savetxt("model/bunny1k2k/fine_in_coarse_tet_indx.txt", fine_in_coarse_tet_indx, fmt="%d")
-        np.savetxt("model/bunny1k2k/fine_in_coarse_tet_coord.txt", fine_in_coarse_tet_coord, fmt="%.6f")
-    else:
-        coarse_in_fine_tet_indx = np.loadtxt("model/bunny1k2k/coarse_in_fine_tet_indx.txt", dtype=np.int32)
-        coarse_in_fine_tet_coord = np.loadtxt("model/bunny1k2k/coarse_in_fine_tet_coord.txt", dtype=np.float64)
-        fine_in_coarse_tet_indx = np.loadtxt("model/bunny1k2k/fine_in_coarse_tet_indx.txt", dtype=np.int32)
-        fine_in_coarse_tet_coord = np.loadtxt("model/bunny1k2k/fine_in_coarse_tet_coord.txt", dtype=np.float64)
-        
+    print(">> Start to compute coarse and fine mapping...")
+    coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord = compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices)
+
+    print(">> Start to compute R and P...")
     n = fine_pos.shape[0]
     m = coarse_pos.shape[0]
-    R = compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_tet_indices)
-    mmwrite("model/bunny1k2k/R.mtx", R)
-    P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices)
-    mmwrite("model/bunny1k2k/P.mtx", P)
+    R = compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord,
+                  fine_tet_indices)
+    mmwrite(path + "R.mtx", R)
+    P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord,
+                  coarse_tet_indices)
+    mmwrite(path + "P.mtx", P)

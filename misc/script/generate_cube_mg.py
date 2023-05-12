@@ -75,10 +75,11 @@ def generate_random_points(num_points, len):
     points = np.random.rand(num_points, 3) * len
     return points
 
-
-fine_points, fine_tet_indices, fine_tri_indices = generate_mesh(2.0, 0.1)
-save_mesh(fine_points, fine_tet_indices, fine_tri_indices, 'data/model/cube/fine')
+# original size: 0.1 and 0.5
+fine_dx, coarse_dx = 0.05, 0.25
+fine_points, fine_tet_indices, fine_tri_indices = generate_mesh(2.0, fine_dx)
+save_mesh(fine_points, fine_tet_indices, fine_tri_indices, 'data/model/cube_large/fine')
 # fine_init_random_points = generate_random_points(fine_points.shape[0], 2.0)
 # np.savetxt('cube/fine_init_random_points.txt', fine_init_random_points)
-coarse_points, coarse_tet_indices, coarse_tri_indices = generate_mesh(2.0, 0.5)
-save_mesh(coarse_points, coarse_tet_indices, coarse_tri_indices, 'data/model/cube/coarse')
+coarse_points, coarse_tet_indices, coarse_tri_indices = generate_mesh(2.0, coarse_dx)
+save_mesh(coarse_points, coarse_tet_indices, coarse_tri_indices, 'data/model/cube_large/coarse')

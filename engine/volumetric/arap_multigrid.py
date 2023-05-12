@@ -359,9 +359,12 @@ def main():
                     print(
                         f"iteration {ite} total energy {te} inertial term {it} potential energy {pe}\n"
                     )
-                    np.savetxt("result/log/total_energy.txt", np.array([ite, te]))
-                    np.savetxt("result/log/inertial_term.txt", np.array([ite, it]))
-                    np.savetxt("result/log/potential_energy.txt", np.array([ite, pe]))
+                    with open("result/log/totalEnergy.txt", "ab") as f:
+                        np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
+                    with open("result/log/potentialEnergy.txt", "ab") as f:
+                        np.savetxt(f, np.array([pe]), fmt="%.4e", delimiter="\t")
+                    with open("result/log/inertialEnergy.txt", "ab") as f:
+                        np.savetxt(f, np.array([it]), fmt="%.4e", delimiter="\t")
                 updteVelocity(h, fpos, fold_pos, fvel)
             else:
                 semiEuler(h, fpos, fpredict_pos, fold_pos, fvel)
@@ -387,9 +390,16 @@ def main():
                     print(
                         f"iteration {coarse_iterations + ite} total energy {te} inertial term {it} potentialenergy {pe}\n"
                     )
-                    np.savetxt("result/log/total_energy.txt", np.array([ite, te]))
-                    np.savetxt("result/log/inertial_term.txt", np.array([ite, it]))
-                    np.savetxt("result/log/potential_energy.txt", np.array([ite, pe]))
+                    with open("result/log/totalEnergy.txt", "ab") as f:
+                        np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
+                    with open("result/log/potentialEnergy.txt", "ab") as f:
+                        np.savetxt(f, np.array([pe]), fmt="%.4e", delimiter="\t")
+                    with open("result/log/inertialEnergy.txt", "ab") as f:
+                        np.savetxt(f, np.array([it]), fmt="%.4e", delimiter="\t")
+
+                    # np.savetxt("result/log/total_energy.txt", np.array([ite, te]))
+                    # np.savetxt("result/log/inertial_term.txt", np.array([ite, it]))
+                    # np.savetxt("result/log/potential_energy.txt", np.array([ite, pe]))
                 updteVelocity(h, fpos, fold_pos, fvel)
             frame += 1
 

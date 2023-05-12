@@ -1,4 +1,7 @@
-from read_tet import read_tetgen
+import sys,os
+sys.path.append(os.getcwd())
+
+from engine.mesh_io import read_tetgen
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.io import mmwrite

@@ -3,12 +3,15 @@ Modified YP multi-grid solver for ARAP
 """
 import taichi as ti
 from taichi.lang.ops import sqrt
+import scipy.io as sio
+import numpy as np
+import logging
+from logging import info
 
 import sys,os
 sys.path.append(os.getcwd())
 from engine.mesh_io import read_tetgen
-import scipy.io as sio
-import numpy as np
+# from engine.log import log_energy
 
 ti.init(arch=ti.cpu)
 
@@ -283,6 +286,8 @@ def init_random_position(pos: ti.template(),
 
 
 def main():
+    logging.getLogger().setLevel(logging.INFO)
+
     frame, max_frames = 0, 10000
     init_pos(fine_model_pos, fine_model_inx, fine_model_tri, fpos, fold_pos,
              fvel, fmass, ftet_indices, fB, finv_V, fdisplay_indices, fNF)
@@ -297,7 +302,7 @@ def main():
 
     init_alpha_tilde(falpha_tilde, finv_V)
     init_alpha_tilde(calpha_tilde, cinv_V)
-    pause = True
+    # pause = True
     window = ti.ui.Window('3D ARAP FEM XPBD', (1300, 900), vsync=True)
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
@@ -311,14 +316,14 @@ def main():
     pause = False
     show_coarse_mesh = True
     show_fine_mesh = True
-    simulate_fine_mesh = True
+    simulate_fine_mesh = False
 
-    if os.path.exists("result/log/total_energy.txt"):
-        os.remove("result/log/total_energy.txt")
-    if os.path.exists("result/log/inertial_term.txt"):
-        os.remove("result/log/inertial_term.txt")
-    if os.path.exists("result/log/potential_energy.txt"):
-        os.remove("result/log/potential_energy.txt")
+    if os.path.exists("result/log/totalEnergy.txt"):
+        os.remove("result/log/totalEnergy.txt")
+    if os.path.exists("result/log/inertialEnergy.txt"):
+        os.remove("result/log/inertialEnergy.txt")
+    if os.path.exists("result/log/potentialEnergy.txt"):
+        os.remove("result/log/potentialEnergy.txt")
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
@@ -341,10 +346,10 @@ def main():
                                           simulate_fine_mesh)
 
         if not pause:
-            print(f"######## frame {frame} ########")
+            info(f"######## frame {frame} ########")
             if frame == 0:
                 te, it, pe = compute_energy(fmass,fpos,fpredict_pos,ftet_indices,fB,falpha_tilde)
-                print(
+                info(
                     f"iteration {-1} total energy {te} inertial term {it} potentialenergy {pe}\n"
                 )
             if simulate_fine_mesh:
@@ -356,7 +361,8 @@ def main():
                     collsion_response(fpos)
                     
                     te, it, pe = compute_energy(fmass, fpos, fpredict_pos, ftet_indices, fB, falpha_tilde)
-                    print(
+                    
+                    info(
                         f"iteration {ite} total energy {te} inertial term {it} potential energy {pe}\n"
                     )
                     with open("result/log/totalEnergy.txt", "ab") as f:
@@ -377,7 +383,7 @@ def main():
                     collsion_response(cpos)
                     update_fine_mesh()
                     te, it, pe = compute_energy(fmass,fpos,fpredict_pos,ftet_indices,fB,falpha_tilde)
-                    print(
+                    info(
                         f"iteration {coarse_iterations + ite} total energy {te} inertial term {it} potentialenergy {pe}\n"
                     )
                 resetLagrangian(flagrangian)
@@ -387,7 +393,7 @@ def main():
                                         falpha_tilde)
                     collsion_response(fpos)
                     te, it, pe = compute_energy(fmass,fpos,fpredict_pos,ftet_indices,fB,falpha_tilde)
-                    print(
+                    info(
                         f"iteration {coarse_iterations + ite} total energy {te} inertial term {it} potentialenergy {pe}\n"
                     )
                     with open("result/log/totalEnergy.txt", "ab") as f:
@@ -397,9 +403,6 @@ def main():
                     with open("result/log/inertialEnergy.txt", "ab") as f:
                         np.savetxt(f, np.array([it]), fmt="%.4e", delimiter="\t")
 
-                    # np.savetxt("result/log/total_energy.txt", np.array([ite, te]))
-                    # np.savetxt("result/log/inertial_term.txt", np.array([ite, it]))
-                    # np.savetxt("result/log/potential_energy.txt", np.array([ite, pe]))
                 updteVelocity(h, fpos, fold_pos, fvel)
             frame += 1
 

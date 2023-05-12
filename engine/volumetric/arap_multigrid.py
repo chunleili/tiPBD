@@ -312,6 +312,14 @@ def main():
     show_coarse_mesh = True
     show_fine_mesh = True
     simulate_fine_mesh = True
+
+    if os.path.exists("result/log/total_energy.txt"):
+        os.remove("result/log/total_energy.txt")
+    if os.path.exists("result/log/inertial_term.txt"):
+        os.remove("result/log/inertial_term.txt")
+    if os.path.exists("result/log/potential_energy.txt"):
+        os.remove("result/log/potential_energy.txt")
+
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
         camera.track_user_inputs(window,
@@ -351,6 +359,9 @@ def main():
                     print(
                         f"iteration {ite} total energy {te} inertial term {it} potential energy {pe}\n"
                     )
+                    np.savetxt("result/log/total_energy.txt", np.array([ite, te]))
+                    np.savetxt("result/log/inertial_term.txt", np.array([ite, it]))
+                    np.savetxt("result/log/potential_energy.txt", np.array([ite, pe]))
                 updteVelocity(h, fpos, fold_pos, fvel)
             else:
                 semiEuler(h, fpos, fpredict_pos, fold_pos, fvel)
@@ -376,6 +387,9 @@ def main():
                     print(
                         f"iteration {coarse_iterations + ite} total energy {te} inertial term {it} potentialenergy {pe}\n"
                     )
+                    np.savetxt("result/log/total_energy.txt", np.array([ite, te]))
+                    np.savetxt("result/log/inertial_term.txt", np.array([ite, it]))
+                    np.savetxt("result/log/potential_energy.txt", np.array([ite, pe]))
                 updteVelocity(h, fpos, fold_pos, fvel)
             frame += 1
 

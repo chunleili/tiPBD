@@ -285,7 +285,7 @@ def init_random_position(pos: ti.template(),
         ])
 
 def log_energy(frame, filename_to_save):
-    if frame==10:
+    if frame==0:
         te, it, pe = compute_energy(fmass, fpos, fpredict_pos, ftet_indices, fB, falpha_tilde)
         with open(filename_to_save, "ab") as f:
             np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
@@ -326,7 +326,8 @@ def main():
     show_fine_mesh = True
     frame, max_frames = 0, 11
 
-    is_only_fine = False # TODO: change to False to run multigrid
+    is_only_fine = True # TODO: change to False to run multigrid
+
     if is_only_fine:
         filename_to_save = "result/log/totalEnergy_onlyfine.txt"
     else:
@@ -355,8 +356,6 @@ def main():
 
         if not pause:
             info(f"######## frame {frame} ########")
-            if frame == 0:
-                te, it, pe = compute_energy(fmass,fpos,fpredict_pos,ftet_indices,fB,falpha_tilde)
             if is_only_fine:
                 semiEuler(h, fpos, fpredict_pos, fold_pos, fvel)
                 resetLagrangian(flagrangian)

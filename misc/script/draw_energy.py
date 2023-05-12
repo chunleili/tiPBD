@@ -25,11 +25,14 @@ total_energy_mg = np.loadtxt("result/log/totalEnergy_mg.txt")
 total_energy_mg = total_energy_mg[0:10]
 
 # %%
+seperate = False
 plt.figure(figsize=(10, 6))
-plt.plot(total_energy_onlyfine, label='total energy only fine', marker='o', markersize=8, color='blue')
-plt.plot(total_energy_mg, label='total energy mg', marker='x', markersize=8, color='orange')
+plt.plot(total_energy_onlyfine, label='total energy only fine', marker='o', markersize=5, color='blue')
+if seperate:
+    plt.legend()
+    plt.figure(figsize=(10, 6))
+plt.plot(total_energy_mg, label='total energy mg', marker='x', markersize=5, color='orange')
 plt.ylabel('energy within frame #10')
 plt.xlabel('iterations')
-
 plt.legend()
 plt.show()

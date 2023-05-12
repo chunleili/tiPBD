@@ -21,7 +21,7 @@ h = 0.003
 inv_h2 = 1.0 / h / h
 gravity = ti.Vector([0.0, 0.0, 0.0])
 DIM = 3
-coarse_iterations, fine_iterations = 10, 10
+coarse_iterations, fine_iterations = 5, 5
 only_fine_iterations = coarse_iterations + fine_iterations
 
 mass_density = 2000
@@ -65,18 +65,18 @@ P = sio.mmread("data/model/cube/P.mtx")
 
 
 def update_fine_mesh():
-    coarse_pos = cpos.to_numpy()
-    fine_pos = P @ coarse_pos
-    fpos.from_numpy(fine_pos)
+    cpos_np = cpos.to_numpy()
+    fpos_np = P @ cpos_np
+    fpos.from_numpy(fpos_np)
 
 
 R = sio.mmread("data/model/cube/R.mtx")
 
 
 def update_coarse_mesh():
-    fine_pos = fpos.to_numpy()
-    coarse_pos = R @ fine_pos
-    cpos.from_numpy(coarse_pos)
+    fpos_np = fpos.to_numpy()
+    cpos_np = R @ fpos_np
+    cpos.from_numpy(cpos_np)
 
 
 @ti.kernel
@@ -284,25 +284,33 @@ def init_random_position(pos: ti.template(),
             init_random_points[i, 2]
         ])
 
+def log_energy(frame, filename_to_save):
+    if frame==10:
+        te, it, pe = compute_energy(fmass, fpos, fpredict_pos, ftet_indices, fB, falpha_tilde)
+        with open(filename_to_save, "ab") as f:
+            np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
 
 def main():
     logging.getLogger().setLevel(logging.INFO)
 
-    frame, max_frames = 0, 10000
     init_pos(fine_model_pos, fine_model_inx, fine_model_tri, fpos, fold_pos,
              fvel, fmass, ftet_indices, fB, finv_V, fdisplay_indices, fNF)
     init_pos(coarse_model_pos, coarse_model_inx, coarse_model_tri, cpos,
              cold_pos, cvel, cmass, ctet_indices, cB, cinv_V, cdisplay_indices,
              cNF)
     
-    random_val = np.random.rand(fpos.shape[0], 3)
-    fpos.from_numpy(random_val)
-    # fine_init_random_points = np.loadtxt('data/model/cube/fine_init_random_points.txt')
-    # init_random_position(fpos, fine_init_random_points)
+    init_style = 'enlarge'
+
+    if init_style == 'random':
+        # # random init
+        random_val = np.random.rand(fpos.shape[0], 3)
+        fpos.from_numpy(random_val)
+    elif init_style == 'enlarge':
+        # init by enlarge 1.5x
+        fpos.from_numpy(fine_model_pos * 1.5)
 
     init_alpha_tilde(falpha_tilde, finv_V)
     init_alpha_tilde(calpha_tilde, cinv_V)
-    # pause = True
     window = ti.ui.Window('3D ARAP FEM XPBD', (1300, 900), vsync=True)
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
@@ -316,14 +324,16 @@ def main():
     pause = False
     show_coarse_mesh = True
     show_fine_mesh = True
-    simulate_fine_mesh = False
+    frame, max_frames = 0, 11
 
-    if os.path.exists("result/log/totalEnergy.txt"):
-        os.remove("result/log/totalEnergy.txt")
-    if os.path.exists("result/log/inertialEnergy.txt"):
-        os.remove("result/log/inertialEnergy.txt")
-    if os.path.exists("result/log/potentialEnergy.txt"):
-        os.remove("result/log/potentialEnergy.txt")
+    is_only_fine = False # TODO: change to False to run multigrid
+    if is_only_fine:
+        filename_to_save = "result/log/totalEnergy_onlyfine.txt"
+    else:
+        filename_to_save = "result/log/totalEnergy_mg.txt"
+
+    if os.path.exists(filename_to_save):
+        os.remove(filename_to_save)
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
@@ -342,66 +352,38 @@ def main():
         wire_frame = gui.checkbox("wireframe", wire_frame)
         show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
         show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
-        simulate_fine_mesh = gui.checkbox("simulate fine mesh",
-                                          simulate_fine_mesh)
 
         if not pause:
             info(f"######## frame {frame} ########")
             if frame == 0:
                 te, it, pe = compute_energy(fmass,fpos,fpredict_pos,ftet_indices,fB,falpha_tilde)
-                info(
-                    f"iteration {-1} total energy {te} inertial term {it} potentialenergy {pe}\n"
-                )
-            if simulate_fine_mesh:
+            if is_only_fine:
                 semiEuler(h, fpos, fpredict_pos, fold_pos, fvel)
                 resetLagrangian(flagrangian)
                 for ite in range(only_fine_iterations):
+                    log_energy(frame, filename_to_save)
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos, falpha_tilde)
                     collsion_response(fpos)
-                    
-                    te, it, pe = compute_energy(fmass, fpos, fpredict_pos, ftet_indices, fB, falpha_tilde)
-                    
-                    info(
-                        f"iteration {ite} total energy {te} inertial term {it} potential energy {pe}\n"
-                    )
-                    with open("result/log/totalEnergy.txt", "ab") as f:
-                        np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
-                    with open("result/log/potentialEnergy.txt", "ab") as f:
-                        np.savetxt(f, np.array([pe]), fmt="%.4e", delimiter="\t")
-                    with open("result/log/inertialEnergy.txt", "ab") as f:
-                        np.savetxt(f, np.array([it]), fmt="%.4e", delimiter="\t")
                 updteVelocity(h, fpos, fold_pos, fvel)
             else:
                 semiEuler(h, fpos, fpredict_pos, fold_pos, fvel)
                 update_coarse_mesh()
                 resetLagrangian(clagrangian)
                 for ite in range(coarse_iterations):
+                    log_energy(frame, filename_to_save)
                     project_constraints(cpos_mid, ctet_indices, cmass,
                                         clagrangian, cB, cpos,
                                         calpha_tilde)
                     collsion_response(cpos)
                     update_fine_mesh()
-                    te, it, pe = compute_energy(fmass,fpos,fpredict_pos,ftet_indices,fB,falpha_tilde)
-                    info(
-                        f"iteration {coarse_iterations + ite} total energy {te} inertial term {it} potentialenergy {pe}\n"
-                    )
                 resetLagrangian(flagrangian)
                 for ite in range(fine_iterations):
+                    log_energy(frame, filename_to_save)
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos,
                                         falpha_tilde)
                     collsion_response(fpos)
-                    te, it, pe = compute_energy(fmass,fpos,fpredict_pos,ftet_indices,fB,falpha_tilde)
-                    info(
-                        f"iteration {coarse_iterations + ite} total energy {te} inertial term {it} potentialenergy {pe}\n"
-                    )
-                    with open("result/log/totalEnergy.txt", "ab") as f:
-                        np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
-                    with open("result/log/potentialEnergy.txt", "ab") as f:
-                        np.savetxt(f, np.array([pe]), fmt="%.4e", delimiter="\t")
-                    with open("result/log/inertialEnergy.txt", "ab") as f:
-                        np.savetxt(f, np.array([it]), fmt="%.4e", delimiter="\t")
 
                 updteVelocity(h, fpos, fold_pos, fvel)
             frame += 1

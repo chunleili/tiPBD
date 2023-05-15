@@ -15,7 +15,7 @@ from engine.mesh_io import read_tetgen
 
 ti.init(arch=ti.cpu)
 
-omega = 0.4  # SOR factor
+omega = 0.1  # SOR factor
 inv_mu = 1.0e-6
 h = 0.003
 inv_h2 = 1.0 / h / h
@@ -25,8 +25,9 @@ coarse_iterations, fine_iterations = 5, 5
 only_fine_iterations = coarse_iterations + fine_iterations
 
 mass_density = 2000
+damping_coeff = 0.99
 
-fine_model_pos, fine_model_inx, fine_model_tri = read_tetgen("data/model/cube/fine")
+fine_model_pos, fine_model_inx, fine_model_tri = read_tetgen("data/model/cube_64k/fine")
 fNV = len(fine_model_pos)
 fNT = len(fine_model_inx)
 fNF = len(fine_model_tri)
@@ -44,7 +45,7 @@ finv_V = ti.field(float, fNT)  # volume of each tet
 falpha_tilde = ti.field(float, fNT)
 
 coarse_model_pos, coarse_model_inx, coarse_model_tri = read_tetgen(
-    "data/model/cube/coarse")
+    "data/model/cube_64k/coarse")
 cNV = len(coarse_model_pos)
 cNT = len(coarse_model_inx)
 cNF = len(coarse_model_tri)
@@ -61,7 +62,7 @@ clagrangian = ti.field(float, cNT)  # lagrangian multipliers
 cinv_V = ti.field(float, cNT)  # volume of each tet
 calpha_tilde = ti.field(float, cNT)
 
-P = sio.mmread("data/model/cube/P.mtx")
+P = sio.mmread("data/model/cube_64k/P.mtx")
 
 
 def update_fine_mesh():
@@ -70,7 +71,7 @@ def update_fine_mesh():
     fpos.from_numpy(fpos_np)
 
 
-R = sio.mmread("data/model/cube/R.mtx")
+R = sio.mmread("data/model/cube_64k/R.mtx")
 
 
 def update_coarse_mesh():
@@ -178,10 +179,11 @@ def computeGradient(U, S, V, B):
 
 @ti.kernel
 def semiEuler(h: ti.f32, pos: ti.template(), predic_pos: ti.template(),
-              old_pos: ti.template(), vel: ti.template()):
+              old_pos: ti.template(), vel: ti.template(), damping_coeff: ti.f32):
     # semi-Euler update pos & vel
     for i in pos:
         vel[i] += h * gravity
+        vel[i] *= damping_coeff
         old_pos[i] = pos[i]
         pos[i] += h * vel[i]
         predic_pos[i] = pos[i]
@@ -285,7 +287,7 @@ def init_random_position(pos: ti.template(),
         ])
 
 def log_energy(frame, filename_to_save):
-    if frame==0:
+    if False:
         te, it, pe = compute_energy(fmass, fpos, fpredict_pos, ftet_indices, fB, falpha_tilde)
         with open(filename_to_save, "ab") as f:
             np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
@@ -324,9 +326,9 @@ def main():
     pause = False
     show_coarse_mesh = True
     show_fine_mesh = True
-    frame, max_frames = 0, 11
+    frame, max_frames = 0, 10000
 
-    is_only_fine = True # TODO: change to False to run multigrid
+    is_only_fine = False # TODO: change to False to run multigrid
 
     if is_only_fine:
         filename_to_save = "result/log/totalEnergy_onlyfine.txt"
@@ -357,7 +359,7 @@ def main():
         if not pause:
             info(f"######## frame {frame} ########")
             if is_only_fine:
-                semiEuler(h, fpos, fpredict_pos, fold_pos, fvel)
+                semiEuler(h, fpos, fpredict_pos, fold_pos, fvel, damping_coeff)
                 resetLagrangian(flagrangian)
                 for ite in range(only_fine_iterations):
                     log_energy(frame, filename_to_save)
@@ -366,7 +368,7 @@ def main():
                     collsion_response(fpos)
                 updteVelocity(h, fpos, fold_pos, fvel)
             else:
-                semiEuler(h, fpos, fpredict_pos, fold_pos, fvel)
+                semiEuler(h, fpos, fpredict_pos, fold_pos, fvel, damping_coeff)
                 update_coarse_mesh()
                 resetLagrangian(clagrangian)
                 for ite in range(coarse_iterations):

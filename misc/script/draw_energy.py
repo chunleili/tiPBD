@@ -32,7 +32,7 @@ if seperate:
     plt.legend()
     plt.figure(figsize=(10, 6))
 plt.plot(total_energy_mg, label='total energy mg', marker='x', markersize=5, color='orange')
-plt.ylabel('energy within frame #10')
+plt.ylabel('energy')
 plt.xlabel('iterations')
 plt.legend()
 plt.show()

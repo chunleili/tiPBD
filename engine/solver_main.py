@@ -2,7 +2,7 @@ import taichi as ti
 
 def solver_main():
     from engine.metadata import meta
-    is_standalone = False
+    meta.is_standalone = False
     if meta.get_common('simulation_method') == 'arap':
         from engine.volumetric.arap import ARAP as Solver
         pbd_solver = Solver()
@@ -21,22 +21,22 @@ def solver_main():
 
     elif meta.get_common('simulation_method') == 'pbf':
         import engine.fluid.pbf as standalone_solver
-        is_standalone = True
+        meta.is_standalone = True
         standalone_solver.main()
     elif meta.get_common('simulation_method') == "pbf2d":
         import engine.fluid.pbf2d_sparse as standalone_solver
-        is_standalone = True
+        meta.is_standalone = True
         standalone_solver.main()
     elif meta.get_common('simulation_method') == "shape_matching_rigidbody":
         import engine.shape_matching.rigidbody as standalone_solver
-        is_standalone = True
+        meta.is_standalone = True
         standalone_solver.main()
     elif meta.get_common('simulation_method') == "arap_multigrid":
         import engine.volumetric.arap_multigrid as standalone_solver
-        is_standalone = True
+        meta.is_standalone = True
         standalone_solver.main()
     
-    if meta.get_common("self_main", False) or is_standalone:
+    if meta.get_common("self_main", False) or meta.is_standalone or meta.args.no_json:
         return
 
     meta.pbd_solver = pbd_solver

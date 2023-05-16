@@ -12,6 +12,8 @@ import sys,os
 sys.path.append(os.getcwd())
 from engine.mesh_io import read_tetgen
 # from engine.log import log_energy
+from engine.metadata import meta
+
 
 ti.init(arch=ti.cpu)
 

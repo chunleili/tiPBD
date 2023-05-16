@@ -4,6 +4,8 @@ def parse_cli():
     import os
 
     parser = configargparse.ArgumentParser(description='taichi PBD')
+    parser.add_argument('--no_json', action='store_true', default=False,
+                           help='do not use json config file')
     parser.add_argument('--scene_file', type=str, default="",
                         help='manually specify scene file, if not specified, use gui to select')
     parser.add_argument("--arch", type=str, default="cuda",

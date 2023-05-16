@@ -15,8 +15,6 @@ def singleton(cls):
 class MetaData:
     def __init__(self):
         import os
-        from ui.filedialog import filedialog
-        from ui.config_builder import SimConfig
         from ui.parse_cli import parse_cli
 
         self.root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -26,11 +24,20 @@ class MetaData:
         self.args = parse_cli()
         # print("args:", self.args)
 
+        self.common = {}
+        self.materials = [{}]
+
+        if self.args.no_json == True:
+            return
+
         if self.args.scene_file == "":
+            from ui.filedialog import filedialog
             self.scene_path = filedialog()
         else:
             self.scene_path = self.args.scene_file
         self.scene_name = self.scene_path.split("/")[-1].split(".")[0]
+
+        from ui.config_builder import SimConfig
         self.config_instance = SimConfig(scene_file_path=self.scene_path)
         self.common = self.config_instance.config["common"]
         self.materials = self.config_instance.config["materials"]

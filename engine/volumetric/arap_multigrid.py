@@ -12,8 +12,9 @@ import sys,os
 sys.path.append(os.getcwd())
 from engine.mesh_io import read_tetgen
 # from engine.log import log_energy
-from engine.metadata import meta
+# from engine.metadata import meta
 
+model_path = "data/model/cube/"
 
 ti.init(arch=ti.cpu)
 
@@ -29,7 +30,7 @@ only_fine_iterations = coarse_iterations + fine_iterations
 mass_density = 2000
 damping_coeff = 0.99
 
-fine_model_pos, fine_model_inx, fine_model_tri = read_tetgen("data/model/cube_64k/fine")
+fine_model_pos, fine_model_inx, fine_model_tri = read_tetgen(model_path+"fine")
 fNV = len(fine_model_pos)
 fNT = len(fine_model_inx)
 fNF = len(fine_model_tri)
@@ -47,7 +48,7 @@ finv_V = ti.field(float, fNT)  # volume of each tet
 falpha_tilde = ti.field(float, fNT)
 
 coarse_model_pos, coarse_model_inx, coarse_model_tri = read_tetgen(
-    "data/model/cube_64k/coarse")
+    model_path+"coarse")
 cNV = len(coarse_model_pos)
 cNT = len(coarse_model_inx)
 cNF = len(coarse_model_tri)
@@ -64,7 +65,9 @@ clagrangian = ti.field(float, cNT)  # lagrangian multipliers
 cinv_V = ti.field(float, cNT)  # volume of each tet
 calpha_tilde = ti.field(float, cNT)
 
-P = sio.mmread("data/model/cube_64k/P.mtx")
+fpar_2_tet = ti.field(int, fNV)
+
+P = sio.mmread(model_path + "P.mtx")
 
 
 def update_fine_mesh():
@@ -73,7 +76,7 @@ def update_fine_mesh():
     fpos.from_numpy(fpos_np)
 
 
-R = sio.mmread("data/model/cube_64k/R.mtx")
+R = sio.mmread(model_path + "R.mtx")
 
 
 def update_coarse_mesh():
@@ -191,6 +194,10 @@ def semiEuler(h: ti.f32, pos: ti.template(), predic_pos: ti.template(),
         predic_pos[i] = pos[i]
 
 
+fgradC = ti.Vector.field(3, ti.f32, shape=(fNT,4))
+fconstraint = ti.field(ti.f32, shape=(fNT))
+fdpos = ti.Vector.field(3, ti.f32, shape=(fNV))
+
 @ti.kernel
 def updteVelocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(),
                   vel: ti.template()):
@@ -230,6 +237,13 @@ def project_constraints(mid_pos: ti.template(), tet_indices: ti.template(),
         pos[ib] -= omega * invM1 * dLambda * g1
         pos[ic] -= omega * invM2 * dLambda * g2
         pos[id] -= omega * invM3 * dLambda * g3
+
+        fgradC[i,0], fgradC[i,1], fgradC[i,2], fgradC[i,3] = g0, g1, g2, g3
+        fconstraint[i] = constraint
+        fdpos[ia] = omega * invM0 * dLambda * g0
+        fdpos[ib] = omega * invM1 * dLambda * g1
+        fdpos[ic] = omega * invM2 * dLambda * g2
+        fdpos[id] = omega * invM3 * dLambda * g3
 
 
 @ti.kernel
@@ -294,6 +308,63 @@ def log_energy(frame, filename_to_save):
         with open(filename_to_save, "ab") as f:
             np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
 
+@ti.kernel
+def compute_par_2_tet(tet_indices:ti.template(), par_2_tet:ti.template()):
+    for i in tet_indices:
+        ia, ib, ic, id = tet_indices[i]
+        par_2_tet[ia] = i
+        par_2_tet[ib] = i
+        par_2_tet[ic] = i
+        par_2_tet[id] = i
+
+
+def compute_residual() -> float:
+    n = fpos.shape[0]
+    m = ftet_indices.shape[0]
+    tet_indices = ftet_indices
+    par_2_tet = fpar_2_tet
+    dx = fdpos
+    # A = ti.linalg.SparseMatrixBuilder(n, n, max_num_triplets=12*m)
+    b = ti.field(ti.f32, shape=3*n)
+    r = ti.field(ti.f32, shape=3*n)
+
+    # @ti.kernel
+    # def fill(A: ti.types.sparse_matrix_builder(), b: ti.types.ndarray()):
+    @ti.kernel
+    def fill():
+        r_sqr = 0.0
+        for i in range(n):
+            mass = fmass[i]
+            j = par_2_tet[i]
+
+            gradC_sqr = 0.0
+            for l in ti.static(range(4)):
+                for p in ti.static(range(3)):
+                    gradC_sqr += fgradC[j, l][p]**2
+
+            for l in ti.static(range(4)):
+                for p in ti.static(range(3)):
+                    ii = 3*i + p
+                    gradC_ = fgradC[j, l][p]
+                    al = 1.0/falpha_tilde[j]
+                    lam = flagrangian[j]
+                    C = fconstraint[j]
+
+                    r[ii]
+        return r_sqr
+
+    r_sqr = fill()  
+    return r_sqr
+
+
+def log_residual(frame, filename_to_save):
+    if False:
+        r_sqr = compute_residual()
+        logging.info("residual: {}".format(r_sqr))
+        with open(filename_to_save, "ab") as f:
+            np.savetxt(f, np.array([r_sqr]), fmt="%.4e", delimiter="\t")
+
+
 def main():
     logging.getLogger().setLevel(logging.INFO)
 
@@ -302,6 +373,8 @@ def main():
     init_pos(coarse_model_pos, coarse_model_inx, coarse_model_tri, cpos,
              cold_pos, cvel, cmass, ctet_indices, cB, cinv_V, cdisplay_indices,
              cNF)
+    
+    compute_par_2_tet(ftet_indices, fpar_2_tet)
     
     init_style = 'enlarge'
 
@@ -367,6 +440,7 @@ def main():
                     log_energy(frame, filename_to_save)
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos, falpha_tilde)
+                    log_residual(frame, filename_to_save)
                     collsion_response(fpos)
                 updteVelocity(h, fpos, fold_pos, fvel)
             else:
@@ -378,6 +452,7 @@ def main():
                     project_constraints(cpos_mid, ctet_indices, cmass,
                                         clagrangian, cB, cpos,
                                         calpha_tilde)
+                    log_residual(frame, filename_to_save)
                     collsion_response(cpos)
                     update_fine_mesh()
                 resetLagrangian(flagrangian)
@@ -386,6 +461,7 @@ def main():
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos,
                                         falpha_tilde)
+                    log_residual(frame, filename_to_save)
                     collsion_response(fpos)
 
                 updteVelocity(h, fpos, fold_pos, fvel)

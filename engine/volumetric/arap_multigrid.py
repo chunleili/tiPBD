@@ -323,7 +323,6 @@ def compute_residual() -> float:
     m = ftet_indices.shape[0]
     tet_indices = ftet_indices
     par_2_tet = fpar_2_tet
-    dx = fdpos
     # A = ti.linalg.SparseMatrixBuilder(n, n, max_num_triplets=12*m)
     b = ti.field(ti.f32, shape=3*n)
     r = ti.field(ti.f32, shape=3*n)
@@ -336,21 +335,27 @@ def compute_residual() -> float:
         for i in range(n):
             mass = fmass[i]
             j = par_2_tet[i]
+            lam_j = flagrangian[j]
+            for p in ti.static(range(3)):
+                ii = 3*i + p
+                
+                # term 1
+                r[ii] += mass * fdpos[i][p]
+
+                # term 3
+                r[ii] += gradC_i * lam_j
 
             gradC_sqr = 0.0
             for l in ti.static(range(4)):
                 for p in ti.static(range(3)):
                     gradC_sqr += fgradC[j, l][p]**2
 
-            for l in ti.static(range(4)):
-                for p in ti.static(range(3)):
                     ii = 3*i + p
                     gradC_ = fgradC[j, l][p]
                     al = 1.0/falpha_tilde[j]
-                    lam = flagrangian[j]
                     C = fconstraint[j]
 
-                    r[ii]
+
         return r_sqr
 
     r_sqr = fill()  

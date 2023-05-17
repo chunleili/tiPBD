@@ -7,8 +7,10 @@ import scipy.io as sio
 import numpy as np
 import logging
 from logging import info
-
+from scipy.sparse import coo_matrix
+from scipy.io import mmwrite
 import sys,os
+
 sys.path.append(os.getcwd())
 from engine.mesh_io import read_tetgen
 # from engine.log import log_energy
@@ -320,46 +322,67 @@ def compute_par_2_tet(tet_indices:ti.template(), par_2_tet:ti.template()):
 
 def compute_residual() -> float:
     n = fpos.shape[0]
-    m = ftet_indices.shape[0]
+    m = ftet_indices.shape[0] 
     tet_indices = ftet_indices
     par_2_tet = fpar_2_tet
     # A = ti.linalg.SparseMatrixBuilder(n, n, max_num_triplets=12*m)
     b = ti.field(ti.f32, shape=3*n)
     r = ti.field(ti.f32, shape=3*n)
 
+    # fill the matrix to numpy
+    M = fmass.to_numpy()
+    M = np.diag(M)
+    M = np.kron(M, np.eye(3))
+    dx = fdpos.to_numpy().flatten()
+    
+    # fill gradC to numpy
+    fgradC_np = fgradC.to_numpy()
+    gradC = np.zeros((m, 3*n), dtype=np.float32)
+    # R_coo = coo_matrix((val, (row, col)), shape=(m, n))
+    for j in range(m):
+        ia, ib, ic, id = tet_indices[j]
+        gradC[j, 3*ia:3*ia+3] = fgradC_np[j, 0]
+        gradC[j, 3*ib:3*ib+3] = fgradC_np[j, 1]
+        gradC[j, 3*ic:3*ic+3] = fgradC_np[j, 2]
+        gradC[j, 3*id:3*id+3] = fgradC_np[j, 3]
+    
+    print(gradC)
+
+
+
     # @ti.kernel
-    # def fill(A: ti.types.sparse_matrix_builder(), b: ti.types.ndarray()):
-    @ti.kernel
-    def fill():
-        r_sqr = 0.0
-        for i in range(n):
-            mass = fmass[i]
-            j = par_2_tet[i]
-            lam_j = flagrangian[j]
-            for p in ti.static(range(3)):
-                ii = 3*i + p
-                
-                # term 1
-                r[ii] += mass * fdpos[i][p]
+    # def fill():
+    #     r_sqr = 0.0
+    #     for i in range(n):
+    #         mass = fmass[i]
+    #         j = par_2_tet[i]
+    #         lam_j = flagrangian[j]
+    #         dx = fdpos[i]
+    #         gradC_j = fgradC[j, 0], fgradC[j, 1], fgradC[j, 2], fgradC[j, 3]
 
-                # term 3
-                r[ii] += gradC_i * lam_j
+    #         for p in ti.static(range(3)):
+    #             ii = 3*i + p
+    #             r[ii] = 0.0
 
-            gradC_sqr = 0.0
-            for l in ti.static(range(4)):
-                for p in ti.static(range(3)):
-                    gradC_sqr += fgradC[j, l][p]**2
+    #             # M * dx
+    #             r[ii] += mass * dx[p]
 
-                    ii = 3*i + p
-                    gradC_ = fgradC[j, l][p]
-                    al = 1.0/falpha_tilde[j]
-                    C = fconstraint[j]
+    #             # gradC.T * lam
+    #             for j in ti.static(range(m)):
+    #                 r[ii] += gradC_j_ii * lam_j
 
+    #         gradC_sqr = 0.0
+    #         for l in ti.static(range(4)):
+    #             for p in ti.static(range(3)):
+    #                 gradC_sqr += fgradC[j, l][p]**2
 
-        return r_sqr
-
-    r_sqr = fill()  
-    return r_sqr
+    #                 ii = 3*i + p
+    #                 gradC_ = fgradC[j, l][p]
+    #                 al = 1.0/falpha_tilde[j]
+    #                 C = fconstraint[j]
+    #     return r_sqr
+    # r_sqr = fill()  
+    # return r_sqr
 
 
 def log_residual(frame, filename_to_save):

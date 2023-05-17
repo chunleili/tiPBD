@@ -120,8 +120,7 @@ class Selector:
                     self.num_selected[None] += 1
         get_ids_kernel()
         ids_np = self.selected_ids.to_numpy()
-        # ids_np = ids_np[:self.num_selected[None]]
-        ids_np = ids_np[ids_np != -1]
+        ids_np = ids_np[:self.num_selected[None]]
         return ids_np
     
     def get_num_selected(self):
@@ -155,7 +154,7 @@ def visualize(particle_pos):
 
         canvas.scene(scene)
         window.show()
-        ti.profiler.print_kernel_profiler_info()
+        # ti.profiler.print_kernel_profiler_info()
 
 if __name__ == "__main__":
     import trimesh

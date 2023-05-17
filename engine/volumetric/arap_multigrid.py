@@ -96,7 +96,7 @@ def init_pos(pos_in: ti.types.ndarray(), tet_indices_in: ti.types.ndarray(),
              old_pos_out: ti.template(), vel_out: ti.template(),
              mass_out: ti.template(), tet_indices_out: ti.template(),
              B_out: ti.template(), inv_V_out: ti.template(),
-             display_indices_out: ti.template(), NF: int):
+             display_indices_out: ti.template()):
     for i in pos_out:
         pos_out[i] = ti.Vector([pos_in[i, 0], pos_in[i, 1], pos_in[i, 2]])
         old_pos_out[i] = pos_out[i]
@@ -117,7 +117,7 @@ def init_pos(pos_in: ti.types.ndarray(), tet_indices_in: ti.types.ndarray(),
         mass_out[d] += avg_mass
         inv_V_out[i] = 1.0 / rest_volume
         B_out[i] = D_m.inverse()
-    for i in range(NF):
+    for i in range(tri_indices_in.shape[0]):
         display_indices_out[3 * i + 0] = tri_indices_in[i, 0]
         display_indices_out[3 * i + 1] = tri_indices_in[i, 1]
         display_indices_out[3 * i + 2] = tri_indices_in[i, 2]
@@ -385,7 +385,7 @@ def compute_residual() -> float:
 
 
 def log_residual(frame, filename_to_save):
-    if frame<100:
+    if frame<0:
         r_norm = compute_residual()
         logging.info("residual: {}".format(r_norm))
         with open(filename_to_save, "ab") as f:
@@ -398,10 +398,9 @@ def main():
                         format=' %(levelname)s %(message)s')
 
     init_pos(fine_model_pos, fine_model_inx, fine_model_tri, fpos, fold_pos,
-             fvel, fmass, ftet_indices, fB, finv_V, fdisplay_indices, fNF)
+             fvel, fmass, ftet_indices, fB, finv_V, fdisplay_indices)
     init_pos(coarse_model_pos, coarse_model_inx, coarse_model_tri, cpos,
-             cold_pos, cvel, cmass, ctet_indices, cB, cinv_V, cdisplay_indices,
-             cNF)
+             cold_pos, cvel, cmass, ctet_indices, cB, cinv_V, cdisplay_indices)
     
     compute_par_2_tet(ftet_indices, fpar_2_tet)
     

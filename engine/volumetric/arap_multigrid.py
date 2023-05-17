@@ -433,6 +433,7 @@ def main():
     frame, max_frames = 0, 10000
 
     is_only_fine = True # TODO: change to False to run multigrid
+    info("is_only_fine: {}".format(is_only_fine))
 
     if is_only_fine:
         energy_filename = "result/log/totalEnergy_onlyfine.txt"
@@ -488,6 +489,7 @@ def main():
                     project_constraints(cpos_mid, ctet_indices, cmass,
                                         clagrangian, cB, cpos,
                                         calpha_tilde)
+                    log_residual(frame, residual_filename)
                     collsion_response(cpos)
                     update_fine_mesh()
                 resetLagrangian(flagrangian)

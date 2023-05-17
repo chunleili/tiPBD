@@ -6,11 +6,11 @@ InteractiveShell.ast_node_interactivity = 'all'
 
 # %%
 onlyfine = np.loadtxt("result/log/residual_onlyfine.txt")
-onlyfine = onlyfine[0:10]
+onlyfine = onlyfine[0:30]
 
 mg = np.loadtxt("result/log/residual_mg.txt")
-mg = mg[0:10]
-# 由于mg的fine mesh只在后5个iter里计算，所以前面空出来
+mg = mg[0:30]
+mg[0:5] = np.nan
 
 
 # %%

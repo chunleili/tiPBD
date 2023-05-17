@@ -7,7 +7,8 @@ import scipy.io as sio
 import numpy as np
 import logging
 from logging import info
-from scipy.sparse import coo_matrix
+import scipy
+from scipy.sparse import coo_matrix, spdiags, kron
 from scipy.io import mmwrite
 import sys,os
 
@@ -68,9 +69,12 @@ cinv_V = ti.field(float, cNT)  # volume of each tet
 calpha_tilde = ti.field(float, cNT)
 
 fpar_2_tet = ti.field(int, fNV)
+fgradC = ti.Vector.field(3, ti.f32, shape=(fNT,4))
+fconstraint = ti.field(ti.f32, shape=(fNT))
+fdpos = ti.Vector.field(3, ti.f32, shape=(fNV))
+
 
 P = sio.mmread(model_path + "P.mtx")
-
 
 def update_fine_mesh():
     cpos_np = cpos.to_numpy()
@@ -79,7 +83,6 @@ def update_fine_mesh():
 
 
 R = sio.mmread(model_path + "R.mtx")
-
 
 def update_coarse_mesh():
     fpos_np = fpos.to_numpy()
@@ -196,9 +199,7 @@ def semiEuler(h: ti.f32, pos: ti.template(), predic_pos: ti.template(),
         predic_pos[i] = pos[i]
 
 
-fgradC = ti.Vector.field(3, ti.f32, shape=(fNT,4))
-fconstraint = ti.field(ti.f32, shape=(fNT))
-fdpos = ti.Vector.field(3, ti.f32, shape=(fNV))
+
 
 @ti.kernel
 def updteVelocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(),
@@ -215,6 +216,7 @@ def project_constraints(mid_pos: ti.template(), tet_indices: ti.template(),
                         alpha_tilde: ti.template()):
     for i in pos:
         mid_pos[i] = pos[i]
+        fdpos[i] = ti.Vector([0.0, 0.0, 0.0])
 
     for i in tet_indices:
         ia, ib, ic, id = tet_indices[i]
@@ -240,12 +242,13 @@ def project_constraints(mid_pos: ti.template(), tet_indices: ti.template(),
         pos[ic] -= omega * invM2 * dLambda * g2
         pos[id] -= omega * invM3 * dLambda * g3
 
+        # save val for logging residual
         fgradC[i,0], fgradC[i,1], fgradC[i,2], fgradC[i,3] = g0, g1, g2, g3
         fconstraint[i] = constraint
-        fdpos[ia] = omega * invM0 * dLambda * g0
-        fdpos[ib] = omega * invM1 * dLambda * g1
-        fdpos[ic] = omega * invM2 * dLambda * g2
-        fdpos[id] = omega * invM3 * dLambda * g3
+        fdpos[ia] += omega * invM0 * dLambda * g0
+        fdpos[ib] += omega * invM1 * dLambda * g1
+        fdpos[ic] += omega * invM2 * dLambda * g2
+        fdpos[id] += omega * invM3 * dLambda * g3
 
 
 @ti.kernel
@@ -325,8 +328,6 @@ def compute_residual() -> float:
     m = ftet_indices.shape[0] 
     tet_indices = ftet_indices
     par_2_tet = fpar_2_tet
-    b = ti.field(ti.f32, shape=3*n)
-    r = ti.field(ti.f32, shape=3*n)
     
     # fill gradC to numpy
     gradC_vec = fgradC.to_numpy()
@@ -344,38 +345,57 @@ def compute_residual() -> float:
         col[12*j+3*1 : 12*j+3*1+3] = 3*ib, 3*ib+1, 3*ib+2
         col[12*j+3*2 : 12*j+3*2+3] = 3*ic, 3*ic+1, 3*ic+2
         col[12*j+3*3 : 12*j+3*3+3] = 3*id, 3*id+1, 3*id+2
-    gradC_coo = coo_matrix((val, (row, col)), shape=(m, 3*n),dtype=np.float32)
+    gradC = coo_matrix((val, (row, col)), shape=(m, 3*n),dtype=np.float32)
     # print(gradC_coo)
+    
 
-    # compute gradCT_lam
+    # fill lam 
     lam = flagrangian.to_numpy()
-    gradCT_lam = gradC_coo.T.dot(lam)
-    # print(gradCT_lam.shape)
-
     # fill M
     M = fmass.to_numpy()
-    M = np.diag(M)
-    M = np.kron(M, np.eye(3))
+    M = scipy.sparse.kron(scipy.sparse.diags(M), scipy.sparse.eye(3))
+    # fill alpha_tilde_inv 
+    alpha_tilde_inv = falpha_tilde.to_numpy()
+    alpha_tilde_inv[:] = 1.0 / alpha_tilde_inv[:]
+    alpha_tilde_inv = spdiags(alpha_tilde_inv, 0, m, m)
+    # fill C
+    C = fconstraint.to_numpy()
+    # fill dx
+    dx = fdpos.to_numpy().flatten()
 
-    # fill alpha
-    alpha_inv = falpha_tilde.to_numpy()
-    alpha_inv = 1.0 / alpha_inv
+    # compute A = M + gradCT * alpha_tilde_inv * gradC
+    gradCT_alpha = gradC.T * alpha_tilde_inv
+    gradCT_alpha_gradC = gradCT_alpha * gradC
+    A = M + gradCT_alpha_gradC
+    ...
 
+    # compute b = -(gradCT * lam + gradCT * alpha_tilde_inv * C)
+    gradCT_lam = gradC.T * lam
+    gradCT_alpha_C = gradCT_alpha * C
+    b = -(gradCT_lam + gradCT_alpha_C)
+    ...
 
+    # compute r = A * dx - b
+    A_dx = A * dx
+    r = A_dx - b
 
+    r_norm = np.linalg.norm(r)
+    return r_norm
 
 
 
 def log_residual(frame, filename_to_save):
-    if frame==0:
-        r_sqr = compute_residual()
-        logging.info("residual: {}".format(r_sqr))
+    if frame<100:
+        r_norm = compute_residual()
+        logging.info("residual: {}".format(r_norm))
         with open(filename_to_save, "ab") as f:
-            np.savetxt(f, np.array([r_sqr]), fmt="%.4e", delimiter="\t")
+            np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
 
 
 def main():
     logging.getLogger().setLevel(logging.INFO)
+    logging.basicConfig(level=logging.INFO,
+                        format=' %(levelname)s %(message)s')
 
     init_pos(fine_model_pos, fine_model_inx, fine_model_tri, fpos, fold_pos,
              fvel, fmass, ftet_indices, fB, finv_V, fdisplay_indices, fNF)
@@ -412,15 +432,22 @@ def main():
     show_fine_mesh = True
     frame, max_frames = 0, 10000
 
-    is_only_fine = False # TODO: change to False to run multigrid
+    is_only_fine = True # TODO: change to False to run multigrid
 
     if is_only_fine:
-        filename_to_save = "result/log/totalEnergy_onlyfine.txt"
+        energy_filename = "result/log/totalEnergy_onlyfine.txt"
     else:
-        filename_to_save = "result/log/totalEnergy_mg.txt"
+        energy_filename = "result/log/totalEnergy_mg.txt"
+    if os.path.exists(energy_filename):
+        os.remove(energy_filename)
+    
+    if is_only_fine:
+        residual_filename = "result/log/residual_onlyfine.txt"
+    else:
+        residual_filename = "result/log/residual_mg.txt"
+    if os.path.exists(residual_filename):
+        os.remove(residual_filename)
 
-    if os.path.exists(filename_to_save):
-        os.remove(filename_to_save)
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
@@ -446,10 +473,10 @@ def main():
                 semiEuler(h, fpos, fpredict_pos, fold_pos, fvel, damping_coeff)
                 resetLagrangian(flagrangian)
                 for ite in range(only_fine_iterations):
-                    log_energy(frame, filename_to_save)
+                    log_energy(frame, energy_filename)
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos, falpha_tilde)
-                    log_residual(frame, filename_to_save)
+                    log_residual(frame, residual_filename)
                     collsion_response(fpos)
                 updteVelocity(h, fpos, fold_pos, fvel)
             else:
@@ -457,7 +484,7 @@ def main():
                 update_coarse_mesh()
                 resetLagrangian(clagrangian)
                 for ite in range(coarse_iterations):
-                    log_energy(frame, filename_to_save)
+                    log_energy(frame, energy_filename)
                     project_constraints(cpos_mid, ctet_indices, cmass,
                                         clagrangian, cB, cpos,
                                         calpha_tilde)
@@ -465,11 +492,11 @@ def main():
                     update_fine_mesh()
                 resetLagrangian(flagrangian)
                 for ite in range(fine_iterations):
-                    log_energy(frame, filename_to_save)
+                    log_energy(frame, energy_filename)
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos,
                                         falpha_tilde)
-                    log_residual(frame, filename_to_save)
+                    log_residual(frame, residual_filename)
                     collsion_response(fpos)
 
                 updteVelocity(h, fpos, fold_pos, fvel)

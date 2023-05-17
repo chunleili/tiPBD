@@ -15,3 +15,4 @@ result/*
 engine.egg-info
 build
 dist
+draft*

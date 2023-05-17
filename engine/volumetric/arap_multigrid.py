@@ -325,68 +325,49 @@ def compute_residual() -> float:
     m = ftet_indices.shape[0] 
     tet_indices = ftet_indices
     par_2_tet = fpar_2_tet
-    # A = ti.linalg.SparseMatrixBuilder(n, n, max_num_triplets=12*m)
     b = ti.field(ti.f32, shape=3*n)
     r = ti.field(ti.f32, shape=3*n)
+    
+    # fill gradC to numpy
+    gradC_vec = fgradC.to_numpy()
+    row = np.zeros(12*m, dtype=np.int32)
+    col = np.zeros(12*m, dtype=np.int32)
+    val = np.zeros(12*m, dtype=np.float32)
+    for j in range(m):
+        ia, ib, ic, id = tet_indices[j]
+        val[12*j+0*3 : 12*j+0*3+3] = gradC_vec[j,0]
+        val[12*j+1*3 : 12*j+1*3+3] = gradC_vec[j,1]
+        val[12*j+2*3 : 12*j+2*3+3] = gradC_vec[j,2]
+        val[12*j+3*3 : 12*j+3*3+3] = gradC_vec[j,3]
+        row[12*j     : 12*j+12] = j 
+        col[12*j+3*0 : 12*j+3*0+3] = 3*ia, 3*ia+1, 3*ia+2
+        col[12*j+3*1 : 12*j+3*1+3] = 3*ib, 3*ib+1, 3*ib+2
+        col[12*j+3*2 : 12*j+3*2+3] = 3*ic, 3*ic+1, 3*ic+2
+        col[12*j+3*3 : 12*j+3*3+3] = 3*id, 3*id+1, 3*id+2
+    gradC_coo = coo_matrix((val, (row, col)), shape=(m, 3*n),dtype=np.float32)
+    # print(gradC_coo)
 
-    # fill the matrix to numpy
+    # compute gradCT_lam
+    lam = flagrangian.to_numpy()
+    gradCT_lam = gradC_coo.T.dot(lam)
+    # print(gradCT_lam.shape)
+
+    # fill M
     M = fmass.to_numpy()
     M = np.diag(M)
     M = np.kron(M, np.eye(3))
-    dx = fdpos.to_numpy().flatten()
-    
-    # fill gradC to numpy
-    fgradC_np = fgradC.to_numpy()
-    gradC = np.zeros((m, 3*n), dtype=np.float32)
-    # R_coo = coo_matrix((val, (row, col)), shape=(m, n))
-    for j in range(m):
-        ia, ib, ic, id = tet_indices[j]
-        gradC[j, 3*ia:3*ia+3] = fgradC_np[j, 0]
-        gradC[j, 3*ib:3*ib+3] = fgradC_np[j, 1]
-        gradC[j, 3*ic:3*ic+3] = fgradC_np[j, 2]
-        gradC[j, 3*id:3*id+3] = fgradC_np[j, 3]
-    
-    print(gradC)
+
+    # fill alpha
+    alpha_inv = falpha_tilde.to_numpy()
+    alpha_inv = 1.0 / alpha_inv
 
 
 
-    # @ti.kernel
-    # def fill():
-    #     r_sqr = 0.0
-    #     for i in range(n):
-    #         mass = fmass[i]
-    #         j = par_2_tet[i]
-    #         lam_j = flagrangian[j]
-    #         dx = fdpos[i]
-    #         gradC_j = fgradC[j, 0], fgradC[j, 1], fgradC[j, 2], fgradC[j, 3]
 
-    #         for p in ti.static(range(3)):
-    #             ii = 3*i + p
-    #             r[ii] = 0.0
-
-    #             # M * dx
-    #             r[ii] += mass * dx[p]
-
-    #             # gradC.T * lam
-    #             for j in ti.static(range(m)):
-    #                 r[ii] += gradC_j_ii * lam_j
-
-    #         gradC_sqr = 0.0
-    #         for l in ti.static(range(4)):
-    #             for p in ti.static(range(3)):
-    #                 gradC_sqr += fgradC[j, l][p]**2
-
-    #                 ii = 3*i + p
-    #                 gradC_ = fgradC[j, l][p]
-    #                 al = 1.0/falpha_tilde[j]
-    #                 C = fconstraint[j]
-    #     return r_sqr
-    # r_sqr = fill()  
-    # return r_sqr
 
 
 def log_residual(frame, filename_to_save):
-    if False:
+    if frame==0:
         r_sqr = compute_residual()
         logging.info("residual: {}".format(r_sqr))
         with open(filename_to_save, "ab") as f:
@@ -480,7 +461,6 @@ def main():
                     project_constraints(cpos_mid, ctet_indices, cmass,
                                         clagrangian, cB, cpos,
                                         calpha_tilde)
-                    log_residual(frame, filename_to_save)
                     collsion_response(cpos)
                     update_fine_mesh()
                 resetLagrangian(flagrangian)

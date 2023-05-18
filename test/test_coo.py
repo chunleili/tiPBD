@@ -30,3 +30,24 @@ for j in range(m):
 gradC_coo = coo_matrix((val, (row, col)), shape=(m, n*3))
 print("gradC_coo\n",gradC_coo)
 print("gradC_coo.todense()\n",gradC_coo.todense())
+
+
+
+
+import taichi as ti
+ti.init()
+
+gradC = ti.linalg.SparseMatrixBuilder(m, 3*n, max_num_triplets=12*m)
+@ti.kernel 
+def fill(A:ti.types.sparse_matrix_builder(), gradC_vec: ti.types.ndarray()):
+    # fill gradC
+    ind = ti.Vector([0,2,3,7])
+    for j in range(m):
+        for p in range(4):
+            for d in range(3):
+                pid = ind[p]
+                A[j, 3*pid+d] += gradC_vec[j, p, d]
+fill(gradC, gradC_vec)
+
+A = gradC.build()
+print(A)

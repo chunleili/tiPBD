@@ -10,12 +10,15 @@ from logging import info
 import scipy
 from scipy.sparse import coo_matrix, spdiags, kron
 from scipy.io import mmwrite
-import sys,os
+import sys,os,argparse
 
 sys.path.append(os.getcwd())
 from engine.mesh_io import read_tetgen
 # from engine.log import log_energy
 # from engine.metadata import meta
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-mg',"--use_multigrid", action='store_true')
 
 model_path = "data/model/cube/"
 
@@ -24,14 +27,17 @@ ti.init(arch=ti.cpu)
 class Meta:
     ...
 meta = Meta()
-meta.frame = 0
-meta.max_frames = 11
-meta.use_multigrid = True # TODO: true for multigrid, false for only fine mesh
-meta.log_energy_range = range(11) # change to range(-1) to disable 
-meta.log_residual_range = range(11) # change to range(-1) to disable
-meta.frame_to_save = -1
-meta.filename_to_load = "result/save/onlyfine_"+str(10)+".npz" # change to "" to disable
 
+# meta.use_multigrid = True # TODO: true for multigrid, false for only fine mesh
+meta.use_multigrid = parser.parse_args().use_multigrid
+meta.frame = 0
+meta.max_frames = 100
+meta.log_energy_range = range(100) # change to range(-1) to disable 
+meta.log_residual_range = range(100) # change to range(-1) to disable
+meta.frame_to_save = -1
+# meta.filename_to_load = "result/save/onlyfine_"+str(50)+".npz" 
+meta.pause = False
+meta.pause_at = -1
 
 omega = 0.1  # SOR factor
 inv_mu = 1.0e-6
@@ -43,7 +49,7 @@ coarse_iterations, fine_iterations = 5, 5
 only_fine_iterations = coarse_iterations + fine_iterations
 
 mass_density = 2000
-damping_coeff = 0.99
+damping_coeff = 1.0
 
 fine_model_pos, fine_model_inx, fine_model_tri = read_tetgen(model_path+"fine")
 fNV = len(fine_model_pos)
@@ -200,7 +206,7 @@ def computeGradient(U, S, V, B):
 
 
 @ti.kernel
-def semiEuler(h: ti.f32, pos: ti.template(), predic_pos: ti.template(),
+def semiEuler(h: ti.f32, pos: ti.template(), predict_pos: ti.template(),
               old_pos: ti.template(), vel: ti.template(), damping_coeff: ti.f32):
     # semi-Euler update pos & vel
     for i in pos:
@@ -208,9 +214,7 @@ def semiEuler(h: ti.f32, pos: ti.template(), predic_pos: ti.template(),
         vel[i] *= damping_coeff
         old_pos[i] = pos[i]
         pos[i] += h * vel[i]
-        predic_pos[i] = pos[i]
-
-
+        predict_pos[i] = pos[i]
 
 
 @ti.kernel
@@ -337,64 +341,9 @@ def compute_par_2_tet(tet_indices:ti.template(), par_2_tet:ti.template()):
 
 
 def compute_residual() -> float:
-    n = fpos.shape[0]
-    m = ftet_indices.shape[0] 
-    tet_indices = ftet_indices
-    par_2_tet = fpar_2_tet
-    
-    # fill gradC to numpy
-    gradC_vec = fgradC.to_numpy()
-    row = np.zeros(12*m, dtype=np.int32)
-    col = np.zeros(12*m, dtype=np.int32)
-    val = np.zeros(12*m, dtype=np.float32)
-    for j in range(m):
-        ia, ib, ic, id = tet_indices[j]
-        val[12*j+0*3 : 12*j+0*3+3] = gradC_vec[j,0]
-        val[12*j+1*3 : 12*j+1*3+3] = gradC_vec[j,1]
-        val[12*j+2*3 : 12*j+2*3+3] = gradC_vec[j,2]
-        val[12*j+3*3 : 12*j+3*3+3] = gradC_vec[j,3]
-        row[12*j     : 12*j+12] = j 
-        col[12*j+3*0 : 12*j+3*0+3] = 3*ia, 3*ia+1, 3*ia+2
-        col[12*j+3*1 : 12*j+3*1+3] = 3*ib, 3*ib+1, 3*ib+2
-        col[12*j+3*2 : 12*j+3*2+3] = 3*ic, 3*ic+1, 3*ic+2
-        col[12*j+3*3 : 12*j+3*3+3] = 3*id, 3*id+1, 3*id+2
-    gradC = coo_matrix((val, (row, col)), shape=(m, 3*n),dtype=np.float32)
-    # print(gradC_coo)
-    
-
-    # fill lam 
-    lam = flagrangian.to_numpy()
-    # fill M
-    M = fmass.to_numpy()
-    M = scipy.sparse.kron(scipy.sparse.diags(M), scipy.sparse.eye(3))
-    # fill alpha_tilde_inv 
-    alpha_tilde_inv = falpha_tilde.to_numpy()
-    alpha_tilde_inv[:] = 1.0 / alpha_tilde_inv[:]
-    alpha_tilde_inv = spdiags(alpha_tilde_inv, 0, m, m)
-    # fill C
-    C = fconstraint.to_numpy()
-    # fill dx
-    dx = fdpos.to_numpy().flatten()
-
-    # compute A = M + gradCT * alpha_tilde_inv * gradC
-    gradCT_alpha = gradC.T * alpha_tilde_inv
-    gradCT_alpha_gradC = gradCT_alpha * gradC
-    A = M + gradCT_alpha_gradC
-    ...
-
-    # compute b = -(gradCT * lam + gradCT * alpha_tilde_inv * C)
-    gradCT_lam = gradC.T * lam
-    gradCT_alpha_C = gradCT_alpha * C
-    b = -(gradCT_lam + gradCT_alpha_C)
-    ...
-
-    # compute r = A * dx - b
-    A_dx = A * dx
-    r = A_dx - b
-
-    r_norm = np.linalg.norm(r)
+    residual = -(fconstraint.to_numpy() + falpha_tilde.to_numpy() * flagrangian.to_numpy())
+    r_norm = np.linalg.norm(residual)
     return r_norm
-
 
 
 def log_residual(frame, filename_to_save):
@@ -524,16 +473,19 @@ def main():
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
     gui = window.get_gui()
     wire_frame = True
-    pause = False
     show_coarse_mesh = True
     show_fine_mesh = True
 
     if meta.use_multigrid: 
         suffix = "mg"
-        info("using multigrid")
+        info("#############################################")
+        info("########## Using Multi-Grid Solver ##########")
+        info("#############################################")
     else: 
         suffix = "onlyfine"
-        info("only fine mesh")
+        info("#############################################")
+        info("########## Using Only Fine Solver ###########")
+        info("#############################################")
     energy_filename     = "result/log/totalEnergy_"+(suffix)+".txt"
     residual_filename   = "result/log/residual_"+(suffix)+".txt"
     save_state_filename = "result/save/"+(suffix)+"_"
@@ -541,7 +493,7 @@ def main():
     if os.path.exists(energy_filename):    os.remove(energy_filename)
     if os.path.exists(residual_filename):  os.remove(residual_filename)
 
-    if meta.filename_to_load != "":
+    if hasattr(meta,"filename_to_load") and meta.filename_to_load != "":
         load_state(meta.filename_to_load)
 
     while window.running:
@@ -555,14 +507,17 @@ def main():
             window.running = False
 
         if window.is_pressed(ti.ui.SPACE):
-            pause = not pause
+            meta.pause = not meta.pause
+        if meta.frame == meta.pause_at:
+            meta.pause = True
 
-        pause = gui.checkbox("pause", pause)
+        gui.text("frame {}".format(meta.frame))
+        meta.pause = gui.checkbox("pause", meta.pause)
         wire_frame = gui.checkbox("wireframe", wire_frame)
         show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
         show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
 
-        if not pause:
+        if not meta.pause:
             info(f"######## frame {meta.frame} ########")
             if not meta.use_multigrid:
                 if meta.frame == meta.frame_to_save:
@@ -571,9 +526,9 @@ def main():
                 resetLagrangian(flagrangian)
                 for ite in range(only_fine_iterations):
                     log_energy(meta.frame, energy_filename)
+                    log_residual(meta.frame, residual_filename)
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos, falpha_tilde)
-                    log_residual(meta.frame, residual_filename)
                     collsion_response(fpos)
                 updteVelocity(h, fpos, fold_pos, fvel)
             else:
@@ -582,19 +537,19 @@ def main():
                 resetLagrangian(clagrangian)
                 for ite in range(coarse_iterations):
                     log_energy(meta.frame, energy_filename)
+                    log_residual(meta.frame, residual_filename)
                     project_constraints(cpos_mid, ctet_indices, cmass,
                                         clagrangian, cB, cpos,
                                         calpha_tilde)
-                    log_residual(meta.frame, residual_filename)
                     collsion_response(cpos)
                     update_fine_mesh()
                 resetLagrangian(flagrangian)
                 for ite in range(fine_iterations):
                     log_energy(meta.frame, energy_filename)
+                    log_residual(meta.frame, residual_filename)
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos,
                                         falpha_tilde)
-                    log_residual(meta.frame, residual_filename)
                     collsion_response(fpos)
 
                 updteVelocity(h, fpos, fold_pos, fvel)

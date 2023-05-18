@@ -5,11 +5,17 @@ from IPython.core.interactiveshell import InteractiveShell
 InteractiveShell.ast_node_interactivity = 'all'
 
 # %%
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--max_frame','-f', type=int, default=10)
+max_frame = parser.parse_args().max_frame
+
+# %%
 onlyfine = np.loadtxt("result/log/residual_onlyfine.txt")
-onlyfine = onlyfine[0:10]
+onlyfine = onlyfine[0:max_frame]
 
 mg = np.loadtxt("result/log/residual_mg.txt")
-mg = mg[0:10]
+mg = mg[0:max_frame]
 # mg[0:5] = np.nan
 
 

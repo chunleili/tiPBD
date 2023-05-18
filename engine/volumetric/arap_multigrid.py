@@ -21,6 +21,18 @@ model_path = "data/model/cube/"
 
 ti.init(arch=ti.cpu)
 
+class Meta:
+    ...
+meta = Meta()
+meta.frame = 0
+meta.max_frames = 11
+meta.use_multigrid = True # TODO: true for multigrid, false for only fine mesh
+meta.log_energy_range = range(11) # change to range(-1) to disable 
+meta.log_residual_range = range(11) # change to range(-1) to disable
+meta.frame_to_save = -1
+meta.filename_to_load = "result/save/onlyfine_"+str(10)+".npz" # change to "" to disable
+
+
 omega = 0.1  # SOR factor
 inv_mu = 1.0e-6
 h = 0.003
@@ -50,6 +62,11 @@ flagrangian = ti.field(float, fNT)  # lagrangian multipliers
 finv_V = ti.field(float, fNT)  # volume of each tet
 falpha_tilde = ti.field(float, fNT)
 
+fpar_2_tet = ti.field(int, fNV)
+fgradC = ti.Vector.field(3, ti.f32, shape=(fNT,4))
+fconstraint = ti.field(ti.f32, shape=(fNT))
+fdpos = ti.Vector.field(3, ti.f32, shape=(fNV))
+
 coarse_model_pos, coarse_model_inx, coarse_model_tri = read_tetgen(
     model_path+"coarse")
 cNV = len(coarse_model_pos)
@@ -67,11 +84,6 @@ cB = ti.Matrix.field(DIM, DIM, float, cNT)  # D_m^{-1}
 clagrangian = ti.field(float, cNT)  # lagrangian multipliers
 cinv_V = ti.field(float, cNT)  # volume of each tet
 calpha_tilde = ti.field(float, cNT)
-
-fpar_2_tet = ti.field(int, fNV)
-fgradC = ti.Vector.field(3, ti.f32, shape=(fNT,4))
-fconstraint = ti.field(ti.f32, shape=(fNT))
-fdpos = ti.Vector.field(3, ti.f32, shape=(fNV))
 
 
 P = sio.mmread(model_path + "P.mtx")
@@ -308,9 +320,10 @@ def init_random_position(pos: ti.template(),
         ])
 
 def log_energy(frame, filename_to_save):
-    if False:
+    if frame in meta.log_energy_range:
         te, it, pe = compute_energy(fmass, fpos, fpredict_pos, ftet_indices, fB, falpha_tilde)
-        with open(filename_to_save, "ab") as f:
+        info(f"energy:\t{te}")
+        with open(filename_to_save, "a") as f:
             np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
 
 @ti.kernel
@@ -385,11 +398,96 @@ def compute_residual() -> float:
 
 
 def log_residual(frame, filename_to_save):
-    if frame<0:
+    if frame in meta.log_residual_range:
         r_norm = compute_residual()
-        logging.info("residual: {}".format(r_norm))
-        with open(filename_to_save, "ab") as f:
+        logging.info("residual:\t{}".format(r_norm))
+        with open(filename_to_save, "a") as f:
             np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
+
+
+def save_state(filename):
+    state = [
+        meta.frame,
+
+        fpos,
+        fpos_mid,
+        fpredict_pos,
+        fold_pos,
+        fvel,
+        fmass,
+        ftet_indices,
+        fdisplay_indices,
+        fB,
+        flagrangian,
+        finv_V,
+        falpha_tilde,
+
+        fpar_2_tet,
+        fgradC,
+        fconstraint,
+        fdpos,
+
+        cpos,
+        cpos_mid,
+        cpredict_pos,
+        cold_pos,
+        cvel,
+        cmass,
+        ctet_indices,
+        cdisplay_indices,
+        cB,
+        clagrangian,
+        cinv_V,
+        calpha_tilde
+    ]
+    for i in range(1, len(state)):
+        state[i] = state[i].to_numpy()
+    np.savez(filename, *state)
+    logging.info(f"saved state to '{filename}', totally saved {len(state)} variables")
+
+
+def load_state(filename):
+    npzfile = np.load(filename)
+
+    state = [
+        meta.frame,
+        fpos,
+        fpos_mid,
+        fpredict_pos,
+        fold_pos,
+        fvel,
+        fmass,
+        ftet_indices,
+        fdisplay_indices,
+        fB,
+        flagrangian,
+        finv_V,
+        falpha_tilde,
+
+        fpar_2_tet,
+        fgradC,
+        fconstraint,
+        fdpos,
+
+        cpos,
+        cpos_mid,
+        cpredict_pos,
+        cold_pos,
+        cvel,
+        cmass,
+        ctet_indices,
+        cdisplay_indices,
+        cB,
+        clagrangian,
+        cinv_V,
+        calpha_tilde
+    ]
+
+    meta.frame = int(npzfile["arr_0"])
+    for i in range(1, len(state)):
+        state[i].from_numpy(npzfile["arr_"+str(i)])
+
+    logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
 def main():
@@ -429,25 +527,22 @@ def main():
     pause = False
     show_coarse_mesh = True
     show_fine_mesh = True
-    frame, max_frames = 0, 10000
 
-    is_only_fine = True # TODO: change to False to run multigrid
-    info("is_only_fine: {}".format(is_only_fine))
+    if meta.use_multigrid: 
+        suffix = "mg"
+        info("using multigrid")
+    else: 
+        suffix = "onlyfine"
+        info("only fine mesh")
+    energy_filename     = "result/log/totalEnergy_"+(suffix)+".txt"
+    residual_filename   = "result/log/residual_"+(suffix)+".txt"
+    save_state_filename = "result/save/"+(suffix)+"_"
 
-    if is_only_fine:
-        energy_filename = "result/log/totalEnergy_onlyfine.txt"
-    else:
-        energy_filename = "result/log/totalEnergy_mg.txt"
-    if os.path.exists(energy_filename):
-        os.remove(energy_filename)
-    
-    if is_only_fine:
-        residual_filename = "result/log/residual_onlyfine.txt"
-    else:
-        residual_filename = "result/log/residual_mg.txt"
-    if os.path.exists(residual_filename):
-        os.remove(residual_filename)
+    if os.path.exists(energy_filename):    os.remove(energy_filename)
+    if os.path.exists(residual_filename):  os.remove(residual_filename)
 
+    if meta.filename_to_load != "":
+        load_state(meta.filename_to_load)
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
@@ -468,15 +563,17 @@ def main():
         show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
 
         if not pause:
-            info(f"######## frame {frame} ########")
-            if is_only_fine:
+            info(f"######## frame {meta.frame} ########")
+            if not meta.use_multigrid:
+                if meta.frame == meta.frame_to_save:
+                    save_state(save_state_filename+str(meta.frame))
                 semiEuler(h, fpos, fpredict_pos, fold_pos, fvel, damping_coeff)
                 resetLagrangian(flagrangian)
                 for ite in range(only_fine_iterations):
-                    log_energy(frame, energy_filename)
+                    log_energy(meta.frame, energy_filename)
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos, falpha_tilde)
-                    log_residual(frame, residual_filename)
+                    log_residual(meta.frame, residual_filename)
                     collsion_response(fpos)
                 updteVelocity(h, fpos, fold_pos, fvel)
             else:
@@ -484,26 +581,26 @@ def main():
                 update_coarse_mesh()
                 resetLagrangian(clagrangian)
                 for ite in range(coarse_iterations):
-                    log_energy(frame, energy_filename)
+                    log_energy(meta.frame, energy_filename)
                     project_constraints(cpos_mid, ctet_indices, cmass,
                                         clagrangian, cB, cpos,
                                         calpha_tilde)
-                    log_residual(frame, residual_filename)
+                    log_residual(meta.frame, residual_filename)
                     collsion_response(cpos)
                     update_fine_mesh()
                 resetLagrangian(flagrangian)
                 for ite in range(fine_iterations):
-                    log_energy(frame, energy_filename)
+                    log_energy(meta.frame, energy_filename)
                     project_constraints(fpos_mid, ftet_indices, fmass,
                                         flagrangian, fB, fpos,
                                         falpha_tilde)
-                    log_residual(frame, residual_filename)
+                    log_residual(meta.frame, residual_filename)
                     collsion_response(fpos)
 
                 updteVelocity(h, fpos, fold_pos, fvel)
-            frame += 1
+            meta.frame += 1
 
-        if frame == max_frames:
+        if meta.frame == meta.max_frames:
             window.running = False
 
         if show_fine_mesh:

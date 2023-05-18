@@ -6,11 +6,11 @@ InteractiveShell.ast_node_interactivity = 'all'
 
 # %%
 onlyfine = np.loadtxt("result/log/residual_onlyfine.txt")
-onlyfine = onlyfine[0:30]
+onlyfine = onlyfine[0:10]
 
 mg = np.loadtxt("result/log/residual_mg.txt")
-mg = mg[0:30]
-mg[0:5] = np.nan
+mg = mg[0:10]
+# mg[0:5] = np.nan
 
 
 # %%

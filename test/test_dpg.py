@@ -19,7 +19,7 @@ with dpg.window(label="Tutorial", width=500, height=500):
 with dpg.handler_registry():
     dpg.add_mouse_move_handler(callback=update_plot_data, user_data=data)
 
-dpg.create_viewport(title='Custom Title', width=800, height=600)
+dpg.create_viewport(title="Custom Title", width=800, height=600)
 dpg.setup_dearpygui()
 dpg.show_viewport()
 dpg.start_dearpygui()

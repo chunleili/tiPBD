@@ -1,5 +1,5 @@
 {
-	"common": 
+	"common":
 	{
 		"simulation_method": "arap",
 		"dt": 1e-3,

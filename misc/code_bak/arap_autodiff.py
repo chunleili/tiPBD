@@ -2,7 +2,7 @@ import taichi as ti
 
 
 @ti.data_oriented
-class ARAP_autodiff():
+class ARAP_autodiff:
     def __init__(self):
         super().__init__()
 
@@ -26,8 +26,7 @@ class ARAP_autodiff():
         for cid in range(self.cell_size):
             F = self.compute_F(self.x0[cid], self.x1[cid], self.x2[cid], self.x3[cid], self.B_ex[cid])
             U, S, V = ti.svd(F)
-            self.constraint[cid] = ti.sqrt((S[0, 0] - 1)**2 + (S[1, 1] - 1)**2 +(S[2, 2] - 1)**2)
-
+            self.constraint[cid] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
 
     def project_constraints(self):
         self.dump()
@@ -37,12 +36,16 @@ class ARAP_autodiff():
         self.x2.grad.fill(0.0)
         self.x3.grad.fill(0.0)
         self.compute_constraint.grad()
-        g0,g1,g2,g3 = self.x0.grad, self.x1.grad, self.x2.grad, self.x3.grad
-        self.apply_gradient(self.constraint, g0,g1,g2,g3)
+        g0, g1, g2, g3 = self.x0.grad, self.x1.grad, self.x2.grad, self.x3.grad
+        self.apply_gradient(self.constraint, g0, g1, g2, g3)
 
     @ti.kernel
-    def apply_gradient(self,constraint:ti.template(), g0:ti.template(), g1:ti.template(), g2:ti.template(), g3:ti.template()):
+    def apply_gradient(
+        self, constraint: ti.template(), g0: ti.template(), g1: ti.template(), g2: ti.template(), g3: ti.template()
+    ):
         for c in self.mesh.mesh.cells:
-            dlambda =  self.compute_dlambda(c, constraint[c.id], c.alpha, c.lagrangian, g0[c.id],g1[c.id],g2[c.id],g3[c.id])
+            dlambda = self.compute_dlambda(
+                c, constraint[c.id], c.alpha, c.lagrangian, g0[c.id], g1[c.id], g2[c.id], g3[c.id]
+            )
             c.lagrangian += dlambda
-            self.update_pos(c, dlambda, g0[c.id],g1[c.id],g2[c.id],g3[c.id])
+            self.update_pos(c, dlambda, g0[c.id], g1[c.id], g2[c.id], g3[c.id])

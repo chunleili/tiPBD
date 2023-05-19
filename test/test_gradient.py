@@ -1,12 +1,14 @@
-import sys,os
+import sys, os
 import taichi as ti
+
 sys.path.append(os.getcwd())
 from engine.gradient import *
 
+
 def test_grad_at_ij():
-    '''
+    """
     Test the gradient function in 2D
-    '''
+    """
     val = ti.field(ti.f32, shape=(3, 3))
     val[0, 0] = 0.0
     val[1, 0] = 1.0
@@ -29,7 +31,6 @@ def test_grad_at_ij():
     test()
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     ti.init()
     test_grad_at_ij()

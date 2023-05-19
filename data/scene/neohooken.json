@@ -1,5 +1,5 @@
 {
-	"common": 
+	"common":
 	{
 		"simulation_method": "neohooken",
 		"dt": 1e-4,

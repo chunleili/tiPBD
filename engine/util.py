@@ -1,5 +1,6 @@
 import taichi as ti
 
+
 @ti.kernel
 def init_tet_indices(mesh: ti.template(), indices: ti.template()):
     for c in mesh.cells:
@@ -12,14 +13,17 @@ def init_tet_indices(mesh: ti.template(), indices: ti.template()):
 def field_from_numpy(x_np):
     import numpy as np
     import taichi as ti
+
     ti.init()
     x = ti.Vector.field(3, dtype=ti.f32, shape=x_np.shape[0])
     x.from_numpy(x_np)
     return x
 
+
 def np_to_ti(input, dim=1):
     import numpy as np
-    if  isinstance(input, np.ndarray):
+
+    if isinstance(input, np.ndarray):
         if dim == 1:
             out = ti.field(dtype=ti.f32, shape=input.shape)
             out.from_numpy(input)
@@ -38,7 +42,8 @@ def random_fill_vec(x: ti.template(), dim: ti.template()):
         for j in range(shape[1]):
             for k in range(shape[2]):
                 for d in ti.static(range(dim)):
-                    x[i,j,k][d] = ti.random()
+                    x[i, j, k][d] = ti.random()
+
 
 @ti.kernel
 def random_fill_scalar(x: ti.template()):
@@ -46,7 +51,7 @@ def random_fill_scalar(x: ti.template()):
     for i in range(shape[0]):
         for j in range(shape[1]):
             for k in range(shape[2]):
-                    x[i,j,k] = ti.random()
+                x[i, j, k] = ti.random()
 
 
 def random_fill(x, dim):
@@ -55,16 +60,17 @@ def random_fill(x, dim):
     else:
         random_fill_scalar(x)
 
+
 def print_to_file(val, filename="field", dim=3):
     import numpy as np
-    val= val.to_numpy()
+
+    val = val.to_numpy()
     if dim == 1:
-        np.savetxt("result/"+filename+".csv", val, fmt="%.2e")
+        np.savetxt("result/" + filename + ".csv", val, fmt="%.2e")
     else:
-        np.savetxt("result/"+filename+".csv", val.reshape(-1, dim), fmt="%.2e")
+        np.savetxt("result/" + filename + ".csv", val.reshape(-1, dim), fmt="%.2e")
 
 
 @ti.func
 def pos_to_grid_idx(x, y, z, dx, dy, dz):
-    return ti.Vector([x/dx, y/dy, z/dz], ti.i32)
-
+    return ti.Vector([x / dx, y / dy, z / dz], ti.i32)

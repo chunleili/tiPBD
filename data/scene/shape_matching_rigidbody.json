@@ -1,5 +1,5 @@
 {
-	"common": 
+	"common":
 	{
 		"simulation_method": "shape_matching_rigidbody",
 		"self_main": true

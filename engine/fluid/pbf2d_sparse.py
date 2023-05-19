@@ -2,10 +2,13 @@ import math
 import numpy as np
 import taichi as ti
 
-#TODO: 注意！当前的参数是hard-code进去的，实际上并没使用json，后面会改掉。
+# TODO: 注意！当前的参数是hard-code进去的，实际上并没使用json，后面会改掉。
+
 
 class Parm:
     pass
+
+
 parm = Parm()
 
 
@@ -14,25 +17,28 @@ screen_to_world_ratio = 10.0
 parm.cell_size = 2.51
 cell_recpr = 1.0 / parm.cell_size
 
-parm.boundary = (screen_res[0] / screen_to_world_ratio,
-            screen_res[1] / screen_to_world_ratio)
+parm.boundary = (screen_res[0] / screen_to_world_ratio, screen_res[1] / screen_to_world_ratio)
+
+
 def round_up(f, s):
     return (math.floor(f * cell_recpr / s) + 1) * s
+
+
 parm.grid_size = (round_up(parm.boundary[0], 1), round_up(parm.boundary[1], 1))
 # print(parm.grid_size)
-parm.grid_size =     (32,16)
+parm.grid_size = (32, 16)
 parm.boundary = (80.0, 40.0)
 
 dim = 2
-bg_color = 0x112f41
+bg_color = 0x112F41
 particle_color = 0x068587
-boundary_color = 0xebaca2
+boundary_color = 0xEBACA2
 num_particles_x = 60
 num_particles = num_particles_x * 20
 max_num_particles_per_cell = 100
-bg_color = 0x112f41
+bg_color = 0x112F41
 particle_color = 0x068587
-boundary_color = 0xebaca2
+boundary_color = 0xEBACA2
 
 parm.max_num_neighbors = 100
 parm.time_delta = 1.0 / 20.0
@@ -54,19 +60,20 @@ parm.poly6_factor = 315.0 / 64.0 / math.pi
 parm.spiky_grad_factor = -45.0 / math.pi
 
 
-positions = ti.Vector.field(dim, float, shape =(num_particles))
-old_positions = ti.Vector.field(dim, float, shape = (num_particles))
-velocities = ti.Vector.field(dim, float, shape = (num_particles))
+positions = ti.Vector.field(dim, float, shape=(num_particles))
+old_positions = ti.Vector.field(dim, float, shape=(num_particles))
+velocities = ti.Vector.field(dim, float, shape=(num_particles))
 # grid_num_particles = ti.field(int, shape = (parm.grid_size))
 # grid2particles = ti.field(int, (parm.grid_size + (max_num_particles_per_cell,)))
-particle_num_neighbors = ti.field(int, shape = (num_particles))
-particle_neighbors = ti.field(int, shape = ((num_particles,) + (parm.max_num_neighbors,)))
-lambdas = ti.field(float, shape = (num_particles))
+particle_num_neighbors = ti.field(int, shape=(num_particles))
+particle_neighbors = ti.field(int, shape=((num_particles,) + (parm.max_num_neighbors,)))
+lambdas = ti.field(float, shape=(num_particles))
 position_deltas = ti.Vector.field(dim, float, shape=(num_particles))
-board_states = ti.Vector.field(2, float, shape =())
+board_states = ti.Vector.field(2, float, shape=())
+
 
 @ti.data_oriented
-class SparseGrid():
+class SparseGrid:
     def __init__(self, grid_size):
         self.grid_num_particles = ti.field(int)
         self.grid2particles = ti.field(int)
@@ -79,14 +86,15 @@ class SparseGrid():
         cnt = 0
         for I in ti.grouped(self.grid_snode):
             if ti.is_active(self.grid_snode, I):
-                cnt+=1
-        usage =  cnt/(parm.grid_size[0]*parm.grid_size[1])
+                cnt += 1
+        usage = cnt / (parm.grid_size[0] * parm.grid_size[1])
         print("Grid usage: ", usage)
-    
+
     def deactivate(self):
         # ti.deactivate_all_snodes()
         # self.grid_snode.deactivate_all()
         pass
+
 
 sp = SparseGrid(grid_size=parm.grid_size)
 grid_num_particles = sp.grid_num_particles
@@ -116,8 +124,7 @@ def spiky_gradient(r, h):
 @ti.func
 def compute_scorr(pos_ji):
     # Eq (13)
-    x = poly6_value(pos_ji.norm(), parm.h_) / poly6_value(parm.corr_deltaQ_coeff * parm.h_,
-                                                     parm.h_)
+    x = poly6_value(pos_ji.norm(), parm.h_) / poly6_value(parm.corr_deltaQ_coeff * parm.h_, parm.h_)
     # pow(x, 4)
     x = x * x
     x = x * x
@@ -132,15 +139,13 @@ def get_cell(pos):
 @ti.func
 def is_in_grid(c):
     # @c: Vector(i32)
-    return 0 <= c[0] and c[0] < parm.grid_size[0] and 0 <= c[1] and c[
-        1] < parm.grid_size[1]
+    return 0 <= c[0] and c[0] < parm.grid_size[0] and 0 <= c[1] and c[1] < parm.grid_size[1]
 
 
 @ti.func
 def confine_position_to_boundary(p):
     bmin = parm.particle_radius_in_world
-    bmax = ti.Vector([board_states[None][0], parm.boundary[1]
-                      ]) - parm.particle_radius_in_world
+    bmax = ti.Vector([board_states[None][0], parm.boundary[1]]) - parm.particle_radius_in_world
     for i in ti.static(range(dim)):
         # Use randomness to prevent particles from sticking into each other after clamping
         if p[i] <= bmin:
@@ -199,8 +204,11 @@ def prologue():
             if is_in_grid(cell_to_check):
                 for j in range(grid_num_particles[cell_to_check]):
                     p_j = grid2particles[cell_to_check, j]
-                    if nb_i < parm.max_num_neighbors and p_j != p_i and (
-                            pos_i - positions[p_j]).norm() < parm.neighbor_radius:
+                    if (
+                        nb_i < parm.max_num_neighbors
+                        and p_j != p_i
+                        and (pos_i - positions[p_j]).norm() < parm.neighbor_radius
+                    ):
                         particle_neighbors[p_i, nb_i] = p_j
                         nb_i += 1
         particle_num_neighbors[p_i] = nb_i
@@ -232,8 +240,7 @@ def substep():
         density_constraint = (parm.mass * density_constraint / parm.rho0) - 1.0
 
         sum_gradient_sqr += grad_i.dot(grad_i)
-        lambdas[p_i] = (-density_constraint) / (sum_gradient_sqr +
-                                                parm.lambda_epsilon)
+        lambdas[p_i] = (-density_constraint) / (sum_gradient_sqr + parm.lambda_epsilon)
     # compute position deltas
     # Eq(12), (14)
     for p_i in positions:
@@ -248,8 +255,7 @@ def substep():
             lambda_j = lambdas[p_j]
             pos_ji = pos_i - positions[p_j]
             scorr_ij = compute_scorr(pos_ji)
-            pos_delta_i += (lambda_i + lambda_j + scorr_ij) * \
-                spiky_gradient(pos_ji, parm.h_)
+            pos_delta_i += (lambda_i + lambda_j + scorr_ij) * spiky_gradient(pos_ji, parm.h_)
 
         pos_delta_i /= parm.rho0
         position_deltas[p_i] = pos_delta_i
@@ -283,9 +289,7 @@ def render(gui):
     for j in range(dim):
         pos_np[:, j] *= screen_to_world_ratio / screen_res[j]
     gui.circles(pos_np, radius=parm.particle_radius, color=particle_color)
-    gui.rect((0, 0), (board_states[None][0] / parm.boundary[0], 1),
-             radius=1.5,
-             color=boundary_color)
+    gui.rect((0, 0), (board_states[None][0] / parm.boundary[0], 1), radius=1.5, color=boundary_color)
     gui.show()
 
 
@@ -293,30 +297,28 @@ def render(gui):
 def init_particles():
     for i in range(num_particles):
         delta = parm.h_ * 0.8
-        offs = ti.Vector([(parm.boundary[0] - delta * num_particles_x) * 0.5,
-                          parm.boundary[1] * 0.02])
-        positions[i] = ti.Vector([i % num_particles_x, i // num_particles_x
-                                  ]) * delta + offs
+        offs = ti.Vector([(parm.boundary[0] - delta * num_particles_x) * 0.5, parm.boundary[1] * 0.02])
+        positions[i] = ti.Vector([i % num_particles_x, i // num_particles_x]) * delta + offs
         for c in ti.static(range(dim)):
             velocities[i][c] = (ti.random() - 0.5) * 4
     board_states[None] = ti.Vector([parm.boundary[0] - parm.epsilon, -0.0])
 
 
 def print_stats():
-    print('PBF stats:')
+    print("PBF stats:")
     num = grid_num_particles.to_numpy()
     avg, max_ = np.mean(num), np.max(num)
-    print(f'  #particles per cell: avg={avg:.2f} max={max_}')
+    print(f"  #particles per cell: avg={avg:.2f} max={max_}")
     num = particle_num_neighbors.to_numpy()
     avg, max_ = np.mean(num), np.max(num)
-    print(f'  #neighbors per particle: avg={avg:.2f} max={max_}')
+    print(f"  #neighbors per particle: avg={avg:.2f} max={max_}")
     sp.usage()
 
 
 def main():
     init_particles()
-    print(f'parm.boundary={parm.boundary} grid={parm.grid_size} parm.cell_size={parm.cell_size}')
-    gui = ti.GUI('PBF2D', screen_res)
+    print(f"parm.boundary={parm.boundary} grid={parm.grid_size} parm.cell_size={parm.cell_size}")
+    gui = ti.GUI("PBF2D", screen_res)
     while gui.running and not gui.get_event(gui.ESCAPE):
         move_board()
         run_pbf()
@@ -350,5 +352,5 @@ def main():
 #             substep()
 #         render_ggui()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

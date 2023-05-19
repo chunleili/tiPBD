@@ -1,5 +1,5 @@
 {
-    "common": 
+    "common":
     {
         "simulation_method": "arap_multigrid",
         "self_main": true

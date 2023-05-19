@@ -16,8 +16,7 @@ def is_in_tet(p, p0, p1, p2, p3):
     return (all(x >= 0) and sum(x) <= 1), x
 
 
-def compute(des_pos, des_nv, src_pos, src_nt, src_tet_indices,
-            des_in_src_tet_indx, des_in_src_tet_coord):
+def compute(des_pos, des_nv, src_pos, src_nt, src_tet_indices, des_in_src_tet_indx, des_in_src_tet_coord):
     pbar = tqdm.tqdm(total=des_nv)
     for i in range(des_nv):
         pbar.update(1)
@@ -50,8 +49,7 @@ def compute(des_pos, des_nv, src_pos, src_nt, src_tet_indices,
     pbar.close()
 
 
-def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos,
-                    fine_tet_indices):
+def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices):
     coarse_nv = coarse_pos.shape[0]
     coarse_nt = coarse_tet_indices.shape[0]
     fine_nv = fine_pos.shape[0]
@@ -64,56 +62,56 @@ def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos,
 
     fine_in_coarse_tet_indx.fill(-1)
     coarse_in_fine_tet_indx.fill(-1)
-    compute(fine_pos, fine_nv, coarse_pos, coarse_nt, coarse_tet_indices,
-            fine_in_coarse_tet_indx, fine_in_coarse_tet_coord)
-    compute(coarse_pos, coarse_nv, fine_pos, fine_nt, fine_tet_indices,
-            coarse_in_fine_tet_indx, coarse_in_fine_tet_coord)
+    compute(
+        fine_pos, fine_nv, coarse_pos, coarse_nt, coarse_tet_indices, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord
+    )
+    compute(
+        coarse_pos, coarse_nv, fine_pos, fine_nt, fine_tet_indices, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord
+    )
 
     return coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord
 
 
-def compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord,
-              fine_tet_indices):
+def compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_tet_indices):
     """
-        Compute restriction operator R: 
-                x_c = R @ x_f, x_c is coarse vertex positions, x_f is fine vertex positions
-        Parameters:
-        n: number of fine vertices
-        m: number of coarse vertices
-        Output:
-            R_coo: restriction operator in coo format
+    Compute restriction operator R:
+            x_c = R @ x_f, x_c is coarse vertex positions, x_f is fine vertex positions
+    Parameters:
+    n: number of fine vertices
+    m: number of coarse vertices
+    Output:
+        R_coo: restriction operator in coo format
     """
     row = np.zeros(4 * m, dtype=np.int32)
     col = np.zeros(4 * m, dtype=np.int32)
     val = np.zeros(4 * m, dtype=np.float64)
     for i in range(m):
-        row[4 * i:4 * i + 4] = [i, i, i, i]
+        row[4 * i : 4 * i + 4] = [i, i, i, i]
         fine_idx = coarse_in_fine_tet_indx[i]
         a, b, c, d = fine_tet_indices[fine_idx]
         u, v, w = coarse_in_fine_tet_coord[i]
-        col[4 * i:4 * i + 4] = [a, b, c, d]
-        val[4 * i:4 * i + 4] = [1 - u - v - w, u, v, w]
+        col[4 * i : 4 * i + 4] = [a, b, c, d]
+        val[4 * i : 4 * i + 4] = [1 - u - v - w, u, v, w]
     R_coo = coo_matrix((val, (row, col)), shape=(m, n))
     return R_coo
 
 
-def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord,
-              coarse_tet_indices):
+def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices):
     """
-        Compute prolongation operator P
-        n: number of fine vertices
-        m: number of coarse vertices
+    Compute prolongation operator P
+    n: number of fine vertices
+    m: number of coarse vertices
     """
     row = np.zeros(4 * n, dtype=np.int32)
     col = np.zeros(4 * n, dtype=np.int32)
     val = np.zeros(4 * n, dtype=np.float64)
     for i in range(n):
-        row[4 * i:4 * i + 4] = [i, i, i, i]
+        row[4 * i : 4 * i + 4] = [i, i, i, i]
         coarse_idx = fine_in_coarse_tet_indx[i]
         a, b, c, d = coarse_tet_indices[coarse_idx]
-        col[4 * i:4 * i + 4] = [a, b, c, d]
+        col[4 * i : 4 * i + 4] = [a, b, c, d]
         u, v, w = fine_in_coarse_tet_coord[i]
-        val[4 * i:4 * i + 4] = [1 - u - v - w, u, v, w]
+        val[4 * i : 4 * i + 4] = [1 - u - v - w, u, v, w]
     P_coo = coo_matrix((val, (row, col)), shape=(n, m))
     return P_coo
 
@@ -129,14 +127,17 @@ if __name__ == "__main__":
     fine_pos, fine_tet_indices, fine_face_indices = read_tetgen(fine_mesh)
 
     print(">> Start to compute coarse and fine mapping...")
-    coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord = compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices)
+    (
+        coarse_in_fine_tet_indx,
+        coarse_in_fine_tet_coord,
+        fine_in_coarse_tet_indx,
+        fine_in_coarse_tet_coord,
+    ) = compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices)
 
     print(">> Start to compute R and P...")
     n = fine_pos.shape[0]
     m = coarse_pos.shape[0]
-    R = compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord,
-                  fine_tet_indices)
+    R = compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_tet_indices)
     mmwrite(path + "R.mtx", R)
-    P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord,
-                  coarse_tet_indices)
+    P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices)
     mmwrite(path + "P.mtx", P)

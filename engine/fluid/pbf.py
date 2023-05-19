@@ -12,9 +12,11 @@ import taichi as ti
 
 screen_res = (800, 800)
 screen_to_world_ratio = 20.0
-boundary = (screen_res[0] / screen_to_world_ratio,
-            screen_res[1] / screen_to_world_ratio,
-            screen_res[0] / screen_to_world_ratio,)
+boundary = (
+    screen_res[0] / screen_to_world_ratio,
+    screen_res[1] / screen_to_world_ratio,
+    screen_res[0] / screen_to_world_ratio,
+)
 cell_size = 2.51
 cell_recpr = 1.0 / cell_size
 
@@ -26,9 +28,9 @@ def round_up(f, s):
 grid_size = (round_up(boundary[0], 1), round_up(boundary[1], 1), round_up(boundary[2], 1))
 
 dim = 3
-bg_color = 0x112f41
+bg_color = 0x112F41
 particle_color = 0x068587
-boundary_color = 0xebaca2
+boundary_color = 0xEBACA2
 num_particles_x = 10
 # num_particles = num_particles_x * num_particles_x * 10
 num_particles = 10000
@@ -66,7 +68,7 @@ position_deltas = ti.Vector.field(dim, float)
 
 
 ti.root.dense(ti.i, num_particles).place(old_positions, positions, velocities)
-grid_snode = ti.root.dense(ti.ijk, grid_size) 
+grid_snode = ti.root.dense(ti.ijk, grid_size)
 grid_snode.place(grid_num_particles)
 # grid_snode.dense(ti.i, max_num_particles_per_cell).place(grid2particles) #this way cannot place a 4 dimension array
 grid2particles = ti.field(int, (grid_size + (max_num_particles_per_cell,)))
@@ -74,7 +76,6 @@ nb_node = ti.root.dense(ti.i, num_particles)
 nb_node.place(particle_num_neighbors)
 nb_node.dense(ti.j, max_num_neighbors).place(particle_neighbors)
 ti.root.dense(ti.i, num_particles).place(lambdas, position_deltas)
-
 
 
 @ti.func
@@ -115,15 +116,13 @@ def get_cell(pos):
 @ti.func
 def is_in_grid(c):
     # @c: Vector(i32)
-    return 0 <= c[0] and c[0] < grid_size[0] and 0 <= c[1] and c[
-        1] < grid_size[1] and c[2] >= 0 and c[2] < grid_size[2]
+    return 0 <= c[0] and c[0] < grid_size[0] and 0 <= c[1] and c[1] < grid_size[1] and c[2] >= 0 and c[2] < grid_size[2]
 
 
 @ti.func
 def confine_position_to_boundary(p):
     bmin = particle_radius_in_world
-    bmax = ti.Vector([boundary[0], boundary[1], boundary[2]
-                      ]) - particle_radius_in_world
+    bmax = ti.Vector([boundary[0], boundary[1], boundary[2]]) - particle_radius_in_world
     for i in ti.static(range(dim)):
         # Use randomness to prevent particles from sticking into each other after clamping
         if p[i] <= bmin:
@@ -131,8 +130,6 @@ def confine_position_to_boundary(p):
         elif bmax[i] <= p[i]:
             p[i] = bmax[i] - epsilon * ti.random()
     return p
-
-
 
 
 @ti.kernel
@@ -166,13 +163,12 @@ def prologue():
         pos_i = positions[p_i]
         cell = get_cell(pos_i)
         nb_i = 0
-        for offs in ti.static(ti.grouped(ti.ndrange((-1, 2), (-1, 2),(-1, 2)))):
+        for offs in ti.static(ti.grouped(ti.ndrange((-1, 2), (-1, 2), (-1, 2)))):
             cell_to_check = cell + offs
             if is_in_grid(cell_to_check):
                 for j in range(grid_num_particles[cell_to_check]):
                     p_j = grid2particles[cell_to_check, j]
-                    if nb_i < max_num_neighbors and p_j != p_i and (
-                            pos_i - positions[p_j]).norm() < neighbor_radius:
+                    if nb_i < max_num_neighbors and p_j != p_i and (pos_i - positions[p_j]).norm() < neighbor_radius:
                         particle_neighbors[p_i, nb_i] = p_j
                         nb_i += 1
         particle_num_neighbors[p_i] = nb_i
@@ -204,8 +200,7 @@ def substep():
         density_constraint = (mass * density_constraint / rho0) - 1.0
 
         sum_gradient_sqr += grad_i.dot(grad_i)
-        lambdas[p_i] = (-density_constraint) / (sum_gradient_sqr +
-                                                lambda_epsilon)
+        lambdas[p_i] = (-density_constraint) / (sum_gradient_sqr + lambda_epsilon)
     # compute position deltas
     # Eq(12), (14)
     for p_i in positions:
@@ -220,8 +215,7 @@ def substep():
             lambda_j = lambdas[p_j]
             pos_ji = pos_i - positions[p_j]
             scorr_ij = compute_scorr(pos_ji)
-            pos_delta_i += (lambda_i + lambda_j + scorr_ij) * \
-                spiky_gradient(pos_ji, h)
+            pos_delta_i += (lambda_i + lambda_j + scorr_ij) * spiky_gradient(pos_ji, h)
 
         pos_delta_i /= rho0
         position_deltas[p_i] = pos_delta_i
@@ -249,21 +243,18 @@ def run_pbf():
     epilogue()
 
 
-
-
-
 @ti.kernel
 def init():
-    init_pos = ti.Vector([10.0,10.0,10.0]) 
+    init_pos = ti.Vector([10.0, 10.0, 10.0])
     cube_size = 20
     spacing = 1
-    num_per_row = (int) (cube_size // spacing) + 1
+    num_per_row = (int)(cube_size // spacing) + 1
     num_per_floor = num_per_row * num_per_row
     for i in range(num_particles):
-        floor = i // (num_per_floor) 
+        floor = i // (num_per_floor)
         row = (i % num_per_floor) // num_per_row
         col = (i % num_per_floor) % num_per_row
-        positions[i] = ti.Vector([col*spacing, floor*spacing, row*spacing]) + init_pos
+        positions[i] = ti.Vector([col * spacing, floor * spacing, row * spacing]) + init_pos
 
 
 def T(a):
@@ -281,34 +272,33 @@ def T(a):
     return np.array([u, v]).swapaxes(0, 1) + 25
 
 
-
 def main():
     init()
     # init_particles()
-    print(f'boundary={boundary} grid={grid_size} cell_size={cell_size}')
-    gui = ti.GUI('PBF3D', screen_res, background_color = 0xffffff) 
-    frame=0
+    print(f"boundary={boundary} grid={grid_size} cell_size={cell_size}")
+    gui = ti.GUI("PBF3D", screen_res, background_color=0xFFFFFF)
+    frame = 0
     while gui.running and not gui.get_event(gui.ESCAPE):
-
         run_pbf()
 
         pos = positions.to_numpy()
         # print(pos)
         # export_file = "PLY/pbf3d.ply"
         # if export_file:
-            # writer = ti.tools.PLYWriter(num_vertices=num_particles)
-            # writer.add_vertex_pos(pos[:, 0], pos[:, 1], pos[:, 2])
-            # writer.export_frame(gui.frame, export_file)
+        # writer = ti.tools.PLYWriter(num_vertices=num_particles)
+        # writer.add_vertex_pos(pos[:, 0], pos[:, 1], pos[:, 2])
+        # writer.export_frame(gui.frame, export_file)
 
-        gui.circles(T(pos)/100.0, radius=3, color=0x66ccff)
+        gui.circles(T(pos) / 100.0, radius=3, color=0x66CCFF)
         # gui.show(f'pic/res_{frame:06d}.png')
-        frame+=1
+        frame += 1
         gui.show()
         # gui.show(f'pic/res_{frame:06d}.png')
 
         # if frame == 201:
-            # exit()
+        # exit()
         # ti.profiler.print_kernel_profiler_info()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

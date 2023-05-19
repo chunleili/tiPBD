@@ -92,5 +92,5 @@ python main.py
   - [x] particle selector
   - [x] mesh reading(obj/tetgen/ply)
   - [x] scene file(json) parser
-  - [x] command line parser 
+  - [x] command line parser
   - [ ] logger

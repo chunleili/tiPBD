@@ -1,5 +1,5 @@
 {
-	"common": 
+	"common":
 	{
 		"simulation_method": "pbf2d",
 		"dt": 1e-3,

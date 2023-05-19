@@ -1,5 +1,5 @@
 {
-	"common": 
+	"common":
 	{
 		"simulation_method": "mass_spring_volumetric",
 		"initial_pause": true,

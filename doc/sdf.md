@@ -9,11 +9,11 @@ print(sdf.val)
 # 打印sdf梯度
 print(sdf.grad)
 # 计算梯度
-sdf.compute_gradient(1.0,1.0) 
-# 打印sdf 
+sdf.compute_gradient(1.0,1.0)
+# 打印sdf
 print(sdf)
 # 将sdf写入文件
-sdf.print_to_file()    
+sdf.print_to_file()
 
 # 3D SDF 5x5x5大小的
 sdf_3d = SDF((5, 5, 5))

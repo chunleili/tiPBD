@@ -1,4 +1,5 @@
 import scipy.io as sio
+
 P = sio.mmread("model/bunny1k2k/P.mtx")
 R = sio.mmread("model/bunny1k2k/P.mtx")
 PT = P.transpose()

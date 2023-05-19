@@ -32,14 +32,15 @@ def computeGradient(B, U, S, V):
     print("dsdF12:", dsdF12)
     print("dsdF22:", dsdF22)
 
-    dsdF = np.zeros((3, 3, 3,3))
+    dsdF = np.zeros((3, 3, 3, 3))
     mid = np.mat([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
-    for i in (range(3)):
-        for j in (range(3)):
+    for i in range(3):
+        for j in range(3):
             mid[i, j] = 1
-            dsdF[i,j] = U.transpose() @ mid @ V
-            print(i,j,":",dsdF[i,j])
+            dsdF[i, j] = U.transpose() @ mid @ V
+            print(i, j, ":", dsdF[i, j])
     pass
+
 
 F = np.mat([np.random.rand(3) for i in range(3)])
 U, S, V = np.linalg.svd(F)
@@ -49,30 +50,36 @@ computeGradient(B, U, S, V)
 
 
 ti.init()
-x = ti.field(dtype=ti.f32, shape=(3,3,3), needs_grad=True)
+x = ti.field(dtype=ti.f32, shape=(3, 3, 3), needs_grad=True)
 y = ti.field(dtype=ti.f32, shape=(), needs_grad=True)
+
 
 @ti.kernel
 def compute_y():
     for i, j, k in ti.ndrange(3, 3, 3):
-        y[None] += x[i,j,k]
+        y[None] += x[i, j, k]
 
-for i,j,k in np.ndindex((3,3,3)):
-    x[i,j,k] =  F[i,j] * S[k]
+
+for i, j, k in np.ndindex((3, 3, 3)):
+    x[i, j, k] = F[i, j] * S[k]
 
 dt = 0.01
+
+
 @ti.kernel
 def advance():
-    for i,j,k in x:
-        x[i,j,k] += dt * 0.01 * x.grad[i,j,k] 
+    for i, j, k in x:
+        x[i, j, k] += dt * 0.01 * x.grad[i, j, k]
+
 
 def substep():
     with ti.ad.Tape(y):
         compute_y()
     advance()
 
+
 for i in range(10):
     substep()
 
-for i,j,k in np.ndindex((3,3,3)):
-    print(i,j,k,'dy/dx =', x.grad[i,j,k], ' at x =', x[i,j,k])
+for i, j, k in np.ndindex((3, 3, 3)):
+    print(i, j, k, "dy/dx =", x.grad[i, j, k], " at x =", x[i, j, k])

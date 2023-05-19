@@ -1,10 +1,11 @@
-# %matplotlib inline 
+# %matplotlib inline
 from scipy import *
 from scipy.io import *
 from numpy import *
-from matplotlib.pyplot  import *
+from matplotlib.pyplot import *
 
 import os
+
 path = os.path.abspath(os.path.join(os.getcwd())).replace("\\", "/")
 path = path + "/model/bunny1k2k/"
 print(path)

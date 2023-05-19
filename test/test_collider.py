@@ -1,6 +1,7 @@
 import taichi as ti
 import numpy as np
-import sys,os
+import sys, os
+
 sys.path.append(os.getcwd())
 
 from engine.collider import *
@@ -21,7 +22,7 @@ def test_sphere():
         if sdf > 0:
             pos[i] = [0, 0, 0]
         else:
-            cnt+=1
+            cnt += 1
     print(cnt)
 
 
@@ -35,8 +36,9 @@ def test_box():
         if sdf > 0:
             pos[i] = [0, 0, 0]
         else:
-            cnt+=1
+            cnt += 1
     print(cnt)
+
 
 @ti.kernel
 def test_torus():
@@ -48,15 +50,14 @@ def test_torus():
         if sdf > 0:
             pos[i] = [0, 0, 0]
         else:
-            cnt+=1
+            cnt += 1
     print(cnt)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_sphere()
-    visualize(pos,particle_radius_show=0.01)
+    visualize(pos, particle_radius_show=0.01)
     test_box()
-    visualize(pos,particle_radius_show=0.01)
+    visualize(pos, particle_radius_show=0.01)
     test_torus()
-    visualize(pos,particle_radius_show=0.01)
-
+    visualize(pos, particle_radius_show=0.01)

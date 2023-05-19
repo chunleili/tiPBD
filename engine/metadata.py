@@ -1,6 +1,7 @@
 import taichi as ti
 import logging
 
+
 def singleton(cls):
     _instance = {}
 
@@ -8,7 +9,9 @@ def singleton(cls):
         if cls not in _instance:
             _instance[cls] = cls()
         return _instance[cls]
+
     return inner
+
 
 @singleton
 @ti.data_oriented
@@ -32,12 +35,14 @@ class MetaData:
 
         if self.args.scene_file == "":
             from ui.filedialog import filedialog
+
             self.scene_path = filedialog()
         else:
             self.scene_path = self.args.scene_file
         self.scene_name = self.scene_path.split("/")[-1].split(".")[0]
 
         from ui.config_builder import SimConfig
+
         self.config_instance = SimConfig(scene_file_path=self.scene_path)
         self.common = self.config_instance.config["common"]
         self.materials = self.config_instance.config["materials"]
@@ -55,7 +60,7 @@ class MetaData:
             if not no_warning:
                 logging.warning("key {} not found in common, use default value {}".format(key, default))
             return default
-    
+
     def get_materials(self, key, default=None, id_=0, no_warning=False):
         if key in self.materials[id_]:
             return self.materials[id_][key]
@@ -63,7 +68,7 @@ class MetaData:
             if not no_warning:
                 logging.warning("key {} not found in materials, use default value {}".format(key, default))
             return default
-    
+
     def get_sdf_meshes(self, key, default=None, id_=0, no_warning=False):
         if not hasattr(self, "sdf_meshes"):
             if not no_warning:
@@ -75,5 +80,6 @@ class MetaData:
             if not no_warning:
                 logging.warning("key {} not found in sdf_meshes, use default value {}".format(key, default))
             return default
+
 
 meta = MetaData()

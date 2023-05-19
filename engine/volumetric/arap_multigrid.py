@@ -20,7 +20,8 @@ from engine.mesh_io import read_tetgen
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-mg", "--use_multigrid", action="store_true")
-
+parser.add_argument("-r", "--restart_at", type=int, default=-1)
+parser.add_argument("-s", "--save_at", type=int, default=-1)
 model_path = "data/model/cube/"
 
 ti.init(arch=ti.cpu)
@@ -38,8 +39,10 @@ meta.frame = 0
 meta.max_frames = 100
 meta.log_energy_range = range(100)  # change to range(-1) to disable
 meta.log_residual_range = range(100)  # change to range(-1) to disable
-meta.frame_to_save = -1
-# meta.filename_to_load = "result/save/onlyfine_"+str(50)+".npz"
+meta.frame_to_save = parser.parse_args().save_at
+meta.restart_at = parser.parse_args().restart_at
+if meta.use_multigrid and meta.restart_at != -1:
+    meta.filename_to_load = "result/save/onlyfine_" + str(meta.restart_at) + ".npz"
 meta.pause = False
 meta.pause_at = -1
 

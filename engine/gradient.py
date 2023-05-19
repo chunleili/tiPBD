@@ -3,9 +3,10 @@ import taichi as ti
 vec2 = ti.types.vector(2, dtype=ti.f32)
 vec3 = ti.types.vector(3, dtype=ti.f32)
 
+
 @ti.func
-def grad_at_xy(val, x, y, dx, dy)->vec2:
-    '''
+def grad_at_xy(val, x, y, dx, dy) -> vec2:
+    """
     Compute the gradient of a 2d scalar field at a given position(x,y).
 
     Args:
@@ -14,26 +15,27 @@ def grad_at_xy(val, x, y, dx, dy)->vec2:
         y (ti.f32): y position
         dx (ti.f32): grid spacing in x direction
         dy (ti.f32): grid spacing in y direction
-    
+
     Returns:
         vec2: gradient at (x,y)
 
-    '''
+    """
     i = int(x)
     j = int(y)
     u = x - i
     v = y - j
 
     grad00 = grad_at_ij(val, i, j, dx, dy)
-    grad01 = grad_at_ij(val, i, j+1, dx, dy)
-    grad10 = grad_at_ij(val, i+1, j, dx, dy)
-    grad11 = grad_at_ij(val, i+1, j+1, dx, dy)
-    res = (1-u)*(1-v)*grad00 + u*(1-v)*grad10 + (1-u)*v*grad01 + u*v*grad11
+    grad01 = grad_at_ij(val, i, j + 1, dx, dy)
+    grad10 = grad_at_ij(val, i + 1, j, dx, dy)
+    grad11 = grad_at_ij(val, i + 1, j + 1, dx, dy)
+    res = (1 - u) * (1 - v) * grad00 + u * (1 - v) * grad10 + (1 - u) * v * grad01 + u * v * grad11
     return res
 
+
 @ti.func
-def grad_at_xyz(val, x, y, z, dx, dy, dz)->vec3:
-    '''
+def grad_at_xyz(val, x, y, z, dx, dy, dz) -> vec3:
+    """
     Compute the gradient of a 3d scalar field at a given position(x,y,z).
 
     Args:
@@ -44,10 +46,10 @@ def grad_at_xyz(val, x, y, z, dx, dy, dz)->vec3:
         dx (ti.f32): grid spacing in x direction
         dy (ti.f32): grid spacing in y direction
         dz (ti.f32): grid spacing in z direction
-    
+
     Returns:
         vec3: gradient at (x,y,z)
-    '''
+    """
     i = int(x)
     j = int(y)
     k = int(z)
@@ -56,47 +58,65 @@ def grad_at_xyz(val, x, y, z, dx, dy, dz)->vec3:
     w = z - k
 
     grad000 = grad_at_ijk(val, i, j, k, dx, dy, dz)
-    grad001 = grad_at_ijk(val, i, j, k+1, dx, dy, dz)
-    grad010 = grad_at_ijk(val, i, j+1, k, dx, dy, dz)
-    grad011 = grad_at_ijk(val, i, j+1, k+1, dx, dy, dz)
-    grad100 = grad_at_ijk(val, i+1, j, k, dx, dy, dz)
-    grad101 = grad_at_ijk(val, i+1, j, k+1, dx, dy, dz)
-    grad110 = grad_at_ijk(val, i+1, j+1, k, dx, dy, dz)
-    grad111 = grad_at_ijk(val, i+1, j+1, k+1, dx, dy, dz)
-    res = (1-u)*(1-v)*(1-w)*grad000 + u*(1-v)*(1-w)*grad100 + (1-u)*v*(1-w)*grad010 + u*v*(1-w)*grad110 + (1-u)*(1-v)*w*grad001 + u*(1-v)*w*grad101 + (1-u)*v*w*grad011 + u*v*w*grad111
+    grad001 = grad_at_ijk(val, i, j, k + 1, dx, dy, dz)
+    grad010 = grad_at_ijk(val, i, j + 1, k, dx, dy, dz)
+    grad011 = grad_at_ijk(val, i, j + 1, k + 1, dx, dy, dz)
+    grad100 = grad_at_ijk(val, i + 1, j, k, dx, dy, dz)
+    grad101 = grad_at_ijk(val, i + 1, j, k + 1, dx, dy, dz)
+    grad110 = grad_at_ijk(val, i + 1, j + 1, k, dx, dy, dz)
+    grad111 = grad_at_ijk(val, i + 1, j + 1, k + 1, dx, dy, dz)
+    res = (
+        (1 - u) * (1 - v) * (1 - w) * grad000
+        + u * (1 - v) * (1 - w) * grad100
+        + (1 - u) * v * (1 - w) * grad010
+        + u * v * (1 - w) * grad110
+        + (1 - u) * (1 - v) * w * grad001
+        + u * (1 - v) * w * grad101
+        + (1 - u) * v * w * grad011
+        + u * v * w * grad111
+    )
     return res
 
 
 def bilinear_weight(x, y):
-    '''
+    """
     Bilinear sample weights of a 2D scalar field at a given position.
-    '''
+    """
     i = int(x)
     j = int(y)
     u = x - i
     v = y - j
-    return (1-u)*(1-v), u*(1-v), (1-u)*v, u*v
+    return (1 - u) * (1 - v), u * (1 - v), (1 - u) * v, u * v
 
 
 def trilinear_weight(x, y, z):
-    '''
+    """
     Trilinear sample weights of a 3D scalar field at a given position.
-    '''
+    """
     i = int(x)
     j = int(y)
     k = int(z)
     u = x - i
     v = y - j
     w = z - k
-    return (1-u)*(1-v)*(1-w), u*(1-v)*(1-w), (1-u)*v*(1-w), u*v*(1-w), (1-u)*(1-v)*w, u*(1-v)*w, (1-u)*v*w, u*v*w
+    return (
+        (1 - u) * (1 - v) * (1 - w),
+        u * (1 - v) * (1 - w),
+        (1 - u) * v * (1 - w),
+        u * v * (1 - w),
+        (1 - u) * (1 - v) * w,
+        u * (1 - v) * w,
+        (1 - u) * v * w,
+        u * v * w,
+    )
 
 
 def compute_all_gradient(val, dx, dy, dz=None):
-    '''
+    """
     Compute all the gradient of the SDF field.
 
     this will automatically determine the dimension of the field and call the corresponding function.
-    '''
+    """
     shape = val.shape
     dim = len(shape)
     if dim == 2:
@@ -107,29 +127,30 @@ def compute_all_gradient(val, dx, dy, dz=None):
         raise ValueError(f"Only support 2D and 3D, but got {dim}D")
     return res
 
-        
+
 @ti.kernel
-def compute_all_gradient_2d(val:ti.template(), dx: ti.f32, dy: ti.f32, grad:ti.template()):
-    '''
+def compute_all_gradient_2d(val: ti.template(), dx: ti.f32, dy: ti.f32, grad: ti.template()):
+    """
     Using central difference to compute all gradients of a 2D scalar field
-    
+
     Args:
         val (ti.template()): 2D scalar field
         dx (ti.f32): grid spacing in x direction
         dy (ti.f32): grid spacing in y direction
         grad (ti.template()): 2D vector field (result field)
-    '''
+    """
     shape = val.shape
-    dx_inv, dy_inv = 1.0/dx, 1.0/dy
+    dx_inv, dy_inv = 1.0 / dx, 1.0 / dy
     for i, j in val:
-        if 0<i<shape[0]-1 and 0<j<shape[1]-1:
-            grad[i,j] = ti.Vector([(val[i+1, j] - val[i-1, j])*dx_inv*0.5, (val[i, j+1] - val[i, j-1])*dy_inv*0.5])
-
+        if 0 < i < shape[0] - 1 and 0 < j < shape[1] - 1:
+            grad[i, j] = ti.Vector(
+                [(val[i + 1, j] - val[i - 1, j]) * dx_inv * 0.5, (val[i, j + 1] - val[i, j - 1]) * dy_inv * 0.5]
+            )
 
 
 @ti.kernel
-def compute_all_gradient_3d(val:ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f32, grad:ti.template()):
-    '''
+def compute_all_gradient_3d(val: ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f32, grad: ti.template()):
+    """
     Using central difference to compute all gradients of a 3D scalar field
 
     Args:
@@ -138,17 +159,23 @@ def compute_all_gradient_3d(val:ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f3
         dy (ti.f32): grid spacing in y direction
         dz (ti.f32): grid spacing in z direction
         grad (ti.template()): 3D vector field (result field)
-    '''
+    """
     shape = val.shape
-    dx_inv, dy_inv, dz_inv = 1.0/dx, 1.0/dy, 1.0/dz
+    dx_inv, dy_inv, dz_inv = 1.0 / dx, 1.0 / dy, 1.0 / dz
     for i, j, k in val:
-        if 0<i<shape[0]-1 and 0<j<shape[1]-1 and 0<k<shape[2]-1:
-            grad[i,j,k] = ti.Vector([(val[i+1, j, k] - val[i-1, j, k])*dx_inv*0.5, (val[i, j+1, k] - val[i, j-1, k])*dy_inv*0.5, (val[i, j, k+1] - val[i, j, k-1])*dz_inv*0.5])
-    
+        if 0 < i < shape[0] - 1 and 0 < j < shape[1] - 1 and 0 < k < shape[2] - 1:
+            grad[i, j, k] = ti.Vector(
+                [
+                    (val[i + 1, j, k] - val[i - 1, j, k]) * dx_inv * 0.5,
+                    (val[i, j + 1, k] - val[i, j - 1, k]) * dy_inv * 0.5,
+                    (val[i, j, k + 1] - val[i, j, k - 1]) * dz_inv * 0.5,
+                ]
+            )
+
 
 @ti.func
-def grad_at_ij(val:ti.template(), dx: ti.f32, dy: ti.f32, i: ti.i32, j: ti.i32)->vec2:
-    '''
+def grad_at_ij(val: ti.template(), dx: ti.f32, dy: ti.f32, i: ti.i32, j: ti.i32) -> vec2:
+    """
     Using central difference to compute the gradient of a 2D scalar field at a given point
 
     Args:
@@ -160,27 +187,27 @@ def grad_at_ij(val:ti.template(), dx: ti.f32, dy: ti.f32, i: ti.i32, j: ti.i32)-
 
     Returns:
         vec2: gradient at the given point
-    '''
+    """
     shape = val.shape
     res = ti.Vector([0.0, 0.0])
     if i == 0:
-        res[0] = (val[1, j] - val[0, j])/dx
-    elif i == shape[0]-1:
-        res[0] = (val[shape[0]-1, j] - val[shape[0]-2, j])/dx
+        res[0] = (val[1, j] - val[0, j]) / dx
+    elif i == shape[0] - 1:
+        res[0] = (val[shape[0] - 1, j] - val[shape[0] - 2, j]) / dx
     else:
-        res[0] = (val[i+1, j] - val[i-1, j])/dx * 0.5
+        res[0] = (val[i + 1, j] - val[i - 1, j]) / dx * 0.5
     if j == 0:
-        res[1] = (val[i, 1] - val[i, 0])/dy
-    elif j == shape[1]-1:
-        res[1] = (val[i, shape[1]-1] - val[i, shape[1]-2])/dy
+        res[1] = (val[i, 1] - val[i, 0]) / dy
+    elif j == shape[1] - 1:
+        res[1] = (val[i, shape[1] - 1] - val[i, shape[1] - 2]) / dy
     else:
-        res[1] = (val[i, j+1] - val[i, j-1])/dy * 0.5
+        res[1] = (val[i, j + 1] - val[i, j - 1]) / dy * 0.5
     return res
 
 
 @ti.func
-def grad_at_ijk(val:ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f32, i: ti.i32, j: ti.i32, k: ti.i32)->vec3:
-    '''
+def grad_at_ijk(val: ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f32, i: ti.i32, j: ti.i32, k: ti.i32) -> vec3:
+    """
     Using central difference to compute the gradient of a 3D scalar field at a given point
 
     Args:
@@ -194,32 +221,32 @@ def grad_at_ijk(val:ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f32, i: ti.i32
 
     Returns:
         vec3: gradient at the given point
-    '''
+    """
     shape = val.shape
     res = ti.Vector([0.0, 0.0, 0.0])
     if i == 0:
-        res[0] = (val[1, j, k] - val[0, j, k])/dx
-    elif i == shape[0]-1:
-        res[0] = (val[shape[0]-1, j, k] - val[shape[0]-2, j, k])/dx
+        res[0] = (val[1, j, k] - val[0, j, k]) / dx
+    elif i == shape[0] - 1:
+        res[0] = (val[shape[0] - 1, j, k] - val[shape[0] - 2, j, k]) / dx
     else:
-        res[0] = (val[i+1, j, k] - val[i-1, j, k])/dx * 0.5
+        res[0] = (val[i + 1, j, k] - val[i - 1, j, k]) / dx * 0.5
     if j == 0:
-        res[1] = (val[i, 1, k] - val[i, 0, k])/dy
-    elif j == shape[1]-1:
-        res[1] = (val[i, shape[1]-1, k] - val[i, shape[1]-2, k])/dy
+        res[1] = (val[i, 1, k] - val[i, 0, k]) / dy
+    elif j == shape[1] - 1:
+        res[1] = (val[i, shape[1] - 1, k] - val[i, shape[1] - 2, k]) / dy
     else:
-        res[1] = (val[i, j+1, k] - val[i, j-1, k])/dy * 0.5
+        res[1] = (val[i, j + 1, k] - val[i, j - 1, k]) / dy * 0.5
     if k == 0:
-        res[2] = (val[i, j, 1] - val[i, j, 0])/dz
-    elif k == shape[2]-1:
-        res[2] = (val[i, j, shape[2]-1] - val[i, j, shape[2]-2])/dz
+        res[2] = (val[i, j, 1] - val[i, j, 0]) / dz
+    elif k == shape[2] - 1:
+        res[2] = (val[i, j, shape[2] - 1] - val[i, j, shape[2] - 2]) / dz
     else:
-        res[2] = (val[i, j, k+1] - val[i, j, k-1])/dz * 0.5
+        res[2] = (val[i, j, k + 1] - val[i, j, k - 1]) / dz * 0.5
 
 
 @ti.func
-def bilinear_interpolate(val:ti.template(), x: ti.f32, y: ti.f32)->ti.f32:
-    '''
+def bilinear_interpolate(val: ti.template(), x: ti.f32, y: ti.f32) -> ti.f32:
+    """
     Bilinear interpolation of a 2D scalar field
 
     Args:
@@ -229,19 +256,25 @@ def bilinear_interpolate(val:ti.template(), x: ti.f32, y: ti.f32)->ti.f32:
 
     Returns:
         ti.f32: interpolated value
-    '''
+    """
     shape = val.shape
     i = int(x)
     j = int(y)
-    if i < 0 or i >= shape[0]-1 or j < 0 or j >= shape[1]-1:
+    if i < 0 or i >= shape[0] - 1 or j < 0 or j >= shape[1] - 1:
         return 0.0
     s = x - i
     t = y - j
-    return (1-s)*(1-t)*val[i, j] + s*(1-t)*val[i+1, j] + (1-s)*t*val[i, j+1] + s*t*val[i+1, j+1]
+    return (
+        (1 - s) * (1 - t) * val[i, j]
+        + s * (1 - t) * val[i + 1, j]
+        + (1 - s) * t * val[i, j + 1]
+        + s * t * val[i + 1, j + 1]
+    )
+
 
 @ti.func
-def trilinear_interpolate(val:ti.template(), x: ti.f32, y: ti.f32, z: ti.f32)->ti.f32:
-    '''
+def trilinear_interpolate(val: ti.template(), x: ti.f32, y: ti.f32, z: ti.f32) -> ti.f32:
+    """
     Trilinear interpolation of a 3D scalar field
 
     Args:
@@ -252,18 +285,23 @@ def trilinear_interpolate(val:ti.template(), x: ti.f32, y: ti.f32, z: ti.f32)->t
 
     Returns:
         ti.f32: interpolated value
-    '''
+    """
     shape = val.shape
     i = int(x)
     j = int(y)
     k = int(z)
-    if i < 0 or i >= shape[0]-1 or j < 0 or j >= shape[1]-1 or k < 0 or k >= shape[2]-1:
+    if i < 0 or i >= shape[0] - 1 or j < 0 or j >= shape[1] - 1 or k < 0 or k >= shape[2] - 1:
         return 0.0
     s = x - i
     t = y - j
     u = z - k
-    return (1-s)*(1-t)*(1-u)*val[i, j, k] + s*(1-t)*(1-u)*val[i+1, j, k] + (1-s)*t*(1-u)*val[i, j+1, k] + s*t*(1-u)*val[i+1, j+1, k] + (1-s)*(1-t)*u*val[i, j, k+1] + s*(1-t)*u*val[i+1, j, k+1] + (1-s)*t*u*val[i, j+1, k+1] + s*t*u*val[i+1, j+1, k+1]
-
-
-
-
+    return (
+        (1 - s) * (1 - t) * (1 - u) * val[i, j, k]
+        + s * (1 - t) * (1 - u) * val[i + 1, j, k]
+        + (1 - s) * t * (1 - u) * val[i, j + 1, k]
+        + s * t * (1 - u) * val[i + 1, j + 1, k]
+        + (1 - s) * (1 - t) * u * val[i, j, k + 1]
+        + s * (1 - t) * u * val[i + 1, j, k + 1]
+        + (1 - s) * t * u * val[i, j + 1, k + 1]
+        + s * t * u * val[i + 1, j + 1, k + 1]
+    )

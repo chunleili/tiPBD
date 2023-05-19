@@ -2,5 +2,6 @@ taichi
 configargparse
 trimesh
 mesh-to-sdf
+pre-commit
 # gradio
 # dearpygui

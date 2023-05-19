@@ -22,6 +22,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-mg", "--use_multigrid", action="store_true")
 parser.add_argument("-r", "--restart_at", type=int, default=-1)
 parser.add_argument("-s", "--save_at", type=int, default=-1)
+parser.add_argument("-m", "--max_frame", type=int, default=-1)
 model_path = "data/model/cube/"
 
 ti.init(arch=ti.cpu)
@@ -36,7 +37,7 @@ meta = Meta()
 # meta.use_multigrid = True # TODO: true for multigrid, false for only fine mesh
 meta.use_multigrid = parser.parse_args().use_multigrid
 meta.frame = 0
-meta.max_frames = 100
+meta.max_frame = parser.parse_args().max_frame
 meta.log_energy_range = range(100)  # change to range(-1) to disable
 meta.log_residual_range = range(100)  # change to range(-1) to disable
 meta.frame_to_save = parser.parse_args().save_at
@@ -579,8 +580,6 @@ def main():
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
             if not meta.use_multigrid:
-                if meta.frame == meta.frame_to_save:
-                    save_state(save_state_filename + str(meta.frame))
                 semiEuler(h, fpos, fpredict_pos, fold_pos, fvel, damping_coeff)
                 resetLagrangian(flagrangian)
                 for ite in range(only_fine_iterations):
@@ -631,9 +630,12 @@ def main():
                     collsion_response(fpos)
 
                 updteVelocity(h, fpos, fold_pos, fvel)
+
+            if meta.frame == meta.frame_to_save:
+                save_state(save_state_filename + str(meta.frame))
             meta.frame += 1
 
-        if meta.frame == meta.max_frames:
+        if meta.frame == meta.max_frame:
             window.running = False
 
         if show_fine_mesh:

@@ -20,7 +20,7 @@ from engine.mesh_io import read_tetgen
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-mg", "--use_multigrid", action="store_true")
-parser.add_argument("-r", "--restart_at", type=int, default=-1)
+parser.add_argument("-l", "--load_at", type=int, default=-1)
 parser.add_argument("-s", "--save_at", type=int, default=-1)
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
 model_path = "data/model/cube/"
@@ -41,9 +41,8 @@ meta.max_frame = parser.parse_args().max_frame
 meta.log_energy_range = range(100)  # change to range(-1) to disable
 meta.log_residual_range = range(100)  # change to range(-1) to disable
 meta.frame_to_save = parser.parse_args().save_at
-meta.restart_at = parser.parse_args().restart_at
-if meta.use_multigrid and meta.restart_at != -1:
-    meta.filename_to_load = "result/save/onlyfine_" + str(meta.restart_at) + ".npz"
+meta.load_at = parser.parse_args().load_at
+
 meta.pause = False
 meta.pause_at = -1
 
@@ -548,14 +547,14 @@ def main():
         info("#############################################")
     energy_filename = "result/log/totalEnergy_" + (suffix) + ".txt"
     residual_filename = "result/log/residual_" + (suffix) + ".txt"
-    save_state_filename = "result/save/" + (suffix) + "_"
-
     if os.path.exists(energy_filename):
         os.remove(energy_filename)
     if os.path.exists(residual_filename):
         os.remove(residual_filename)
 
-    if hasattr(meta, "filename_to_load") and meta.filename_to_load != "":
+    save_state_filename = "result/save/frame_"
+    if meta.load_at != -1:
+        meta.filename_to_load = save_state_filename + str(meta.load_at) + ".npz"
         load_state(meta.filename_to_load)
 
     while window.running:
@@ -576,6 +575,9 @@ def main():
         wire_frame = gui.checkbox("wireframe", wire_frame)
         show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
         show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
+
+        if meta.frame == meta.frame_to_save:
+            save_state(save_state_filename + str(meta.frame))
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
@@ -631,8 +633,6 @@ def main():
 
                 updteVelocity(h, fpos, fold_pos, fvel)
 
-            if meta.frame == meta.frame_to_save:
-                save_state(save_state_filename + str(meta.frame))
             meta.frame += 1
 
         if meta.frame == meta.max_frame:

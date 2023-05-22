@@ -58,62 +58,53 @@ only_fine_iterations = coarse_iterations + fine_iterations
 mass_density = 2000
 damping_coeff = 1.0
 
-fine_model_pos, fine_model_inx, fine_model_tri = read_tetgen(model_path + "fine")
-fNV = len(fine_model_pos)
-fNT = len(fine_model_inx)
-fNF = len(fine_model_tri)
-fpos = ti.Vector.field(DIM, float, fNV)
-fpos_mid = ti.Vector.field(DIM, float, fNV)
-fpredict_pos = ti.Vector.field(DIM, float, fNV)
-fold_pos = ti.Vector.field(DIM, float, fNV)
-fvel = ti.Vector.field(DIM, float, fNV)  # velocity of particles
-fmass = ti.field(float, fNV)  # mass of particles
-ftet_indices = ti.Vector.field(4, int, fNT)
-fdisplay_indices = ti.field(ti.i32, fNF * 3)
-fB = ti.Matrix.field(DIM, DIM, float, fNT)  # D_m^{-1}
-flagrangian = ti.field(float, fNT)  # lagrangian multipliers
-finv_V = ti.field(float, fNT)  # volume of each tet
-falpha_tilde = ti.field(float, fNT)
 
-fpar_2_tet = ti.field(int, fNV)
-fgradC = ti.Vector.field(3, ti.f32, shape=(fNT, 4))
-fconstraint = ti.field(ti.f32, shape=(fNT))
-fdpos = ti.Vector.field(3, ti.f32, shape=(fNV))
+class ArapMultigrid:
+    def __init__(self, path="data/model/cube/fine"):
+        self.model_pos, self.model_inx, self.model_tri = read_tetgen(path)
+        self.NV = len(self.model_pos)
+        self.NT = len(self.model_inx)
+        self.NF = len(self.model_tri)
 
-coarse_model_pos, coarse_model_inx, coarse_model_tri = read_tetgen(model_path + "coarse")
-cNV = len(coarse_model_pos)
-cNT = len(coarse_model_inx)
-cNF = len(coarse_model_tri)
-cpos = ti.Vector.field(DIM, float, cNV)
-cpos_mid = ti.Vector.field(DIM, float, cNV)
-cpredict_pos = ti.Vector.field(DIM, float, cNV)
-cold_pos = ti.Vector.field(DIM, float, cNV)
-cvel = ti.Vector.field(DIM, float, cNV)  # velocity of particles
-cmass = ti.field(float, cNV)  # inverse mass of particles
-ctet_indices = ti.Vector.field(4, int, cNT)
-cdisplay_indices = ti.field(ti.i32, cNF * 3)
-cB = ti.Matrix.field(DIM, DIM, float, cNT)  # D_m^{-1}
-clagrangian = ti.field(float, cNT)  # lagrangian multipliers
-cinv_V = ti.field(float, cNT)  # volume of each tet
-calpha_tilde = ti.field(float, cNT)
+        self.pos = ti.Vector.field(DIM, float, self.NV)
+        self.pos_mid = ti.Vector.field(DIM, float, self.NV)
+        self.predict_pos = ti.Vector.field(DIM, float, self.NV)
+        self.old_pos = ti.Vector.field(DIM, float, self.NV)
+        self.vel = ti.Vector.field(DIM, float, self.NV)  # velocity of particles
+        self.mass = ti.field(float, self.NV)  # mass of particles
+        self.tet_indices = ti.Vector.field(4, int, self.NT)
+        self.display_indices = ti.field(ti.i32, self.NF * 3)
+        self.B = ti.Matrix.field(DIM, DIM, float, self.NT)  # D_m^{-1}
+        self.lagrangian = ti.field(float, self.NT)  # lagrangian multipliers
+        self.inv_V = ti.field(float, self.NT)  # volume of each tet
+        self.alpha_tilde = ti.field(float, self.NT)
+
+        self.par_2_tet = ti.field(int, self.NV)
+        self.gradC = ti.Vector.field(3, ti.f32, shape=(self.NT, 4))
+        self.constraint = ti.field(ti.f32, shape=(self.NT))
+        self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
+
+
+fine = ArapMultigrid(model_path + "fine")
+coarse = ArapMultigrid(model_path + "coarse")
 
 
 P = sio.mmread(model_path + "P.mtx")
 
 
 def update_fine_mesh():
-    cpos_np = cpos.to_numpy()
+    cpos_np = coarse.pos.to_numpy()
     fpos_np = P @ cpos_np
-    fpos.from_numpy(fpos_np)
+    fine.pos.from_numpy(fpos_np)
 
 
 R = sio.mmread(model_path + "R.mtx")
 
 
 def update_coarse_mesh():
-    fpos_np = fpos.to_numpy()
+    fpos_np = fine.pos.to_numpy()
     cpos_np = R @ fpos_np
-    cpos.from_numpy(cpos_np)
+    coarse.pos.from_numpy(cpos_np)
 
 
 @ti.kernel
@@ -268,7 +259,7 @@ def project_constraints(
 ):
     for i in pos:
         mid_pos[i] = pos[i]
-        fdpos[i] = ti.Vector([0.0, 0.0, 0.0])
+        fine.dpos[i] = ti.Vector([0.0, 0.0, 0.0])
 
     for i in tet_indices:
         ia, ib, ic, id = tet_indices[i]
@@ -296,12 +287,12 @@ def project_constraints(
         pos[id] -= omega * invM3 * dLambda * g3
 
         # save val for logging residual
-        fgradC[i, 0], fgradC[i, 1], fgradC[i, 2], fgradC[i, 3] = g0, g1, g2, g3
-        fconstraint[i] = constraint
-        fdpos[ia] += omega * invM0 * dLambda * g0
-        fdpos[ib] += omega * invM1 * dLambda * g1
-        fdpos[ic] += omega * invM2 * dLambda * g2
-        fdpos[id] += omega * invM3 * dLambda * g3
+        fine.gradC[i, 0], fine.gradC[i, 1], fine.gradC[i, 2], fine.gradC[i, 3] = g0, g1, g2, g3
+        fine.constraint[i] = constraint
+        fine.dpos[ia] += omega * invM0 * dLambda * g0
+        fine.dpos[ib] += omega * invM1 * dLambda * g1
+        fine.dpos[ic] += omega * invM2 * dLambda * g2
+        fine.dpos[id] += omega * invM3 * dLambda * g3
 
 
 @ti.kernel
@@ -367,7 +358,7 @@ def init_random_position(pos: ti.template(), init_random_points: ti.types.ndarra
 
 def log_energy(frame, filename_to_save):
     if frame in meta.log_energy_range:
-        te, it, pe = compute_energy(fmass, fpos, fpredict_pos, ftet_indices, fB, falpha_tilde)
+        te, it, pe = compute_energy(fine.mass, fine.pos, fine.predict_pos, fine.tet_indices, fine.B, fine.alpha_tilde)
         info(f"energy:\t{te}")
         with open(filename_to_save, "a") as f:
             np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
@@ -384,7 +375,7 @@ def compute_par_2_tet(tet_indices: ti.template(), par_2_tet: ti.template()):
 
 
 def compute_residual() -> float:
-    residual = -(fconstraint.to_numpy() + falpha_tilde.to_numpy() * flagrangian.to_numpy())
+    residual = -(fine.constraint.to_numpy() + fine.alpha_tilde.to_numpy() * fine.lagrangian.to_numpy())
     r_norm = np.linalg.norm(residual)
     return r_norm
 
@@ -400,34 +391,34 @@ def log_residual(frame, filename_to_save):
 def save_state(filename):
     state = [
         meta.frame,
-        fpos,
-        fpos_mid,
-        fpredict_pos,
-        fold_pos,
-        fvel,
-        fmass,
-        ftet_indices,
-        fdisplay_indices,
-        fB,
-        flagrangian,
-        finv_V,
-        falpha_tilde,
-        fpar_2_tet,
-        fgradC,
-        fconstraint,
-        fdpos,
-        cpos,
-        cpos_mid,
-        cpredict_pos,
-        cold_pos,
-        cvel,
-        cmass,
-        ctet_indices,
-        cdisplay_indices,
-        cB,
-        clagrangian,
-        cinv_V,
-        calpha_tilde,
+        fine.pos,
+        fine.pos_mid,
+        fine.predict_pos,
+        fine.old_pos,
+        fine.vel,
+        fine.mass,
+        fine.tet_indices,
+        fine.display_indices,
+        fine.B,
+        fine.lagrangian,
+        fine.inv_V,
+        fine.alpha_tilde,
+        fine.par_2_tet,
+        fine.gradC,
+        fine.constraint,
+        fine.dpos,
+        coarse.pos,
+        coarse.pos_mid,
+        coarse.predict_pos,
+        coarse.old_pos,
+        coarse.vel,
+        coarse.mass,
+        coarse.tet_indices,
+        coarse.display_indices,
+        coarse.B,
+        coarse.lagrangian,
+        coarse.inv_V,
+        coarse.alpha_tilde,
     ]
     for i in range(1, len(state)):
         state[i] = state[i].to_numpy()
@@ -440,34 +431,34 @@ def load_state(filename):
 
     state = [
         meta.frame,
-        fpos,
-        fpos_mid,
-        fpredict_pos,
-        fold_pos,
-        fvel,
-        fmass,
-        ftet_indices,
-        fdisplay_indices,
-        fB,
-        flagrangian,
-        finv_V,
-        falpha_tilde,
-        fpar_2_tet,
-        fgradC,
-        fconstraint,
-        fdpos,
-        cpos,
-        cpos_mid,
-        cpredict_pos,
-        cold_pos,
-        cvel,
-        cmass,
-        ctet_indices,
-        cdisplay_indices,
-        cB,
-        clagrangian,
-        cinv_V,
-        calpha_tilde,
+        fine.pos,
+        fine.pos_mid,
+        fine.predict_pos,
+        fine.old_pos,
+        fine.vel,
+        fine.mass,
+        fine.tet_indices,
+        fine.display_indices,
+        fine.B,
+        fine.lagrangian,
+        fine.inv_V,
+        fine.alpha_tilde,
+        fine.par_2_tet,
+        fine.gradC,
+        fine.constraint,
+        fine.dpos,
+        coarse.pos,
+        coarse.pos,
+        coarse.predict_pos,
+        coarse.old_pos,
+        coarse.vel,
+        coarse.mass,
+        coarse.tet_indices,
+        coarse.display_indices,
+        coarse.B,
+        coarse.lagrangian,
+        coarse.inv_V,
+        coarse.alpha_tilde,
     ]
 
     meta.frame = int(npzfile["arr_0"])
@@ -482,46 +473,46 @@ def main():
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
 
     init_pos(
-        fine_model_pos,
-        fine_model_inx,
-        fine_model_tri,
-        fpos,
-        fold_pos,
-        fvel,
-        fmass,
-        ftet_indices,
-        fB,
-        finv_V,
-        fdisplay_indices,
+        fine.model_pos,
+        fine.model_inx,
+        fine.model_tri,
+        fine.pos,
+        fine.old_pos,
+        fine.vel,
+        fine.mass,
+        fine.tet_indices,
+        fine.B,
+        fine.inv_V,
+        fine.display_indices,
     )
     init_pos(
-        coarse_model_pos,
-        coarse_model_inx,
-        coarse_model_tri,
-        cpos,
-        cold_pos,
-        cvel,
-        cmass,
-        ctet_indices,
-        cB,
-        cinv_V,
-        cdisplay_indices,
+        coarse.model_pos,
+        coarse.model_inx,
+        coarse.model_tri,
+        coarse.pos,
+        coarse.old_pos,
+        coarse.vel,
+        coarse.mass,
+        coarse.tet_indices,
+        coarse.B,
+        coarse.inv_V,
+        coarse.display_indices,
     )
 
-    compute_par_2_tet(ftet_indices, fpar_2_tet)
+    compute_par_2_tet(fine.tet_indices, fine.par_2_tet)
 
     init_style = "enlarge"
 
     if init_style == "random":
         # # random init
-        random_val = np.random.rand(fpos.shape[0], 3)
-        fpos.from_numpy(random_val)
+        random_val = np.random.rand(fine.pos.shape[0], 3)
+        fine.pos.from_numpy(random_val)
     elif init_style == "enlarge":
         # init by enlarge 1.5x
-        fpos.from_numpy(fine_model_pos * 1.5)
+        fine.pos.from_numpy(fine.model_pos * 1.5)
 
-    init_alpha_tilde(falpha_tilde, finv_V)
-    init_alpha_tilde(calpha_tilde, cinv_V)
+    init_alpha_tilde(fine.alpha_tilde, fine.inv_V)
+    init_alpha_tilde(coarse.alpha_tilde, coarse.inv_V)
     window = ti.ui.Window("3D ARAP FEM XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
@@ -582,56 +573,56 @@ def main():
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
             if not meta.use_multigrid:
-                semiEuler(h, fpos, fpredict_pos, fold_pos, fvel, damping_coeff)
-                resetLagrangian(flagrangian)
+                semiEuler(h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, damping_coeff)
+                resetLagrangian(fine.lagrangian)
                 for ite in range(only_fine_iterations):
                     log_energy(meta.frame, energy_filename)
                     log_residual(meta.frame, residual_filename)
                     project_constraints(
-                        fpos_mid,
-                        ftet_indices,
-                        fmass,
-                        flagrangian,
-                        fB,
-                        fpos,
-                        falpha_tilde,
+                        fine.pos_mid,
+                        fine.tet_indices,
+                        fine.mass,
+                        fine.lagrangian,
+                        fine.B,
+                        fine.pos,
+                        fine.alpha_tilde,
                     )
-                    collsion_response(fpos)
-                updteVelocity(h, fpos, fold_pos, fvel)
+                    collsion_response(fine.pos)
+                updteVelocity(h, fine.pos, fine.old_pos, fine.vel)
             else:
-                semiEuler(h, fpos, fpredict_pos, fold_pos, fvel, damping_coeff)
+                semiEuler(h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, damping_coeff)
                 update_coarse_mesh()
-                resetLagrangian(clagrangian)
+                resetLagrangian(coarse.lagrangian)
                 for ite in range(coarse_iterations):
                     log_energy(meta.frame, energy_filename)
                     log_residual(meta.frame, residual_filename)
                     project_constraints(
-                        cpos_mid,
-                        ctet_indices,
-                        cmass,
-                        clagrangian,
-                        cB,
-                        cpos,
-                        calpha_tilde,
+                        coarse.pos,
+                        coarse.tet_indices,
+                        coarse.mass,
+                        coarse.lagrangian,
+                        coarse.B,
+                        coarse.pos,
+                        coarse.alpha_tilde,
                     )
-                    collsion_response(cpos)
+                    collsion_response(coarse.pos)
                     update_fine_mesh()
-                resetLagrangian(flagrangian)
+                resetLagrangian(fine.lagrangian)
                 for ite in range(fine_iterations):
                     log_energy(meta.frame, energy_filename)
                     log_residual(meta.frame, residual_filename)
                     project_constraints(
-                        fpos_mid,
-                        ftet_indices,
-                        fmass,
-                        flagrangian,
-                        fB,
-                        fpos,
-                        falpha_tilde,
+                        fine.pos_mid,
+                        fine.tet_indices,
+                        fine.mass,
+                        fine.lagrangian,
+                        fine.B,
+                        fine.pos,
+                        fine.alpha_tilde,
                     )
-                    collsion_response(fpos)
+                    collsion_response(fine.pos)
 
-                updteVelocity(h, fpos, fold_pos, fvel)
+                updteVelocity(h, fine.pos, fine.old_pos, fine.vel)
 
             meta.frame += 1
 
@@ -639,10 +630,10 @@ def main():
             window.running = False
 
         if show_fine_mesh:
-            scene.mesh(fpos, fdisplay_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
+            scene.mesh(fine.pos, fine.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
 
         if show_coarse_mesh:
-            scene.mesh(cpos, cdisplay_indices, color=(0.0, 0.5, 1.0), show_wireframe=wire_frame)
+            scene.mesh(coarse.pos, coarse.display_indices, color=(0.0, 0.5, 1.0), show_wireframe=wire_frame)
 
         canvas.scene(scene)
         window.show()

@@ -16,7 +16,9 @@ def is_in_tet(p, p0, p1, p2, p3):
     return (all(x >= 0) and sum(x) <= 1), x
 
 
-def compute(des_pos, des_nv, src_pos, src_nt, src_tet_indices, des_in_src_tet_indx, des_in_src_tet_coord):
+def compute(des_pos, src_pos, src_tet_indices, des_in_src_tet_indx, des_in_src_tet_coord):
+    des_nv = des_pos.shape[0]
+    src_nt = src_tet_indices.shape[0]
     pbar = tqdm.tqdm(total=des_nv)
     for i in range(des_nv):
         pbar.update(1)
@@ -51,9 +53,7 @@ def compute(des_pos, des_nv, src_pos, src_nt, src_tet_indices, des_in_src_tet_in
 
 def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices):
     coarse_nv = coarse_pos.shape[0]
-    coarse_nt = coarse_tet_indices.shape[0]
     fine_nv = fine_pos.shape[0]
-    fine_nt = fine_tet_indices.shape[0]
 
     coarse_in_fine_tet_indx = np.empty(coarse_nv, dtype=np.int32)
     coarse_in_fine_tet_coord = np.zeros((coarse_nv, 3), dtype=np.float64)
@@ -62,12 +62,9 @@ def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices):
 
     fine_in_coarse_tet_indx.fill(-1)
     coarse_in_fine_tet_indx.fill(-1)
-    compute(
-        fine_pos, fine_nv, coarse_pos, coarse_nt, coarse_tet_indices, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord
-    )
-    compute(
-        coarse_pos, coarse_nv, fine_pos, fine_nt, fine_tet_indices, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord
-    )
+
+    compute(fine_pos, coarse_pos, coarse_tet_indices, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord)
+    compute(coarse_pos, fine_pos, fine_tet_indices, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord)
 
     return coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord
 
@@ -117,7 +114,7 @@ def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_te
 
 
 if __name__ == "__main__":
-    path = "data/model/cube_64k/"
+    path = "data/model/cube/"
 
     fine_mesh = path + "fine"
     coarse_mesh = path + "coarse"
@@ -138,6 +135,6 @@ if __name__ == "__main__":
     n = fine_pos.shape[0]
     m = coarse_pos.shape[0]
     R = compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_tet_indices)
-    mmwrite(path + "R.mtx", R)
+    mmwrite(path + "R1.mtx", R)
     P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices)
-    mmwrite(path + "P.mtx", P)
+    mmwrite(path + "P1.mtx", P)

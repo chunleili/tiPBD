@@ -20,6 +20,7 @@ def compute(des_pos, src_pos, src_tet_indices, des_in_src_tet_indx, des_in_src_t
     des_nv = des_pos.shape[0]
     src_nt = src_tet_indices.shape[0]
     pbar = tqdm.tqdm(total=des_nv)
+    cnt = 0
     for i in range(des_nv):
         pbar.update(1)
         p = des_pos[i]
@@ -33,6 +34,8 @@ def compute(des_pos, src_pos, src_tet_indices, des_in_src_tet_indx, des_in_src_t
                 break
         # if des pos not in all tets, find the nearest tet
         if not flag or des_in_src_tet_indx[i] < 0:
+            cnt += 1
+            # print(f"des vert {i}({des_pos[i]}) not in all tets, find the nearest tet, cnt ={cnt}")
             min_dis = 1e10
             min_idx = -1
             for t in range(src_nt):
@@ -49,6 +52,7 @@ def compute(des_pos, src_pos, src_tet_indices, des_in_src_tet_indx, des_in_src_t
             des_in_src_tet_indx[i] = min_idx
             des_in_src_tet_coord[i] = x
     pbar.close()
+    print(f"Totally {cnt} des verts not found cage, use the nearest tet instead")
 
 
 def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices):
@@ -63,7 +67,10 @@ def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices):
     fine_in_coarse_tet_indx.fill(-1)
     coarse_in_fine_tet_indx.fill(-1)
 
+    print(">> Computing fine vert in which coarse cage...")
     compute(fine_pos, coarse_pos, coarse_tet_indices, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord)
+
+    print(">> Computing coarse vert in which fine cage...")
     compute(coarse_pos, fine_pos, fine_tet_indices, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord)
 
     return coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord

@@ -34,7 +34,6 @@ class Meta:
 
 meta = Meta()
 
-# meta.use_multigrid = True # TODO: true for multigrid, false for only fine mesh
 meta.use_multigrid = parser.parse_args().use_multigrid
 meta.frame = 0
 meta.max_frame = parser.parse_args().max_frame
@@ -42,21 +41,18 @@ meta.log_energy_range = range(100)  # change to range(-1) to disable
 meta.log_residual_range = range(100)  # change to range(-1) to disable
 meta.frame_to_save = parser.parse_args().save_at
 meta.load_at = parser.parse_args().load_at
-
 meta.pause = False
 meta.pause_at = -1
 
-omega = 0.1  # SOR factor
-inv_mu = 1.0e-6
-h = 0.003
-inv_h2 = 1.0 / h / h
-gravity = ti.Vector([0.0, 0.0, 0.0])
-DIM = 3
-coarse_iterations, fine_iterations = 5, 5
-only_fine_iterations = coarse_iterations + fine_iterations
-
-mass_density = 2000
-damping_coeff = 1.0
+meta.omega = 0.1  # SOR factor
+meta.inv_mu = 1.0e-6
+meta.h = 0.003
+meta.inv_h2 = 1.0 / meta.h / meta.h
+meta.gravity = ti.Vector([0.0, 0.0, 0.0])
+meta.coarse_iterations, meta.fine_iterations = 5, 5
+meta.only_fine_iterations = meta.coarse_iterations + meta.fine_iterations
+meta.mass_density = 2000
+meta.damping_coeff = 1.0
 
 
 class ArapMultigrid:
@@ -66,15 +62,15 @@ class ArapMultigrid:
         self.NT = len(self.model_inx)
         self.NF = len(self.model_tri)
 
-        self.pos = ti.Vector.field(DIM, float, self.NV)
-        self.pos_mid = ti.Vector.field(DIM, float, self.NV)
-        self.predict_pos = ti.Vector.field(DIM, float, self.NV)
-        self.old_pos = ti.Vector.field(DIM, float, self.NV)
-        self.vel = ti.Vector.field(DIM, float, self.NV)  # velocity of particles
+        self.pos = ti.Vector.field(3, float, self.NV)
+        self.pos_mid = ti.Vector.field(3, float, self.NV)
+        self.predict_pos = ti.Vector.field(3, float, self.NV)
+        self.old_pos = ti.Vector.field(3, float, self.NV)
+        self.vel = ti.Vector.field(3, float, self.NV)  # velocity of particles
         self.mass = ti.field(float, self.NV)  # mass of particles
         self.tet_indices = ti.Vector.field(4, int, self.NT)
         self.display_indices = ti.field(ti.i32, self.NF * 3)
-        self.B = ti.Matrix.field(DIM, DIM, float, self.NT)  # D_m^{-1}
+        self.B = ti.Matrix.field(3, 3, float, self.NT)  # D_m^{-1}
         self.lagrangian = ti.field(float, self.NT)  # lagrangian multipliers
         self.inv_V = ti.field(float, self.NT)  # volume of each tet
         self.alpha_tilde = ti.field(float, self.NT)
@@ -137,7 +133,7 @@ def init_pos(
         p0, p1, p2, p3 = pos_out[a], pos_out[b], pos_out[c], pos_out[d]
         D_m = ti.Matrix.cols([p1 - p0, p2 - p0, p3 - p0])
         rest_volume = 1.0 / 6.0 * ti.abs(D_m.determinant())
-        mass = mass_density * rest_volume
+        mass = meta.mass_density * rest_volume
         avg_mass = mass / 4.0
         mass_out[a] += avg_mass
         mass_out[b] += avg_mass
@@ -154,7 +150,7 @@ def init_pos(
 @ti.kernel
 def init_alpha_tilde(alpha_tilde: ti.template(), inv_V: ti.template()):
     for i in alpha_tilde:
-        alpha_tilde[i] = inv_h2 * inv_mu * inv_V[i]
+        alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V[i]
 
 
 @ti.kernel
@@ -233,7 +229,7 @@ def semiEuler(
 ):
     # semi-Euler update pos & vel
     for i in pos:
-        vel[i] += h * gravity
+        vel[i] += h * meta.gravity
         vel[i] *= damping_coeff
         old_pos[i] = pos[i]
         pos[i] += h * vel[i]
@@ -281,18 +277,18 @@ def project_constraints(
         l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr() + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
         dLambda = (constraint - alpha_tilde[i] * lagrangian[i]) / (l + alpha_tilde[i])
         lagrangian[i] += dLambda
-        pos[ia] -= omega * invM0 * dLambda * g0
-        pos[ib] -= omega * invM1 * dLambda * g1
-        pos[ic] -= omega * invM2 * dLambda * g2
-        pos[id] -= omega * invM3 * dLambda * g3
+        pos[ia] -= meta.omega * invM0 * dLambda * g0
+        pos[ib] -= meta.omega * invM1 * dLambda * g1
+        pos[ic] -= meta.omega * invM2 * dLambda * g2
+        pos[id] -= meta.omega * invM3 * dLambda * g3
 
         # save val for logging residual
         fine.gradC[i, 0], fine.gradC[i, 1], fine.gradC[i, 2], fine.gradC[i, 3] = g0, g1, g2, g3
         fine.constraint[i] = constraint
-        fine.dpos[ia] += omega * invM0 * dLambda * g0
-        fine.dpos[ib] += omega * invM1 * dLambda * g1
-        fine.dpos[ic] += omega * invM2 * dLambda * g2
-        fine.dpos[id] += omega * invM3 * dLambda * g3
+        fine.dpos[ia] += meta.omega * invM0 * dLambda * g0
+        fine.dpos[ib] += meta.omega * invM1 * dLambda * g1
+        fine.dpos[ic] += meta.omega * invM2 * dLambda * g2
+        fine.dpos[id] += meta.omega * invM3 * dLambda * g3
 
 
 @ti.kernel
@@ -573,9 +569,9 @@ def main():
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
             if not meta.use_multigrid:
-                semiEuler(h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, damping_coeff)
+                semiEuler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
                 resetLagrangian(fine.lagrangian)
-                for ite in range(only_fine_iterations):
+                for ite in range(meta.only_fine_iterations):
                     log_energy(meta.frame, energy_filename)
                     log_residual(meta.frame, residual_filename)
                     project_constraints(
@@ -588,12 +584,12 @@ def main():
                         fine.alpha_tilde,
                     )
                     collsion_response(fine.pos)
-                updteVelocity(h, fine.pos, fine.old_pos, fine.vel)
+                updteVelocity(meta.h, fine.pos, fine.old_pos, fine.vel)
             else:
-                semiEuler(h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, damping_coeff)
+                semiEuler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
                 update_coarse_mesh()
                 resetLagrangian(coarse.lagrangian)
-                for ite in range(coarse_iterations):
+                for ite in range(meta.coarse_iterations):
                     log_energy(meta.frame, energy_filename)
                     log_residual(meta.frame, residual_filename)
                     project_constraints(
@@ -608,7 +604,7 @@ def main():
                     collsion_response(coarse.pos)
                     update_fine_mesh()
                 resetLagrangian(fine.lagrangian)
-                for ite in range(fine_iterations):
+                for ite in range(meta.fine_iterations):
                     log_energy(meta.frame, energy_filename)
                     log_residual(meta.frame, residual_filename)
                     project_constraints(
@@ -622,7 +618,7 @@ def main():
                     )
                     collsion_response(fine.pos)
 
-                updteVelocity(h, fine.pos, fine.old_pos, fine.vel)
+                updteVelocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
             meta.frame += 1
 

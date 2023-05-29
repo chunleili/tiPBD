@@ -79,6 +79,7 @@ class ArapMultigrid:
         self.gradC = ti.Vector.field(3, ti.f32, shape=(self.NT, 4))
         self.constraint = ti.field(ti.f32, shape=(self.NT))
         self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
+        self.residual = ti.field(ti.f32, shape=self.NT)
 
 
 fine = ArapMultigrid(model_path + "fine")
@@ -370,9 +371,17 @@ def compute_par_2_tet(tet_indices: ti.template(), par_2_tet: ti.template()):
         par_2_tet[id] = i
 
 
+@ti.kernel
+def compute_residual_kernel(
+    constraint: ti.template(), alpha_tilde: ti.template(), lagrangian: ti.template(), residual: ti.template()
+):
+    for i in constraint:
+        residual[i] = constraint[i] + alpha_tilde[i] * lagrangian[i]
+
+
 def compute_residual() -> float:
-    residual = -(fine.constraint.to_numpy() + fine.alpha_tilde.to_numpy() * fine.lagrangian.to_numpy())
-    r_norm = np.linalg.norm(residual)
+    compute_residual_kernel(fine.constraint, fine.alpha_tilde, fine.lagrangian, fine.residual)
+    r_norm = np.linalg.norm(fine.residual.to_numpy())
     return r_norm
 
 
@@ -573,7 +582,6 @@ def main():
                 resetLagrangian(fine.lagrangian)
                 for ite in range(meta.only_fine_iterations):
                     log_energy(meta.frame, energy_filename)
-                    log_residual(meta.frame, residual_filename)
                     project_constraints(
                         fine.pos_mid,
                         fine.tet_indices,
@@ -583,6 +591,7 @@ def main():
                         fine.pos,
                         fine.alpha_tilde,
                     )
+                    log_residual(meta.frame, residual_filename)
                     collsion_response(fine.pos)
                 updteVelocity(meta.h, fine.pos, fine.old_pos, fine.vel)
             else:
@@ -591,7 +600,6 @@ def main():
                 resetLagrangian(coarse.lagrangian)
                 for ite in range(meta.coarse_iterations):
                     log_energy(meta.frame, energy_filename)
-                    log_residual(meta.frame, residual_filename)
                     project_constraints(
                         coarse.pos,
                         coarse.tet_indices,
@@ -601,12 +609,12 @@ def main():
                         coarse.pos,
                         coarse.alpha_tilde,
                     )
+                    log_residual(meta.frame, residual_filename)
                     collsion_response(coarse.pos)
                     update_fine_mesh()
                 resetLagrangian(fine.lagrangian)
                 for ite in range(meta.fine_iterations):
                     log_energy(meta.frame, energy_filename)
-                    log_residual(meta.frame, residual_filename)
                     project_constraints(
                         fine.pos_mid,
                         fine.tet_indices,
@@ -616,6 +624,7 @@ def main():
                         fine.pos,
                         fine.alpha_tilde,
                     )
+                    log_residual(meta.frame, residual_filename)
                     collsion_response(fine.pos)
 
                 updteVelocity(meta.h, fine.pos, fine.old_pos, fine.vel)

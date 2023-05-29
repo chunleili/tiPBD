@@ -51,7 +51,7 @@ meta.inv_h2 = 1.0 / meta.h / meta.h
 meta.gravity = ti.Vector([0.0, 0.0, 0.0])
 meta.coarse_iterations, meta.fine_iterations = 5, 5
 meta.only_fine_iterations = meta.coarse_iterations + meta.fine_iterations
-meta.mass_density = 2000
+meta.total_mass = 16000.0
 meta.damping_coeff = 1.0
 
 
@@ -133,8 +133,8 @@ def init_pos(
         p0, p1, p2, p3 = pos_out[a], pos_out[b], pos_out[c], pos_out[d]
         D_m = ti.Matrix.cols([p1 - p0, p2 - p0, p3 - p0])
         rest_volume = 1.0 / 6.0 * ti.abs(D_m.determinant())
-        mass = meta.mass_density * rest_volume
-        avg_mass = mass / 4.0
+        mass_per_tet = meta.total_mass / tet_indices_in.shape[0]
+        avg_mass = mass_per_tet / 4.0
         mass_out[a] += avg_mass
         mass_out[b] += avg_mass
         mass_out[c] += avg_mass

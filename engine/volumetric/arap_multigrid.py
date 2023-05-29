@@ -375,7 +375,7 @@ def compute_residual_kernel(
     constraint: ti.template(), alpha_tilde: ti.template(), lagrangian: ti.template(), residual: ti.template()
 ):
     for i in constraint:
-        residual[i] = constraint[i] + alpha_tilde[i] * lagrangian[i]
+        residual[i] = constraint[i] - alpha_tilde[i] * lagrangian[i]
 
 
 def compute_residual() -> float:

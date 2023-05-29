@@ -23,7 +23,7 @@ parser.add_argument("-mg", "--use_multigrid", action="store_true")
 parser.add_argument("-l", "--load_at", type=int, default=-1)
 parser.add_argument("-s", "--save_at", type=int, default=-1)
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
-model_path = "data/model/cube/"
+
 
 ti.init(arch=ti.cpu)
 
@@ -53,6 +53,8 @@ meta.coarse_iterations, meta.fine_iterations = 5, 5
 meta.only_fine_iterations = meta.coarse_iterations + meta.fine_iterations
 meta.total_mass = 16000.0
 meta.damping_coeff = 1.0
+
+model_path = "data/model/cube/"
 
 
 class ArapMultigrid:

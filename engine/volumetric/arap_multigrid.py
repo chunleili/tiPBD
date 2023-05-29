@@ -253,10 +253,12 @@ def project_constraints(
     B: ti.template(),
     pos: ti.template(),
     alpha_tilde: ti.template(),
+    constraint: ti.template(),
+    dpos: ti.template(),
 ):
     for i in pos:
         mid_pos[i] = pos[i]
-        fine.dpos[i] = ti.Vector([0.0, 0.0, 0.0])
+        dpos[i] = ti.Vector([0.0, 0.0, 0.0])
 
     for i in tet_indices:
         ia, ib, ic, id = tet_indices[i]
@@ -271,25 +273,22 @@ def project_constraints(
         U, S, V = ti.svd(D_s @ B[i])
         if S[2, 2] < 0.0:  # S[2, 2] is the smallest singular value
             S[2, 2] *= -1.0
-        constraint = sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
-        if constraint < 1e-12:
+        constraint[i] = sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        if constraint[i] < 1e-12:
             continue
         g0, g1, g2, g3 = computeGradient(U, S, V, B[i])
         l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr() + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
-        dLambda = (constraint - alpha_tilde[i] * lagrangian[i]) / (l + alpha_tilde[i])
+        dLambda = (constraint[i] - alpha_tilde[i] * lagrangian[i]) / (l + alpha_tilde[i])
         lagrangian[i] += dLambda
         pos[ia] -= meta.omega * invM0 * dLambda * g0
         pos[ib] -= meta.omega * invM1 * dLambda * g1
         pos[ic] -= meta.omega * invM2 * dLambda * g2
         pos[id] -= meta.omega * invM3 * dLambda * g3
 
-        # save val for logging residual
-        fine.gradC[i, 0], fine.gradC[i, 1], fine.gradC[i, 2], fine.gradC[i, 3] = g0, g1, g2, g3
-        fine.constraint[i] = constraint
-        fine.dpos[ia] += meta.omega * invM0 * dLambda * g0
-        fine.dpos[ib] += meta.omega * invM1 * dLambda * g1
-        fine.dpos[ic] += meta.omega * invM2 * dLambda * g2
-        fine.dpos[id] += meta.omega * invM3 * dLambda * g3
+        dpos[ia] += meta.omega * invM0 * dLambda * g0
+        dpos[ib] += meta.omega * invM1 * dLambda * g1
+        dpos[ic] += meta.omega * invM2 * dLambda * g2
+        dpos[id] += meta.omega * invM3 * dLambda * g3
 
 
 @ti.kernel
@@ -590,6 +589,8 @@ def main():
                         fine.B,
                         fine.pos,
                         fine.alpha_tilde,
+                        fine.constraint,
+                        fine.dpos,
                     )
                     log_residual(meta.frame, residual_filename)
                     collsion_response(fine.pos)
@@ -608,6 +609,8 @@ def main():
                         coarse.B,
                         coarse.pos,
                         coarse.alpha_tilde,
+                        coarse.constraint,
+                        coarse.dpos,
                     )
                     log_residual(meta.frame, residual_filename)
                     collsion_response(coarse.pos)
@@ -623,6 +626,8 @@ def main():
                         fine.B,
                         fine.pos,
                         fine.alpha_tilde,
+                        fine.constraint,
+                        fine.dpos,
                     )
                     log_residual(meta.frame, residual_filename)
                     collsion_response(fine.pos)

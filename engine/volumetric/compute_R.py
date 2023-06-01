@@ -16,41 +16,41 @@ def is_in_tet(p, p0, p1, p2, p3):
     return (all(x >= 0) and sum(x) <= 1), x
 
 
-def compute(des_pos, src_pos, src_tet_indices, des_in_src_tet_indx, des_in_src_tet_coord):
-    des_nv = des_pos.shape[0]
-    src_nt = src_tet_indices.shape[0]
-    pbar = tqdm.tqdm(total=des_nv)
+def compute(p_pos, cage_vert_pos, cage_indx, which_cage, bary_coord):
+    n_p = p_pos.shape[0]
+    n_cage = cage_indx.shape[0]
+    pbar = tqdm.tqdm(total=n_p)
     cnt = 0
-    for i in range(des_nv):
+    for i in range(n_p):
         pbar.update(1)
-        p = des_pos[i]
-        for t in range(src_nt):
-            a, b, c, d = src_tet_indices[t]
-            p0, p1, p2, p3 = src_pos[a], src_pos[b], src_pos[c], src_pos[d]
+        p = p_pos[i]
+        for t in range(n_cage):
+            a, b, c, d = cage_indx[t]
+            p0, p1, p2, p3 = cage_vert_pos[a], cage_vert_pos[b], cage_vert_pos[c], cage_vert_pos[d]
             flag, x = is_in_tet(p, p0, p1, p2, p3)
             if flag:
-                des_in_src_tet_indx[i] = t
-                des_in_src_tet_coord[i] = x
+                which_cage[i] = t
+                bary_coord[i] = x
                 break
         # if des pos not in all tets, find the nearest tet
-        if not flag or des_in_src_tet_indx[i] < 0:
+        if not flag or which_cage[i] < 0:
             cnt += 1
-            # print(f"des vert {i}({des_pos[i]}) not in all tets, find the nearest tet, cnt ={cnt}")
+            # print(f"des vert {i}({p_pos[i]}) not in all tets, find the nearest tet, cnt ={cnt}")
             min_dis = 1e10
             min_idx = -1
-            for t in range(src_nt):
-                a, b, c, d = src_tet_indices[t]
-                p_tet = [src_pos[a], src_pos[b], src_pos[c], src_pos[d]]
+            for t in range(n_cage):
+                a, b, c, d = cage_indx[t]
+                p_tet = [cage_vert_pos[a], cage_vert_pos[b], cage_vert_pos[c], cage_vert_pos[d]]
                 for idx in range(4):
                     dis = np.linalg.norm(p_tet[idx] - p)
                     if dis < min_dis:
                         min_dis = dis
                         min_idx = t
-            a, b, c, d = src_tet_indices[min_idx]
-            p0, p1, p2, p3 = src_pos[a], src_pos[b], src_pos[c], src_pos[d]
+            a, b, c, d = cage_indx[min_idx]
+            p0, p1, p2, p3 = cage_vert_pos[a], cage_vert_pos[b], cage_vert_pos[c], cage_vert_pos[d]
             flag, x = is_in_tet(p, p0, p1, p2, p3)
-            des_in_src_tet_indx[i] = min_idx
-            des_in_src_tet_coord[i] = x
+            which_cage[i] = min_idx
+            bary_coord[i] = x
     pbar.close()
     print(f"Totally {cnt} des verts not found cage, use the nearest tet instead")
 

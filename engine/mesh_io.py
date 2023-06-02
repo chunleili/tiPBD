@@ -1,4 +1,5 @@
 import taichi as ti
+import meshio
 
 
 def read_particles(mesh_path="data/model/bunny.obj"):
@@ -33,6 +34,32 @@ def read_mesh(mesh_path="data/model/bunny.obj", scale=[1.0, 1.0, 1.0], shift=[0,
     mesh.vertices *= scale
     mesh.vertices += shift
     return mesh.vertices, mesh.faces
+
+
+def write_tet(filename, points, tet_indices):
+    cells = [
+        ("tetra", tet_indices),
+    ]
+    mesh = meshio.Mesh(
+        points,
+        cells,
+    )
+    mesh.write(filename)
+    return mesh
+
+
+def tetgen_to_ply(mesh_path):
+    print("Using meshio to read: ", mesh_path + ".node")
+    mesh = meshio.read(mesh_path + ".node", file_format="tetgen")
+    mesh.write(mesh_path + ".ply", binary=False)
+    print("Write to: ", mesh_path + ".ply")
+
+
+def tetgen_to_vtk(mesh_path):
+    print("Using meshio to read: ", mesh_path + ".node")
+    mesh = meshio.read(mesh_path + ".node", file_format="tetgen")
+    mesh.write(mesh_path + ".vtk")
+    print("Write to: ", mesh_path + ".vtk")
 
 
 def read_tetgen(filename):
@@ -75,6 +102,25 @@ def read_tetgen(filename):
             face_indices[i] = np.array(lines[i + 1].split()[1:-1], dtype=np.int32)
 
     return pos, tet_indices, face_indices
+
+
+def write_tetgen(filename, points, tet_indices, tri_indices=None):
+    node_mesh = filename + ".node"
+    ele_mesh = filename + ".ele"
+    face_mesh = filename + ".face"
+    with open(node_mesh, "w") as f:
+        f.write(f"{points.shape[0]} 3 0 0\n")
+        for i in range(points.shape[0]):
+            f.write(f"{i} {points[i, 0]} {points[i, 1]} {points[i, 2]}\n")
+    with open(ele_mesh, "w") as f:
+        f.write(f"{tet_indices.shape[0]} 4 0\n")
+        for i in range(tet_indices.shape[0]):
+            f.write(f"{i} {tet_indices[i, 0]} {tet_indices[i, 1]} {tet_indices[i, 2]} {tet_indices[i, 3]}\n")
+    if tri_indices is not None:
+        with open(face_mesh, "w") as f:
+            f.write(f"{tri_indices.shape[0]} 3 0\n")
+            for i in range(tri_indices.shape[0]):
+                f.write(f"{i} {tri_indices[i, 0]} {tri_indices[i, 1]} {tri_indices[i, 2]} -1\n")
 
 
 def points_from_volume(mesh_path="data/model/box.obj", particle_seperation=0.02):

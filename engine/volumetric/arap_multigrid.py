@@ -582,6 +582,8 @@ def main():
                 semiEuler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
                 resetLagrangian(fine.lagrangian)
                 for ite in range(meta.only_fine_iterations):
+                    if ite == 0:
+                        log_residual(meta.frame, residual_filename)
                     log_energy(meta.frame, energy_filename)
                     project_constraints(
                         fine.pos_mid,
@@ -619,6 +621,8 @@ def main():
                     update_fine_mesh()
                 resetLagrangian(fine.lagrangian)
                 for ite in range(meta.fine_iterations):
+                    if ite == 0:
+                        log_residual(meta.frame, residual_filename)
                     log_energy(meta.frame, energy_filename)
                     project_constraints(
                         fine.pos_mid,

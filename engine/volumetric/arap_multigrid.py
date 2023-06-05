@@ -23,7 +23,11 @@ parser.add_argument("-mg", "--use_multigrid", action="store_true")
 parser.add_argument("-l", "--load_at", type=int, default=-1)
 parser.add_argument("-s", "--save_at", type=int, default=-1)
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
-
+parser.add_argument("-energy", "--log_energy_max_frame", type=int, default=-1)
+parser.add_argument("-residual", "--log_residual_max_frame", type=int, default=100)
+parser.add_argument("-p", "--pause_at", type=int, default=-1)
+parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
+parser.add_argument("-f", "--fine_iterations", type=int, default=5)
 
 ti.init(arch=ti.cpu)
 
@@ -34,22 +38,25 @@ class Meta:
 
 meta = Meta()
 
-meta.use_multigrid = parser.parse_args().use_multigrid
+# control parameters
+meta.args = parser.parse_args()
 meta.frame = 0
-meta.max_frame = parser.parse_args().max_frame
-meta.log_energy_range = range(100)  # change to range(-1) to disable
-meta.log_residual_range = range(100)  # change to range(-1) to disable
-meta.frame_to_save = parser.parse_args().save_at
-meta.load_at = parser.parse_args().load_at
+meta.use_multigrid = meta.args.use_multigrid
+meta.max_frame = meta.args.max_frame
+meta.log_energy_range = range(meta.args.log_energy_max_frame)  # change to range(-1) to disable
+meta.log_residual_range = range(meta.args.log_residual_max_frame)  # change to range(-1) to disable
+meta.frame_to_save = meta.args.save_at
+meta.load_at = meta.args.load_at
 meta.pause = False
-meta.pause_at = -1
+meta.pause_at = meta.args.pause_at
 
+# physical parameters
 meta.omega = 0.1  # SOR factor
 meta.inv_mu = 1.0e-6
 meta.h = 0.003
 meta.inv_h2 = 1.0 / meta.h / meta.h
 meta.gravity = ti.Vector([0.0, 0.0, 0.0])
-meta.coarse_iterations, meta.fine_iterations = 5, 5
+meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
 meta.only_fine_iterations = meta.coarse_iterations + meta.fine_iterations
 meta.total_mass = 16000.0
 meta.damping_coeff = 1.0

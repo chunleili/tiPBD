@@ -107,7 +107,7 @@ def update_coarse_mesh():
 
 
 @ti.kernel
-def init_pos(
+def init_physics(
     pos_in: ti.types.ndarray(),
     tet_indices_in: ti.types.ndarray(),
     tri_indices_in: ti.types.ndarray(),
@@ -120,11 +120,13 @@ def init_pos(
     inv_V_out: ti.template(),
     display_indices_out: ti.template(),
 ):
+    # init pos, old_pos, vel
     for i in pos_out:
         pos_out[i] = ti.Vector([pos_in[i, 0], pos_in[i, 1], pos_in[i, 2]])
         old_pos_out[i] = pos_out[i]
         vel_out[i] = ti.Vector([0, 0, 0])
     for i in tet_indices_out:
+        # init tet_indices
         a, b, c, d = (
             tet_indices_in[i, 0],
             tet_indices_in[i, 1],
@@ -132,18 +134,22 @@ def init_pos(
             tet_indices_in[i, 3],
         )
         tet_indices_out[i] = ti.Vector([a, b, c, d])
+        # init B
         a, b, c, d = tet_indices_out[i]
         p0, p1, p2, p3 = pos_out[a], pos_out[b], pos_out[c], pos_out[d]
         D_m = ti.Matrix.cols([p1 - p0, p2 - p0, p3 - p0])
+        B_out[i] = D_m.inverse()
+        # init inv_V
         rest_volume = 1.0 / 6.0 * ti.abs(D_m.determinant())
+        inv_V_out[i] = 1.0 / rest_volume
+        # init mass
         mass_per_tet = meta.total_mass / tet_indices_in.shape[0]
         avg_mass = mass_per_tet / 4.0
         mass_out[a] += avg_mass
         mass_out[b] += avg_mass
         mass_out[c] += avg_mass
         mass_out[d] += avg_mass
-        inv_V_out[i] = 1.0 / rest_volume
-        B_out[i] = D_m.inverse()
+    # init display_indices
     for i in range(tri_indices_in.shape[0]):
         display_indices_out[3 * i + 0] = tri_indices_in[i, 0]
         display_indices_out[3 * i + 1] = tri_indices_in[i, 1]
@@ -157,7 +163,7 @@ def init_alpha_tilde(alpha_tilde: ti.template(), inv_V: ti.template()):
 
 
 @ti.kernel
-def resetLagrangian(lagrangian: ti.template()):
+def reset_lagrangian(lagrangian: ti.template()):
     for i in lagrangian:
         lagrangian[i] = 0.0
 
@@ -174,11 +180,11 @@ def make_matrix(x, y, z):
 
 
 @ti.func
-def computeGradient(U, S, V, B):
-    sumSigma = sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+def compute_gradient(U, S, V, B):
+    sum_sigma = sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
 
     # (dcdS00, dcdS11, dcdS22)
-    dcdS = 1.0 / sumSigma * ti.Vector([S[0, 0] - 1, S[1, 1] - 1, S[2, 2] - 1])
+    dcdS = 1.0 / sum_sigma * ti.Vector([S[0, 0] - 1, S[1, 1] - 1, S[2, 2] - 1])
     # Compute (dFdx)^T
     dFdp1T = make_matrix(B[0, 0], B[0, 1], B[0, 2])
     dFdp2T = make_matrix(B[1, 0], B[1, 1], B[1, 2])
@@ -222,7 +228,7 @@ def computeGradient(U, S, V, B):
 
 
 @ti.kernel
-def semiEuler(
+def semi_euler(
     h: ti.f32,
     pos: ti.template(),
     predict_pos: ti.template(),
@@ -230,7 +236,6 @@ def semiEuler(
     vel: ti.template(),
     damping_coeff: ti.f32,
 ):
-    # semi-Euler update pos & vel
     for i in pos:
         vel[i] += h * meta.gravity
         vel[i] *= damping_coeff
@@ -240,8 +245,7 @@ def semiEuler(
 
 
 @ti.kernel
-def updteVelocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
-    # update velocity
+def update_velocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
     for i in pos:
         vel[i] = (pos[i] - old_pos[i]) / h
 
@@ -278,7 +282,7 @@ def project_constraints(
         constraint[i] = sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         if constraint[i] < 1e-12:
             continue
-        g0, g1, g2, g3 = computeGradient(U, S, V, B[i])
+        g0, g1, g2, g3 = compute_gradient(U, S, V, B[i])
         l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr() + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
         dLambda = (constraint[i] - alpha_tilde[i] * lagrangian[i]) / (l + alpha_tilde[i])
         lagrangian[i] += dLambda
@@ -286,11 +290,6 @@ def project_constraints(
         pos[ib] -= meta.omega * invM1 * dLambda * g1
         pos[ic] -= meta.omega * invM2 * dLambda * g2
         pos[id] -= meta.omega * invM3 * dLambda * g3
-
-        dpos[ia] += meta.omega * invM0 * dLambda * g0
-        dpos[ib] += meta.omega * invM1 * dLambda * g1
-        dpos[ic] += meta.omega * invM2 * dLambda * g2
-        dpos[id] += meta.omega * invM3 * dLambda * g3
 
 
 @ti.kernel
@@ -327,13 +326,6 @@ def compute_potential_energy(
         constraint_squared = (S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2
         pe += (1.0 / alpha_tilde[i]) * constraint_squared
     return pe * 0.5
-
-
-"""
-    Inertial Term = \frac{1}{2} \|(x^{n+1} - \tilde{x})\|_{\mathbf{M}}
-    Potential Energy = \frac{1}{2} C^{\top}(\mathbf{x})\tilde{\alpha} ^{-1} C(\mathbf{x})
-    Total Energy = Kinetic Energy + Potential Energy
-"""
 
 
 def compute_energy(mass, pos, predict_pos, tet_indices, B, alpha_tilde):
@@ -478,7 +470,7 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
 
-    init_pos(
+    init_physics(
         fine.model_pos,
         fine.model_inx,
         fine.model_tri,
@@ -491,7 +483,7 @@ def main():
         fine.inv_V,
         fine.display_indices,
     )
-    init_pos(
+    init_physics(
         coarse.model_pos,
         coarse.model_inx,
         coarse.model_tri,
@@ -579,8 +571,8 @@ def main():
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
             if not meta.use_multigrid:
-                semiEuler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-                resetLagrangian(fine.lagrangian)
+                semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
+                reset_lagrangian(fine.lagrangian)
                 for ite in range(meta.only_fine_iterations):
                     if ite == 0:
                         log_residual(meta.frame, residual_filename)
@@ -598,11 +590,11 @@ def main():
                     )
                     log_residual(meta.frame, residual_filename)
                     collsion_response(fine.pos)
-                updteVelocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+                update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
             else:
-                semiEuler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
+                semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
                 update_coarse_mesh()
-                resetLagrangian(coarse.lagrangian)
+                reset_lagrangian(coarse.lagrangian)
                 for ite in range(meta.coarse_iterations):
                     log_energy(meta.frame, energy_filename)
                     project_constraints(
@@ -619,7 +611,7 @@ def main():
                     log_residual(meta.frame, residual_filename)
                     collsion_response(coarse.pos)
                     update_fine_mesh()
-                resetLagrangian(fine.lagrangian)
+                reset_lagrangian(fine.lagrangian)
                 for ite in range(meta.fine_iterations):
                     if ite == 0:
                         log_residual(meta.frame, residual_filename)
@@ -638,7 +630,7 @@ def main():
                     log_residual(meta.frame, residual_filename)
                     collsion_response(fine.pos)
 
-                updteVelocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+                update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
             meta.frame += 1
 

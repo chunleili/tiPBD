@@ -54,11 +54,9 @@ meta.only_fine_iterations = meta.coarse_iterations + meta.fine_iterations
 meta.total_mass = 16000.0
 meta.damping_coeff = 1.0
 
-model_path = "data/model/cube/"
-
 
 class ArapMultigrid:
-    def __init__(self, path="data/model/cube/fine"):
+    def __init__(self, path):
         self.model_pos, self.model_inx, self.model_tri = read_tetgen(path)
         self.NV = len(self.model_pos)
         self.NT = len(self.model_inx)
@@ -84,20 +82,19 @@ class ArapMultigrid:
         self.residual = ti.field(ti.f32, shape=self.NT)
 
 
-fine = ArapMultigrid(model_path + "fine")
-coarse = ArapMultigrid(model_path + "coarse")
+meta.model_path = "data/model/bunny1k2k/"
 
+fine = ArapMultigrid(meta.model_path + "bunny2k")
+coarse = ArapMultigrid(meta.model_path + "bunny1k")
 
-P = sio.mmread(model_path + "P.mtx")
+P = sio.mmread(meta.model_path + "P.mtx")
+R = sio.mmread(meta.model_path + "R.mtx")
 
 
 def update_fine_mesh():
     cpos_np = coarse.pos.to_numpy()
     fpos_np = P @ cpos_np
     fine.pos.from_numpy(fpos_np)
-
-
-R = sio.mmread(model_path + "R.mtx")
 
 
 def update_coarse_mesh():

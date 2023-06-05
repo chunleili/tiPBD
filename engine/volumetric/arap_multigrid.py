@@ -23,8 +23,8 @@ parser.add_argument("-mg", "--use_multigrid", action="store_true")
 parser.add_argument("-l", "--load_at", type=int, default=-1)
 parser.add_argument("-s", "--save_at", type=int, default=-1)
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
-parser.add_argument("-energy", "--log_energy_max_frame", type=int, default=-1)
-parser.add_argument("-residual", "--log_residual_max_frame", type=int, default=100)
+parser.add_argument("-energy", "--log_energy_range", nargs=2, type=int, default=(-1, -1))
+parser.add_argument("-residual", "--log_residual_range", nargs=2, type=int, default=(-1, -1))
 parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
 parser.add_argument("-f", "--fine_iterations", type=int, default=5)
@@ -43,8 +43,8 @@ meta.args = parser.parse_args()
 meta.frame = 0
 meta.use_multigrid = meta.args.use_multigrid
 meta.max_frame = meta.args.max_frame
-meta.log_energy_range = range(meta.args.log_energy_max_frame)  # change to range(-1) to disable
-meta.log_residual_range = range(meta.args.log_residual_max_frame)  # change to range(-1) to disable
+meta.log_energy_range = range(meta.args.log_energy_range[0], meta.args.log_energy_range[1])
+meta.log_residual_range = range(meta.args.log_residual_range[0], meta.args.log_residual_range[1])
 meta.frame_to_save = meta.args.save_at
 meta.load_at = meta.args.load_at
 meta.pause = False

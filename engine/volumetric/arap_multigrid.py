@@ -128,6 +128,28 @@ class ArapMultigrid:
         self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
         self.residual = ti.field(ti.f32, shape=self.NT)
 
+        self.state = [
+            self.pos,
+            self.pos_mid,
+            self.predict_pos,
+            self.old_pos,
+            self.vel,
+            self.mass,
+            self.inv_mass,
+            self.tet_indices,
+            self.display_indices,
+            self.B,
+            self.lagrangian,
+            self.rest_volume,
+            self.inv_V,
+            self.alpha_tilde,
+            self.par_2_tet,
+            self.gradC,
+            self.constraint,
+            self.dpos,
+            self.residual,
+        ]
+
 
 meta.model_path = "data/model/bunny1k2k/"
 
@@ -441,37 +463,7 @@ def log_residual(frame, filename_to_save):
 
 
 def save_state(filename):
-    state = [
-        meta.frame,
-        fine.pos,
-        fine.pos_mid,
-        fine.predict_pos,
-        fine.old_pos,
-        fine.vel,
-        fine.mass,
-        fine.tet_indices,
-        fine.display_indices,
-        fine.B,
-        fine.lagrangian,
-        fine.inv_V,
-        fine.alpha_tilde,
-        fine.par_2_tet,
-        fine.gradC,
-        fine.constraint,
-        fine.dpos,
-        coarse.pos,
-        coarse.pos_mid,
-        coarse.predict_pos,
-        coarse.old_pos,
-        coarse.vel,
-        coarse.mass,
-        coarse.tet_indices,
-        coarse.display_indices,
-        coarse.B,
-        coarse.lagrangian,
-        coarse.inv_V,
-        coarse.alpha_tilde,
-    ]
+    state = fine.state + coarse.state
     for i in range(1, len(state)):
         state[i] = state[i].to_numpy()
     np.savez(filename, *state)
@@ -480,39 +472,7 @@ def save_state(filename):
 
 def load_state(filename):
     npzfile = np.load(filename)
-
-    state = [
-        meta.frame,
-        fine.pos,
-        fine.pos_mid,
-        fine.predict_pos,
-        fine.old_pos,
-        fine.vel,
-        fine.mass,
-        fine.tet_indices,
-        fine.display_indices,
-        fine.B,
-        fine.lagrangian,
-        fine.inv_V,
-        fine.alpha_tilde,
-        fine.par_2_tet,
-        fine.gradC,
-        fine.constraint,
-        fine.dpos,
-        coarse.pos,
-        coarse.pos,
-        coarse.predict_pos,
-        coarse.old_pos,
-        coarse.vel,
-        coarse.mass,
-        coarse.tet_indices,
-        coarse.display_indices,
-        coarse.B,
-        coarse.lagrangian,
-        coarse.inv_V,
-        coarse.alpha_tilde,
-    ]
-
+    state = fine.state + coarse.state
     meta.frame = int(npzfile["arr_0"])
     for i in range(1, len(state)):
         state[i].from_numpy(npzfile["arr_" + str(i)])

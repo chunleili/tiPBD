@@ -181,79 +181,64 @@ def update_coarse_mesh():
     coarse.pos.from_numpy(cpos_np)
 
 
+def init_model(instance):
+    instance.pos.from_numpy(instance.model_pos)
+    instance.tet_indices.from_numpy(instance.model_tet)
+    instance.display_indices.from_numpy(instance.model_tri.flatten())
+
+
 @ti.kernel
 def init_physics(
-    pos_in: ti.types.ndarray(),
-    tet_indices_in: ti.types.ndarray(),
-    tri_indices_in: ti.types.ndarray(),
-    pos_out: ti.template(),
-    old_pos_out: ti.template(),
-    vel_out: ti.template(),
-    mass_out: ti.template(),
-    tet_indices_out: ti.template(),
-    B_out: ti.template(),
-    inv_V_out: ti.template(),
-    display_indices_out: ti.template(),
-    par_2_tet: ti.template(),
+    pos: ti.template(),
+    old_pos: ti.template(),
+    vel: ti.template(),
+    tet_indices: ti.template(),
+    B: ti.template(),
     rest_volume: ti.template(),
+    inv_V: ti.template(),
+    mass: ti.template(),
     inv_mass: ti.template(),
     alpha_tilde: ti.template(),
+    par_2_tet: ti.template(),
 ):
     # init pos, old_pos, vel
-    for i in pos_out:
-        pos_out[i] = ti.Vector([pos_in[i, 0], pos_in[i, 1], pos_in[i, 2]])
-        old_pos_out[i] = pos_out[i]
-        vel_out[i] = ti.Vector([0, 0, 0])
+    for i in pos:
+        old_pos[i] = pos[i]
+        vel[i] = ti.Vector([0, 0, 0])
 
+    # init B and rest_volume
     total_volume = 0.0
-    for i in tet_indices_out:
-        # init tet_indices
-        a, b, c, d = (
-            tet_indices_in[i, 0],
-            tet_indices_in[i, 1],
-            tet_indices_in[i, 2],
-            tet_indices_in[i, 3],
-        )
-        tet_indices_out[i] = ti.Vector([a, b, c, d])
-        # init B
-        a, b, c, d = tet_indices_out[i]
-        p0, p1, p2, p3 = pos_out[a], pos_out[b], pos_out[c], pos_out[d]
+    for i in tet_indices:
+        ia, ib, ic, id = tet_indices[i]
+        p0, p1, p2, p3 = pos[ia], pos[ib], pos[ic], pos[id]
         D_m = ti.Matrix.cols([p1 - p0, p2 - p0, p3 - p0])
-        B_out[i] = D_m.inverse()
-        # init rest_volume and inv_V
+        B[i] = D_m.inverse()
+
         rest_volume[i] = 1.0 / 6.0 * ti.abs(D_m.determinant())
-        inv_V_out[i] = 1.0 / rest_volume[i]
+        inv_V[i] = 1.0 / rest_volume[i]
         total_volume += rest_volume[i]
-        # init par_2_tet
-        par_2_tet[a] = i
-        par_2_tet[b] = i
-        par_2_tet[c] = i
-        par_2_tet[d] = i
-    # init display_indices
-    for i in range(tri_indices_in.shape[0]):
-        display_indices_out[3 * i + 0] = tri_indices_in[i, 0]
-        display_indices_out[3 * i + 1] = tri_indices_in[i, 1]
-        display_indices_out[3 * i + 2] = tri_indices_in[i, 2]
+
     # init mass
-    for i in tet_indices_out:
-        a, b, c, d = (
-            tet_indices_in[i, 0],
-            tet_indices_in[i, 1],
-            tet_indices_in[i, 2],
-            tet_indices_in[i, 3],
-        )
+    for i in tet_indices:
+        ia, ib, ic, id = tet_indices[i]
         mass_density = meta.total_mass / total_volume
         tet_mass = mass_density * rest_volume[i]
         avg_mass = tet_mass / 4.0
-        mass_out[a] += avg_mass
-        mass_out[b] += avg_mass
-        mass_out[c] += avg_mass
-        mass_out[d] += avg_mass
+        mass[ia] += avg_mass
+        mass[ib] += avg_mass
+        mass[ic] += avg_mass
+        mass[id] += avg_mass
     for i in inv_mass:
-        inv_mass[i] = 1.0 / mass_out[i]
+        inv_mass[i] = 1.0 / mass[i]
+
     # init alpha_tilde
     for i in alpha_tilde:
-        alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V_out[i]
+        alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V[i]
+
+    # init par_2_tet
+    for i in tet_indices:
+        ia, ib, ic, id = tet_indices[i]
+        par_2_tet[ia], par_2_tet[ib], par_2_tet[ic], par_2_tet[id] = i, i, i, i
 
 
 @ti.kernel
@@ -479,39 +464,34 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
 
+    init_model(fine)
+    init_model(coarse)
+
     init_physics(
-        fine.model_pos,
-        fine.model_tet,
-        fine.model_tri,
         fine.pos,
         fine.old_pos,
         fine.vel,
-        fine.mass,
         fine.tet_indices,
         fine.B,
-        fine.inv_V,
-        fine.display_indices,
-        fine.par_2_tet,
         fine.rest_volume,
+        fine.inv_V,
+        fine.mass,
         fine.inv_mass,
         fine.alpha_tilde,
+        fine.par_2_tet,
     )
     init_physics(
-        coarse.model_pos,
-        coarse.model_tet,
-        coarse.model_tri,
         coarse.pos,
         coarse.old_pos,
         coarse.vel,
-        coarse.mass,
         coarse.tet_indices,
         coarse.B,
-        coarse.inv_V,
-        coarse.display_indices,
-        coarse.par_2_tet,
         coarse.rest_volume,
+        coarse.inv_V,
+        coarse.mass,
         coarse.inv_mass,
         coarse.alpha_tilde,
+        coarse.par_2_tet,
     )
 
     init_style = "enlarge"

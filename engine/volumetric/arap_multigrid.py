@@ -13,10 +13,6 @@ from scipy.io import mmwrite
 import sys, os, argparse
 
 sys.path.append(os.getcwd())
-from engine.mesh_io import read_tetgen
-
-# from engine.log import log_energy
-# from engine.metadata import meta
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--load_at", type=int, default=-1)
@@ -61,6 +57,46 @@ meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta
 if meta.coarse_iterations == 0 or meta.use_multigrid == False:
     meta.use_multigrid = False
     meta.coarse_iterations = 0
+
+
+def read_tetgen(filename):
+    """
+    读取tetgen生成的网格文件，返回顶点坐标、单元索引、面索引
+
+    Args:
+        filename: 网格文件名，不包含后缀名
+
+    Returns:
+        pos: 顶点坐标，shape=(NV, 3)
+        tet_indices: 单元索引，shape=(NT, 4)
+        face_indices: 面索引，shape=(NF, 3)
+    """
+    ele_file_name = filename + ".ele"
+    node_file_name = filename + ".node"
+    face_file_name = filename + ".face"
+
+    with open(node_file_name, "r") as f:
+        lines = f.readlines()
+        NV = int(lines[0].split()[0])
+        pos = np.zeros((NV, 3), dtype=np.float32)
+        for i in range(NV):
+            pos[i] = np.array(lines[i + 1].split()[1:], dtype=np.float32)
+
+    with open(ele_file_name, "r") as f:
+        lines = f.readlines()
+        NT = int(lines[0].split()[0])
+        tet_indices = np.zeros((NT, 4), dtype=np.int32)
+        for i in range(NT):
+            tet_indices[i] = np.array(lines[i + 1].split()[1:], dtype=np.int32)
+
+    with open(face_file_name, "r") as f:
+        lines = f.readlines()
+        NF = int(lines[0].split()[0])
+        face_indices = np.zeros((NF, 3), dtype=np.int32)
+        for i in range(NF):
+            face_indices[i] = np.array(lines[i + 1].split()[1:-1], dtype=np.int32)
+
+    return pos, tet_indices, face_indices
 
 
 class ArapMultigrid:

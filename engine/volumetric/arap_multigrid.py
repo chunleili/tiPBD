@@ -19,7 +19,6 @@ from engine.mesh_io import read_tetgen
 # from engine.metadata import meta
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-mg", "--use_multigrid", action="store_true")
 parser.add_argument("-l", "--load_at", type=int, default=-1)
 parser.add_argument("-s", "--save_at", type=int, default=-1)
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
@@ -41,7 +40,7 @@ meta = Meta()
 # control parameters
 meta.args = parser.parse_args()
 meta.frame = 0
-meta.use_multigrid = meta.args.use_multigrid
+meta.use_multigrid = True
 meta.max_frame = meta.args.max_frame
 meta.log_energy_range = range(meta.args.log_energy_range[0], meta.args.log_energy_range[1])
 meta.log_residual_range = range(meta.args.log_residual_range[0], meta.args.log_residual_range[1])
@@ -56,10 +55,13 @@ meta.inv_mu = 1.0e-6
 meta.h = 0.003
 meta.inv_h2 = 1.0 / meta.h / meta.h
 meta.gravity = ti.Vector([0.0, 0.0, 0.0])
-meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
-meta.only_fine_iterations = meta.coarse_iterations + meta.fine_iterations
 meta.total_mass = 16000.0
 meta.damping_coeff = 1.0
+meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
+meta.max_iter = meta.coarse_iterations + meta.fine_iterations
+if meta.coarse_iterations == 0 or meta.use_multigrid == False:
+    meta.use_multigrid = False
+    meta.coarse_iterations = 0
 
 
 class ArapMultigrid:
@@ -558,10 +560,10 @@ def main():
         if window.is_pressed(ti.ui.ESCAPE):
             window.running = False
 
-        if window.is_pressed(ti.ui.SPACE):
-            meta.pause = not meta.pause
         if meta.frame == meta.pause_at:
             meta.pause = True
+        if window.is_pressed(ti.ui.SPACE):
+            meta.pause = not meta.pause
 
         gui.text("frame {}".format(meta.frame))
         meta.pause = gui.checkbox("pause", meta.pause)
@@ -574,65 +576,44 @@ def main():
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
-            if not meta.use_multigrid:
-                semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-                reset_lagrangian(fine.lagrangian)
-                for ite in range(meta.only_fine_iterations):
-                    if ite == 0:
-                        log_residual(meta.frame, residual_filename)
-                    log_energy(meta.frame, energy_filename)
-                    project_constraints(
-                        fine.pos_mid,
-                        fine.tet_indices,
-                        fine.mass,
-                        fine.lagrangian,
-                        fine.B,
-                        fine.pos,
-                        fine.alpha_tilde,
-                        fine.constraint,
-                        fine.dpos,
-                    )
-                    log_residual(meta.frame, residual_filename)
-                    collsion_response(fine.pos)
-                update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
-            else:
-                semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
+            semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
+            if meta.use_multigrid:
                 update_coarse_mesh()
-                reset_lagrangian(coarse.lagrangian)
-                for ite in range(meta.coarse_iterations):
-                    log_energy(meta.frame, energy_filename)
-                    project_constraints(
-                        coarse.pos,
-                        coarse.tet_indices,
-                        coarse.mass,
-                        coarse.lagrangian,
-                        coarse.B,
-                        coarse.pos,
-                        coarse.alpha_tilde,
-                        coarse.constraint,
-                        coarse.dpos,
-                    )
+            reset_lagrangian(coarse.lagrangian)
+            for ite in range(meta.coarse_iterations):
+                log_energy(meta.frame, energy_filename)
+                project_constraints(
+                    coarse.pos_mid,
+                    coarse.tet_indices,
+                    coarse.mass,
+                    coarse.lagrangian,
+                    coarse.B,
+                    coarse.pos,
+                    coarse.alpha_tilde,
+                    coarse.constraint,
+                    coarse.dpos,
+                )
+                log_residual(meta.frame, residual_filename)
+                collsion_response(coarse.pos)
+                update_fine_mesh()
+            reset_lagrangian(fine.lagrangian)
+            for ite in range(meta.fine_iterations):
+                if ite == 0:
                     log_residual(meta.frame, residual_filename)
-                    collsion_response(coarse.pos)
-                    update_fine_mesh()
-                reset_lagrangian(fine.lagrangian)
-                for ite in range(meta.fine_iterations):
-                    if ite == 0:
-                        log_residual(meta.frame, residual_filename)
-                    log_energy(meta.frame, energy_filename)
-                    project_constraints(
-                        fine.pos_mid,
-                        fine.tet_indices,
-                        fine.mass,
-                        fine.lagrangian,
-                        fine.B,
-                        fine.pos,
-                        fine.alpha_tilde,
-                        fine.constraint,
-                        fine.dpos,
-                    )
-                    log_residual(meta.frame, residual_filename)
-                    collsion_response(fine.pos)
+                log_energy(meta.frame, energy_filename)
+                project_constraints(
+                    fine.pos_mid,
+                    fine.tet_indices,
+                    fine.mass,
+                    fine.lagrangian,
+                    fine.B,
+                    fine.pos,
+                    fine.alpha_tilde,
+                    fine.constraint,
+                    fine.dpos,
+                )
+                log_residual(meta.frame, residual_filename)
+                collsion_response(fine.pos)
 
                 update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 

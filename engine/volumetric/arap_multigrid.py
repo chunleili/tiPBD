@@ -58,7 +58,6 @@ meta.gravity = ti.Vector([0.0, 0.0, 0.0])
 meta.total_mass = 16000.0
 meta.damping_coeff = 1.0
 meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
-meta.max_iter = meta.coarse_iterations + meta.fine_iterations
 if meta.coarse_iterations == 0 or meta.use_multigrid == False:
     meta.use_multigrid = False
     meta.coarse_iterations = 0
@@ -517,7 +516,7 @@ def main():
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
     camera = ti.ui.Camera()
-    camera.position(0, 0, 3.5)
+    camera.position(0, 5, 10)
     camera.lookat(0, 0, 0)
     camera.fov(45)
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
@@ -566,6 +565,9 @@ def main():
         wire_frame = gui.checkbox("wireframe", wire_frame)
         show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
         show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
+        meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 0, 50)
+        meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 0, 50)
+        gui.text("total iterations: {}".format(meta.coarse_iterations + meta.fine_iterations))
 
         if meta.frame == meta.frame_to_save:
             save_state(save_state_filename + str(meta.frame))

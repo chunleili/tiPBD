@@ -125,6 +125,7 @@ def init_physics(
     B_out: ti.template(),
     inv_V_out: ti.template(),
     display_indices_out: ti.template(),
+    par_2_tet: ti.template(),
 ):
     # init pos, old_pos, vel
     for i in pos_out:
@@ -155,6 +156,11 @@ def init_physics(
         mass_out[b] += avg_mass
         mass_out[c] += avg_mass
         mass_out[d] += avg_mass
+        # init par_2_tet
+        par_2_tet[a] = i
+        par_2_tet[b] = i
+        par_2_tet[c] = i
+        par_2_tet[d] = i
     # init display_indices
     for i in range(tri_indices_in.shape[0]):
         display_indices_out[3 * i + 0] = tri_indices_in[i, 0]
@@ -361,16 +367,6 @@ def log_energy(frame, filename_to_save):
 
 
 @ti.kernel
-def compute_par_2_tet(tet_indices: ti.template(), par_2_tet: ti.template()):
-    for i in tet_indices:
-        ia, ib, ic, id = tet_indices[i]
-        par_2_tet[ia] = i
-        par_2_tet[ib] = i
-        par_2_tet[ic] = i
-        par_2_tet[id] = i
-
-
-@ti.kernel
 def compute_residual_kernel(
     constraint: ti.template(), alpha_tilde: ti.template(), lagrangian: ti.template(), residual: ti.template()
 ):
@@ -488,6 +484,7 @@ def main():
         fine.B,
         fine.inv_V,
         fine.display_indices,
+        fine.par_2_tet,
     )
     init_physics(
         coarse.model_pos,
@@ -501,9 +498,8 @@ def main():
         coarse.B,
         coarse.inv_V,
         coarse.display_indices,
+        coarse.par_2_tet,
     )
-
-    compute_par_2_tet(fine.tet_indices, fine.par_2_tet)
 
     init_style = "enlarge"
 

@@ -101,9 +101,9 @@ def read_tetgen(filename):
 
 class ArapMultigrid:
     def __init__(self, path):
-        self.model_pos, self.model_inx, self.model_tri = read_tetgen(path)
+        self.model_pos, self.model_tet, self.model_tri = read_tetgen(path)
         self.NV = len(self.model_pos)
-        self.NT = len(self.model_inx)
+        self.NT = len(self.model_tet)
         self.NF = len(self.model_tri)
 
         self.pos = ti.Vector.field(3, float, self.NV)
@@ -509,7 +509,7 @@ def main():
 
     init_physics(
         fine.model_pos,
-        fine.model_inx,
+        fine.model_tet,
         fine.model_tri,
         fine.pos,
         fine.old_pos,
@@ -523,7 +523,7 @@ def main():
     )
     init_physics(
         coarse.model_pos,
-        coarse.model_inx,
+        coarse.model_tet,
         coarse.model_tri,
         coarse.pos,
         coarse.old_pos,

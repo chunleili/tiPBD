@@ -113,6 +113,7 @@ class ArapMultigrid:
         self.old_pos = ti.Vector.field(3, float, self.NV)
         self.vel = ti.Vector.field(3, float, self.NV)  # velocity of particles
         self.mass = ti.field(float, self.NV)  # mass of particles
+        self.inv_mass = ti.field(float, self.NV)  # inverse mass of particles
         self.tet_indices = ti.Vector.field(4, int, self.NT)
         self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.B = ti.Matrix.field(3, 3, float, self.NT)  # D_m^{-1}
@@ -164,6 +165,7 @@ def init_physics(
     display_indices_out: ti.template(),
     par_2_tet: ti.template(),
     rest_volume: ti.template(),
+    inv_mass: ti.template(),
 ):
     # init pos, old_pos, vel
     for i in pos_out:
@@ -202,13 +204,21 @@ def init_physics(
         display_indices_out[3 * i + 2] = tri_indices_in[i, 2]
     # init mass
     for i in tet_indices_out:
+        a, b, c, d = (
+            tet_indices_in[i, 0],
+            tet_indices_in[i, 1],
+            tet_indices_in[i, 2],
+            tet_indices_in[i, 3],
+        )
         mass_density = meta.total_mass / total_volume
-        mass = mass_density * rest_volume[i]
-        avg_mass = mass / 4.0
+        tet_mass = mass_density * rest_volume[i]
+        avg_mass = tet_mass / 4.0
         mass_out[a] += avg_mass
         mass_out[b] += avg_mass
         mass_out[c] += avg_mass
         mass_out[d] += avg_mass
+    for i in inv_mass:
+        inv_mass[i] = 1.0 / mass_out[i]
 
 
 @ti.kernel
@@ -309,7 +319,7 @@ def update_velocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: 
 def project_constraints(
     mid_pos: ti.template(),
     tet_indices: ti.template(),
-    mass: ti.template(),
+    inv_mass: ti.template(),
     lagrangian: ti.template(),
     B: ti.template(),
     pos: ti.template(),
@@ -324,12 +334,6 @@ def project_constraints(
     for i in tet_indices:
         ia, ib, ic, id = tet_indices[i]
         a, b, c, d = mid_pos[ia], mid_pos[ib], mid_pos[ic], mid_pos[id]
-        invM0, invM1, invM2, invM3 = (
-            1.0 / mass[ia],
-            1.0 / mass[ib],
-            1.0 / mass[ic],
-            1.0 / mass[id],
-        )
         D_s = ti.Matrix.cols([b - a, c - a, d - a])
         U, S, V = ti.svd(D_s @ B[i])
         if S[2, 2] < 0.0:  # S[2, 2] is the smallest singular value
@@ -338,13 +342,18 @@ def project_constraints(
         if constraint[i] < 1e-12:
             continue
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[i])
-        l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr() + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
+        l = (
+            inv_mass[ia] * g0.norm_sqr()
+            + inv_mass[ib] * g1.norm_sqr()
+            + inv_mass[ic] * g2.norm_sqr()
+            + inv_mass[id] * g3.norm_sqr()
+        )
         dLambda = (constraint[i] - alpha_tilde[i] * lagrangian[i]) / (l + alpha_tilde[i])
         lagrangian[i] += dLambda
-        pos[ia] -= meta.omega * invM0 * dLambda * g0
-        pos[ib] -= meta.omega * invM1 * dLambda * g1
-        pos[ic] -= meta.omega * invM2 * dLambda * g2
-        pos[id] -= meta.omega * invM3 * dLambda * g3
+        pos[ia] -= meta.omega * inv_mass[ia] * dLambda * g0
+        pos[ib] -= meta.omega * inv_mass[ib] * dLambda * g1
+        pos[ic] -= meta.omega * inv_mass[ic] * dLambda * g2
+        pos[id] -= meta.omega * inv_mass[id] * dLambda * g3
 
 
 @ti.kernel
@@ -529,6 +538,7 @@ def main():
         fine.display_indices,
         fine.par_2_tet,
         fine.rest_volume,
+        fine.inv_mass,
     )
     init_physics(
         coarse.model_pos,
@@ -544,6 +554,7 @@ def main():
         coarse.display_indices,
         coarse.par_2_tet,
         coarse.rest_volume,
+        coarse.inv_mass,
     )
 
     init_style = "enlarge"
@@ -629,7 +640,7 @@ def main():
                 project_constraints(
                     coarse.pos_mid,
                     coarse.tet_indices,
-                    coarse.mass,
+                    coarse.inv_mass,
                     coarse.lagrangian,
                     coarse.B,
                     coarse.pos,
@@ -648,7 +659,7 @@ def main():
                 project_constraints(
                     fine.pos_mid,
                     fine.tet_indices,
-                    fine.mass,
+                    fine.inv_mass,
                     fine.lagrangian,
                     fine.B,
                     fine.pos,

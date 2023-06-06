@@ -197,6 +197,7 @@ def init_physics(
     par_2_tet: ti.template(),
     rest_volume: ti.template(),
     inv_mass: ti.template(),
+    alpha_tilde: ti.template(),
 ):
     # init pos, old_pos, vel
     for i in pos_out:
@@ -250,12 +251,9 @@ def init_physics(
         mass_out[d] += avg_mass
     for i in inv_mass:
         inv_mass[i] = 1.0 / mass_out[i]
-
-
-@ti.kernel
-def init_alpha_tilde(alpha_tilde: ti.template(), inv_V: ti.template()):
+    # init alpha_tilde
     for i in alpha_tilde:
-        alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V[i]
+        alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V_out[i]
 
 
 @ti.kernel
@@ -496,6 +494,7 @@ def main():
         fine.par_2_tet,
         fine.rest_volume,
         fine.inv_mass,
+        fine.alpha_tilde,
     )
     init_physics(
         coarse.model_pos,
@@ -512,6 +511,7 @@ def main():
         coarse.par_2_tet,
         coarse.rest_volume,
         coarse.inv_mass,
+        coarse.alpha_tilde,
     )
 
     init_style = "enlarge"
@@ -526,8 +526,6 @@ def main():
         fine.pos.from_numpy(fine.model_pos * 1.5)
         coarse.pos.from_numpy(coarse.model_pos * 1.5)
 
-    init_alpha_tilde(fine.alpha_tilde, fine.inv_V)
-    init_alpha_tilde(coarse.alpha_tilde, coarse.inv_V)
     window = ti.ui.Window("3D ARAP FEM XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
     scene = ti.ui.Scene()

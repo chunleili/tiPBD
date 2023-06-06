@@ -429,18 +429,6 @@ def compute_energy(mass, pos, predict_pos, tet_indices, B, alpha_tilde):
     return it + pe, it, pe
 
 
-@ti.kernel
-def init_random_position(pos: ti.template(), init_random_points: ti.types.ndarray()):
-    for i in pos:
-        pos[i] = ti.Vector(
-            [
-                init_random_points[i, 0],
-                init_random_points[i, 1],
-                init_random_points[i, 2],
-            ]
-        )
-
-
 def log_energy(frame, filename_to_save):
     if frame in meta.log_energy_range:
         te, it, pe = compute_energy(fine.mass, fine.pos, fine.predict_pos, fine.tet_indices, fine.B, fine.alpha_tilde)

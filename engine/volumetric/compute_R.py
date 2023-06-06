@@ -4,6 +4,7 @@ import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.io import mmwrite
 import tqdm
+import argparse
 
 sys.path.append(os.getcwd())
 from engine.mesh_io import read_tetgen
@@ -121,12 +122,15 @@ def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_te
 
 
 if __name__ == "__main__":
-    path = "data/model/cube/"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--path", type=str, default="data/model/cube/")
+    parser.add_argument("--fine_mesh", type=str, default="fine")
+    parser.add_argument("--coarse_mesh", type=str, default="coarse")
+    path = parser.parse_args().path
+    fine_mesh = path + parser.parse_args().fine_mesh
+    coarse_mesh = path + parser.parse_args().coarse_mesh
 
-    fine_mesh = path + "fine"
-    coarse_mesh = path + "coarse"
-
-    print(">> Reading mesh...")
+    print(f">> Reading mesh at {path}...")
     coarse_pos, coarse_tet_indices, coarse_face_indices = read_tetgen(coarse_mesh)
     fine_pos, fine_tet_indices, fine_face_indices = read_tetgen(fine_mesh)
 
@@ -142,6 +146,6 @@ if __name__ == "__main__":
     n = fine_pos.shape[0]
     m = coarse_pos.shape[0]
     R = compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_tet_indices)
-    mmwrite(path + "R1.mtx", R)
+    mmwrite(path + "R.mtx", R)
     P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices)
-    mmwrite(path + "P1.mtx", P)
+    mmwrite(path + "P.mtx", P)

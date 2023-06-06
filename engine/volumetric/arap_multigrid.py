@@ -23,6 +23,7 @@ parser.add_argument("-residual", "--log_residual_range", nargs=2, type=int, defa
 parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
 parser.add_argument("-f", "--fine_iterations", type=int, default=5)
+parser.add_argument("--model", type=str, default="cube")
 
 ti.init(arch=ti.cpu)
 
@@ -151,10 +152,18 @@ class ArapMultigrid:
         ]
 
 
-meta.model_path = "data/model/bunny1k2k/"
+if meta.args.model == "bunny":
+    meta.model_path = "data/model/bunny1k2k/"
+    meta.fine_model_path = meta.model_path + "bunny2k"
+    meta.coarse_model_path = meta.model_path + "bunny1k"
+elif meta.args.model == "cube":
+    meta.model_path = "data/model/cube/"
+    meta.fine_model_path = meta.model_path + "fine"
+    meta.coarse_model_path = meta.model_path + "coarse"
 
-fine = ArapMultigrid(meta.model_path + "bunny2k")
-coarse = ArapMultigrid(meta.model_path + "bunny1k")
+fine = ArapMultigrid(meta.fine_model_path)
+coarse = ArapMultigrid(meta.coarse_model_path)
+
 
 P = sio.mmread(meta.model_path + "P.mtx")
 R = sio.mmread(meta.model_path + "R.mtx")
@@ -520,12 +529,14 @@ def main():
     init_style = "enlarge"
 
     if init_style == "random":
-        # # random init
+        # random init
         random_val = np.random.rand(fine.pos.shape[0], 3)
         fine.pos.from_numpy(random_val)
+        coarse.pos.from_numpy(random_val)
     elif init_style == "enlarge":
         # init by enlarge 1.5x
         fine.pos.from_numpy(fine.model_pos * 1.5)
+        coarse.pos.from_numpy(coarse.model_pos * 1.5)
 
     init_alpha_tilde(fine.alpha_tilde, fine.inv_V)
     init_alpha_tilde(coarse.alpha_tilde, coarse.inv_V)

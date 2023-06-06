@@ -123,16 +123,21 @@ def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_te
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--path", type=str, default="data/model/cube/")
-    parser.add_argument("--fine_mesh", type=str, default="fine")
-    parser.add_argument("--coarse_mesh", type=str, default="coarse")
-    path = parser.parse_args().path
-    fine_mesh = path + parser.parse_args().fine_mesh
-    coarse_mesh = path + parser.parse_args().coarse_mesh
+    parser.add_argument("--model", type=str, default="cube")
+    parser.add_argument("--suffix", type=str, default="")
+    args = parser.parse_args()
 
-    print(f">> Reading mesh at {path}...")
-    coarse_pos, coarse_tet_indices, coarse_face_indices = read_tetgen(coarse_mesh)
-    fine_pos, fine_tet_indices, fine_face_indices = read_tetgen(fine_mesh)
+    model_path = "data/model/cube/"
+    fine_model_path = model_path + "fine"
+    coarse_model_path = model_path + "coarse"
+    if args.model == "bunny":
+        model_path = "data/model/bunny1k2k/"
+        fine_model_path = model_path + "bunny2k"
+        coarse_model_path = model_path + "bunny1k"
+
+    print(f">> Reading mesh at {model_path}...")
+    coarse_pos, coarse_tet_indices, coarse_face_indices = read_tetgen(coarse_model_path)
+    fine_pos, fine_tet_indices, fine_face_indices = read_tetgen(fine_model_path)
 
     print(">> Start to compute coarse and fine mapping...")
     (
@@ -146,6 +151,6 @@ if __name__ == "__main__":
     n = fine_pos.shape[0]
     m = coarse_pos.shape[0]
     R = compute_R(n, m, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_tet_indices)
-    mmwrite(path + "R.mtx", R)
+    mmwrite(model_path + "R" + args.suffix + ".mtx", R)
     P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices)
-    mmwrite(path + "P.mtx", P)
+    mmwrite(model_path + "P" + args.suffix + ".mtx", P)

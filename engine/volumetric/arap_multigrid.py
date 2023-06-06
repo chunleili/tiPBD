@@ -44,6 +44,10 @@ meta.frame_to_save = meta.args.save_at
 meta.load_at = meta.args.load_at
 meta.pause = False
 meta.pause_at = meta.args.pause_at
+meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
+if meta.coarse_iterations == 0 or meta.use_multigrid == False:
+    meta.use_multigrid = False
+    meta.coarse_iterations = 0
 
 # physical parameters
 meta.omega = 0.1  # SOR factor
@@ -52,11 +56,8 @@ meta.h = 0.003
 meta.inv_h2 = 1.0 / meta.h / meta.h
 meta.gravity = ti.Vector([0.0, 0.0, 0.0])
 meta.total_mass = 16000.0
+# meta.mass_density = 2000.0
 meta.damping_coeff = 1.0
-meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
-if meta.coarse_iterations == 0 or meta.use_multigrid == False:
-    meta.use_multigrid = False
-    meta.coarse_iterations = 0
 
 
 def read_tetgen(filename):
@@ -116,7 +117,8 @@ class ArapMultigrid:
         self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.B = ti.Matrix.field(3, 3, float, self.NT)  # D_m^{-1}
         self.lagrangian = ti.field(float, self.NT)  # lagrangian multipliers
-        self.inv_V = ti.field(float, self.NT)  # volume of each tet
+        self.rest_volume = ti.field(float, self.NT)  # rest volume of each tet
+        self.inv_V = ti.field(float, self.NT)  # inverse volume of each tet
         self.alpha_tilde = ti.field(float, self.NT)
 
         self.par_2_tet = ti.field(int, self.NV)
@@ -161,12 +163,15 @@ def init_physics(
     inv_V_out: ti.template(),
     display_indices_out: ti.template(),
     par_2_tet: ti.template(),
+    rest_volume: ti.template(),
 ):
     # init pos, old_pos, vel
     for i in pos_out:
         pos_out[i] = ti.Vector([pos_in[i, 0], pos_in[i, 1], pos_in[i, 2]])
         old_pos_out[i] = pos_out[i]
         vel_out[i] = ti.Vector([0, 0, 0])
+
+    total_volume = 0.0
     for i in tet_indices_out:
         # init tet_indices
         a, b, c, d = (
@@ -181,16 +186,10 @@ def init_physics(
         p0, p1, p2, p3 = pos_out[a], pos_out[b], pos_out[c], pos_out[d]
         D_m = ti.Matrix.cols([p1 - p0, p2 - p0, p3 - p0])
         B_out[i] = D_m.inverse()
-        # init inv_V
-        rest_volume = 1.0 / 6.0 * ti.abs(D_m.determinant())
-        inv_V_out[i] = 1.0 / rest_volume
-        # init mass
-        mass_per_tet = meta.total_mass / tet_indices_in.shape[0]
-        avg_mass = mass_per_tet / 4.0
-        mass_out[a] += avg_mass
-        mass_out[b] += avg_mass
-        mass_out[c] += avg_mass
-        mass_out[d] += avg_mass
+        # init rest_volume and inv_V
+        rest_volume[i] = 1.0 / 6.0 * ti.abs(D_m.determinant())
+        inv_V_out[i] = 1.0 / rest_volume[i]
+        total_volume += rest_volume[i]
         # init par_2_tet
         par_2_tet[a] = i
         par_2_tet[b] = i
@@ -201,6 +200,15 @@ def init_physics(
         display_indices_out[3 * i + 0] = tri_indices_in[i, 0]
         display_indices_out[3 * i + 1] = tri_indices_in[i, 1]
         display_indices_out[3 * i + 2] = tri_indices_in[i, 2]
+    # init mass
+    for i in tet_indices_out:
+        mass_density = meta.total_mass / total_volume
+        mass = mass_density * rest_volume[i]
+        avg_mass = mass / 4.0
+        mass_out[a] += avg_mass
+        mass_out[b] += avg_mass
+        mass_out[c] += avg_mass
+        mass_out[d] += avg_mass
 
 
 @ti.kernel
@@ -520,6 +528,7 @@ def main():
         fine.inv_V,
         fine.display_indices,
         fine.par_2_tet,
+        fine.rest_volume,
     )
     init_physics(
         coarse.model_pos,
@@ -534,6 +543,7 @@ def main():
         coarse.inv_V,
         coarse.display_indices,
         coarse.par_2_tet,
+        coarse.rest_volume,
     )
 
     init_style = "enlarge"

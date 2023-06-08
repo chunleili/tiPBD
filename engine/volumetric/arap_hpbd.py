@@ -3,11 +3,11 @@ Modified YP multi-grid solver for ARAP
 """
 import taichi as ti
 from taichi.lang.ops import sqrt
-import scipy.io as sio
 import numpy as np
 import logging
 from logging import info
 import scipy
+import scipy.io as sio
 from scipy.sparse import coo_matrix, spdiags, kron
 from scipy.io import mmwrite
 import sys, os, argparse
@@ -18,8 +18,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--load_at", type=int, default=-1)
 parser.add_argument("-s", "--save_at", type=int, default=-1)
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
-parser.add_argument("-energy", "--log_energy_range", nargs=2, type=int, default=(-1, -1))
-parser.add_argument("-residual", "--log_residual_range", nargs=2, type=int, default=(-1, -1))
+parser.add_argument("-e", "--log_energy_range", nargs=2, type=int, default=(-1, -1))
+parser.add_argument("-r", "--log_residual_range", nargs=2, type=int, default=(-1, -1))
 parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
 parser.add_argument("-f", "--fine_iterations", type=int, default=5)
@@ -52,13 +52,14 @@ if meta.coarse_iterations == 0 or meta.use_multigrid == False:
 
 # physical parameters
 meta.omega = 0.1  # SOR factor
-meta.inv_mu = 1.0e-6
+meta.mu = 1e6  # Lame's second parameter
+meta.inv_mu = 1.0 / meta.mu
 meta.h = 0.003
 meta.inv_h2 = 1.0 / meta.h / meta.h
 meta.gravity = ti.Vector([0.0, 0.0, 0.0])
+meta.damping_coeff = 1.0
 meta.total_mass = 16000.0
 # meta.mass_density = 2000.0
-meta.damping_coeff = 1.0
 
 
 def read_tetgen(filename):

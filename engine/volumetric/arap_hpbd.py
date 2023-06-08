@@ -331,7 +331,7 @@ def update_velocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: 
 
 @ti.kernel
 def project_constraints(
-    mid_pos: ti.template(),
+    pos_mid: ti.template(),
     tet_indices: ti.template(),
     inv_mass: ti.template(),
     lagrangian: ti.template(),
@@ -339,10 +339,10 @@ def project_constraints(
     pos: ti.template(),
     alpha_tilde: ti.template(),
     constraint: ti.template(),
-    dpos: ti.template(),
+    residual: ti.template(),
 ):
     for i in pos:
-        mid_pos[i] = pos[i]
+        pos_mid[i] = pos[i]
 
     # ti.loop_config(serialize=meta.serialize)
     for t in range(tet_indices.shape[0]):
@@ -351,10 +351,7 @@ def project_constraints(
         p2 = tet_indices[t][2]
         p3 = tet_indices[t][3]
 
-        x0 = mid_pos[p0]
-        x1 = mid_pos[p1]
-        x2 = mid_pos[p2]
-        x3 = mid_pos[p3]
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
 
         D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
         F = D_s @ B[t]
@@ -375,6 +372,8 @@ def project_constraints(
         pos[p1] += meta.omega * inv_mass[p1] * dlambda * g1
         pos[p2] += meta.omega * inv_mass[p2] * dlambda * g2
         pos[p3] += meta.omega * inv_mass[p3] * dlambda * g3
+
+        residual[t] = constraint[t] + alpha_tilde[t] * lagrangian[t]
 
 
 @ti.kernel
@@ -427,23 +426,9 @@ def log_energy(frame, filename_to_save):
             np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
 
 
-@ti.kernel
-def compute_residual_kernel(
-    constraint: ti.template(), alpha_tilde: ti.template(), lagrangian: ti.template(), residual: ti.template()
-):
-    for i in constraint:
-        residual[i] = constraint[i] + alpha_tilde[i] * lagrangian[i]
-
-
-def compute_residual() -> float:
-    compute_residual_kernel(fine.constraint, fine.alpha_tilde, fine.lagrangian, fine.residual)
-    r_norm = np.linalg.norm(fine.residual.to_numpy())
-    return r_norm
-
-
 def log_residual(frame, filename_to_save):
     if frame in meta.log_residual_range:
-        r_norm = compute_residual()
+        r_norm = np.linalg.norm(fine.residual.to_numpy())
         logging.info("residual:\t{}".format(r_norm))
         with open(filename_to_save, "a") as f:
             np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
@@ -590,7 +575,7 @@ def main():
                     coarse.pos,
                     coarse.alpha_tilde,
                     coarse.constraint,
-                    coarse.dpos,
+                    coarse.residual,
                 )
                 log_residual(meta.frame, residual_filename)
                 collsion_response(coarse.pos)
@@ -609,11 +594,10 @@ def main():
                     fine.pos,
                     fine.alpha_tilde,
                     fine.constraint,
-                    fine.dpos,
+                    fine.residual,
                 )
                 log_residual(meta.frame, residual_filename)
                 collsion_response(fine.pos)
-
                 update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
             meta.frame += 1

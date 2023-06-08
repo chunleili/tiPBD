@@ -24,6 +24,13 @@ parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
 parser.add_argument("-f", "--fine_iterations", type=int, default=5)
 parser.add_argument("--model", type=str, default="cube")
+parser.add_argument("--omega", type=float, default=0.1)
+parser.add_argument("--mu", type=float, default=1e6)
+parser.add_argument("--dt", type=float, default=3e-3)
+parser.add_argument("--damping_coeff", type=float, default=1.0)
+parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
+parser.add_argument("--total_mass", type=float, default=16000.0)
+
 
 ti.init(arch=ti.gpu)
 
@@ -39,8 +46,8 @@ meta.args = parser.parse_args()
 meta.frame = 0
 meta.use_multigrid = True
 meta.max_frame = meta.args.max_frame
-meta.log_energy_range = range(meta.args.log_energy_range[0], meta.args.log_energy_range[1])
-meta.log_residual_range = range(meta.args.log_residual_range[0], meta.args.log_residual_range[1])
+meta.log_energy_range = range(*meta.args.log_energy_range)
+meta.log_residual_range = range(*meta.args.log_residual_range)
 meta.frame_to_save = meta.args.save_at
 meta.load_at = meta.args.load_at
 meta.pause = False
@@ -51,14 +58,14 @@ if meta.coarse_iterations == 0 or meta.use_multigrid == False:
     meta.coarse_iterations = 0
 
 # physical parameters
-meta.omega = 0.1  # SOR factor
-meta.mu = 1e6  # Lame's second parameter
+meta.omega = meta.args.omega  # SOR factor, default 0.1
+meta.mu = meta.args.mu  # Lame's second parameter, default 1e6
 meta.inv_mu = 1.0 / meta.mu
-meta.h = 0.003
+meta.h = meta.args.dt  # time step size, default 3e-3
 meta.inv_h2 = 1.0 / meta.h / meta.h
-meta.gravity = ti.Vector([0.0, 0.0, 0.0])
-meta.damping_coeff = 1.0
-meta.total_mass = 16000.0
+meta.gravity = ti.Vector(meta.args.gravity)  # gravity, default (0, 0, 0)
+meta.damping_coeff = meta.args.damping_coeff  # damping coefficient, default 1.0
+meta.total_mass = meta.args.total_mass  # total mass, default 16000.0
 # meta.mass_density = 2000.0
 
 

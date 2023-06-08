@@ -5,6 +5,7 @@ from scipy.sparse import coo_matrix
 from scipy.io import mmwrite
 import tqdm
 import argparse
+from time import perf_counter
 
 sys.path.append(os.getcwd())
 from engine.mesh_io import read_tetgen
@@ -122,6 +123,8 @@ def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_te
 
 
 if __name__ == "__main__":
+    start_time = perf_counter()
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="cube")
     parser.add_argument("--suffix", type=str, default="")
@@ -154,3 +157,6 @@ if __name__ == "__main__":
     mmwrite(model_path + "R" + args.suffix + ".mtx", R)
     P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices)
     mmwrite(model_path + "P" + args.suffix + ".mtx", P)
+
+    end_time = perf_counter()
+    print(f">> Total time: {end_time - start_time:.2f}s")

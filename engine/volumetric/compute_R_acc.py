@@ -5,30 +5,42 @@ from scipy.sparse import coo_matrix
 from scipy.io import mmwrite
 import tqdm
 import argparse
+import taichi as ti
+from taichi.math import vec3, vec4
+from time import perf_counter
 
 sys.path.append(os.getcwd())
 from engine.mesh_io import read_tetgen
 
+ti.init(default_fp=ti.f64)
 
-def is_in_tet(p, p0, p1, p2, p3):
-    A = np.array([p1 - p0, p2 - p0, p3 - p0]).transpose()
+
+@ti.func
+def is_in_tet_func(p, p0, p1, p2, p3):
+    A = ti.math.mat3([p1 - p0, p2 - p0, p3 - p0]).transpose()
     b = p - p0
-    x = np.linalg.solve(A, b)
-    return (all(x >= 0) and sum(x) <= 1), x
+    x = ti.math.inverse(A) @ b
+    return ((x[0] >= 0 and x[1] >= 0 and x[2] >= 0) and x[0] + x[1] + x[2] <= 1), x
 
 
-def compute(p_pos, cage_vert_pos, cage_indx, which_cage, bary_coord):
+@ti.kernel
+def compute_barycentric_kernel(
+    p_pos: ti.types.ndarray(dtype=vec3),
+    cage_vert_pos: ti.types.ndarray(dtype=vec3),
+    cage_indx: ti.types.ndarray(dtype=vec4),
+    which_cage: ti.types.ndarray(),
+    bary_coord: ti.types.ndarray(dtype=vec3),
+):
     n_p = p_pos.shape[0]
     n_cage = cage_indx.shape[0]
-    pbar = tqdm.tqdm(total=n_p)
     cnt = 0
     for i in range(n_p):
-        pbar.update(1)
         p = p_pos[i]
+        flag = False
         for t in range(n_cage):
             a, b, c, d = cage_indx[t]
             p0, p1, p2, p3 = cage_vert_pos[a], cage_vert_pos[b], cage_vert_pos[c], cage_vert_pos[d]
-            flag, x = is_in_tet(p, p0, p1, p2, p3)
+            flag, x = is_in_tet_func(p, p0, p1, p2, p3)
             if flag:
                 which_cage[i] = t
                 bary_coord[i] = x
@@ -42,17 +54,16 @@ def compute(p_pos, cage_vert_pos, cage_indx, which_cage, bary_coord):
             for t in range(n_cage):
                 a, b, c, d = cage_indx[t]
                 p_tet = [cage_vert_pos[a], cage_vert_pos[b], cage_vert_pos[c], cage_vert_pos[d]]
-                for idx in range(4):
-                    dis = np.linalg.norm(p_tet[idx] - p)
+                for idx in ti.static(range(4)):
+                    dis = (p_tet[idx] - p).norm()
                     if dis < min_dis:
                         min_dis = dis
                         min_idx = t
             a, b, c, d = cage_indx[min_idx]
             p0, p1, p2, p3 = cage_vert_pos[a], cage_vert_pos[b], cage_vert_pos[c], cage_vert_pos[d]
-            flag, x = is_in_tet(p, p0, p1, p2, p3)
+            flag, x = is_in_tet_func(p, p0, p1, p2, p3)
             which_cage[i] = min_idx
             bary_coord[i] = x
-    pbar.close()
     print(f"Totally {cnt} des verts not found cage, use the nearest tet instead")
 
 
@@ -69,10 +80,14 @@ def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices):
     coarse_in_fine_tet_indx.fill(-1)
 
     print(">> Computing fine vert in which coarse cage...")
-    compute(fine_pos, coarse_pos, coarse_tet_indices, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord)
+    compute_barycentric_kernel(
+        fine_pos, coarse_pos, coarse_tet_indices, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord
+    )
 
     print(">> Computing coarse vert in which fine cage...")
-    compute(coarse_pos, fine_pos, fine_tet_indices, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord)
+    compute_barycentric_kernel(
+        coarse_pos, fine_pos, fine_tet_indices, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord
+    )
 
     return coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord
 
@@ -122,6 +137,8 @@ def compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_te
 
 
 if __name__ == "__main__":
+    start_time = perf_counter()
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="cube")
     parser.add_argument("--suffix", type=str, default="")
@@ -154,3 +171,6 @@ if __name__ == "__main__":
     mmwrite(model_path + "R" + args.suffix + ".mtx", R)
     P = compute_P(n, m, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord, coarse_tet_indices)
     mmwrite(model_path + "P" + args.suffix + ".mtx", P)
+
+    end_time = perf_counter()
+    print(f">> Total time: {end_time - start_time:.2f}s")

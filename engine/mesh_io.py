@@ -1,5 +1,17 @@
 import taichi as ti
 import meshio
+import numpy as np
+
+
+def read_tet(filename, build_face_flag=True):
+    mesh = meshio.read(filename)
+    pos = mesh.points
+    tet_indices = mesh.cells_dict["tetra"]
+    if build_face_flag:
+        face_indices = build_face_indices(tet_indices)
+        return pos, tet_indices, face_indices
+    else:
+        return pos, tet_indices
 
 
 def read_particles(mesh_path="data/model/bunny.obj"):
@@ -230,6 +242,19 @@ def translation_ti(pos: ti.template(), tx: ti.f32, ty: ti.f32, tz: ti.f32):
 def scale_ti(pos: ti.template(), sx: ti.f32, sy: ti.f32, sz: ti.f32):
     for i in pos:
         pos[i] = pos[i] * ti.Vector([sx, sy, sz])
+
+
+def build_face_indices(tet_indices):
+    """
+    从四面体索引构建面索引
+    """
+    face_indices = np.empty((tet_indices.shape[0] * 4, 3), dtype=np.int32)
+    for t in range(tet_indices.shape[0]):
+        ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
+        for i in range(4):  # 4 faces
+            for j in range(3):  # 3 vertices
+                face_indices[t * 4 + i][j] = tet_indices[t][ind[i][j]]
+    return face_indices
 
 
 @ti.kernel

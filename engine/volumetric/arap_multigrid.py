@@ -3,11 +3,11 @@ Modified YP multi-grid solver for ARAP
 """
 import taichi as ti
 from taichi.lang.ops import sqrt
-import scipy.io as sio
 import numpy as np
 import logging
 from logging import info
 import scipy
+import scipy.io as sio
 from scipy.sparse import coo_matrix, spdiags, kron
 from scipy.io import mmwrite
 import sys, os, argparse
@@ -18,14 +18,21 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--load_at", type=int, default=-1)
 parser.add_argument("-s", "--save_at", type=int, default=-1)
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
-parser.add_argument("-energy", "--log_energy_range", nargs=2, type=int, default=(-1, -1))
-parser.add_argument("-residual", "--log_residual_range", nargs=2, type=int, default=(-1, -1))
+parser.add_argument("-e", "--log_energy_range", nargs=2, type=int, default=(-1, -1))
+parser.add_argument("-r", "--log_residual_range", nargs=2, type=int, default=(-1, -1))
 parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
 parser.add_argument("-f", "--fine_iterations", type=int, default=5)
 parser.add_argument("--model", type=str, default="cube")
+parser.add_argument("--omega", type=float, default=0.1)
+parser.add_argument("--mu", type=float, default=1e6)
+parser.add_argument("--dt", type=float, default=3e-3)
+parser.add_argument("--damping_coeff", type=float, default=1.0)
+parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
+parser.add_argument("--total_mass", type=float, default=16000.0)
 
-ti.init(arch=ti.cpu)
+
+ti.init(arch=ti.gpu)
 
 
 class Meta:
@@ -39,8 +46,8 @@ meta.args = parser.parse_args()
 meta.frame = 0
 meta.use_multigrid = True
 meta.max_frame = meta.args.max_frame
-meta.log_energy_range = range(meta.args.log_energy_range[0], meta.args.log_energy_range[1])
-meta.log_residual_range = range(meta.args.log_residual_range[0], meta.args.log_residual_range[1])
+meta.log_energy_range = range(*meta.args.log_energy_range)
+meta.log_residual_range = range(*meta.args.log_residual_range)
 meta.frame_to_save = meta.args.save_at
 meta.load_at = meta.args.load_at
 meta.pause = False
@@ -51,14 +58,15 @@ if meta.coarse_iterations == 0 or meta.use_multigrid == False:
     meta.coarse_iterations = 0
 
 # physical parameters
-meta.omega = 0.1  # SOR factor
-meta.inv_mu = 1.0e-6
-meta.h = 0.003
+meta.omega = meta.args.omega  # SOR factor, default 0.1
+meta.mu = meta.args.mu  # Lame's second parameter, default 1e6
+meta.inv_mu = 1.0 / meta.mu
+meta.h = meta.args.dt  # time step size, default 3e-3
 meta.inv_h2 = 1.0 / meta.h / meta.h
-meta.gravity = ti.Vector([0.0, 0.0, 0.0])
-meta.total_mass = 16000.0
+meta.gravity = ti.Vector(meta.args.gravity)  # gravity, default (0, 0, 0)
+meta.damping_coeff = meta.args.damping_coeff  # damping coefficient, default 1.0
+meta.total_mass = meta.args.total_mass  # total mass, default 16000.0
 # meta.mass_density = 2000.0
-meta.damping_coeff = 1.0
 
 
 def read_tetgen(filename):
@@ -101,7 +109,7 @@ def read_tetgen(filename):
     return pos, tet_indices, face_indices
 
 
-class ArapMultigrid:
+class ArapHpbd:
     def __init__(self, path):
         self.model_pos, self.model_tet, self.model_tri = read_tetgen(path)
         self.NV = len(self.model_pos)
@@ -161,8 +169,8 @@ elif meta.args.model == "cube":
     meta.fine_model_path = meta.model_path + "fine"
     meta.coarse_model_path = meta.model_path + "coarse"
 
-fine = ArapMultigrid(meta.fine_model_path)
-coarse = ArapMultigrid(meta.coarse_model_path)
+fine = ArapHpbd(meta.fine_model_path)
+coarse = ArapHpbd(meta.coarse_model_path)
 
 
 P = sio.mmread(meta.model_path + "P.mtx")
@@ -331,7 +339,7 @@ def update_velocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: 
 
 @ti.kernel
 def project_constraints(
-    mid_pos: ti.template(),
+    pos_mid: ti.template(),
     tet_indices: ti.template(),
     inv_mass: ti.template(),
     lagrangian: ti.template(),
@@ -339,35 +347,41 @@ def project_constraints(
     pos: ti.template(),
     alpha_tilde: ti.template(),
     constraint: ti.template(),
-    dpos: ti.template(),
+    residual: ti.template(),
 ):
     for i in pos:
-        mid_pos[i] = pos[i]
-        dpos[i] = ti.Vector([0.0, 0.0, 0.0])
+        pos_mid[i] = pos[i]
 
-    for i in tet_indices:
-        ia, ib, ic, id = tet_indices[i]
-        a, b, c, d = mid_pos[ia], mid_pos[ib], mid_pos[ic], mid_pos[id]
-        D_s = ti.Matrix.cols([b - a, c - a, d - a])
-        U, S, V = ti.svd(D_s @ B[i])
-        if S[2, 2] < 0.0:  # S[2, 2] is the smallest singular value
-            S[2, 2] *= -1.0
-        constraint[i] = sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
-        if constraint[i] < 1e-12:
-            continue
-        g0, g1, g2, g3 = compute_gradient(U, S, V, B[i])
-        l = (
-            inv_mass[ia] * g0.norm_sqr()
-            + inv_mass[ib] * g1.norm_sqr()
-            + inv_mass[ic] * g2.norm_sqr()
-            + inv_mass[id] * g3.norm_sqr()
+    # ti.loop_config(serialize=meta.serialize)
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
+        denorminator = (
+            inv_mass[p0] * g0.norm_sqr()
+            + inv_mass[p1] * g1.norm_sqr()
+            + inv_mass[p2] * g2.norm_sqr()
+            + inv_mass[p3] * g3.norm_sqr()
         )
-        dLambda = (constraint[i] - alpha_tilde[i] * lagrangian[i]) / (l + alpha_tilde[i])
-        lagrangian[i] += dLambda
-        pos[ia] -= meta.omega * inv_mass[ia] * dLambda * g0
-        pos[ib] -= meta.omega * inv_mass[ib] * dLambda * g1
-        pos[ic] -= meta.omega * inv_mass[ic] * dLambda * g2
-        pos[id] -= meta.omega * inv_mass[id] * dLambda * g3
+        dlambda = -(constraint[t] + alpha_tilde[t] * lagrangian[t]) / (denorminator + alpha_tilde[t])
+
+        lagrangian[t] += dlambda
+
+        pos[p0] += meta.omega * inv_mass[p0] * dlambda * g0
+        pos[p1] += meta.omega * inv_mass[p1] * dlambda * g1
+        pos[p2] += meta.omega * inv_mass[p2] * dlambda * g2
+        pos[p3] += meta.omega * inv_mass[p3] * dlambda * g3
+
+        residual[t] = constraint[t] + alpha_tilde[t] * lagrangian[t]
 
 
 @ti.kernel
@@ -420,23 +434,9 @@ def log_energy(frame, filename_to_save):
             np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
 
 
-@ti.kernel
-def compute_residual_kernel(
-    constraint: ti.template(), alpha_tilde: ti.template(), lagrangian: ti.template(), residual: ti.template()
-):
-    for i in constraint:
-        residual[i] = constraint[i] - alpha_tilde[i] * lagrangian[i]
-
-
-def compute_residual() -> float:
-    compute_residual_kernel(fine.constraint, fine.alpha_tilde, fine.lagrangian, fine.residual)
-    r_norm = np.linalg.norm(fine.residual.to_numpy())
-    return r_norm
-
-
 def log_residual(frame, filename_to_save):
     if frame in meta.log_residual_range:
-        r_norm = compute_residual()
+        r_norm = np.linalg.norm(fine.residual.to_numpy())
         logging.info("residual:\t{}".format(r_norm))
         with open(filename_to_save, "a") as f:
             np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
@@ -583,7 +583,7 @@ def main():
                     coarse.pos,
                     coarse.alpha_tilde,
                     coarse.constraint,
-                    coarse.dpos,
+                    coarse.residual,
                 )
                 log_residual(meta.frame, residual_filename)
                 collsion_response(coarse.pos)
@@ -602,11 +602,10 @@ def main():
                     fine.pos,
                     fine.alpha_tilde,
                     fine.constraint,
-                    fine.dpos,
+                    fine.residual,
                 )
                 log_residual(meta.frame, residual_filename)
                 collsion_response(fine.pos)
-
                 update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
             meta.frame += 1

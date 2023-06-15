@@ -1,3 +1,4 @@
+import scipy
 from scipy.sparse import coo_matrix
 from scipy.io import mmwrite
 import numpy as np
@@ -40,7 +41,7 @@ print("gradC_coo.todense()\n", gradC_coo.todense())
 #                             taichi sparse matrix                             #
 # ---------------------------------------------------------------------------- #
 
-gradC = ti.linalg.SparseMatrixBuilder(m, 3 * n, max_num_triplets=12 * m)
+gradC_builder = ti.linalg.SparseMatrixBuilder(m, 3 * n, max_num_triplets=12 * m)
 
 
 @ti.kernel
@@ -58,7 +59,36 @@ def fill(
                 A[j, 3 * pid + d] += gradC_vec[j, p, d]
 
 
-fill(gradC, gradC_vec, tet_indices)
+fill(gradC_builder, gradC_vec, tet_indices)
 
-A = gradC.build()
-print(A)
+gradC_mat = gradC_builder.build()
+print(gradC_mat)
+
+
+# ---------------------------------------------------------------------------- #
+# scipy
+# schur = gradC_coo @ gradC_coo.T
+# taichi
+# schur_ti = gradC_mat @ gradC_mat.transpose()
+# print("schur_ti\n", schur_ti)
+
+# scipy
+inv_mass = np.random.rand(n).repeat(3)
+inv_mass_coo = scipy.sparse.diags(inv_mass)
+schur = gradC_coo @ inv_mass_coo @ gradC_coo.T
+print("schur\n", schur.todense())
+
+# taichi
+inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * n, 3 * n, max_num_triplets=3 * n)
+
+
+@ti.kernel
+def fill_mass(A: ti.types.sparse_matrix_builder(), inv_mass: ti.types.ndarray()):
+    for i in range(3 * n):
+        A[i, i] += inv_mass[i]
+
+
+fill_mass(inv_mass_builder, inv_mass)
+inv_mass_mat = inv_mass_builder.build()
+schur_ti = gradC_mat @ inv_mass_mat @ gradC_mat.transpose()
+print("schur_ti\n", schur_ti)

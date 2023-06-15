@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--onlyfine_iter_range", "-of", nargs=2, type=int, default=(0, 10))
 parser.add_argument("--multigrid_iter_range", "-mg", nargs=2, type=int, default=(0, 10))
 parser.add_argument("--yscale", "-y", type=str, default="log")
+parser.add_argument("--xticks", "-xt", nargs=3, type=int, default=None)
 
 args = parser.parse_args()
 
@@ -37,5 +38,7 @@ plt.plot(mg, label="residual mg", marker="x", markersize=5, color="orange")
 plt.yscale(args.yscale)
 plt.ylabel("residual(2-norm)")
 plt.xlabel("iterations")
+if args.xticks is not None:
+    plt.xticks(np.arange(*args.xticks))
 plt.legend()
 plt.show()

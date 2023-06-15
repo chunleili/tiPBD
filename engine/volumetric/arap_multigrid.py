@@ -431,10 +431,15 @@ def project_constraints(
 
         lagrangian[t] += dlambda[t]
 
-        pos[p0] += meta.omega * inv_mass[p0] * dlambda[t] * g0
-        pos[p1] += meta.omega * inv_mass[p1] * dlambda[t] * g1
-        pos[p2] += meta.omega * inv_mass[p2] * dlambda[t] * g2
-        pos[p3] += meta.omega * inv_mass[p3] * dlambda[t] * g3
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+        pos[p0] += meta.omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+        pos[p1] += meta.omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+        pos[p2] += meta.omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+        pos[p3] += meta.omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
 
 
 @ti.kernel

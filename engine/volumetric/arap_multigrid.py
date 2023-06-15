@@ -348,6 +348,7 @@ def project_constraints(
     alpha_tilde: ti.template(),
     constraint: ti.template(),
     residual: ti.template(),
+    gradC: ti.template(),
 ):
     for i in pos:
         pos_mid[i] = pos[i]
@@ -382,6 +383,8 @@ def project_constraints(
         pos[p3] += meta.omega * inv_mass[p3] * dlambda * g3
 
         residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
 
 
 @ti.kernel
@@ -584,6 +587,7 @@ def main():
                     coarse.alpha_tilde,
                     coarse.constraint,
                     coarse.residual,
+                    coarse.gradC,
                 )
                 log_residual(meta.frame, residual_filename)
                 collsion_response(coarse.pos)
@@ -603,6 +607,7 @@ def main():
                     fine.alpha_tilde,
                     fine.constraint,
                     fine.residual,
+                    fine.gradC,
                 )
                 log_residual(meta.frame, residual_filename)
                 collsion_response(fine.pos)

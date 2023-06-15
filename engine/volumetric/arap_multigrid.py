@@ -381,7 +381,7 @@ def project_constraints(
         pos[p2] += meta.omega * inv_mass[p2] * dlambda * g2
         pos[p3] += meta.omega * inv_mass[p3] * dlambda * g3
 
-        residual[t] = constraint[t] + alpha_tilde[t] * lagrangian[t]
+        residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
 
 
 @ti.kernel

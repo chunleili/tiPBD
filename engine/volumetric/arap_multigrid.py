@@ -32,7 +32,7 @@ parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
 
 
-ti.init(arch=ti.gpu)
+ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
 
 class Meta:
@@ -109,7 +109,7 @@ def read_tetgen(filename):
     return pos, tet_indices, face_indices
 
 
-class ArapHpbd:
+class ArapMultigrid:
     def __init__(self, path):
         self.model_pos, self.model_tet, self.model_tri = read_tetgen(path)
         self.NV = len(self.model_pos)
@@ -136,6 +136,7 @@ class ArapHpbd:
         self.constraint = ti.field(ti.f32, shape=(self.NT))
         self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
         self.residual = ti.field(ti.f32, shape=self.NT)
+        self.dlambda = ti.field(ti.f32, shape=self.NT)
 
         self.state = [
             self.pos,
@@ -157,7 +158,57 @@ class ArapHpbd:
             self.constraint,
             self.dpos,
             self.residual,
+            self.dlambda,
         ]
+
+        # for sparse matrix
+        self.M = self.NT
+        self.N = self.NV
+        self.gradC_builder = ti.linalg.SparseMatrixBuilder(self.M, 3 * self.N, max_num_triplets=12 * self.M)
+        self.inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * self.N, 3 * self.N, max_num_triplets=3 * self.N)
+        self.alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(self.M, self.M, max_num_triplets=12 * self.M)
+        self.A = ti.linalg.SparseMatrix(self.M, self.M)
+
+
+@ti.kernel
+def fill_diag(A: ti.types.sparse_matrix_builder(), val: ti.template()):
+    for i in range(val.shape[0]):
+        A[i, i] += val[i]
+
+
+# fill gradC
+@ti.kernel
+def fill_gradC(
+    A: ti.types.sparse_matrix_builder(),
+    gradC: ti.template(),
+    tet_indices: ti.template(),
+):
+    for j in range(tet_indices.shape[0]):
+        ind = tet_indices[j]
+        for p in range(4):
+            for d in range(3):
+                pid = ind[p]
+                A[j, 3 * pid + d] += gradC[j, p][d]
+
+
+def compute_A(instance, gradC, inv_mass, alpha_tilde, tet_indices):
+    fill_gradC(instance.gradC_builder, gradC, tet_indices)
+    gradC_mat = instance.gradC_builder.build()
+    # compute schur complement as A
+    fill_diag(instance.inv_mass_builder, inv_mass)
+    fill_diag(instance.alpha_tilde_builder, alpha_tilde)
+    inv_mass_mat = instance.inv_mass_builder.build()
+    alpha_tilde_mat = instance.alpha_tilde_builder.build()
+    instance.A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
+
+    instance.b = instance.residual
+
+    solver = ti.linalg.SparseSolver(solver_type="LLT")
+    solver.analyze_pattern(instance.A)
+    solver.factorize(instance.A)
+    dlam = solver.solve(instance.b)
+    dx = inv_mass_mat @ gradC_mat.transpose() @ dlam
+    np.savetxt(f"result/dx_{meta.frame}.txt", dx)
 
 
 if meta.args.model == "bunny":
@@ -169,8 +220,8 @@ elif meta.args.model == "cube":
     meta.fine_model_path = meta.model_path + "fine"
     meta.coarse_model_path = meta.model_path + "coarse"
 
-fine = ArapHpbd(meta.fine_model_path)
-coarse = ArapHpbd(meta.coarse_model_path)
+fine = ArapMultigrid(meta.fine_model_path)
+coarse = ArapMultigrid(meta.coarse_model_path)
 
 
 P = sio.mmread(meta.model_path + "P.mtx")
@@ -349,6 +400,7 @@ def project_constraints(
     constraint: ti.template(),
     residual: ti.template(),
     gradC: ti.template(),
+    dlambda: ti.template(),
 ):
     for i in pos:
         pos_mid[i] = pos[i]
@@ -367,24 +419,22 @@ def project_constraints(
         U, S, V = ti.svd(F)
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
         denorminator = (
             inv_mass[p0] * g0.norm_sqr()
             + inv_mass[p1] * g1.norm_sqr()
             + inv_mass[p2] * g2.norm_sqr()
             + inv_mass[p3] * g3.norm_sqr()
         )
-        dlambda = -(constraint[t] + alpha_tilde[t] * lagrangian[t]) / (denorminator + alpha_tilde[t])
-
-        lagrangian[t] += dlambda
-
-        pos[p0] += meta.omega * inv_mass[p0] * dlambda * g0
-        pos[p1] += meta.omega * inv_mass[p1] * dlambda * g1
-        pos[p2] += meta.omega * inv_mass[p2] * dlambda * g2
-        pos[p3] += meta.omega * inv_mass[p3] * dlambda * g3
-
         residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+        dlambda[t] = residual[t] / (denorminator + alpha_tilde[t])
 
-        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
+        lagrangian[t] += dlambda[t]
+
+        pos[p0] += meta.omega * inv_mass[p0] * dlambda[t] * g0
+        pos[p1] += meta.omega * inv_mass[p1] * dlambda[t] * g1
+        pos[p2] += meta.omega * inv_mass[p2] * dlambda[t] * g2
+        pos[p3] += meta.omega * inv_mass[p3] * dlambda[t] * g3
 
 
 @ti.kernel
@@ -588,6 +638,7 @@ def main():
                     coarse.constraint,
                     coarse.residual,
                     coarse.gradC,
+                    coarse.dlambda,
                 )
                 log_residual(meta.frame, residual_filename)
                 collsion_response(coarse.pos)
@@ -608,10 +659,13 @@ def main():
                     fine.constraint,
                     fine.residual,
                     fine.gradC,
+                    fine.dlambda,
                 )
+                # compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
                 log_residual(meta.frame, residual_filename)
                 collsion_response(fine.pos)
                 update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+                # ti.profiler.print_kernel_profiler_info()
 
             meta.frame += 1
 

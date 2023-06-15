@@ -669,8 +669,8 @@ def main():
                 # compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
                 log_residual(meta.frame, residual_filename)
                 collsion_response(fine.pos)
-                update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
-                # ti.profiler.print_kernel_profiler_info()
+            update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+            # ti.profiler.print_kernel_profiler_info()
 
             meta.frame += 1
 

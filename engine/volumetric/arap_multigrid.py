@@ -646,8 +646,8 @@ def main():
                     coarse.dlambda,
                 )
                 log_residual(meta.frame, residual_filename)
-                collsion_response(coarse.pos)
                 update_fine_mesh()
+            collsion_response(coarse.pos)
             reset_lagrangian(fine.lagrangian)
             for ite in range(meta.fine_iterations):
                 if ite == 0:
@@ -666,9 +666,9 @@ def main():
                     fine.gradC,
                     fine.dlambda,
                 )
-                # compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
                 log_residual(meta.frame, residual_filename)
-                collsion_response(fine.pos)
+            # compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
+            collsion_response(fine.pos)
             update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
             # ti.profiler.print_kernel_profiler_info()
 

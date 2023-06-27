@@ -191,6 +191,14 @@ def fill_gradC(
                 A[j, 3 * pid + d] += gradC[j, p][d]
 
 
+@ti.kernel
+def fill_invmass(A: ti.types.sparse_matrix_builder(), val: ti.template()):
+    for i in range(val.shape[0]):
+        A[3 * i, 3 * i] += val[i]
+        A[3 * i + 1, 3 * i + 1] += val[i]
+        A[3 * i + 2, 3 * i + 2] += val[i]
+
+
 def direct_solver(instance, gradC, inv_mass, alpha_tilde, tet_indices):
     @ti.kernel
     def prepare_for_direct_solver(
@@ -233,10 +241,14 @@ def direct_solver(instance, gradC, inv_mass, alpha_tilde, tet_indices):
         instance.gradC,
     )
 
+    from time import time
+
+    t = time()
+
     fill_gradC(instance.gradC_builder, gradC, tet_indices)
     gradC_mat = instance.gradC_builder.build()
     # compute schur complement as A
-    fill_diag(instance.inv_mass_builder, inv_mass)
+    fill_invmass(instance.inv_mass_builder, inv_mass)
     fill_diag(instance.alpha_tilde_builder, alpha_tilde)
     inv_mass_mat = instance.inv_mass_builder.build()
     alpha_tilde_mat = instance.alpha_tilde_builder.build()
@@ -245,13 +257,23 @@ def direct_solver(instance, gradC, inv_mass, alpha_tilde, tet_indices):
     instance.b = instance.residual
 
     solver = ti.linalg.SparseSolver(solver_type="LLT")
+    print(f"direct solver time before analyze: {time() - t}")
+
     solver.analyze_pattern(instance.A)
+    print(f"direct solver time before factorize: {time() - t}")
+
     solver.factorize(instance.A)
+    print(f"direct solver time before solve: {time() - t}")
+
     instance.dlambda = solver.solve(instance.b)
+    print(f"direct solver time after solve: {time() - t}")
+
     dpos = inv_mass_mat @ gradC_mat.transpose() @ instance.dlambda
     # np.savetxt(f"result/dpos_{meta.frame}.txt", dpos)
 
     instance.pos.from_numpy(instance.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+    print(f"direct solver time end: {time() - t}")
 
 
 if meta.args.model == "bunny":
@@ -674,7 +696,7 @@ def main():
             direct_solver(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
             collsion_response(fine.pos)
             update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
-            # ti.profiler.print_kernel_profiler_info()
+            ti.profiler.print_kernel_profiler_info()
             meta.frame += 1
 
         if meta.frame == meta.max_frame:

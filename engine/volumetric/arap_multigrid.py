@@ -191,24 +191,65 @@ def fill_gradC(
                 A[j, 3 * pid + d] += gradC[j, p][d]
 
 
+@ti.kernel
+def fill_invmass(A: ti.types.sparse_matrix_builder(), val: ti.template()):
+    for i in range(val.shape[0]):
+        A[3 * i, 3 * i] += val[i]
+        A[3 * i + 1, 3 * i + 1] += val[i]
+        A[3 * i + 2, 3 * i + 2] += val[i]
+
+
+@ti.kernel
+def prepare_for_direct_solver(
+    pos_mid: ti.template(),
+    pos: ti.template(),
+    tet_indices: ti.template(),
+    lagrangian: ti.template(),
+    B: ti.template(),
+    alpha_tilde: ti.template(),
+    constraint: ti.template(),
+    residual: ti.template(),
+    gradC: ti.template(),
+):
+    for i in pos:
+        pos_mid[i] = pos[i]
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
+        residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+
+
 def compute_A(instance, gradC, inv_mass, alpha_tilde, tet_indices):
+    prepare_for_direct_solver(
+        instance.pos_mid,
+        instance.pos,
+        instance.tet_indices,
+        instance.lagrangian,
+        instance.B,
+        instance.alpha_tilde,
+        instance.constraint,
+        instance.residual,
+        instance.gradC,
+    )
+
     fill_gradC(instance.gradC_builder, gradC, tet_indices)
     gradC_mat = instance.gradC_builder.build()
     # compute schur complement as A
-    fill_diag(instance.inv_mass_builder, inv_mass)
+    fill_invmass(instance.inv_mass_builder, inv_mass)
     fill_diag(instance.alpha_tilde_builder, alpha_tilde)
     inv_mass_mat = instance.inv_mass_builder.build()
     alpha_tilde_mat = instance.alpha_tilde_builder.build()
     instance.A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
-
-    instance.b = instance.residual
-
-    solver = ti.linalg.SparseSolver(solver_type="LLT")
-    solver.analyze_pattern(instance.A)
-    solver.factorize(instance.A)
-    dlam = solver.solve(instance.b)
-    dx = inv_mass_mat @ gradC_mat.transpose() @ dlam
-    np.savetxt(f"result/dx_{meta.frame}.txt", dx)
 
 
 if meta.args.model == "bunny":
@@ -667,7 +708,7 @@ def main():
                     fine.dlambda,
                 )
                 log_residual(meta.frame, residual_filename)
-            # compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
+            compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
             collsion_response(fine.pos)
             update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
             # ti.profiler.print_kernel_profiler_info()

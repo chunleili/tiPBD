@@ -696,6 +696,8 @@ def main():
             direct_solver(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
             collsion_response(fine.pos)
             update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+            log_residual(meta.frame, residual_filename)
+            log_energy(meta.frame, energy_filename)
             ti.profiler.print_kernel_profiler_info()
             meta.frame += 1
 

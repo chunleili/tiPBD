@@ -205,7 +205,7 @@ class ArapMultigrid:
         self.b = self.residual
         return self.A, self.b, gradC_mat, inv_mass_mat
 
-    def substep_direct_solver(self):
+    def one_iter_direct_solver(self):
         t = time()
         A, b, gradC_mat, inv_mass_mat = self.compute_A()
         solver = ti.linalg.SparseSolver(solver_type="LLT")
@@ -696,7 +696,7 @@ def main():
                 substep_multigird(P, R, fine, coarse, "Jacobian")
             elif meta.args.solver_type == "DirectSolver":
                 for _ in range(meta.fine_iterations):
-                    fine.substep_direct_solver()
+                    fine.one_iter_direct_solver()
 
             # ti.profiler.print_kernel_profiler_info()
 

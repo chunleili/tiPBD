@@ -559,6 +559,53 @@ def load_state(filename):
     logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
+def substep_Jacobian():
+    semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
+    if meta.use_multigrid:
+        update_coarse_mesh()
+    reset_lagrangian(coarse.lagrangian)
+    for ite in range(meta.coarse_iterations):
+        log_energy(meta.frame, meta.energy_filename)
+        project_constraints(
+            coarse.pos_mid,
+            coarse.tet_indices,
+            coarse.inv_mass,
+            coarse.lagrangian,
+            coarse.B,
+            coarse.pos,
+            coarse.alpha_tilde,
+            coarse.constraint,
+            coarse.residual,
+            coarse.gradC,
+            coarse.dlambda,
+        )
+        log_residual(meta.frame, meta.residual_filename)
+        update_fine_mesh()
+    collsion_response(coarse.pos)
+    reset_lagrangian(fine.lagrangian)
+    for ite in range(meta.fine_iterations):
+        if ite == 0:
+            log_residual(meta.frame, meta.residual_filename)
+        log_energy(meta.frame, meta.energy_filename)
+        project_constraints(
+            fine.pos_mid,
+            fine.tet_indices,
+            fine.inv_mass,
+            fine.lagrangian,
+            fine.B,
+            fine.pos,
+            fine.alpha_tilde,
+            fine.constraint,
+            fine.residual,
+            fine.gradC,
+            fine.dlambda,
+        )
+        log_residual(meta.frame, meta.residual_filename)
+    compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
+    collsion_response(fine.pos)
+    update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+
+
 def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
@@ -628,12 +675,12 @@ def main():
         info("#############################################")
         info("########## Using Only Fine Solver ###########")
         info("#############################################")
-    energy_filename = "result/log/totalEnergy_" + (suffix) + ".txt"
-    residual_filename = "result/log/residual_" + (suffix) + ".txt"
-    if os.path.exists(energy_filename):
-        os.remove(energy_filename)
-    if os.path.exists(residual_filename):
-        os.remove(residual_filename)
+    meta.energy_filename = "result/log/totalEnergy_" + (suffix) + ".txt"
+    meta.residual_filename = "result/log/residual_" + (suffix) + ".txt"
+    if os.path.exists(meta.energy_filename):
+        os.remove(meta.energy_filename)
+    if os.path.exists(meta.residual_filename):
+        os.remove(meta.residual_filename)
 
     save_state_filename = "result/save/frame_"
     if meta.load_at != -1:
@@ -667,50 +714,7 @@ def main():
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
-            semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-            if meta.use_multigrid:
-                update_coarse_mesh()
-            reset_lagrangian(coarse.lagrangian)
-            for ite in range(meta.coarse_iterations):
-                log_energy(meta.frame, energy_filename)
-                project_constraints(
-                    coarse.pos_mid,
-                    coarse.tet_indices,
-                    coarse.inv_mass,
-                    coarse.lagrangian,
-                    coarse.B,
-                    coarse.pos,
-                    coarse.alpha_tilde,
-                    coarse.constraint,
-                    coarse.residual,
-                    coarse.gradC,
-                    coarse.dlambda,
-                )
-                log_residual(meta.frame, residual_filename)
-                update_fine_mesh()
-            collsion_response(coarse.pos)
-            reset_lagrangian(fine.lagrangian)
-            for ite in range(meta.fine_iterations):
-                if ite == 0:
-                    log_residual(meta.frame, residual_filename)
-                log_energy(meta.frame, energy_filename)
-                project_constraints(
-                    fine.pos_mid,
-                    fine.tet_indices,
-                    fine.inv_mass,
-                    fine.lagrangian,
-                    fine.B,
-                    fine.pos,
-                    fine.alpha_tilde,
-                    fine.constraint,
-                    fine.residual,
-                    fine.gradC,
-                    fine.dlambda,
-                )
-                log_residual(meta.frame, residual_filename)
-            compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
-            collsion_response(fine.pos)
-            update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+            substep_Jacobian()
             # ti.profiler.print_kernel_profiler_info()
 
             meta.frame += 1

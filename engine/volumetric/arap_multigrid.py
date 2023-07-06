@@ -545,17 +545,19 @@ def compute_energy(mass, pos, predict_pos, tet_indices, B, alpha_tilde):
     return it + pe, it, pe
 
 
-def log_energy(frame, filename_to_save):
+def log_energy(frame, filename_to_save, instance):
     if frame in meta.log_energy_range:
-        te, it, pe = compute_energy(fine.mass, fine.pos, fine.predict_pos, fine.tet_indices, fine.B, fine.alpha_tilde)
+        te, it, pe = compute_energy(
+            instance.mass, instance.pos, instance.predict_pos, instance.tet_indices, instance.B, instance.alpha_tilde
+        )
         info(f"energy:\t{te}")
         with open(filename_to_save, "a") as f:
             np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
 
 
-def log_residual(frame, filename_to_save):
+def log_residual(frame, filename_to_save, instance):
     if frame in meta.log_residual_range:
-        r_norm = np.linalg.norm(fine.residual.to_numpy())
+        r_norm = np.linalg.norm(instance.residual.to_numpy())
         logging.info("residual:\t{}".format(r_norm))
         with open(filename_to_save, "a") as f:
             np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
@@ -585,7 +587,7 @@ def substep_Jacobian(P, R):
         update_coarse_mesh(R, fine, coarse)
     reset_lagrangian(coarse.lagrangian)
     for ite in range(meta.coarse_iterations):
-        log_energy(meta.frame, meta.energy_filename)
+        log_energy(meta.frame, meta.energy_filename, fine)
         project_constraints(
             coarse.pos_mid,
             coarse.tet_indices,
@@ -599,14 +601,14 @@ def substep_Jacobian(P, R):
             coarse.gradC,
             coarse.dlambda,
         )
-        log_residual(meta.frame, meta.residual_filename)
+        log_residual(meta.frame, meta.residual_filename, fine)
         update_fine_mesh(P, fine, coarse)
     collsion_response(coarse.pos)
     reset_lagrangian(fine.lagrangian)
     for ite in range(meta.fine_iterations):
         if ite == 0:
-            log_residual(meta.frame, meta.residual_filename)
-        log_energy(meta.frame, meta.energy_filename)
+            log_residual(meta.frame, meta.residual_filename, fine)
+        log_energy(meta.frame, meta.energy_filename, fine)
         project_constraints(
             fine.pos_mid,
             fine.tet_indices,
@@ -620,7 +622,7 @@ def substep_Jacobian(P, R):
             fine.gradC,
             fine.dlambda,
         )
-        log_residual(meta.frame, meta.residual_filename)
+        log_residual(meta.frame, meta.residual_filename, fine)
     compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
     collsion_response(fine.pos)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)

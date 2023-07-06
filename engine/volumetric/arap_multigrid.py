@@ -616,6 +616,8 @@ def iterate_single_mesh(instance, solver_type):
         log_energy(meta.frame, meta.energy_filename, instance)
         if solver_type == "Jacobian":
             instance.one_iter_jacobian()
+        if solver_type == "DirectSolver":
+            instance.one_iter_direct_solver()
         log_residual(meta.frame, meta.residual_filename, instance)
     collsion_response(instance.pos)
     update_velocity(meta.h, instance.pos, instance.old_pos, instance.vel)

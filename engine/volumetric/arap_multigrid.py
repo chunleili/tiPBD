@@ -169,7 +169,30 @@ class ArapMultigrid:
         self.alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(self.M, self.M, max_num_triplets=12 * self.M)
         self.A = ti.linalg.SparseMatrix(self.M, self.M)
 
+    def initialize(self, reinit_style="enlarge"):
         self.init_model()
+
+        init_physics(
+            self.pos,
+            self.old_pos,
+            self.vel,
+            self.tet_indices,
+            self.B,
+            self.rest_volume,
+            self.inv_V,
+            self.mass,
+            self.inv_mass,
+            self.alpha_tilde,
+            self.par_2_tet,
+        )
+
+        if reinit_style == "random":
+            # random init
+            random_val = np.random.rand(self.pos.shape[0], 3)
+            self.pos.from_numpy(random_val)
+        elif reinit_style == "enlarge":
+            # init by enlarge 1.5x
+            self.pos.from_numpy(self.model_pos * 1.5)
 
     def init_model(self):
         self.pos.from_numpy(self.model_pos)
@@ -610,44 +633,8 @@ def main():
     P = sio.mmread(meta.model_path + "P.mtx")
     R = sio.mmread(meta.model_path + "R.mtx")
 
-    init_physics(
-        fine.pos,
-        fine.old_pos,
-        fine.vel,
-        fine.tet_indices,
-        fine.B,
-        fine.rest_volume,
-        fine.inv_V,
-        fine.mass,
-        fine.inv_mass,
-        fine.alpha_tilde,
-        fine.par_2_tet,
-    )
-    init_physics(
-        coarse.pos,
-        coarse.old_pos,
-        coarse.vel,
-        coarse.tet_indices,
-        coarse.B,
-        coarse.rest_volume,
-        coarse.inv_V,
-        coarse.mass,
-        coarse.inv_mass,
-        coarse.alpha_tilde,
-        coarse.par_2_tet,
-    )
-
-    init_style = "enlarge"
-
-    if init_style == "random":
-        # random init
-        random_val = np.random.rand(fine.pos.shape[0], 3)
-        fine.pos.from_numpy(random_val)
-        coarse.pos.from_numpy(random_val)
-    elif init_style == "enlarge":
-        # init by enlarge 1.5x
-        fine.pos.from_numpy(fine.model_pos * 1.5)
-        coarse.pos.from_numpy(coarse.model_pos * 1.5)
+    fine.initialize()
+    coarse.initialize()
 
     window = ti.ui.Window("3D ARAP FEM XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()

@@ -608,6 +608,11 @@ def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
 
+def substep_direct_solver(fine):
+    for _ in range(meta.fine_iterations):
+        fine.one_iter_direct_solver()
+
+
 def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
@@ -695,8 +700,7 @@ def main():
             if meta.args.solver_type == "Jacobian":
                 substep_multigird(P, R, fine, coarse, "Jacobian")
             elif meta.args.solver_type == "DirectSolver":
-                for _ in range(meta.fine_iterations):
-                    fine.one_iter_direct_solver()
+                substep_direct_solver(fine)
 
             # ti.profiler.print_kernel_profiler_info()
 

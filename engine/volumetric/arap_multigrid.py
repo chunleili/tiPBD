@@ -602,14 +602,14 @@ def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     if meta.use_multigrid:
         update_coarse_mesh(R, fine, coarse)
-    reset_lagrangian(coarse.lagrangian)
-    for ite in range(coarse.max_iter):
-        log_energy(meta.frame, meta.energy_filename, fine)
-        if solver_type == "Jacobian":
-            coarse.one_iter_jacobian()
-        log_residual(meta.frame, meta.residual_filename, fine)
-        update_fine_mesh(P, fine, coarse)
-    collsion_response(coarse.pos)
+        reset_lagrangian(coarse.lagrangian)
+        for ite in range(coarse.max_iter):
+            log_energy(meta.frame, meta.energy_filename, fine)
+            if solver_type == "Jacobian":
+                coarse.one_iter_jacobian()
+            log_residual(meta.frame, meta.residual_filename, fine)
+            update_fine_mesh(P, fine, coarse)
+        collsion_response(coarse.pos)
     reset_lagrangian(fine.lagrangian)
     for ite in range(fine.max_iter):
         if ite == 0:

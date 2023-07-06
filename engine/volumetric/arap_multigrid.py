@@ -713,10 +713,7 @@ def main():
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
-            if meta.args.solver_type == "Jacobian":
-                substep_multigird(P, R, fine, coarse, "Jacobian")
-            elif meta.args.solver_type == "DirectSolver":
-                substep_direct_solver(fine)
+            substep_multigird(P, R, fine, coarse, meta.args.solver_type)
 
             # ti.profiler.print_kernel_profiler_info()
 

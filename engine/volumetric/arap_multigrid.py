@@ -602,29 +602,23 @@ def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     if meta.use_multigrid:
         update_coarse_mesh(R, fine, coarse)
-        reset_lagrangian(coarse.lagrangian)
-        for ite in range(coarse.max_iter):
-            log_energy(meta.frame, meta.energy_filename, fine)
-            if solver_type == "Jacobian":
-                coarse.one_iter_jacobian()
-            log_residual(meta.frame, meta.residual_filename, fine)
-            update_fine_mesh(P, fine, coarse)
-        collsion_response(coarse.pos)
-    reset_lagrangian(fine.lagrangian)
-    for ite in range(fine.max_iter):
-        if ite == 0:
-            log_residual(meta.frame, meta.residual_filename, fine)
-        log_energy(meta.frame, meta.energy_filename, fine)
-        if solver_type == "Jacobian":
-            fine.one_iter_jacobian()
-        log_residual(meta.frame, meta.residual_filename, fine)
-    collsion_response(fine.pos)
+        iterate_single_mesh(coarse, solver_type)
+        update_fine_mesh(P, fine, coarse)
+    iterate_single_mesh(fine, solver_type)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
 
-def substep_direct_solver(fine):
-    for _ in range(fine.max_iter):
-        fine.one_iter_direct_solver()
+def iterate_single_mesh(instance, solver_type):
+    reset_lagrangian(instance.lagrangian)
+    for ite in range(instance.max_iter):
+        if ite == 0:
+            log_residual(meta.frame, meta.residual_filename, instance)
+        log_energy(meta.frame, meta.energy_filename, instance)
+        if solver_type == "Jacobian":
+            instance.one_iter_jacobian()
+        log_residual(meta.frame, meta.residual_filename, instance)
+    collsion_response(instance.pos)
+    update_velocity(meta.h, instance.pos, instance.old_pos, instance.vel)
 
 
 def main():

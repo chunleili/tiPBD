@@ -30,7 +30,7 @@ parser.add_argument("--dt", type=float, default=3e-3)
 parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
-
+parser.add_argument("--solver_type", type=str, default="Jacobian", choices=["Jacobian", "GaussSeidel", "DirectSolver"])
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
@@ -681,7 +681,8 @@ def main():
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
-            substep_Jacobian(P, R, fine, coarse)
+            if meta.args.solver_type == "Jacobian":
+                substep_Jacobian(P, R, fine, coarse)
             # ti.profiler.print_kernel_profiler_info()
 
             meta.frame += 1

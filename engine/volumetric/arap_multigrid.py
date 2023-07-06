@@ -581,7 +581,7 @@ def load_state(filename):
     logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
-def substep_Jacobian(P, R):
+def substep_Jacobian(P, R, fine, coarse):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     if meta.use_multigrid:
         update_coarse_mesh(R, fine, coarse)
@@ -700,7 +700,7 @@ def main():
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
-            substep_Jacobian(P, R)
+            substep_Jacobian(P, R, fine, coarse)
             # ti.profiler.print_kernel_profiler_info()
 
             meta.frame += 1

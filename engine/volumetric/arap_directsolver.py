@@ -11,6 +11,7 @@ import scipy.io as sio
 from scipy.sparse import coo_matrix, spdiags, kron
 from scipy.io import mmwrite
 import sys, os, argparse
+from time import time
 
 sys.path.append(os.getcwd())
 
@@ -109,6 +110,7 @@ def read_tetgen(filename):
     return pos, tet_indices, face_indices
 
 
+@ti.data_oriented
 class ArapMultigrid:
     def __init__(self, path):
         self.model_pos, self.model_tet, self.model_tri = read_tetgen(path)
@@ -169,6 +171,48 @@ class ArapMultigrid:
         self.alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(self.M, self.M, max_num_triplets=12 * self.M)
         self.A = ti.linalg.SparseMatrix(self.M, self.M)
 
+    def compute_A(self):
+        prepare_for_direct_solver(
+            self.pos_mid,
+            self.pos,
+            self.tet_indices,
+            self.lagrangian,
+            self.B,
+            self.alpha_tilde,
+            self.constraint,
+            self.residual,
+            self.gradC,
+        )
+
+        fill_gradC(self.gradC_builder, self.gradC, self.tet_indices)
+        gradC_mat = self.gradC_builder.build()
+        # compute schur complement as A
+        fill_invmass(self.inv_mass_builder, self.inv_mass)
+        fill_diag(self.alpha_tilde_builder, self.alpha_tilde)
+        inv_mass_mat = self.inv_mass_builder.build()
+        alpha_tilde_mat = self.alpha_tilde_builder.build()
+        self.A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
+        self.b = self.residual
+        return self.A, self.b, gradC_mat, inv_mass_mat
+
+    def direct_solver(self):
+        t = time()
+        A, b, gradC_mat, inv_mass_mat = self.compute_A()
+        solver = ti.linalg.SparseSolver(solver_type="LLT")
+        solver.analyze_pattern(A)
+        solver.factorize(A)
+        x = solver.solve(b)
+        print(f"direct solver time of solve: {time() - t}")
+
+        self.dlambda = x
+        dpos = inv_mass_mat @ gradC_mat.transpose() @ self.dlambda
+        self.pos.from_numpy(self.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+        # res = A.to_numpy() @ x - b.to_numpy()
+        # print(f"residual for direct solver: {res.norm()}")
+        # A.mmwrite(f"result/log/A_direct_{meta.frame}.mtx")
+        # np.savetxt(f"result/log/dpos_direct_{meta.frame}.csv", dpos.reshape(-1, 3), delimiter=",")
+
 
 @ti.kernel
 def fill_diag(A: ti.types.sparse_matrix_builder(), val: ti.template()):
@@ -199,81 +243,34 @@ def fill_invmass(A: ti.types.sparse_matrix_builder(), val: ti.template()):
         A[3 * i + 2, 3 * i + 2] += val[i]
 
 
-def direct_solver(instance, gradC, inv_mass, alpha_tilde, tet_indices):
-    @ti.kernel
-    def prepare_for_direct_solver(
-        pos_mid: ti.template(),
-        pos: ti.template(),
-        tet_indices: ti.template(),
-        lagrangian: ti.template(),
-        B: ti.template(),
-        alpha_tilde: ti.template(),
-        constraint: ti.template(),
-        residual: ti.template(),
-        gradC: ti.template(),
-    ):
-        for i in pos:
-            pos_mid[i] = pos[i]
-        for t in range(tet_indices.shape[0]):
-            p0 = tet_indices[t][0]
-            p1 = tet_indices[t][1]
-            p2 = tet_indices[t][2]
-            p3 = tet_indices[t][3]
+@ti.kernel
+def prepare_for_direct_solver(
+    pos_mid: ti.template(),
+    pos: ti.template(),
+    tet_indices: ti.template(),
+    lagrangian: ti.template(),
+    B: ti.template(),
+    alpha_tilde: ti.template(),
+    constraint: ti.template(),
+    residual: ti.template(),
+    gradC: ti.template(),
+):
+    for i in pos:
+        pos_mid[i] = pos[i]
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
 
-            x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
 
-            D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
-            F = D_s @ B[t]
-            U, S, V = ti.svd(F)
-            constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
-            gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
-            residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
-
-    prepare_for_direct_solver(
-        instance.pos_mid,
-        instance.pos,
-        instance.tet_indices,
-        instance.lagrangian,
-        instance.B,
-        instance.alpha_tilde,
-        instance.constraint,
-        instance.residual,
-        instance.gradC,
-    )
-
-    from time import time
-
-    t = time()
-
-    fill_gradC(instance.gradC_builder, gradC, tet_indices)
-    gradC_mat = instance.gradC_builder.build()
-    # compute schur complement as A
-    fill_invmass(instance.inv_mass_builder, inv_mass)
-    fill_diag(instance.alpha_tilde_builder, alpha_tilde)
-    inv_mass_mat = instance.inv_mass_builder.build()
-    alpha_tilde_mat = instance.alpha_tilde_builder.build()
-    instance.A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
-
-    instance.b = instance.residual
-
-    solver = ti.linalg.SparseSolver(solver_type="LLT")
-    print(f"direct solver time before analyze: {time() - t}")
-
-    solver.analyze_pattern(instance.A)
-    print(f"direct solver time before factorize: {time() - t}")
-
-    solver.factorize(instance.A)
-    print(f"direct solver time before solve: {time() - t}")
-
-    instance.dlambda = solver.solve(instance.b)
-    print(f"direct solver time after solve: {time() - t}")
-
-    dpos = inv_mass_mat @ gradC_mat.transpose() @ instance.dlambda
-    # np.savetxt(f"result/dpos_{meta.frame}.txt", dpos)
-
-    instance.pos.from_numpy(instance.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-    print(f"direct solver time end: {time() - t}")
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
+        residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
 
 
 if meta.args.model == "bunny":
@@ -693,7 +690,8 @@ def main():
             info(f"######## frame {meta.frame} ########")
             semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
             reset_lagrangian(fine.lagrangian)
-            direct_solver(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
+            for ite in range(1):
+                fine.direct_solver()
             collsion_response(fine.pos)
             update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
             log_residual(meta.frame, residual_filename)

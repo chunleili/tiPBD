@@ -156,7 +156,11 @@ class ArapMultigrid:
         self.alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(self.M, self.M, max_num_triplets=12 * self.M)
         self.A = ti.linalg.SparseMatrix(self.M, self.M)
 
+        info(f"Creating {self.name} instance")
+
     def initialize(self, reinit_style="enlarge"):
+        info(f"Initializing {self.name} mesh")
+
         self.init_model()
 
         init_physics(
@@ -662,6 +666,15 @@ def main():
         info("#############################################")
         info("########## Using Only Fine Solver ###########")
         info("#############################################")
+    if meta.args.solver_type == "Jacobian":
+        info("#############################################")
+        info("########## Using Jacobian Solver ############")
+        info("#############################################")
+    elif meta.args.solver_type == "DirectSolver":
+        info("#############################################")
+        info("########## Using Direct Solver ##############")
+        info("#############################################")
+
     meta.energy_filename = "result/log/totalEnergy_" + (suffix) + ".txt"
     meta.residual_filename = "result/log/residual_" + (suffix) + ".txt"
     if os.path.exists(meta.energy_filename):

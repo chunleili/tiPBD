@@ -552,6 +552,7 @@ def log_residual(frame, filename_to_save, instance):
 
 def save_state(filename, fine, coarse):
     state = fine.state + coarse.state
+    state.insert(0, meta.frame)
     for i in range(1, len(state)):
         state[i] = state[i].to_numpy()
     np.savez(filename, *state)
@@ -670,7 +671,7 @@ def main():
     save_state_filename = "result/save/frame_"
     if meta.load_at != -1:
         meta.filename_to_load = save_state_filename + str(meta.load_at) + ".npz"
-        load_state(meta.filename_to_load)
+        load_state(meta.filename_to_load, fine, coarse)
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
@@ -695,7 +696,7 @@ def main():
         gui.text("total iterations: {}".format(meta.coarse_iterations + meta.fine_iterations))
 
         if meta.frame == meta.frame_to_save:
-            save_state(save_state_filename + str(meta.frame))
+            save_state(save_state_filename + str(meta.frame), fine, coarse)
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")

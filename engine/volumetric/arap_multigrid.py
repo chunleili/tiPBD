@@ -222,6 +222,21 @@ class ArapMultigrid:
         # A.mmwrite(f"result/log/A_direct_{meta.frame}.mtx")
         # np.savetxt(f"result/log/dpos_direct_{meta.frame}.csv", dpos.reshape(-1, 3), delimiter=",")
 
+    def one_iter_jacobian(self):
+        project_constraints(
+            self.pos_mid,
+            self.tet_indices,
+            self.inv_mass,
+            self.lagrangian,
+            self.B,
+            self.pos,
+            self.alpha_tilde,
+            self.constraint,
+            self.residual,
+            self.gradC,
+            self.dlambda,
+        )
+
 
 @ti.kernel
 def fill_diag(A: ti.types.sparse_matrix_builder(), val: ti.template()):
@@ -569,26 +584,15 @@ def load_state(filename, fine, coarse):
     logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
-def substep_jacobian(P, R, fine, coarse):
+def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     if meta.use_multigrid:
         update_coarse_mesh(R, fine, coarse)
     reset_lagrangian(coarse.lagrangian)
     for ite in range(meta.coarse_iterations):
         log_energy(meta.frame, meta.energy_filename, fine)
-        project_constraints(
-            coarse.pos_mid,
-            coarse.tet_indices,
-            coarse.inv_mass,
-            coarse.lagrangian,
-            coarse.B,
-            coarse.pos,
-            coarse.alpha_tilde,
-            coarse.constraint,
-            coarse.residual,
-            coarse.gradC,
-            coarse.dlambda,
-        )
+        if solver_type == "Jacobian":
+            coarse.one_iter_jacobian()
         log_residual(meta.frame, meta.residual_filename, fine)
         update_fine_mesh(P, fine, coarse)
     collsion_response(coarse.pos)
@@ -597,19 +601,8 @@ def substep_jacobian(P, R, fine, coarse):
         if ite == 0:
             log_residual(meta.frame, meta.residual_filename, fine)
         log_energy(meta.frame, meta.energy_filename, fine)
-        project_constraints(
-            fine.pos_mid,
-            fine.tet_indices,
-            fine.inv_mass,
-            fine.lagrangian,
-            fine.B,
-            fine.pos,
-            fine.alpha_tilde,
-            fine.constraint,
-            fine.residual,
-            fine.gradC,
-            fine.dlambda,
-        )
+        if solver_type == "Jacobian":
+            fine.one_iter_jacobian()
         log_residual(meta.frame, meta.residual_filename, fine)
     collsion_response(fine.pos)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
@@ -700,7 +693,7 @@ def main():
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
             if meta.args.solver_type == "Jacobian":
-                substep_jacobian(P, R, fine, coarse)
+                substep_multigird(P, R, fine, coarse, "Jacobian")
             elif meta.args.solver_type == "DirectSolver":
                 for _ in range(meta.fine_iterations):
                     fine.substep_direct_solver()

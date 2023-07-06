@@ -11,6 +11,7 @@ import scipy.io as sio
 from scipy.sparse import coo_matrix, spdiags, kron
 from scipy.io import mmwrite
 import sys, os, argparse
+from time import time
 
 sys.path.append(os.getcwd())
 
@@ -180,6 +181,47 @@ class ArapMultigrid:
         self.tet_indices.from_numpy(self.model_tet)
         self.display_indices.from_numpy(self.model_tri.flatten())
 
+    def compute_A(self):
+        prepare_for_direct_solver(
+            self.pos_mid,
+            self.pos,
+            self.tet_indices,
+            self.lagrangian,
+            self.B,
+            self.alpha_tilde,
+            self.constraint,
+            self.residual,
+            self.gradC,
+        )
+
+        fill_gradC(self.gradC_builder, self.gradC, self.tet_indices)
+        gradC_mat = self.gradC_builder.build()
+        # compute schur complement as A
+        fill_invmass(self.inv_mass_builder, self.inv_mass)
+        fill_diag(self.alpha_tilde_builder, self.alpha_tilde)
+        inv_mass_mat = self.inv_mass_builder.build()
+        alpha_tilde_mat = self.alpha_tilde_builder.build()
+        self.A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
+        self.b = self.residual
+        return self.A, self.b, gradC_mat, inv_mass_mat
+
+    def substep_direct_solver(self):
+        t = time()
+        A, b, gradC_mat, inv_mass_mat = self.compute_A()
+        solver = ti.linalg.SparseSolver(solver_type="LLT")
+        solver.analyze_pattern(A)
+        solver.factorize(A)
+        x = solver.solve(b)
+        print(f"direct solver time of solve: {time() - t}")
+
+        dpos = inv_mass_mat @ gradC_mat.transpose() @ x
+        self.pos.from_numpy(self.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+        # res = A.to_numpy() @ x - b.to_numpy()
+        # print(f"residual for direct solver: {res.norm()}")
+        # A.mmwrite(f"result/log/A_direct_{meta.frame}.mtx")
+        # np.savetxt(f"result/log/dpos_direct_{meta.frame}.csv", dpos.reshape(-1, 3), delimiter=",")
+
 
 @ti.kernel
 def fill_diag(A: ti.types.sparse_matrix_builder(), val: ti.template()):
@@ -238,29 +280,6 @@ def prepare_for_direct_solver(
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
         residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
-
-
-def compute_A(instance, gradC, inv_mass, alpha_tilde, tet_indices):
-    prepare_for_direct_solver(
-        instance.pos_mid,
-        instance.pos,
-        instance.tet_indices,
-        instance.lagrangian,
-        instance.B,
-        instance.alpha_tilde,
-        instance.constraint,
-        instance.residual,
-        instance.gradC,
-    )
-
-    fill_gradC(instance.gradC_builder, gradC, tet_indices)
-    gradC_mat = instance.gradC_builder.build()
-    # compute schur complement as A
-    fill_invmass(instance.inv_mass_builder, inv_mass)
-    fill_diag(instance.alpha_tilde_builder, alpha_tilde)
-    inv_mass_mat = instance.inv_mass_builder.build()
-    alpha_tilde_mat = instance.alpha_tilde_builder.build()
-    instance.A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
 
 
 def update_fine_mesh(P, fine, coarse):
@@ -550,7 +569,7 @@ def load_state(filename, fine, coarse):
     logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
-def substep_Jacobian(P, R, fine, coarse):
+def substep_jacobian(P, R, fine, coarse):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     if meta.use_multigrid:
         update_coarse_mesh(R, fine, coarse)
@@ -592,7 +611,6 @@ def substep_Jacobian(P, R, fine, coarse):
             fine.dlambda,
         )
         log_residual(meta.frame, meta.residual_filename, fine)
-    compute_A(fine, fine.gradC, fine.inv_mass, fine.alpha_tilde, fine.tet_indices)
     collsion_response(fine.pos)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
@@ -682,7 +700,11 @@ def main():
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
             if meta.args.solver_type == "Jacobian":
-                substep_Jacobian(P, R, fine, coarse)
+                substep_jacobian(P, R, fine, coarse)
+            elif meta.args.solver_type == "DirectSolver":
+                for _ in range(meta.fine_iterations):
+                    fine.substep_direct_solver()
+
             # ti.profiler.print_kernel_profiler_info()
 
             meta.frame += 1

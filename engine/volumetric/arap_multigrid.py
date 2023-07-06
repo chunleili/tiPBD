@@ -45,7 +45,6 @@ meta = Meta()
 # control parameters
 meta.args = parser.parse_args()
 meta.frame = 0
-meta.use_multigrid = True
 meta.max_frame = meta.args.max_frame
 meta.log_energy_range = range(*meta.args.log_energy_range)
 meta.log_residual_range = range(*meta.args.log_residual_range)
@@ -53,10 +52,10 @@ meta.frame_to_save = meta.args.save_at
 meta.load_at = meta.args.load_at
 meta.pause = False
 meta.pause_at = meta.args.pause_at
+meta.use_multigrid = True
 meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
-if meta.coarse_iterations == 0 or meta.use_multigrid == False:
+if meta.coarse_iterations == 0:
     meta.use_multigrid = False
-    meta.coarse_iterations = 0
 
 # physical parameters
 meta.omega = meta.args.omega  # SOR factor, default 0.1
@@ -184,6 +183,12 @@ class ArapMultigrid:
         elif reinit_style == "enlarge":
             # init by enlarge 1.5x
             self.pos.from_numpy(self.model_pos * 1.5)
+
+        if self.name == "coarse":
+            self.max_iter = meta.coarse_iterations
+        elif self.name == "fine":
+            self.max_iter = meta.fine_iterations
+        info(f"max_iter:{self.max_iter}")
 
     def init_model(self):
         self.pos.from_numpy(self.model_pos)
@@ -598,7 +603,7 @@ def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
     if meta.use_multigrid:
         update_coarse_mesh(R, fine, coarse)
     reset_lagrangian(coarse.lagrangian)
-    for ite in range(meta.coarse_iterations):
+    for ite in range(coarse.max_iter):
         log_energy(meta.frame, meta.energy_filename, fine)
         if solver_type == "Jacobian":
             coarse.one_iter_jacobian()
@@ -606,7 +611,7 @@ def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
         update_fine_mesh(P, fine, coarse)
     collsion_response(coarse.pos)
     reset_lagrangian(fine.lagrangian)
-    for ite in range(meta.fine_iterations):
+    for ite in range(fine.max_iter):
         if ite == 0:
             log_residual(meta.frame, meta.residual_filename, fine)
         log_energy(meta.frame, meta.energy_filename, fine)
@@ -618,7 +623,7 @@ def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
 
 
 def substep_direct_solver(fine):
-    for _ in range(meta.fine_iterations):
+    for _ in range(fine.max_iter):
         fine.one_iter_direct_solver()
 
 
@@ -705,9 +710,9 @@ def main():
         wire_frame = gui.checkbox("wireframe", wire_frame)
         show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
         show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
-        meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 0, 50)
-        meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 0, 50)
-        gui.text("total iterations: {}".format(meta.coarse_iterations + meta.fine_iterations))
+        coarse.max_iter = gui.slider_int("coarse_iter", coarse.max_iter, 0, 50)
+        fine.max_iter = gui.slider_int("fine_iter", fine.max_iter, 0, 50)
+        gui.text("total iterations: {}".format(coarse.max_iter + fine.max_iter))
 
         if meta.frame == meta.frame_to_save:
             save_state(save_state_filename + str(meta.frame), fine, coarse)

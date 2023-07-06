@@ -282,19 +282,6 @@ def compute_A(instance, gradC, inv_mass, alpha_tilde, tet_indices):
     instance.A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
 
 
-if meta.args.model == "bunny":
-    meta.model_path = "data/model/bunny1k2k/"
-    meta.fine_model_path = meta.model_path + "bunny2k"
-    meta.coarse_model_path = meta.model_path + "bunny1k"
-elif meta.args.model == "cube":
-    meta.model_path = "data/model/cube/"
-    meta.fine_model_path = meta.model_path + "fine"
-    meta.coarse_model_path = meta.model_path + "coarse"
-
-fine = ArapMultigrid(meta.fine_model_path)
-coarse = ArapMultigrid(meta.coarse_model_path)
-
-
 def update_fine_mesh(P, fine, coarse):
     cpos_np = coarse.pos.to_numpy()
     fpos_np = P @ cpos_np
@@ -563,7 +550,7 @@ def log_residual(frame, filename_to_save, instance):
             np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
 
 
-def save_state(filename):
+def save_state(filename, fine, coarse):
     state = fine.state + coarse.state
     for i in range(1, len(state)):
         state[i] = state[i].to_numpy()
@@ -571,7 +558,7 @@ def save_state(filename):
     logging.info(f"saved state to '{filename}', totally saved {len(state)} variables")
 
 
-def load_state(filename):
+def load_state(filename, fine, coarse):
     npzfile = np.load(filename)
     state = fine.state + coarse.state
     meta.frame = int(npzfile["arr_0"])
@@ -632,8 +619,20 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
 
+    if meta.args.model == "bunny":
+        meta.model_path = "data/model/bunny1k2k/"
+        meta.fine_model_path = meta.model_path + "bunny2k"
+        meta.coarse_model_path = meta.model_path + "bunny1k"
+    elif meta.args.model == "cube":
+        meta.model_path = "data/model/cube/"
+        meta.fine_model_path = meta.model_path + "fine"
+        meta.coarse_model_path = meta.model_path + "coarse"
+
     P = sio.mmread(meta.model_path + "P.mtx")
     R = sio.mmread(meta.model_path + "R.mtx")
+
+    fine = ArapMultigrid(meta.fine_model_path)
+    coarse = ArapMultigrid(meta.coarse_model_path)
 
     fine.initialize()
     coarse.initialize()

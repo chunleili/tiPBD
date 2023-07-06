@@ -265,17 +265,13 @@ fine = ArapMultigrid(meta.fine_model_path)
 coarse = ArapMultigrid(meta.coarse_model_path)
 
 
-P = sio.mmread(meta.model_path + "P.mtx")
-R = sio.mmread(meta.model_path + "R.mtx")
-
-
-def update_fine_mesh():
+def update_fine_mesh(P, fine, coarse):
     cpos_np = coarse.pos.to_numpy()
     fpos_np = P @ cpos_np
     fine.pos.from_numpy(fpos_np)
 
 
-def update_coarse_mesh():
+def update_coarse_mesh(R, fine, coarse):
     fpos_np = fine.pos.to_numpy()
     cpos_np = R @ fpos_np
     coarse.pos.from_numpy(cpos_np)
@@ -559,10 +555,10 @@ def load_state(filename):
     logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
-def substep_Jacobian():
+def substep_Jacobian(P, R):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     if meta.use_multigrid:
-        update_coarse_mesh()
+        update_coarse_mesh(R, fine, coarse)
     reset_lagrangian(coarse.lagrangian)
     for ite in range(meta.coarse_iterations):
         log_energy(meta.frame, meta.energy_filename)
@@ -580,7 +576,7 @@ def substep_Jacobian():
             coarse.dlambda,
         )
         log_residual(meta.frame, meta.residual_filename)
-        update_fine_mesh()
+        update_fine_mesh(P, fine, coarse)
     collsion_response(coarse.pos)
     reset_lagrangian(fine.lagrangian)
     for ite in range(meta.fine_iterations):
@@ -612,6 +608,9 @@ def main():
 
     init_model(fine)
     init_model(coarse)
+
+    P = sio.mmread(meta.model_path + "P.mtx")
+    R = sio.mmread(meta.model_path + "R.mtx")
 
     init_physics(
         fine.pos,
@@ -714,7 +713,7 @@ def main():
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
-            substep_Jacobian()
+            substep_Jacobian(P, R)
             # ti.profiler.print_kernel_profiler_info()
 
             meta.frame += 1

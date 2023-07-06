@@ -169,6 +169,13 @@ class ArapMultigrid:
         self.alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(self.M, self.M, max_num_triplets=12 * self.M)
         self.A = ti.linalg.SparseMatrix(self.M, self.M)
 
+        self.init_model()
+
+    def init_model(self):
+        self.pos.from_numpy(self.model_pos)
+        self.tet_indices.from_numpy(self.model_tet)
+        self.display_indices.from_numpy(self.model_tri.flatten())
+
 
 @ti.kernel
 def fill_diag(A: ti.types.sparse_matrix_builder(), val: ti.template()):
@@ -275,12 +282,6 @@ def update_coarse_mesh(R, fine, coarse):
     fpos_np = fine.pos.to_numpy()
     cpos_np = R @ fpos_np
     coarse.pos.from_numpy(cpos_np)
-
-
-def init_model(instance):
-    instance.pos.from_numpy(instance.model_pos)
-    instance.tet_indices.from_numpy(instance.model_tet)
-    instance.display_indices.from_numpy(instance.model_tri.flatten())
 
 
 @ti.kernel
@@ -605,9 +606,6 @@ def substep_Jacobian(P, R):
 def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
-
-    init_model(fine)
-    init_model(coarse)
 
     P = sio.mmread(meta.model_path + "P.mtx")
     R = sio.mmread(meta.model_path + "R.mtx")

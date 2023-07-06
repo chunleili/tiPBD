@@ -116,6 +116,11 @@ class ArapMultigrid:
         self.NV = len(self.model_pos)
         self.NT = len(self.model_tet)
         self.NF = len(self.model_tri)
+        self.name = ""
+        if "coarse" in path:
+            self.name = "coarse"
+        elif "fine" in path:
+            self.name = "fine"
 
         self.pos = ti.Vector.field(3, float, self.NV)
         self.pos_mid = ti.Vector.field(3, float, self.NV)
@@ -617,20 +622,19 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
 
+    model_path = ""
     if meta.args.model == "bunny":
-        meta.model_path = "data/model/bunny1k2k/"
-        meta.fine_model_path = meta.model_path + "bunny2k"
-        meta.coarse_model_path = meta.model_path + "bunny1k"
+        model_path = "data/model/bunny1k2k/"
     elif meta.args.model == "cube":
-        meta.model_path = "data/model/cube/"
-        meta.fine_model_path = meta.model_path + "fine"
-        meta.coarse_model_path = meta.model_path + "coarse"
+        model_path = "data/model/cube/"
+    fine_model_path = model_path + "fine"
+    coarse_model_path = model_path + "coarse"
 
-    P = sio.mmread(meta.model_path + "P.mtx")
-    R = sio.mmread(meta.model_path + "R.mtx")
+    P = sio.mmread(model_path + "P.mtx")
+    R = sio.mmread(model_path + "R.mtx")
 
-    fine = ArapMultigrid(meta.fine_model_path)
-    coarse = ArapMultigrid(meta.coarse_model_path)
+    fine = ArapMultigrid(fine_model_path)
+    coarse = ArapMultigrid(coarse_model_path)
 
     fine.initialize()
     coarse.initialize()

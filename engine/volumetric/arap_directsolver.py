@@ -275,8 +275,8 @@ def prepare_for_direct_solver(
 
 if meta.args.model == "bunny":
     meta.model_path = "data/model/bunny1k2k/"
-    meta.fine_model_path = meta.model_path + "bunny2k"
-    meta.coarse_model_path = meta.model_path + "bunny1k"
+    meta.fine_model_path = meta.model_path + "fine"
+    meta.coarse_model_path = meta.model_path + "coarse"
 elif meta.args.model == "cube":
     meta.model_path = "data/model/cube/"
     meta.fine_model_path = meta.model_path + "fine"

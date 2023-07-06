@@ -149,8 +149,8 @@ if __name__ == "__main__":
     coarse_model_path = model_path + "coarse"
     if args.model == "bunny":
         model_path = "data/model/bunny1k2k/"
-        fine_model_path = model_path + "bunny2k"
-        coarse_model_path = model_path + "bunny1k"
+        fine_model_path = model_path + "fine"
+        coarse_model_path = model_path + "coarse"
     elif args.model == "cube_64k":
         model_path = "data/model/cube_64k/"
         fine_model_path = model_path + "fine"

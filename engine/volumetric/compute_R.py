@@ -135,8 +135,8 @@ if __name__ == "__main__":
     coarse_model_path = model_path + "coarse"
     if args.model == "bunny":
         model_path = "data/model/bunny1k2k/"
-        fine_model_path = model_path + "bunny2k"
-        coarse_model_path = model_path + "bunny1k"
+        fine_model_path = model_path + "fine"
+        coarse_model_path = model_path + "coasre"
 
     print(f">> Reading mesh at {model_path}...")
     coarse_pos, coarse_tet_indices, coarse_face_indices = read_tetgen(coarse_model_path)

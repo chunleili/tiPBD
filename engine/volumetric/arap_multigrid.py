@@ -140,25 +140,6 @@ class ArapMultigrid:
 
         self.state = [
             self.pos,
-            self.pos_mid,
-            self.predict_pos,
-            self.old_pos,
-            self.vel,
-            self.mass,
-            self.inv_mass,
-            self.tet_indices,
-            self.display_indices,
-            self.B,
-            self.lagrangian,
-            self.rest_volume,
-            self.inv_V,
-            self.alpha_tilde,
-            self.par_2_tet,
-            self.gradC,
-            self.constraint,
-            self.dpos,
-            self.residual,
-            self.dlambda,
         ]
 
         # for sparse matrix

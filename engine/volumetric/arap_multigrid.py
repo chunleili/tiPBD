@@ -311,13 +311,13 @@ def prepare_for_direct_solver(
         residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
 
 
-def update_fine_mesh(P, fine, coarse):
+def coarse_to_fine_pos(P, fine, coarse):
     cpos_np = coarse.pos.to_numpy()
     fpos_np = P @ cpos_np
     fine.pos.from_numpy(fpos_np)
 
 
-def update_coarse_mesh(R, fine, coarse):
+def fine_to_coarse_pos(R, fine, coarse):
     fpos_np = fine.pos.to_numpy()
     cpos_np = R @ fpos_np
     coarse.pos.from_numpy(cpos_np)
@@ -601,9 +601,9 @@ def load_state(filename, fine, coarse):
 def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     if meta.use_multigrid:
-        update_coarse_mesh(R, fine, coarse)
+        fine_to_coarse_pos(R, fine, coarse)
         iterate_single_mesh(coarse, solver_type)
-        update_fine_mesh(P, fine, coarse)
+        coarse_to_fine_pos(P, fine, coarse)
     iterate_single_mesh(fine, solver_type)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 

@@ -623,6 +623,12 @@ def iterate_single_mesh(instance, solver_type):
     update_velocity(meta.h, instance.pos, instance.old_pos, instance.vel)
 
 
+def substep_single_mesh(instance, solver_type):
+    semi_euler(meta.h, instance.pos, instance.predict_pos, instance.old_pos, instance.vel, meta.damping_coeff)
+    iterate_single_mesh(instance, solver_type)
+    update_velocity(meta.h, instance.pos, instance.old_pos, instance.vel)
+
+
 def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
@@ -657,16 +663,31 @@ def main():
     show_coarse_mesh = True
     show_fine_mesh = True
 
-    if meta.use_multigrid:
-        suffix = "mg"
-        info("#############################################")
-        info("########## Using Multi-Grid Solver ##########")
-        info("#############################################")
-    else:
+    if coarse.max_iter == 0:
+        meta.use_multigrid = False
+        meta.only_fine = True
+        meta.only_coarse = False
         suffix = "onlyfine"
         info("#############################################")
-        info("########## Using Only Fine Solver ###########")
+        info("########## Using Only Fine Mesh ###########")
         info("#############################################")
+    elif fine.max_iter == 0:
+        meta.use_multigrid = False
+        meta.only_fine = False
+        meta.only_coarse = True
+        suffix = "onlycoarse"
+        info("#############################################")
+        info("########## Using Only Coarse Mesh ###########")
+        info("#############################################")
+    else:
+        meta.use_multigrid = True
+        meta.only_fine = False
+        meta.only_coarse = False
+        suffix = "mg"
+        info("#############################################")
+        info("########## Using MultiGrid        ###########")
+        info("#############################################")
+
     if meta.args.solver_type == "Jacobian":
         info("#############################################")
         info("########## Using Jacobian Solver ############")
@@ -715,7 +736,12 @@ def main():
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
-            substep_multigird(P, R, fine, coarse, meta.args.solver_type)
+            if meta.use_multigrid:
+                substep_multigird(P, R, fine, coarse, meta.args.solver_type)
+            elif meta.only_fine:
+                substep_single_mesh(fine, meta.args.solver_type)
+            elif meta.only_coarse:
+                substep_single_mesh(coarse, meta.args.solver_type)
 
             # ti.profiler.print_kernel_profiler_info()
 

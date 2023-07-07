@@ -231,8 +231,8 @@ class ArapMultigrid:
         dpos = inv_mass_mat @ gradC_mat.transpose() @ x
         self.pos.from_numpy(self.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
-        # res = A.to_numpy() @ x - b.to_numpy()
-        # print(f"residual for direct solver: {res.norm()}")
+        self.schur_residual = A.to_numpy() @ x - b.to_numpy()
+        print(f"schur residual for direct solver: {self.schur_residual.norm()}")
         # A.mmwrite(f"result/log/A_direct_{meta.frame}.mtx")
         # np.savetxt(f"result/log/dpos_direct_{meta.frame}.csv", dpos.reshape(-1, 3), delimiter=",")
 
@@ -321,6 +321,14 @@ def fine_to_coarse_pos(R, fine, coarse):
     fpos_np = fine.pos.to_numpy()
     cpos_np = R @ fpos_np
     coarse.pos.from_numpy(cpos_np)
+
+
+def fine_to_coarse_schur_residual(R, fine, coarse):
+    coarse.schur_residual = R @ fine.schur_residual
+
+
+def coarse_to_fine_schur_residual(P, fine, coarse):
+    fine.schur_residual = P @ coarse.schur_residual
 
 
 @ti.kernel
@@ -605,6 +613,15 @@ def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
         iterate_single_mesh(coarse, solver_type)
         coarse_to_fine_pos(P, fine, coarse)
     iterate_single_mesh(fine, solver_type)
+    update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+
+
+def substep_amg(P, R, fine, coarse):
+    semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
+    fine_to_coarse_schur_residual(R, fine, coarse)
+    compute_A2(P, A1)
+    iterate_single_mesh(coarse, "DirectSolver")
+    coarse_to_fine_schur_residual(P, fine, coarse)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
 

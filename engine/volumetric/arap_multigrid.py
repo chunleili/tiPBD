@@ -646,7 +646,7 @@ def substep_amg(P, R, fine, coarse):
 
 def main():
     logging.getLogger().setLevel(logging.INFO)
-    logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     model_path = ""
     if meta.args.model == "bunny":
@@ -711,6 +711,10 @@ def main():
         info("#############################################")
         info("########## Using Direct Solver ##############")
         info("#############################################")
+    elif meta.args.solver_type == "AMG":
+        info("#############################################")
+        info("########## Using AMG Solver #################")
+        info("#############################################")
 
     meta.energy_filename = "result/log/totalEnergy_" + (suffix) + ".txt"
     meta.residual_filename = "result/log/residual_" + (suffix) + ".txt"
@@ -751,6 +755,7 @@ def main():
 
         if not meta.pause:
             info(f"######## frame {meta.frame} ########")
+            t = time()
             if meta.use_multigrid:
                 substep_multigird(P, R, fine, coarse, meta.args.solver_type)
             elif meta.only_fine:
@@ -759,6 +764,7 @@ def main():
                 coarse.substep_single_mesh(meta.args.solver_type)
 
             # ti.profiler.print_kernel_profiler_info()
+            info(f"step time: {time() - t}")
 
             meta.frame += 1
 

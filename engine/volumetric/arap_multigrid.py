@@ -196,18 +196,6 @@ class ArapMultigrid:
         self.display_indices.from_numpy(self.model_tri.flatten())
 
     def compute_A(self):
-        prepare_for_direct_solver(
-            self.pos_mid,
-            self.pos,
-            self.tet_indices,
-            self.lagrangian,
-            self.B,
-            self.alpha_tilde,
-            self.constraint,
-            self.residual,
-            self.gradC,
-        )
-
         fill_gradC(self.gradC_builder, self.gradC, self.tet_indices)
         gradC_mat = self.gradC_builder.build()
         # compute schur complement as A
@@ -221,6 +209,17 @@ class ArapMultigrid:
 
     def one_iter_direct_solver(self):
         t = time()
+        prepare_for_direct_solver(
+            self.pos_mid,
+            self.pos,
+            self.tet_indices,
+            self.lagrangian,
+            self.B,
+            self.alpha_tilde,
+            self.constraint,
+            self.residual,
+            self.gradC,
+        )
         A, b, gradC_mat, inv_mass_mat = self.compute_A()
         solver = ti.linalg.SparseSolver(solver_type="LLT")
         solver.analyze_pattern(A)
@@ -251,6 +250,25 @@ class ArapMultigrid:
             self.gradC,
             self.dlambda,
         )
+
+    def iterate_single_mesh(self, solver_type):
+        reset_lagrangian(self.lagrangian)
+        for ite in range(self.max_iter):
+            if ite == 0:
+                log_residual(meta.frame, meta.residual_filename, self)
+            log_energy(meta.frame, meta.energy_filename, self)
+            if solver_type == "Jacobian":
+                self.one_iter_jacobian()
+            if solver_type == "DirectSolver":
+                self.one_iter_direct_solver()
+            log_residual(meta.frame, meta.residual_filename, self)
+        collsion_response(self.pos)
+        update_velocity(meta.h, self.pos, self.old_pos, self.vel)
+
+    def substep_single_mesh(self, solver_type):
+        semi_euler(meta.h, self.pos, self.predict_pos, self.old_pos, self.vel, meta.damping_coeff)
+        self.iterate_single_mesh(solver_type)
+        update_velocity(meta.h, self.pos, self.old_pos, self.vel)
 
 
 @ti.kernel
@@ -611,40 +629,19 @@ def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     if meta.use_multigrid:
         fine_to_coarse_pos(R, fine, coarse)
-        iterate_single_mesh(coarse, solver_type)
+        coarse.iterate_single_mesh(solver_type)
         coarse_to_fine_pos(P, fine, coarse)
-    iterate_single_mesh(fine, solver_type)
+    fine.iterate_single_mesh(solver_type)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
 
 def substep_amg(P, R, fine, coarse):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     fine_to_coarse_schur_residual(R, fine, coarse)
-    compute_A2(P, A1)
-    iterate_single_mesh(coarse, "DirectSolver")
+    A2 = compute_A2(P, R, A1)
+    coarse.iterate_single_mesh("DirectSolver")
     coarse_to_fine_schur_residual(P, fine, coarse)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
-
-
-def iterate_single_mesh(instance, solver_type):
-    reset_lagrangian(instance.lagrangian)
-    for ite in range(instance.max_iter):
-        if ite == 0:
-            log_residual(meta.frame, meta.residual_filename, instance)
-        log_energy(meta.frame, meta.energy_filename, instance)
-        if solver_type == "Jacobian":
-            instance.one_iter_jacobian()
-        if solver_type == "DirectSolver":
-            instance.one_iter_direct_solver()
-        log_residual(meta.frame, meta.residual_filename, instance)
-    collsion_response(instance.pos)
-    update_velocity(meta.h, instance.pos, instance.old_pos, instance.vel)
-
-
-def substep_single_mesh(instance, solver_type):
-    semi_euler(meta.h, instance.pos, instance.predict_pos, instance.old_pos, instance.vel, meta.damping_coeff)
-    iterate_single_mesh(instance, solver_type)
-    update_velocity(meta.h, instance.pos, instance.old_pos, instance.vel)
 
 
 def main():
@@ -757,9 +754,9 @@ def main():
             if meta.use_multigrid:
                 substep_multigird(P, R, fine, coarse, meta.args.solver_type)
             elif meta.only_fine:
-                substep_single_mesh(fine, meta.args.solver_type)
+                fine.substep_single_mesh(meta.args.solver_type)
             elif meta.only_coarse:
-                substep_single_mesh(coarse, meta.args.solver_type)
+                coarse.substep_single_mesh(meta.args.solver_type)
 
             # ti.profiler.print_kernel_profiler_info()
 

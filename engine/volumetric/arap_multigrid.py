@@ -32,6 +32,7 @@ parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument("--solver_type", type=str, default="Jacobian", choices=["Jacobian", "GaussSeidel", "DirectSolver"])
+parser.add_argument("--use_amg", type=int, default=0)
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
@@ -150,9 +151,6 @@ class ArapMultigrid:
         # for sparse matrix
         self.M = self.NT
         self.N = self.NV
-        self.gradC_builder = ti.linalg.SparseMatrixBuilder(self.M, 3 * self.N, max_num_triplets=12 * self.M)
-        self.inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * self.N, 3 * self.N, max_num_triplets=3 * self.N)
-        self.alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(self.M, self.M, max_num_triplets=12 * self.M)
         self.A = ti.linalg.SparseMatrix(self.M, self.M)
 
         info(f"Creating {self.name} instance")
@@ -195,17 +193,14 @@ class ArapMultigrid:
         self.tet_indices.from_numpy(self.model_tet)
         self.display_indices.from_numpy(self.model_tri.flatten())
 
-    def compute_A(self):
-        fill_gradC(self.gradC_builder, self.gradC, self.tet_indices)
-        gradC_mat = self.gradC_builder.build()
-        # compute schur complement as A
-        fill_invmass(self.inv_mass_builder, self.inv_mass)
-        fill_diag(self.alpha_tilde_builder, self.alpha_tilde)
-        inv_mass_mat = self.inv_mass_builder.build()
-        alpha_tilde_mat = self.alpha_tilde_builder.build()
-        self.A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
-        self.b = self.residual
-        return self.A, self.b, gradC_mat, inv_mass_mat
+    def compute_gradC_and_invmass(self):
+        gradC_builder = ti.linalg.SparseMatrixBuilder(self.M, 3 * self.N, max_num_triplets=12 * self.M)
+        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * self.N, 3 * self.N, max_num_triplets=3 * self.N)
+        fill_gradC(gradC_builder, self.gradC, self.tet_indices)
+        gradC_mat = gradC_builder.build()
+        fill_invmass(inv_mass_builder, self.inv_mass)
+        inv_mass_mat = inv_mass_builder.build()
+        return gradC_mat, inv_mass_mat
 
     def one_iter_direct_solver(self):
         t = time()
@@ -220,7 +215,9 @@ class ArapMultigrid:
             self.residual,
             self.gradC,
         )
-        A, b, gradC_mat, inv_mass_mat = self.compute_A()
+        gradC_mat, inv_mass_mat = self.compute_gradC_and_invmass()
+        A = compute_A(gradC_mat, inv_mass_mat, self.alpha_tilde)
+        b = self.residual
         solver = ti.linalg.SparseSolver(solver_type="LLT")
         solver.analyze_pattern(A)
         solver.factorize(A)
@@ -269,6 +266,16 @@ class ArapMultigrid:
         semi_euler(meta.h, self.pos, self.predict_pos, self.old_pos, self.vel, meta.damping_coeff)
         self.iterate_single_mesh(solver_type)
         update_velocity(meta.h, self.pos, self.old_pos, self.vel)
+
+
+def compute_A(gradC_mat, inv_mass_mat, alpha_tilde):
+    # compute schur complement as A
+    M = alpha_tilde.shape[0]
+    alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(M, M, max_num_triplets=12 * M)
+    fill_diag(alpha_tilde_builder, alpha_tilde)
+    alpha_tilde_mat = alpha_tilde_builder.build()
+    A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
+    return A
 
 
 @ti.kernel
@@ -342,12 +349,14 @@ def fine_to_coarse_pos(R, fine, coarse):
     coarse.pos.from_numpy(cpos_np)
 
 
-def fine_to_coarse_schur_residual(R, fine, coarse):
-    coarse.schur_residual = R @ fine.schur_residual
+def restriction_residual(R, fine_residual, coarse_residual):
+    coarse_residual = R @ fine_residual
+    return coarse_residual
 
 
-def coarse_to_fine_schur_residual(P, fine, coarse):
-    fine.schur_residual = P @ coarse.schur_residual
+def prolongation_residual(P, fine_residual, coarse_residual):
+    fine_residual = P @ coarse_residual
+    return fine_residual
 
 
 @ti.kernel
@@ -635,12 +644,34 @@ def substep_multigird(P, R, fine, coarse, solver_type="Jacobian"):
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
 
+def compute_A2(P, R, A1):
+    return R @ A1 @ P
+
+
+def compute_A1(coarse):
+    prepare_for_direct_solver(
+        coarse.pos_mid,
+        coarse.pos,
+        coarse.tet_indices,
+        coarse.lagrangian,
+        coarse.B,
+        coarse.alpha_tilde,
+        coarse.constraint,
+        coarse.residual,
+        coarse.gradC,
+    )
+    gradC_mat, inv_mass_mat = coarse.compute_gradC_and_invmass()
+    A1 = compute_A(gradC_mat, inv_mass_mat, coarse.alpha_tilde)
+    return A1
+
+
 def substep_amg(P, R, fine, coarse):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-    fine_to_coarse_schur_residual(R, fine, coarse)
+    coarse.schur_residual = restriction_residual(R, fine.schur_residual, coarse.schur_residual)
+    A1 = compute_A1(coarse)
     A2 = compute_A2(P, R, A1)
     coarse.iterate_single_mesh("DirectSolver")
-    coarse_to_fine_schur_residual(P, fine, coarse)
+    fine.schur_residual = prolongation_residual(P, fine.schur_residual, coarse.schur_residual)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
 
@@ -762,6 +793,8 @@ def main():
                 fine.substep_single_mesh(meta.args.solver_type)
             elif meta.only_coarse:
                 coarse.substep_single_mesh(meta.args.solver_type)
+            elif meta.args.use_amg:
+                substep_amg(P, R, fine, coarse, meta.args.solver_type)
 
             # ti.profiler.print_kernel_profiler_info()
             info(f"step time: {time() - t}")

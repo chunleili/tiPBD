@@ -755,9 +755,6 @@ def substep_amg(P, R, fine, coarse, solver_type):
     # solve coarse level A2E2=r2
     E2 = solve_direct_solver(A2, r2)
 
-    dpos = coarse.inv_mass_mat @ gradC_mat.transpose() @ dlambda
-    coarse.pos.from_numpy(coarse.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
     # prolongation:
     E1 = P @ E2
     x1_new = x1 + E1

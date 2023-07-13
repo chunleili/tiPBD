@@ -227,12 +227,13 @@ class ArapMultigrid:
         solver.factorize(A)
         x = solver.solve(b)
         print(f"direct solver time of solve: {time() - t}")
+        print(f"shape of A: {A.shape}")
 
         dpos = inv_mass_mat @ gradC_mat.transpose() @ x
         self.pos.from_numpy(self.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
-        self.schur_residual = A.to_numpy() @ x - b.to_numpy()
-        print(f"schur residual for direct solver: {self.schur_residual.norm()}")
+        self.schur_residual = A @ x - b.to_numpy()
+        print(f"schur residual for direct solver: {np.linalg.norm(self.schur_residual)}")
         # A.mmwrite(f"result/log/A_direct_{meta.frame}.mtx")
         # np.savetxt(f"result/log/dpos_direct_{meta.frame}.csv", dpos.reshape(-1, 3), delimiter=",")
 

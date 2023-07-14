@@ -200,14 +200,15 @@ class ArapMultigrid:
 
     def one_iter_direct_solver(self, A=None):
         t = time()
-        if A is None:
-            self.prepare_for_direct_solver_()
-            gradC_mat = self.compute_gradC()
-            A = compute_A(gradC_mat, inv_mass_mat, self.alpha_tilde)
 
         inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * self.N, 3 * self.N, max_num_triplets=3 * self.N)
         fill_invmass(inv_mass_builder, self.inv_mass)
         inv_mass_mat = inv_mass_builder.build()
+
+        if A is None:
+            self.prepare_for_direct_solver_()
+            gradC_mat = self.compute_gradC()
+            A = compute_A(gradC_mat, inv_mass_mat, self.alpha_tilde)
 
         b = self.residual
         solver = ti.linalg.SparseSolver(solver_type="LLT")
@@ -271,6 +272,7 @@ class ArapMultigrid:
             self.residual,
             self.gradC,
             self.dlambda,
+            self.inv_mass,
         )
 
     def compute_inv_mass_mat(self):
@@ -736,15 +738,33 @@ def solve_direct_solver(A, b):
     return x
 
 
+@ti.kernel
+def fill_gradC(
+    A: ti.types.ndarray(),
+    gradC_arr: ti.template(),
+    tet_indices: ti.template(),
+):
+    for i in range(A.shape[0]):
+        ind = tet_indices[i]
+        for p in ti.static(range(4)):
+            for d in ti.static(range(3)):
+                pid = ind[p]
+                A[i, 3 * pid + d] = gradC_arr[i, p][d]
+
+
 def substep_amg(P, R, fine, coarse, solver_type):
     # external force
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
 
     # compute fine A1x1=r1
     fine.solve_constraints()
-    inv_mass_mat = fine.compute_inv_mass_mat()
-    gradC_mat = fine.compute_gradC()
-    A1 = compute_A(gradC_mat, inv_mass_mat, fine.alpha_tilde)
+
+    # assemble A1=gradC@inv_mass@gradC^T + alpha_tilde
+    gradC_mat = np.zeros((fine.M, 3 * fine.N), dtype=np.float32)
+    fill_gradC(gradC_mat, fine.gradC, fine.tet_indices)
+    alpha_tilde_mat = fine.alpha_tilde.to_numpy()
+    A1 = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
+
     x1 = fine.dlambda.to_numpy()
     r1 = fine.residual.to_numpy() - A1 @ x1
 
@@ -765,6 +785,70 @@ def substep_amg(P, R, fine, coarse, solver_type):
 
     # update velocity
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+
+
+# ---------------------------------------------------------------------------- #
+#                                compute R and P                               #
+# ---------------------------------------------------------------------------- #
+@ti.func
+def is_in_tet_func(p, p0, p1, p2, p3):
+    A = ti.math.mat3([p1 - p0, p2 - p0, p3 - p0]).transpose()
+    b = p - p0
+    x = ti.math.inverse(A) @ b
+    return ((x[0] >= 0 and x[1] >= 0 and x[2] >= 0) and x[0] + x[1] + x[2] <= 1), x
+
+
+@ti.kernel
+def compute_R_kernel(
+    fine_pos: ti.template(),
+    p_to_tet: ti.template(),
+    coarse_pos: ti.template(),
+    coarse_tet_indices: ti.template(),
+    R: ti.types.ndarray(),
+):
+    for i in fine_pos:
+        p = fine_pos[i]
+        flag = False
+        tf = p_to_tet[i]
+        for tc in range(coarse_tet_indices.shape[0]):
+            a, b, c, d = coarse_tet_indices[tc]
+            p0, p1, p2, p3 = coarse_pos[a], coarse_pos[b], coarse_pos[c], coarse_pos[d]
+            flag, x = is_in_tet_func(p, p0, p1, p2, p3)
+            if flag:
+                R[tc, tf] = 1
+                break
+        if not flag:
+            print(f"WARNING: point {i} not in any tet")
+            min_dist = 1e10
+            min_indx = -1
+            for ic in range(coarse_pos.shape[0]):
+                dist = (p - coarse_pos[ic]).norm()
+                if dist < min_dist:
+                    min_dist = dist
+                    min_indx = ic
+            tc = p_to_tet[min_indx]
+            print(
+                f"fine point {i}({p}) closest to coarse point {min_indx}({coarse_pos[min_indx]}), which is in tet {tc}, min_dist = {min_dist}"
+            )
+            R[tc, tf] = 1
+
+
+def numpy_dense_matrix_to_taichi_sparse_matrix(A):
+    ...
+
+
+def compute_R_and_P(coarse, fine):
+    print("Computing P and R...")
+    t = time()
+    R = np.zeros((coarse.tet_indices.shape[0], fine.tet_indices.shape[0]))
+    # R_builder = ti.linalg.SparseMatrixBuilder(M,3*N, max_num_triplets=12*M)
+    # M, N = coarse.tet_indices.shape[0], fine.tet_indices.shape[0]
+    compute_R_kernel(fine.pos, fine.par_2_tet, coarse.pos, coarse.tet_indices, R)
+    # R = R_builder.build()
+    # R = scipy.sparse.csr_matrix(R)
+    P = R.transpose()
+    print(f"Computing P and R done, time = {time() - t}")
+    return R, P
 
 
 # ---------------------------------------------------------------------------- #
@@ -792,6 +876,8 @@ def main():
 
     fine.initialize()
     coarse.initialize()
+
+    compute_R_and_P(coarse, fine)
 
     if coarse.max_iter == 0:
         suffix = "onlyfine"

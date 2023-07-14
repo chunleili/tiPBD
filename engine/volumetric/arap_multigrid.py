@@ -782,6 +782,8 @@ def main():
     fine_model_path = model_path + "fine"
     coarse_model_path = model_path + "coarse"
 
+    P_res = sio.mmread(model_path + "P_res.mtx")
+    R_res = sio.mmread(model_path + "R_res.mtx")
     P = sio.mmread(model_path + "P.mtx")
     R = sio.mmread(model_path + "R.mtx")
 
@@ -790,19 +792,6 @@ def main():
 
     fine.initialize()
     coarse.initialize()
-
-    window = ti.ui.Window("3D ARAP FEM XPBD", (1300, 900), vsync=True)
-    canvas = window.get_canvas()
-    scene = ti.ui.Scene()
-    camera = ti.ui.Camera()
-    camera.position(0, 5, 10)
-    camera.lookat(0, 0, 0)
-    camera.fov(45)
-    scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
-    gui = window.get_gui()
-    wire_frame = True
-    show_coarse_mesh = True
-    show_fine_mesh = True
 
     if coarse.max_iter == 0:
         suffix = "onlyfine"
@@ -852,6 +841,18 @@ def main():
         meta.filename_to_load = save_state_filename + str(meta.load_at) + ".npz"
         load_state(meta.filename_to_load, fine, coarse)
 
+    window = ti.ui.Window("3D ARAP FEM XPBD", (1300, 900), vsync=True)
+    canvas = window.get_canvas()
+    scene = ti.ui.Scene()
+    camera = ti.ui.Camera()
+    camera.position(0, 5, 10)
+    camera.lookat(0, 0, 0)
+    camera.fov(45)
+    scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
+    gui = window.get_gui()
+    wire_frame = True
+    show_coarse_mesh = True
+    show_fine_mesh = True
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -891,7 +892,7 @@ def main():
                 if meta.args.multigrid_type == "HPBD":
                     substep_hpbd(P, R, fine, coarse, meta.args.solver_type)
                 elif meta.args.multigrid_type == "AMG":
-                    substep_amg(P, R, fine, coarse, meta.args.solver_type)
+                    substep_amg(P_res, R_res, fine, coarse, meta.args.solver_type)
                 elif meta.args.multigrid_type == "GMG":
                     substep_gmg(P, R, fine, coarse, meta.args.solver_type)
 

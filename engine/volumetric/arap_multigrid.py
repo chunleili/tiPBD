@@ -157,8 +157,12 @@ class ArapMultigrid:
     def initialize(self, reinit_style="enlarge"):
         info(f"Initializing {self.name} mesh")
 
-        self.init_model()
+        # read models
+        self.pos.from_numpy(self.model_pos)
+        self.tet_indices.from_numpy(self.model_tet)
+        self.display_indices.from_numpy(self.model_tri.flatten())
 
+        # init inv_mass rest volume alpha_tilde etc.
         init_physics(
             self.pos,
             self.old_pos,
@@ -173,6 +177,7 @@ class ArapMultigrid:
             self.par_2_tet,
         )
 
+        # reinit pos
         if reinit_style == "random":
             # random init
             random_val = np.random.rand(self.pos.shape[0], 3)
@@ -181,36 +186,27 @@ class ArapMultigrid:
             # init by enlarge 1.5x
             self.pos.from_numpy(self.model_pos * 1.5)
 
+        # set max_iter
         if self.name == "coarse":
             self.max_iter = meta.args.coarse_iterations
         elif self.name == "fine":
             self.max_iter = meta.args.fine_iterations
         info(f"{self.name} max_iter:{self.max_iter}")
 
-    def init_model(self):
-        self.pos.from_numpy(self.model_pos)
-        self.tet_indices.from_numpy(self.model_tet)
-        self.display_indices.from_numpy(self.model_tri.flatten())
-
-    def compute_gradC(self):
-        gradC_builder = ti.linalg.SparseMatrixBuilder(self.M, 3 * self.N, max_num_triplets=12 * self.M)
-        fill_gradC(gradC_builder, self.gradC, self.tet_indices)
-        gradC_mat = gradC_builder.build()
-        return gradC_mat
+        # assemble inv_mass_mat and alpha_tilde_mat
+        self.inv_mass_mat = assemble_inv_mass_mat(self.inv_mass)
+        self.alpha_tilde_mat = assemble_alpha_tilde_mat(self.alpha_tilde)
 
     def one_iter_direct_solver(self, A=None):
         t = time()
 
-        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * self.N, 3 * self.N, max_num_triplets=3 * self.N)
-        fill_invmass(inv_mass_builder, self.inv_mass)
-        inv_mass_mat = inv_mass_builder.build()
-
         if A is None:
-            self.prepare_for_direct_solver_()
-            gradC_mat = self.compute_gradC()
-            A = compute_A(gradC_mat, inv_mass_mat, self.alpha_tilde)
+            self.solve_constraints()
+            gradC_mat = self.assemble_gradC()
+            A = assemble_A(gradC_mat, self.inv_mass_mat, self.alpha_tilde_mat)
 
         b = self.residual
+
         solver = ti.linalg.SparseSolver(solver_type="LLT")
         solver.analyze_pattern(A)
         solver.factorize(A)
@@ -218,13 +214,11 @@ class ArapMultigrid:
         print(f"direct solver time of solve: {time() - t}")
         print(f"shape of A: {A.shape}")
 
-        dpos = inv_mass_mat @ gradC_mat.transpose() @ x
+        dpos = self.inv_mass_mat @ gradC_mat.transpose() @ x
         self.pos.from_numpy(self.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
         self.schur_residual = A @ x - b.to_numpy()
         print(f"schur residual for direct solver: {np.linalg.norm(self.schur_residual)}")
-        # A.mmwrite(f"result/log/A_direct_{meta.frame}.mtx")
-        # np.savetxt(f"result/log/dpos_direct_{meta.frame}.csv", dpos.reshape(-1, 3), delimiter=",")
 
     def one_iter_jacobian(self):
         project_constraints(
@@ -260,27 +254,6 @@ class ArapMultigrid:
         self.iterate_single_mesh(solver_type)
         update_velocity(meta.h, self.pos, self.old_pos, self.vel)
 
-    def prepare_for_direct_solver_(self):
-        prepare_for_direct_solver(
-            self.pos_mid,
-            self.pos,
-            self.tet_indices,
-            self.lagrangian,
-            self.B,
-            self.alpha_tilde,
-            self.constraint,
-            self.residual,
-            self.gradC,
-            self.dlambda,
-            self.inv_mass,
-        )
-
-    def compute_inv_mass_mat(self):
-        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * self.N, 3 * self.N, max_num_triplets=3 * self.N)
-        fill_invmass(inv_mass_builder, self.inv_mass)
-        self.inv_mass_mat = inv_mass_builder.build()
-        return self.inv_mass_mat
-
     def solve_constraints(self):
         solve_constraints(
             self.pos_mid,
@@ -296,14 +269,31 @@ class ArapMultigrid:
             self.dlambda,
         )
 
+    def assemble_gradC(self):
+        gradC_builder = ti.linalg.SparseMatrixBuilder(self.M, 3 * self.N, max_num_triplets=12 * self.M)
+        fill_gradC(gradC_builder, self.gradC, self.tet_indices)
+        gradC_mat = gradC_builder.build()
+        return gradC_mat
 
-def compute_A(gradC_mat, inv_mass_mat, alpha_tilde):
-    # compute schur complement as A
+
+def assemble_inv_mass_mat(inv_mass):
+    N = inv_mass.shape[0]
+    inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * N, 3 * N, max_num_triplets=3 * N)
+    fill_invmass(inv_mass_builder, inv_mass)
+    inv_mass_mat = inv_mass_builder.build()
+    return inv_mass_mat
+
+
+def assemble_alpha_tilde_mat(alpha_tilde):
     M = alpha_tilde.shape[0]
     alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(M, M, max_num_triplets=12 * M)
     fill_diag(alpha_tilde_builder, alpha_tilde)
     alpha_tilde_mat = alpha_tilde_builder.build()
+    return alpha_tilde_mat
 
+
+# compute schur complement as A
+def assemble_A(gradC_mat, inv_mass_mat, alpha_tilde_mat):
     A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
     return A
 
@@ -337,57 +327,12 @@ def fill_invmass(A: ti.types.sparse_matrix_builder(), val: ti.template()):
         A[3 * i + 2, 3 * i + 2] += val[i]
 
 
-@ti.kernel
-def prepare_for_direct_solver(
-    pos_mid: ti.template(),
-    pos: ti.template(),
-    tet_indices: ti.template(),
-    lagrangian: ti.template(),
-    B: ti.template(),
-    alpha_tilde: ti.template(),
-    constraint: ti.template(),
-    residual: ti.template(),
-    gradC: ti.template(),
-    dlambda: ti.template(),
-    inv_mass: ti.template(),
-):
-    for i in pos:
-        pos_mid[i] = pos[i]
-    for t in range(tet_indices.shape[0]):
-        p0 = tet_indices[t][0]
-        p1 = tet_indices[t][1]
-        p2 = tet_indices[t][2]
-        p3 = tet_indices[t][3]
-
-        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
-
-        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
-        F = D_s @ B[t]
-        U, S, V = ti.svd(F)
-        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
-        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
-        residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
-        denorminator = (
-            inv_mass[p0] * gradC[t, 0].norm_sqr()
-            + inv_mass[p1] * gradC[t, 1].norm_sqr()
-            + inv_mass[p2] * gradC[t, 2].norm_sqr()
-            + inv_mass[p3] * gradC[t, 3].norm_sqr()
-        )
-        residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
-
-        dlambda[t] = residual[t] / (denorminator + alpha_tilde[t])
-
-
 def coarse_to_fine_pos(P, fine, coarse):
-    cpos_np = coarse.pos.to_numpy()
-    fpos_np = P @ cpos_np
-    fine.pos.from_numpy(fpos_np)
+    fine.pos.from_numpy(P @ coarse.pos.to_numpy())
 
 
 def fine_to_coarse_pos(R, fine, coarse):
-    fpos_np = fine.pos.to_numpy()
-    cpos_np = R @ fpos_np
-    coarse.pos.from_numpy(cpos_np)
+    coarse.pos.from_numpy(R @ fine.pos.to_numpy())
 
 
 def restriction(R, fine_val):
@@ -733,23 +678,9 @@ def solve_direct_solver(A, b):
     solver.analyze_pattern(A)
     solver.factorize(A)
     x = solver.solve(b)
-    print(f"direct solver time of solve: {time() - t}")
+    print(f"direct solver time: {time() - t}")
     print(f"shape of A: {A.shape}")
     return x
-
-
-@ti.kernel
-def fill_gradC(
-    A: ti.types.ndarray(),
-    gradC_arr: ti.template(),
-    tet_indices: ti.template(),
-):
-    for i in range(A.shape[0]):
-        ind = tet_indices[i]
-        for p in ti.static(range(4)):
-            for d in ti.static(range(3)):
-                pid = ind[p]
-                A[i, 3 * pid + d] = gradC_arr[i, p][d]
 
 
 def substep_amg(P, R, fine, coarse, solver_type):
@@ -758,12 +689,9 @@ def substep_amg(P, R, fine, coarse, solver_type):
 
     # compute fine A1x1=r1
     fine.solve_constraints()
-
     # assemble A1=gradC@inv_mass@gradC^T + alpha_tilde
-    gradC_mat = np.zeros((fine.M, 3 * fine.N), dtype=np.float32)
-    fill_gradC(gradC_mat, fine.gradC, fine.tet_indices)
-    alpha_tilde_mat = fine.alpha_tilde.to_numpy()
-    A1 = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
+    gradC_mat = fine.assemble_gradC()
+    A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
 
     x1 = fine.dlambda.to_numpy()
     r1 = fine.residual.to_numpy() - A1 @ x1
@@ -804,7 +732,7 @@ def compute_R_kernel(
     p_to_tet: ti.template(),
     coarse_pos: ti.template(),
     coarse_tet_indices: ti.template(),
-    R: ti.types.ndarray(),
+    R: ti.types.sparse_matrix_builder(),
 ):
     for i in fine_pos:
         p = fine_pos[i]
@@ -815,7 +743,7 @@ def compute_R_kernel(
             p0, p1, p2, p3 = coarse_pos[a], coarse_pos[b], coarse_pos[c], coarse_pos[d]
             flag, x = is_in_tet_func(p, p0, p1, p2, p3)
             if flag:
-                R[tc, tf] = 1
+                R[tc, tf] += 1
                 break
         if not flag:
             print(f"WARNING: point {i} not in any tet")
@@ -830,22 +758,16 @@ def compute_R_kernel(
             print(
                 f"fine point {i}({p}) closest to coarse point {min_indx}({coarse_pos[min_indx]}), which is in tet {tc}, min_dist = {min_dist}"
             )
-            R[tc, tf] = 1
-
-
-def numpy_dense_matrix_to_taichi_sparse_matrix(A):
-    ...
+            R[tc, tf] += 1
 
 
 def compute_R_and_P(coarse, fine):
     print("Computing P and R...")
     t = time()
-    R = np.zeros((coarse.tet_indices.shape[0], fine.tet_indices.shape[0]))
-    # R_builder = ti.linalg.SparseMatrixBuilder(M,3*N, max_num_triplets=12*M)
-    # M, N = coarse.tet_indices.shape[0], fine.tet_indices.shape[0]
-    compute_R_kernel(fine.pos, fine.par_2_tet, coarse.pos, coarse.tet_indices, R)
-    # R = R_builder.build()
-    # R = scipy.sparse.csr_matrix(R)
+    M, N = coarse.tet_indices.shape[0], fine.tet_indices.shape[0]
+    R_builder = ti.linalg.SparseMatrixBuilder(M, N, max_num_triplets=40 * M)
+    compute_R_kernel(fine.pos, fine.par_2_tet, coarse.pos, coarse.tet_indices, R_builder)
+    R = R_builder.build()
     P = R.transpose()
     print(f"Computing P and R done, time = {time() - t}")
     return R, P
@@ -866,40 +788,40 @@ def main():
     fine_model_path = model_path + "fine"
     coarse_model_path = model_path + "coarse"
 
-    P_res = sio.mmread(model_path + "P_res.mtx")
-    R_res = sio.mmread(model_path + "R_res.mtx")
-    P = sio.mmread(model_path + "P.mtx")
-    R = sio.mmread(model_path + "R.mtx")
-
     fine = ArapMultigrid(fine_model_path)
     coarse = ArapMultigrid(coarse_model_path)
 
     fine.initialize()
     coarse.initialize()
 
-    compute_R_and_P(coarse, fine)
-
     if coarse.max_iter == 0:
         suffix = "onlyfine"
         info("#############################################")
         info("########## Using Only Fine Mesh ###########")
         info("#############################################")
+        P = sio.mmread(model_path + "P.mtx")
+        R = sio.mmread(model_path + "R.mtx")
     elif fine.max_iter == 0:
         suffix = "onlycoarse"
         info("#############################################")
         info("########## Using Only Coarse Mesh ###########")
         info("#############################################")
+        P = sio.mmread(model_path + "P.mtx")
+        R = sio.mmread(model_path + "R.mtx")
     elif fine.max_iter != 0 and coarse.max_iter != 0:
         if meta.args.multigrid_type == "HPBD":
             info("#############################################")
             info("########## Using HPBD Multigrid #############")
             info("#############################################")
             suffix = "hpbd"
+            P = sio.mmread(model_path + "P.mtx")
+            R = sio.mmread(model_path + "R.mtx")
         elif meta.args.multigrid_type == "AMG":
             info("#############################################")
             info("########## Using AMG Multigrid ##############")
             info("#############################################")
             suffix = "amg"
+            R, P = compute_R_and_P(coarse, fine)
         elif meta.args.multigrid_type == "GMG":
             info("#############################################")
             info("########## Using GMG Multigrid ##############")
@@ -978,7 +900,7 @@ def main():
                 if meta.args.multigrid_type == "HPBD":
                     substep_hpbd(P, R, fine, coarse, meta.args.solver_type)
                 elif meta.args.multigrid_type == "AMG":
-                    substep_amg(P_res, R_res, fine, coarse, meta.args.solver_type)
+                    substep_amg(P, R, fine, coarse, meta.args.solver_type)
                 elif meta.args.multigrid_type == "GMG":
                     substep_gmg(P, R, fine, coarse, meta.args.solver_type)
 

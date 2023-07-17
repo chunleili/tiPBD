@@ -34,6 +34,17 @@
                     ]
         },
         {
+            "name": "fine direct",
+            "type": "python",
+            "request": "launch",
+            "program": "engine/volumetric/arap_multigrid.py",
+            "console": "integratedTerminal",
+            "args": ["--fine_iterations", "1",
+                     "--coarse_iterations", "0",
+                     "--solver_type", "DirectSolver"
+                    ]
+        },
+        {
             "name": "amg direct",
             "type": "python",
             "request": "launch",
@@ -43,6 +54,17 @@
                      "--coarse_iterations", "1",
                      "--solver_type", "DirectSolver",
                      "--multigrid_type", "AMG"
+                    ]
+        },
+        {
+            "name": "PBD fine",
+            "type": "python",
+            "request": "launch",
+            "program": "engine/volumetric/arap_multigrid.py",
+            "console": "integratedTerminal",
+            "args": ["--fine_iterations", "1",
+                     "--coarse_iterations", "0",
+                     "--solver_type", "Jacobian",
                     ]
         }
     ]

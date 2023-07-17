@@ -198,8 +198,6 @@ class ArapMultigrid:
         self.alpha_tilde_mat = assemble_alpha_tilde_mat(self.alpha_tilde)
 
     def one_iter_direct_solver(self, A=None):
-        t = time()
-
         if A is None:
             self.solve_constraints()
             gradC_mat = self.assemble_gradC()
@@ -207,12 +205,7 @@ class ArapMultigrid:
 
         b = self.residual
 
-        solver = ti.linalg.SparseSolver(solver_type="LLT")
-        solver.analyze_pattern(A)
-        solver.factorize(A)
-        x = solver.solve(b)
-        print(f"direct solver time of solve: {time() - t}")
-        print(f"shape of A: {A.shape}")
+        x = solve_direct_solver(A, b)
 
         dpos = self.inv_mass_mat @ gradC_mat.transpose() @ x
         self.pos.from_numpy(self.pos_mid.to_numpy() + dpos.reshape(-1, 3))
@@ -687,31 +680,34 @@ def substep_amg(P, R, fine, coarse, solver_type):
     # external force
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
 
-    # compute fine A1x1=r1
-    fine.solve_constraints()
-    # assemble A1=gradC@inv_mass@gradC^T + alpha_tilde
-    gradC_mat = fine.assemble_gradC()
-    A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
+    reset_lagrangian(fine.lagrangian)
+    for ite in range(fine.max_iter):
+        # compute fine A1x1=r1
+        fine.solve_constraints()
+        # assemble A1=gradC@inv_mass@gradC^T + alpha_tilde
+        gradC_mat = fine.assemble_gradC()
+        A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
 
-    x1 = fine.dlambda.to_numpy()
-    r1 = fine.residual.to_numpy() - A1 @ x1
+        x1 = fine.dlambda.to_numpy()
+        r1 = fine.residual.to_numpy() - A1 @ x1
 
-    # restriction: pass r2 and construct A2
-    r2 = R @ r1
-    A2 = R @ A1 @ P
+        # restriction: pass r2 and construct A2
+        r2 = R @ r1
+        A2 = R @ A1 @ P
 
-    # solve coarse level A2E2=r2
-    E2 = solve_direct_solver(A2, r2)
+        # solve coarse level A2E2=r2
+        E2 = solve_direct_solver(A2, r2)
 
-    # prolongation:
-    E1 = P @ E2
-    x1_new = x1 + E1
+        # prolongation:
+        E1 = P @ E2
+        x1_new = x1 + E1
 
-    fine_dlambda = x1_new
-    dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ fine_dlambda
-    fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+        # x1_new = fine.dlambda.to_numpy()
+        dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ x1_new
+        fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
     # update velocity
+    collsion_response(fine.pos)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 
 

@@ -519,6 +519,7 @@ def solve_constraints(
         )
         residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
         dlambda[t] = residual[t] / (denorminator + alpha_tilde[t])
+        lagrangian[t] += dlambda[t]
 
 
 @ti.kernel
@@ -709,7 +710,7 @@ def substep_amg(P, R, fine, coarse, solver_type):
         x1 += E1
 
         r1_new = b1 - A1 @ x1
-        print(f"ite: {ite}, r1: {np.linalg.norm(r1)}, r1_new: {np.linalg.norm(r1_new)}")
+        print(f"ite: {ite}, b1:{np.linalg.norm(b1)}, r1: {np.linalg.norm(r1)}, r1_new: {np.linalg.norm(r1_new)}")
 
         dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ x1
         fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))

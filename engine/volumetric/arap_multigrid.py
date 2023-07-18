@@ -226,6 +226,7 @@ class ArapMultigrid:
             self.residual,
             self.gradC,
             self.dlambda,
+            self.dpos,
         )
 
     def iterate_single_mesh(self, solver_type, A=None):
@@ -533,6 +534,7 @@ def project_constraints(
     residual: ti.template(),
     gradC: ti.template(),
     dlambda: ti.template(),
+    dpos: ti.template(),
 ):
     for i in pos:
         pos_mid[i] = pos[i]
@@ -572,6 +574,10 @@ def project_constraints(
         pos[p1] += meta.omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
         pos[p2] += meta.omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
         pos[p3] += meta.omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+        dpos[p0] += meta.omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+        dpos[p1] += meta.omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+        dpos[p2] += meta.omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+        dpos[p3] += meta.omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
 
 
 @ti.kernel
@@ -673,40 +679,38 @@ def solve_direct_solver(A, b):
     x = solver.solve(b)
     print(f"direct solver time: {time() - t}")
     print(f"shape of A: {A.shape}")
+    print(f"solve success: {solver.info()}")
     return x
 
 
 def substep_amg(P, R, fine, coarse, solver_type):
-    # external force
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
 
     reset_lagrangian(fine.lagrangian)
-    for ite in range(fine.max_iter):
-        # compute fine A1x1=r1
+    for ite in range(5):
+        # compute fine A1x1=b1
         fine.solve_constraints()
         # assemble A1=gradC@inv_mass@gradC^T + alpha_tilde
         gradC_mat = fine.assemble_gradC()
         A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
-
+        b1 = fine.residual.to_numpy()
         x1 = fine.dlambda.to_numpy()
-        r1 = fine.residual.to_numpy() - A1 @ x1
+        r1 = b1 - A1 @ x1
 
         # restriction: pass r2 and construct A2
         r2 = R @ r1
         A2 = R @ A1 @ P
 
-        # solve coarse level A2E2=r2
+        # # solve fine level A2E2=r2
         E2 = solve_direct_solver(A2, r2)
 
-        # prolongation:
+        # # prolongation:
         E1 = P @ E2
-        x1_new = x1 + E1
+        x1 += E1
 
-        # x1_new = fine.dlambda.to_numpy()
-        dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ x1_new
+        dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ x1
         fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
-    # update velocity
     collsion_response(fine.pos)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
 

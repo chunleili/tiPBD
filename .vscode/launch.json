@@ -57,7 +57,7 @@
                     ]
         },
         {
-            "name": "PBD fine",
+            "name": "fine Jacobian",
             "type": "python",
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",

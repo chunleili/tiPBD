@@ -249,7 +249,7 @@ class ArapMultigrid:
         update_velocity(meta.h, self.pos, self.old_pos, self.vel)
 
     def solve_constraints(self):
-        solve_constraints(
+        solve_constraints_kernel(
             self.pos_mid,
             self.tet_indices,
             self.inv_mass,
@@ -265,9 +265,16 @@ class ArapMultigrid:
 
     def assemble_gradC(self):
         gradC_builder = ti.linalg.SparseMatrixBuilder(self.M, 3 * self.N, max_num_triplets=12 * self.M)
-        fill_gradC(gradC_builder, self.gradC, self.tet_indices)
+        # fill_gradC(gradC_builder, self.gradC, self.tet_indices)
+        compute_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.gradC, gradC_builder)
         gradC_mat = gradC_builder.build()
         return gradC_mat
+
+    def compute_dlambda(self):
+        compute_dlambda_kernel(
+            self.pos_mid, self.tet_indices, self.inv_mass, self.lagrangian, self.B, self.alpha_tilde, self.dlambda
+        )
+        return self.dlambda
 
 
 def assemble_inv_mass_mat(inv_mass):
@@ -480,7 +487,40 @@ def update_velocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: 
 
 
 @ti.kernel
-def solve_constraints(
+def compute_dlambda_kernel(
+    pos_mid: ti.template(),
+    tet_indices: ti.template(),
+    inv_mass: ti.template(),
+    lagrangian: ti.template(),
+    B: ti.template(),
+    alpha_tilde: ti.template(),
+    dlambda: ti.template(),
+):
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
+        denorminator = (
+            inv_mass[p0] * g0.norm_sqr()
+            + inv_mass[p1] * g1.norm_sqr()
+            + inv_mass[p2] * g2.norm_sqr()
+            + inv_mass[p3] * g3.norm_sqr()
+        )
+        dlambda[t] = -(constraint + alpha_tilde[t] * lagrangian[t]) / (denorminator + alpha_tilde[t])
+        lagrangian[t] += dlambda[t]
+
+
+@ti.kernel
+def solve_constraints_kernel(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
     inv_mass: ti.template(),
@@ -520,6 +560,34 @@ def solve_constraints(
         residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
         dlambda[t] = residual[t] / (denorminator + alpha_tilde[t])
         lagrangian[t] += dlambda[t]
+
+
+@ti.kernel
+def compute_gradC_kernel(
+    pos_mid: ti.template(),
+    tet_indices: ti.template(),
+    B: ti.template(),
+    gradC: ti.template(),
+    gradC_mat: ti.types.sparse_matrix_builder(),
+):
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
+
+        ind = tet_indices[t]
+        for p in range(4):
+            for d in range(3):
+                pid = ind[p]
+                gradC_mat[t, 3 * pid + d] += gradC[t, p][d]
 
 
 @ti.kernel
@@ -684,36 +752,55 @@ def solve_direct_solver(A, b):
     return x
 
 
+@ti.kernel
+def copy_field(src: ti.template(), dst: ti.template()):
+    for i in src:
+        dst[i] = src[i]
+
+
+def update_pos_from_dlambda(gradC_mat, dlambda, pos_mid, inv_mass_mat, pos):
+    dpos = inv_mass_mat @ gradC_mat.transpose() @ dlambda.to_numpy()
+    pos.from_numpy(pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+
 def substep_amg(P, R, fine, coarse, solver_type):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
 
+    # pre-smooth jacobian:
     reset_lagrangian(fine.lagrangian)
-    for ite in range(5):
-        # compute fine A1x1=b1
-        fine.solve_constraints()
-        # assemble A1=gradC@inv_mass@gradC^T + alpha_tilde
-        gradC_mat = fine.assemble_gradC()
-        A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
-        b1 = fine.residual.to_numpy()
-        x1 = fine.dlambda.to_numpy()
-        r1 = b1 - A1 @ x1
+    for ite in range(3):
+        fine.one_iter_jacobian()
 
-        # restriction: pass r2 and construct A2
-        r2 = R @ r1
-        A2 = R @ A1 @ P
+    # assemble A1, b1, x1, r1
+    gradC_mat = fine.assemble_gradC()
+    A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
+    b1 = fine.residual.to_numpy()
+    x1 = fine.dlambda.to_numpy()
+    r1 = b1 - A1 @ x1
 
-        # # solve fine level A2E2=r2
-        E2 = solve_direct_solver(A2, r2)
+    # restriction: pass r1 to r2 and construct A2
+    r2 = R @ r1
+    A2 = R @ A1 @ P
 
-        # # prolongation:
-        E1 = P @ E2
-        x1 += E1
+    # solve coarse level A2E2=r2
+    E2 = solve_direct_solver(A2, r2)
 
-        r1_new = b1 - A1 @ x1
-        print(f"ite: {ite}, b1:{np.linalg.norm(b1)}, r1: {np.linalg.norm(r1)}, r1_new: {np.linalg.norm(r1_new)}")
+    # prolongation:
+    E1 = P @ E2
+    x1 += E1
+    fine.dlambda.from_numpy(x1)
 
-        dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ x1
-        fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+    dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ fine.dlambda
+    fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+    # post-smooth jacobian:
+    reset_lagrangian(fine.lagrangian)
+    for ite in range(3):
+        fine.one_iter_jacobian()
+    x1 = fine.dlambda.to_numpy()
+
+    r1_new = b1 - A1 @ x1
+    print(f"ite: {ite}, b1:{np.linalg.norm(b1)}, r1: {np.linalg.norm(r1)}, r1_new: {np.linalg.norm(r1_new)}")
 
     collsion_response(fine.pos)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)

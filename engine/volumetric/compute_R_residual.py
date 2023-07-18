@@ -6,9 +6,10 @@ import argparse
 import taichi as ti
 from taichi.math import vec3, ivec4
 from time import perf_counter
+import meshio
+import pathlib
 
 sys.path.append(os.getcwd())
-from engine.mesh_io import read_tetgen
 
 ti.init(default_fp=ti.f64)
 
@@ -75,29 +76,26 @@ def normalize_R_by_row(R: ti.types.ndarray()):
             R[i, j] /= sum
 
 
+def read_tet(filename):
+    mesh = meshio.read(filename)
+    pos = mesh.points
+    tet_indices = mesh.cells_dict["tetra"]
+    return pos, tet_indices
+
+
 if __name__ == "__main__":
     start_time = perf_counter()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="cube")
-    parser.add_argument("--suffix", type=str, default="")
+    parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
+    parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
+    parser.add_argument("--output_path", type=str, default="")
+    parser.add_argument("--output_suffix", type=str, default="")
     args = parser.parse_args()
 
-    model_path = "data/model/cube/"
-    fine_model_path = model_path + "fine"
-    coarse_model_path = model_path + "coarse"
-    if args.model == "bunny":
-        model_path = "data/model/bunny1k2k/"
-        fine_model_path = model_path + "fine"
-        coarse_model_path = model_path + "coarse"
-    elif args.model == "cube_64k":
-        model_path = "data/model/cube_64k/"
-        fine_model_path = model_path + "fine"
-        coarse_model_path = model_path + "coarse"
-
-    print(f">> Reading mesh at {model_path}...")
-    coarse_pos, coarse_tet_indices, _ = read_tetgen(coarse_model_path)
-    fine_pos, fine_tet_indices, _ = read_tetgen(fine_model_path)
+    print(f">> Reading mesh...")
+    coarse_pos, coarse_tet_indices = read_tet(args.coarse_model_path)
+    fine_pos, fine_tet_indices = read_tet(args.fine_model_path)
 
     p_to_tet = np.empty(shape=(fine_pos.shape[0]), dtype=np.int32)
     p_to_tet.fill(-1)
@@ -107,6 +105,8 @@ if __name__ == "__main__":
     print("R shape: ", R.shape)
 
     print("Computing R(fine ele in which coarse ele)...")
+    fine_pos = np.ascontiguousarray(fine_pos)
+    coarse_pos = np.ascontiguousarray(coarse_pos)
     compute_R(fine_pos, p_to_tet, coarse_pos, coarse_tet_indices, R)
 
     # print("Normalizing R by row...")
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     R = scipy.sparse.csr_matrix(R)
     P = R.transpose()
 
-    scipy.io.mmwrite(model_path + "R_res" + args.suffix + ".mtx", R)
-    scipy.io.mmwrite(model_path + "P_res" + args.suffix + ".mtx", P)
+    scipy.io.mmwrite(args.output_path + "R" + args.output_suffix + ".mtx", R)
+    scipy.io.mmwrite(args.output_path + "P" + args.output_suffix + ".mtx", P)
     end_time = perf_counter()
     print(f">> Total time: {end_time - start_time:.2f}s")

@@ -778,6 +778,9 @@ def substep_amg(P, R, fine, coarse, solver_type):
     x1 = fine.dlambda.to_numpy()
     r1 = b1 - A1 @ x1
 
+    # A1.mmwrite("A1.mtx")
+    # np.savetxt("b1.txt", b1)
+
     # restriction: pass r1 to r2 and construct A2
     r2 = R @ r1
     A2 = R @ A1 @ P

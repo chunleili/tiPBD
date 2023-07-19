@@ -27,8 +27,8 @@ parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument("--solver_type", type=str, default="Jacobian", choices=["Jacobian", "GaussSeidel", "DirectSolver"])
 parser.add_argument("--multigrid_type", type=str, default="HPBD", choices=["HPBD", "AMG", "GMG"])
-parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
-parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
+parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse_new.node")
+parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine_new.node")
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
@@ -43,7 +43,7 @@ class Meta:
         self.log_residual_range = range(*self.args.log_residual_range)
         self.frame_to_save = self.args.save_at
         self.load_at = self.args.load_at
-        self.pause = False
+        self.pause = True
         self.pause_at = self.args.pause_at
         self.use_multigrid = True
 
@@ -160,6 +160,7 @@ class ArapMultigrid:
         self.residual = ti.field(ti.f32, shape=self.NT)
         self.dlambda = ti.field(ti.f32, shape=self.NT)
         self.C_plus_alpha_lambda = ti.field(ti.f32, shape=self.NT)
+        self.tet_centroid = ti.Vector.field(3, ti.f32, shape=self.NT)
 
         self.state = [
             self.pos,
@@ -797,7 +798,6 @@ def substep_amg(P, R, fine, coarse, solver_type):
 
     # A1.mmwrite("A1.mtx")
     # np.savetxt("b1.txt", b1)
-
     # exit()
 
     # restriction: pass r1 to r2 and construct A2
@@ -822,7 +822,7 @@ def substep_amg(P, R, fine, coarse, solver_type):
     x1 = fine.dlambda.to_numpy()
 
     r1_new = b1 - A1 @ x1
-    print(f"ite: {ite}, b1:{np.linalg.norm(b1)}, r1: {np.linalg.norm(r1)}, r1_new: {np.linalg.norm(r1_new)}")
+    print(f"b1:{np.linalg.norm(b1)}, r1: {np.linalg.norm(r1)}, r1_new: {np.linalg.norm(r1_new)}")
 
     collsion_response(fine.pos)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
@@ -874,12 +874,92 @@ def compute_R_kernel(
             R[tc, tf] += 1
 
 
+@ti.func
+def tet_centroid_func(tet_indices, pos, t):
+    a, b, c, d = tet_indices[t]
+    p0, p1, p2, p3 = pos[a], pos[b], pos[c], pos[d]
+    p = (p0 + p1 + p2 + p3) / 4
+    return p
+
+
+@ti.kernel
+def compute_tet_centroid_kernel(pos: ti.template(), tet_indices: ti.template(), tet_centroid: ti.template()):
+    for t in range(tet_indices.shape[0]):
+        tet_centroid[t] = tet_centroid_func(tet_indices, pos, t)
+
+
+# @ti.kernel
+# def compute_R_kernel_new(
+#     fine_pos: ti.template(),
+#     fine_tet_indices: ti.template(),
+#     fine_tet_centroid: ti.template(),
+#     coarse_pos: ti.template(),
+#     coarse_tet_indices: ti.template(),
+#     coarse_tet_centroid: ti.template(),
+#     R: ti.types.sparse_matrix_builder(),
+# ):
+#     cnt = 0
+#     for tc in range(coarse_tet_indices.shape[0]):
+#         a, b, c, d = coarse_tet_indices[tc]
+#         p0, p1, p2, p3 = coarse_pos[a], coarse_pos[b], coarse_pos[c], coarse_pos[d]
+#         flag = False
+#         for tf in range(fine_tet_indices.shape[0]):
+#             p = fine_tet_centroid[tf]
+#             flag, x = is_in_tet_func(p, p0, p1, p2, p3)
+#             if flag:
+#                 R[tc, tf] += 1
+#                 break
+#         if not flag:
+#             cnt+=1
+#             # print(f"WARNING: no fine tet in coarse tet {tc}")
+#             min_dist = 1e5
+#             min_indx = -1
+#             for tf in range(fine_tet_indices.shape[0]):
+#                 center_f = tet_centroid_func(fine_tet_indices, fine_pos, tf)
+#                 center_c = tet_centroid_func(coarse_tet_indices, coarse_pos, tc)
+#                 dist = (center_f - center_c).norm()
+#                 if dist < min_dist:
+#                     min_dist = dist
+#                     min_indx = tf
+#             R[tc, min_indx] += 1
+#             # print(f"WARNING: Using closest fine tet {min_indx} to coarse tet {tc}")
+#     print(f"WARNING: totally {cnt} coarse tets has no fine tet in it")
+
+
+@ti.kernel
+def compute_R_kernel_new(
+    fine_pos: ti.template(),
+    fine_tet_indices: ti.template(),
+    fine_tet_centroid: ti.template(),
+    coarse_pos: ti.template(),
+    coarse_tet_indices: ti.template(),
+    coarse_tet_centroid: ti.template(),
+    R: ti.types.sparse_matrix_builder(),
+):
+    for tc in range(coarse_tet_indices.shape[0]):
+        center_c = tet_centroid_func(coarse_tet_indices, coarse_pos, tc)
+        min_dist = 1e10
+        min_indx = -1
+        for tf in range(fine_tet_indices.shape[0]):
+            center_f = tet_centroid_func(fine_tet_indices, fine_pos, tf)
+            dist = (center_f - center_c).norm()
+            if dist < min_dist:
+                min_dist = dist
+                min_indx = tf
+        R[tc, min_indx] += 1
+
+
 def compute_R_and_P(coarse, fine):
     print("Computing P and R...")
     t = time()
     M, N = coarse.tet_indices.shape[0], fine.tet_indices.shape[0]
     R_builder = ti.linalg.SparseMatrixBuilder(M, N, max_num_triplets=40 * M)
-    compute_R_kernel(fine.pos, fine.par_2_tet, coarse.pos, coarse.tet_indices, R_builder)
+    # compute_R_kernel(fine.pos, fine.par_2_tet, coarse.pos, coarse.tet_indices, R_builder)
+    # compute_tet_centroid_kernel(fine.pos, fine.tet_indices, fine.tet_centroid)
+    # compute_tet_centroid_kernel(coarse.pos, coarse.tet_indices, coarse.tet_centroid)
+    compute_R_kernel_new(
+        fine.pos, fine.tet_indices, fine.tet_centroid, coarse.pos, coarse.tet_indices, coarse.tet_centroid, R_builder
+    )
     R = R_builder.build()
     P = R.transpose()
     print(f"Computing P and R done, time = {time() - t}")

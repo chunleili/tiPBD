@@ -34,34 +34,32 @@ ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
 
 class Meta:
-    ...
+    def __init__(self) -> None:
+        # control parameters
+        self.args = parser.parse_args()
+        self.frame = 0
+        self.max_frame = self.args.max_frame
+        self.log_energy_range = range(*self.args.log_energy_range)
+        self.log_residual_range = range(*self.args.log_residual_range)
+        self.frame_to_save = self.args.save_at
+        self.load_at = self.args.load_at
+        self.pause = False
+        self.pause_at = self.args.pause_at
+        self.use_multigrid = True
+
+        # physical parameters
+        self.omega = self.args.omega  # SOR factor, default 0.1
+        self.mu = self.args.mu  # Lame's second parameter, default 1e6
+        self.inv_mu = 1.0 / self.mu
+        self.h = self.args.dt  # time step size, default 3e-3
+        self.inv_h2 = 1.0 / self.h / self.h
+        self.gravity = ti.Vector(self.args.gravity)  # gravity, default (0, 0, 0)
+        self.damping_coeff = self.args.damping_coeff  # damping coefficient, default 1.0
+        self.total_mass = self.args.total_mass  # total mass, default 16000.0
+        # self.mass_density = 2000.0
 
 
 meta = Meta()
-
-# control parameters
-meta.args = parser.parse_args()
-meta.frame = 0
-meta.max_frame = meta.args.max_frame
-meta.log_energy_range = range(*meta.args.log_energy_range)
-meta.log_residual_range = range(*meta.args.log_residual_range)
-meta.frame_to_save = meta.args.save_at
-meta.load_at = meta.args.load_at
-meta.pause = False
-meta.pause_at = meta.args.pause_at
-meta.use_multigrid = True
-
-
-# physical parameters
-meta.omega = meta.args.omega  # SOR factor, default 0.1
-meta.mu = meta.args.mu  # Lame's second parameter, default 1e6
-meta.inv_mu = 1.0 / meta.mu
-meta.h = meta.args.dt  # time step size, default 3e-3
-meta.inv_h2 = 1.0 / meta.h / meta.h
-meta.gravity = ti.Vector(meta.args.gravity)  # gravity, default (0, 0, 0)
-meta.damping_coeff = meta.args.damping_coeff  # damping coefficient, default 1.0
-meta.total_mass = meta.args.total_mass  # total mass, default 16000.0
-# meta.mass_density = 2000.0
 
 
 def read_tetgen(filename):

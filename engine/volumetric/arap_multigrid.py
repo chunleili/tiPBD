@@ -1,19 +1,14 @@
-"""
-Modified YP multi-grid solver for ARAP
-"""
 import taichi as ti
 from taichi.lang.ops import sqrt
 import numpy as np
 import logging
 from logging import info
 import scipy
-import scipy.io as sio
-from scipy.sparse import coo_matrix, spdiags, kron
-from scipy.io import mmwrite
 import sys, os, argparse
 from time import time
+from pathlib import Path
+import meshio
 
-sys.path.append(os.getcwd())
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--load_at", type=int, default=-1)
@@ -24,7 +19,6 @@ parser.add_argument("-r", "--log_residual_range", nargs=2, type=int, default=(-1
 parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
 parser.add_argument("-f", "--fine_iterations", type=int, default=5)
-parser.add_argument("--model", type=str, default="cube")
 parser.add_argument("--omega", type=float, default=0.1)
 parser.add_argument("--mu", type=float, default=1e6)
 parser.add_argument("--dt", type=float, default=3e-3)
@@ -33,6 +27,8 @@ parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument("--solver_type", type=str, default="Jacobian", choices=["Jacobian", "GaussSeidel", "DirectSolver"])
 parser.add_argument("--multigrid_type", type=str, default="HPBD", choices=["HPBD", "AMG", "GMG"])
+parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
+parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
@@ -108,12 +104,37 @@ def read_tetgen(filename):
     return pos, tet_indices, face_indices
 
 
+def read_tet(filename, build_face_flag=False):
+    mesh = meshio.read(filename)
+    pos = mesh.points
+    tet_indices = mesh.cells_dict["tetra"]
+    if build_face_flag:
+        face_indices = build_face_indices(tet_indices)
+        return pos, tet_indices, face_indices
+    else:
+        return pos, tet_indices
+
+
+def build_face_indices(tet_indices):
+    face_indices = np.empty((tet_indices.shape[0] * 4, 3), dtype=np.int32)
+    for t in range(tet_indices.shape[0]):
+        ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
+        for i in range(4):  # 4 faces
+            for j in range(3):  # 3 vertices
+                face_indices[t * 4 + i][j] = tet_indices[t][ind[i][j]]
+    return face_indices
+
+
 class ArapMultigrid:
     def __init__(self, path):
-        self.model_pos, self.model_tet, self.model_tri = read_tetgen(path)
+        # self.model_pos, self.model_tet, self.model_tri = read_tetgen(path)
+        self.model_pos, self.model_tet, self.model_tri = read_tet(path, build_face_flag=True)
         self.NV = len(self.model_pos)
         self.NT = len(self.model_tet)
         self.NF = len(self.model_tri)
+        self.display_indices = ti.field(ti.i32, self.NF * 3)
+        self.display_indices.from_numpy(self.model_tri.flatten())
+
         self.name = ""
         if "coarse" in path:
             self.name = "coarse"
@@ -128,7 +149,6 @@ class ArapMultigrid:
         self.mass = ti.field(float, self.NV)  # mass of particles
         self.inv_mass = ti.field(float, self.NV)  # inverse mass of particles
         self.tet_indices = ti.Vector.field(4, int, self.NT)
-        self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.B = ti.Matrix.field(3, 3, float, self.NT)  # D_m^{-1}
         self.lagrangian = ti.field(float, self.NT)  # lagrangian multipliers
         self.rest_volume = ti.field(float, self.NT)  # rest volume of each tet
@@ -160,7 +180,6 @@ class ArapMultigrid:
         # read models
         self.pos.from_numpy(self.model_pos)
         self.tet_indices.from_numpy(self.model_tet)
-        self.display_indices.from_numpy(self.model_tri.flatten())
 
         # init inv_mass rest volume alpha_tilde etc.
         init_physics(
@@ -781,6 +800,8 @@ def substep_amg(P, R, fine, coarse, solver_type):
     # A1.mmwrite("A1.mtx")
     # np.savetxt("b1.txt", b1)
 
+    # exit()
+
     # restriction: pass r1 to r2 and construct A2
     r2 = R @ r1
     A2 = R @ A1 @ P
@@ -864,6 +885,8 @@ def compute_R_and_P(coarse, fine):
     R = R_builder.build()
     P = R.transpose()
     print(f"Computing P and R done, time = {time() - t}")
+    # R.mmwrite("R.mtx")
+    # P.mmwrite("P.mtx")
     return R, P
 
 
@@ -874,16 +897,10 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    model_path = ""
-    if meta.args.model == "bunny":
-        model_path = "data/model/bunny1k2k/"
-    elif meta.args.model == "cube":
-        model_path = "data/model/cube/"
-    fine_model_path = model_path + "fine"
-    coarse_model_path = model_path + "coarse"
+    model_path = Path(meta.args.fine_model_path).parent.as_posix() + "/"
 
-    fine = ArapMultigrid(fine_model_path)
-    coarse = ArapMultigrid(coarse_model_path)
+    fine = ArapMultigrid(meta.args.fine_model_path)
+    coarse = ArapMultigrid(meta.args.coarse_model_path)
 
     fine.initialize()
     coarse.initialize()
@@ -893,34 +910,25 @@ def main():
         info("#############################################")
         info("########## Using Only Fine Mesh ###########")
         info("#############################################")
-        P = sio.mmread(model_path + "P.mtx")
-        R = sio.mmread(model_path + "R.mtx")
     elif fine.max_iter == 0:
         suffix = "onlycoarse"
         info("#############################################")
         info("########## Using Only Coarse Mesh ###########")
         info("#############################################")
-        P = sio.mmread(model_path + "P.mtx")
-        R = sio.mmread(model_path + "R.mtx")
     elif fine.max_iter != 0 and coarse.max_iter != 0:
         if meta.args.multigrid_type == "HPBD":
             info("#############################################")
             info("########## Using HPBD Multigrid #############")
             info("#############################################")
             suffix = "hpbd"
-            P = sio.mmread(model_path + "P.mtx")
-            R = sio.mmread(model_path + "R.mtx")
+            P = scipy.io.mmread(model_path + "P_pos.mtx")
+            R = scipy.io.mmread(model_path + "R_pos.mtx")
         elif meta.args.multigrid_type == "AMG":
             info("#############################################")
             info("########## Using AMG Multigrid ##############")
             info("#############################################")
             suffix = "amg"
             R, P = compute_R_and_P(coarse, fine)
-        elif meta.args.multigrid_type == "GMG":
-            info("#############################################")
-            info("########## Using GMG Multigrid ##############")
-            info("#############################################")
-            suffix = "gmg"
 
     if meta.args.solver_type == "Jacobian":
         info("#############################################")
@@ -995,8 +1003,6 @@ def main():
                     substep_hpbd(P, R, fine, coarse, meta.args.solver_type)
                 elif meta.args.multigrid_type == "AMG":
                     substep_amg(P, R, fine, coarse, meta.args.solver_type)
-                elif meta.args.multigrid_type == "GMG":
-                    substep_gmg(P, R, fine, coarse, meta.args.solver_type)
 
             # ti.profiler.print_kernel_profiler_info()
             info(f"step time: {time() - t}")

@@ -17,3 +17,5 @@ build
 dist
 draft*
 run.py
+./*.txt
+./*.mtx

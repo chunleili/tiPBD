@@ -8,6 +8,8 @@ from taichi.math import vec3, ivec4
 from time import perf_counter
 import meshio
 import pathlib
+from time import time
+
 
 sys.path.append(os.getcwd())
 
@@ -83,40 +85,97 @@ def read_tet(filename):
     return pos, tet_indices
 
 
+@ti.func
+def tet_centroid_func(tet_indices, pos, t):
+    a, b, c, d = tet_indices[t]
+    p0, p1, p2, p3 = pos[a], pos[b], pos[c], pos[d]
+    p = (p0 + p1 + p2 + p3) / 4
+    return p
+
+
+@ti.kernel
+def compute_R_kernel_new(
+    fine_pos: ti.template(),
+    fine_tet_indices: ti.template(),
+    coarse_pos: ti.template(),
+    coarse_tet_indices: ti.template(),
+    R: ti.types.sparse_matrix_builder(),
+):
+    for tc in range(coarse_tet_indices.shape[0]):
+        center_c = tet_centroid_func(coarse_tet_indices, coarse_pos, tc)
+        min_dist = 1e10
+        min_indx = -1
+        for tf in range(fine_tet_indices.shape[0]):
+            center_f = tet_centroid_func(fine_tet_indices, fine_pos, tf)
+            dist = (center_f - center_c).norm()
+            if dist < min_dist:
+                min_dist = dist
+                min_indx = tf
+        R[tc, min_indx] += 1
+
+
+def compute_R_and_P(fine_pos, fine_tet_indices, coarse_pos, coarse_tet_indices):
+    print("Computing P and R...")
+    t = time()
+    M, N = coarse_tet_indices.shape[0], fine_tet_indices.shape[0]
+    R_builder = ti.linalg.SparseMatrixBuilder(M, N, max_num_triplets=40 * M)
+    compute_R_kernel_new(fine_pos, fine_tet_indices, coarse_pos, coarse_tet_indices, R_builder)
+    R = R_builder.build()
+    P = R.transpose()
+    print(f"Computing P and R done, time = {time() - t}")
+    print(f"writing P and R...")
+    R.mmwrite("R.mtx")
+    P.mmwrite("P.mtx")
+    print(f"writing P and R done")
+    return R, P
+
+
 if __name__ == "__main__":
     start_time = perf_counter()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
-    parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
+    parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse_new.node")
+    parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine_new.node")
     parser.add_argument("--output_path", type=str, default="")
     parser.add_argument("--output_suffix", type=str, default="")
     args = parser.parse_args()
 
     print(f">> Reading mesh...")
-    coarse_pos, coarse_tet_indices = read_tet(args.coarse_model_path)
-    fine_pos, fine_tet_indices = read_tet(args.fine_model_path)
+    coarse_pos_np, coarse_tet_indices_np = read_tet(args.coarse_model_path)
+    fine_pos_np, fine_tet_indices_np = read_tet(args.fine_model_path)
 
-    p_to_tet = np.empty(shape=(fine_pos.shape[0]), dtype=np.int32)
-    p_to_tet.fill(-1)
-    compute_p_to_tet(fine_tet_indices, p_to_tet)
+    fine_pos = ti.Vector.field(3, dtype=ti.f64, shape=fine_pos_np.shape[0])
+    fine_tet_indices = ti.Vector.field(4, dtype=ti.i32, shape=fine_tet_indices_np.shape[0])
+    coarse_pos = ti.Vector.field(3, dtype=ti.f64, shape=coarse_pos_np.shape[0])
+    coarse_tet_indices = ti.Vector.field(4, dtype=ti.i32, shape=coarse_tet_indices_np.shape[0])
+    fine_pos.from_numpy(fine_pos_np)
+    coarse_pos.from_numpy(coarse_pos_np)
+    fine_tet_indices.from_numpy(fine_tet_indices_np)
+    coarse_tet_indices.from_numpy(coarse_tet_indices_np)
 
-    R = np.zeros((coarse_tet_indices.shape[0], fine_tet_indices.shape[0]))
-    print("R shape: ", R.shape)
+    R, P = compute_R_and_P(fine_pos, fine_tet_indices, coarse_pos, coarse_tet_indices)
 
-    print("Computing R(fine ele in which coarse ele)...")
-    fine_pos = np.ascontiguousarray(fine_pos)
-    coarse_pos = np.ascontiguousarray(coarse_pos)
-    compute_R(fine_pos, p_to_tet, coarse_pos, coarse_tet_indices, R)
+    # p_to_tet = np.empty(shape=(fine_pos.shape[0]), dtype=np.int32)
+    # p_to_tet.fill(-1)
+    # compute_p_to_tet(fine_tet_indices, p_to_tet)
 
-    # print("Normalizing R by row...")
-    # normalize_R_by_row(R)
+    # R = np.zeros((coarse_tet_indices.shape[0], fine_tet_indices.shape[0]))
+    # print("R shape: ", R.shape)
 
-    print("Computing P by transpose(R)...")
-    R = scipy.sparse.csr_matrix(R)
-    P = R.transpose()
+    # print("Computing R(fine ele in which coarse ele)...")
+    # fine_pos = np.ascontiguousarray(fine_pos)
+    # coarse_pos = np.ascontiguousarray(coarse_pos)
+    # compute_R(fine_pos, p_to_tet, coarse_pos, coarse_tet_indices, R)
 
-    scipy.io.mmwrite(args.output_path + "R" + args.output_suffix + ".mtx", R)
-    scipy.io.mmwrite(args.output_path + "P" + args.output_suffix + ".mtx", P)
-    end_time = perf_counter()
-    print(f">> Total time: {end_time - start_time:.2f}s")
+    # # print("Normalizing R by row...")
+    # # normalize_R_by_row(R)
+
+    # print("Computing P by transpose(R)...")
+    # R = scipy.sparse.csr_matrix(R)
+    # P = R.transpose()
+
+    # print("Writing R and P...")
+    # scipy.io.mmwrite(args.output_path + "R" + args.output_suffix + ".mtx", R)
+    # scipy.io.mmwrite(args.output_path + "P" + args.output_suffix + ".mtx", P)
+    # end_time = perf_counter()
+    # print(f">> Total time: {end_time - start_time:.2f}s")

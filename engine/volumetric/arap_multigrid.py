@@ -27,8 +27,8 @@ parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument("--solver_type", type=str, default="Jacobian", choices=["Jacobian", "GaussSeidel", "DirectSolver"])
 parser.add_argument("--multigrid_type", type=str, default="HPBD", choices=["HPBD", "AMG", "GMG"])
-parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse_new.node")
-parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine_new.node")
+parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
+parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
@@ -281,18 +281,39 @@ class ArapMultigrid:
             self.dlambda,
         )
 
+    def solve_constraints_new(self):
+        solve_constraints_kernel_new(
+            self.pos_mid,
+            self.tet_indices,
+            self.inv_mass,
+            self.lagrangian,
+            self.B,
+            self.alpha_tilde,
+            self.constraint,
+            self.residual,
+            self.gradC,
+            self.dlambda,
+        )
+
     def assemble_gradC(self):
         gradC_builder = ti.linalg.SparseMatrixBuilder(self.M, 3 * self.N, max_num_triplets=12 * self.M)
-        # fill_gradC(gradC_builder, self.gradC, self.tet_indices)
-        compute_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.gradC, gradC_builder)
+        fill_gradC(gradC_builder, self.gradC, self.tet_indices)
+        # compute_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.gradC, gradC_builder)
         gradC_mat = gradC_builder.build()
         return gradC_mat
 
-    def compute_dlambda(self):
-        compute_dlambda_kernel(
-            self.pos_mid, self.tet_indices, self.inv_mass, self.lagrangian, self.B, self.alpha_tilde, self.dlambda
-        )
-        return self.dlambda
+    def assemble_inv_mass(self):
+        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * self.N, 3 * self.N, max_num_triplets=3 * self.N)
+        fill_invmass(inv_mass_builder, self.inv_mass)
+        inv_mass_mat = inv_mass_builder.build()
+        return inv_mass_mat
+
+    def assemble_alpha_tilde(self):
+        M = self.alpha_tilde.shape[0]
+        alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(M, M, max_num_triplets=12 * M)
+        fill_diag(alpha_tilde_builder, self.alpha_tilde)
+        alpha_tilde_mat = alpha_tilde_builder.build()
+        return alpha_tilde_mat
 
 
 def assemble_inv_mass_mat(inv_mass):
@@ -505,39 +526,6 @@ def update_velocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: 
 
 
 @ti.kernel
-def compute_dlambda_kernel(
-    pos_mid: ti.template(),
-    tet_indices: ti.template(),
-    inv_mass: ti.template(),
-    lagrangian: ti.template(),
-    B: ti.template(),
-    alpha_tilde: ti.template(),
-    dlambda: ti.template(),
-):
-    for t in range(tet_indices.shape[0]):
-        p0 = tet_indices[t][0]
-        p1 = tet_indices[t][1]
-        p2 = tet_indices[t][2]
-        p3 = tet_indices[t][3]
-
-        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
-
-        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
-        F = D_s @ B[t]
-        U, S, V = ti.svd(F)
-        constraint = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
-        g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
-        denorminator = (
-            inv_mass[p0] * g0.norm_sqr()
-            + inv_mass[p1] * g1.norm_sqr()
-            + inv_mass[p2] * g2.norm_sqr()
-            + inv_mass[p3] * g3.norm_sqr()
-        )
-        dlambda[t] = -(constraint + alpha_tilde[t] * lagrangian[t]) / (denorminator + alpha_tilde[t])
-        lagrangian[t] += dlambda[t]
-
-
-@ti.kernel
 def solve_constraints_kernel(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
@@ -554,7 +542,6 @@ def solve_constraints_kernel(
     for i in pos:
         pos_mid[i] = pos[i]
 
-    # ti.loop_config(serialize=meta.serialize)
     for t in range(tet_indices.shape[0]):
         p0 = tet_indices[t][0]
         p1 = tet_indices[t][1]
@@ -578,6 +565,28 @@ def solve_constraints_kernel(
         residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
         dlambda[t] = residual[t] / (denorminator + alpha_tilde[t])
         lagrangian[t] += dlambda[t]
+
+
+@ti.kernel
+def compute_C_gradC(
+    pos_mid: ti.template(),
+    tet_indices: ti.template(),
+    B: ti.template(),
+    constraint: ti.template(),
+    gradC: ti.template(),
+):
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
 
 
 @ti.kernel
@@ -771,7 +780,7 @@ def solve_direct_solver(A, b):
 
 
 @ti.kernel
-def copy_field(src: ti.template(), dst: ti.template()):
+def copy_field(dst: ti.template(), src: ti.template()):
     for i in src:
         dst[i] = src[i]
 
@@ -781,7 +790,90 @@ def update_pos_from_dlambda(gradC_mat, dlambda, pos_mid, inv_mass_mat, pos):
     pos.from_numpy(pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
 
-def substep_amg(P, R, fine, coarse, solver_type):
+def jacobi_iteration_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
+    n = len(b)
+    x = x0.copy()  # 初始解向量
+    x_new = np.zeros_like(x)  # 存储更新后的解向量
+    L = scipy.sparse.tril(A, k=-1)
+    U = scipy.sparse.triu(A, k=1)
+    D = A.diagonal()
+    D_inv = 1.0 / D[:]
+    D_inv = scipy.sparse.diags(D_inv)
+    for iteration in range(max_iterations):
+        x_new = D_inv @ (b - (L + U) @ x)
+
+        residual = b - (A @ x_new)
+        r_norm = np.linalg.norm(residual)
+        if r_norm < tolerance:
+            break
+        print(f"jacobian iter: {iteration}, residual: {r_norm}")
+        x = x_new.copy()
+    return x_new, residual
+
+
+@ti.kernel
+def compute_A_matrix_free(
+    gradC: ti.types.ndarray(),
+    inv_mass: ti.types.ndarray(),
+    alpha_tilde: ti.types.ndarray(),
+    A_triplet: ti.types.ndarray(),
+):
+    ...
+
+
+def substep_amg_pure_numerical(P, R, fine):
+    ...
+    semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
+
+    copy_field(fine.pos_mid, fine.pos)
+    gradC_mat = fine.assemble_gradC()
+    inv_mass_mat = fine.assemble_inv_mass()
+    alpha_tilde_mat = fine.assemble_alpha_tilde()
+
+    A1 = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
+    b1 = fine.residual.to_numpy()
+
+    # pre-smooth jacobian:
+    fine.jacobi_iteration_sparse(A1, b1, b1, 3)
+
+    # # assemble A1, b1, x1, r1
+    # gradC_mat = fine.assemble_gradC()
+    # A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
+    # b1 = fine.residual.to_numpy()
+    # x1 = fine.dlambda.to_numpy()
+    # r1 = b1 - A1 @ x1
+    # print(f"b1:{np.linalg.norm(b1)}")
+    # print(f"r1 after pre-smooth:{np.linalg.norm(r1)}")
+
+    # # restriction: pass r1 to r2 and construct A2
+    # r2 = R @ r1
+    # A2 = R @ A1 @ P
+
+    # # solve coarse level A2E2=r2
+    # E2 = solve_direct_solver(A2, r2)
+
+    # # prolongation:
+    # E1 = P @ E2
+    # x1 += E1
+
+    # r1 = b1 - A1 @ x1
+    # print(f"r1 after pre-smooth:{np.linalg.norm(r1)}")
+
+    # fine.dlambda.from_numpy(x1)
+    # dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ fine.dlambda
+    # fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+    # # post-smooth jacobian:
+    # for ite in range(3):
+    #     fine.solve_constraints_new()
+    # x1 = fine.dlambda.to_numpy()
+    # copy_field(fine.pos, fine.pos_mid)
+
+    collsion_response(fine.pos)
+    update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+
+
+def substep_amg(P, R, fine):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
 
     # pre-smooth jacobian:
@@ -1080,7 +1172,8 @@ def main():
                 if meta.args.multigrid_type == "HPBD":
                     substep_hpbd(P, R, fine, coarse, meta.args.solver_type)
                 elif meta.args.multigrid_type == "AMG":
-                    substep_amg(P, R, fine, coarse, meta.args.solver_type)
+                    substep_amg(P, R, fine)
+                    # substep_amg_pure_numerical(P, R, fine)
 
             # ti.profiler.print_kernel_profiler_info()
             info(f"step time: {time() - t}")

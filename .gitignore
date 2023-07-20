@@ -15,7 +15,6 @@ result/*
 engine.egg-info
 build
 dist
-draft*
 run.py
-./*.txt
-./*.mtx
+/*.txt
+/*.mtx

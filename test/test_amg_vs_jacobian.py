@@ -66,8 +66,15 @@ def amg_step(A1, b1, R, P):
     print(f"b1:{np.linalg.norm(b1)}")
     x1, r1 = jacobi_iteration_sparse(A1, b1, b1, 3)
 
+    r1_after_pre_smooth = r1
+    np.savetxt("r1_after_pre_smooth.txt", r1)
+    print(f"r1_after_pre_smooth:{np.linalg.norm(r1_after_pre_smooth)}")
+
     # restriction: pass r1 to r2 and construct A2
     r2 = R @ r1
+    np.savetxt("r2.txt", r2)
+    print(f"r2:{np.linalg.norm(r2)}")
+
     A2 = R @ A1 @ P
 
     # solve coarse level A2E2=r2
@@ -77,19 +84,31 @@ def amg_step(A1, b1, R, P):
     E1 = P @ E2
     x1 += E1
 
-    r1_new = b1 - A1 @ x1
+    r1 = b1 - A1 @ x1
+    r1_after_prolongate = r1
+    np.savetxt("r1_after_prolongate.txt", r1_after_prolongate)
+    print(f"r1_after_prolongate:{np.linalg.norm(r1_after_prolongate)}")
+
     # post-smooth jacobian:
     print(f"before jacobian post-smooth: ")
-    print(f"new r1:{np.linalg.norm(r1_new)}")
-    x1, r1_new = jacobi_iteration_sparse(A1, b1, x1, 3)
+    x1, r1 = jacobi_iteration_sparse(A1, b1, x1, 3)
 
-    r1_new = b1 - A1 @ x1
-    print(f"b1:{np.linalg.norm(b1)}, r1: {np.linalg.norm(r1)}, r1_new: {np.linalg.norm(r1_new)}")
+    r1_after_post_smooth = r1
+    np.savetxt("r1_after_post_smooth.txt", r1_after_post_smooth)
+    print(f"r1_after_post_smooth:{np.linalg.norm(r1_after_post_smooth)}")
 
     # with open("r1.txt", "a") as f:
     #     f.write(f"{np.linalg.norm(r1)}\n")
     # with open("r1_new.txt", "a") as f:
     #     f.write(f"{np.linalg.norm(r1_new)}\n")
+
+
+def test_jacobian():
+    print("loading data...")
+    A1 = scipy.io.mmread("A1.mtx")
+    b1 = np.loadtxt("b1.txt")
+    x1, r1 = jacobi_iteration_sparse(A1, b1, b1, 3)
+    x1_direct = scipy.sparse.linalg.spsolve(A1, b1)
 
 
 if __name__ == "__main__":

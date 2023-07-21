@@ -18,3 +18,4 @@ dist
 run.py
 /*.txt
 /*.mtx
+/*.npy

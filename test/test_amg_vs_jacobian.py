@@ -22,20 +22,22 @@ def test_amg_vs_jacobian():
     print(f"AMG time: {time() - t}")
 
 
-# def jacobi_iteration(A, b, x0, max_iterations=100, tolerance=1e-6):
-#     n = len(b)
-#     x = x0.copy()  # 初始解向量
-#     x_new = np.zeros_like(x)  # 存储更新后的解向量
-#     for iteration in range(max_iterations):
-#         for i in range(n):
-#             sum_term = np.dot(A[i, :n], x[:n]) - A[i, i] * x[i]
-#             x_new[i] = (b[i] - sum_term) / A[i, i]
-#         residual = np.linalg.norm(b - np.dot(A, x_new))
-#         if np.linalg.norm(residual) < tolerance:
-#             break
-#         print(f"iter: {iteration}, residual: {residual}")
-#         x = x_new.copy()
-#     return x_new, residual
+def jacobi_iteration(A, b, x0, max_iterations=100, tolerance=1e-6):
+    n = len(b)
+    x = x0.copy()  # 初始解向量
+    x_new = np.zeros_like(x)  # 存储更新后的解向量
+    for iteration in range(max_iterations):
+        for i in range(n):
+            sum_term = np.dot(A[i, :n], x[:n]) - A[i, i] * x[i]
+            x_new[i] = (b[i] - sum_term) / A[i, i]
+        residual = (b - np.dot(A, x_new))
+        r_norm = np.linalg.norm(residual)
+        if r_norm < tolerance:
+            break
+        print(f"iter: {iteration}, residual: {residual}")
+        x = x_new.copy()
+    return x_new, residual
+
 
 
 # 定义稀疏矩阵的雅可比迭代函数

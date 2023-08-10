@@ -568,7 +568,7 @@ def solve_constraints_kernel(
 
 
 @ti.kernel
-def compute_C_gradC(
+def compute_C_and_gradC_kernel(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
     B: ti.template(),

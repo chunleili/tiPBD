@@ -244,7 +244,7 @@ def fill_invmass(A: ti.types.sparse_matrix_builder(), val: ti.template()):
 
 
 @ti.kernel
-def compute_C_gradC_kernel(
+def compute_C_and_gradC_kernel(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
     B: ti.template(),
@@ -274,7 +274,7 @@ def prepare_for_direct_solver(
     B: ti.template(),
     alpha_tilde: ti.template(),
     constraint: ti.template(),
-    residual: ti.template(),
+    negative_C_minus_alpha_lambda: ti.template(),
     gradC: ti.template(),
 ):
     for i in pos:
@@ -292,7 +292,7 @@ def prepare_for_direct_solver(
         U, S, V = ti.svd(F)
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
-        residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+        negative_C_minus_alpha_lambda[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
 
 
 if meta.args.model == "bunny":
@@ -603,32 +603,31 @@ def load_state(filename):
 
 
 def substep_directsolver(instance, max_iter=1):
+    ist = instance
+
     semi_euler(meta.h, instance.pos, instance.predict_pos, instance.old_pos, instance.vel, meta.damping_coeff)
     reset_lagrangian(instance.lagrangian)
     for ite in range(max_iter):
         t = time()
 
-        prepare_for_direct_solver(
-            instance.pos_mid,
-            instance.pos,
-            instance.tet_indices,
-            instance.lagrangian,
-            instance.B,
-            instance.alpha_tilde,
-            instance.constraint,
-            instance.negative_C_minus_alpha_lambda,
-            instance.gradC,
-        )
+        # copy pos to pos_mid
+        instance.pos_mid.from_numpy(instance.pos.to_numpy())
 
+        compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
+
+        # fill G matrix (gradC)
         fill_gradC(instance.gradC_builder, instance.gradC, instance.tet_indices)
         gradC_mat = instance.gradC_builder.build()
-        # compute schur complement as A
+
+        # fill M_inv and AL
         fill_invmass(instance.inv_mass_builder, instance.inv_mass)
         fill_diag(instance.alpha_tilde_builder, instance.alpha_tilde)
         inv_mass_mat = instance.inv_mass_builder.build()
         alpha_tilde_mat = instance.alpha_tilde_builder.build()
+
+        # assemble A and b
         A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
-        b = instance.negative_C_minus_alpha_lambda.to_numpy()
+        b = -instance.constraint.to_numpy() - instance.alpha_tilde.to_numpy() * instance.lagrangian.to_numpy()
 
         solver = ti.linalg.SparseSolver(solver_type="LLT")
         solver.analyze_pattern(A)

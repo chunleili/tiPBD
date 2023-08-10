@@ -501,7 +501,7 @@ def solve_constraints_kernel(
 
 
 @ti.kernel
-def compute_C_gradC_kernel(
+def compute_C_and_gradC_kernel(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
     B: ti.template(),
@@ -741,7 +741,7 @@ def substep_amg(P, R, fine):
     fine.pos_mid.from_numpy(fine.pos.to_numpy().copy())
 
     # compute C and gradC
-    compute_C_gradC_kernel(fine.pos_mid, fine.tet_indices, fine.B, fine.constraint, fine.gradC)
+    compute_C_and_gradC_kernel(fine.pos_mid, fine.tet_indices, fine.B, fine.constraint, fine.gradC)
 
     # assemble gradC_mat
     gradC_mat = np.zeros((M, 3 * N), dtype=np.float32)

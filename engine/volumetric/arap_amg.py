@@ -857,92 +857,94 @@ def substep_directsolver_scipy(ist, max_iter=1):
 # ---------------------------------------------------------------------------- #
 #                                      AMG                                     #
 # ---------------------------------------------------------------------------- #
-def substep_amg(P, R, fine):
-    semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-    reset_lagrangian(fine.lagrangian)
+def substep_amg(P, R, ist, max_iter=1):
+    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    reset_lagrangian(ist.lagrangian)
 
-    # ----------------prepare the matrices------------------
-    # M and N
-    M = fine.NT  # num of tet
-    N = fine.NV  # num of vertex
+    for ite in range(max_iter):
+        # ----------------prepare the matrices------------------
+        # M and N
+        M = ist.NT  # num of tet
+        N = ist.NV  # num of vertex
 
-    R = scipy.sparse.csr_matrix(R)
-    P = scipy.sparse.csr_matrix(P)
+        R = scipy.sparse.csr_matrix(R)
+        P = scipy.sparse.csr_matrix(P)
 
-    # back up pos to pos_mid
-    fine.pos_mid.from_numpy(fine.pos.to_numpy().copy())
+        # back up pos to pos_mid
+        ist.pos_mid.from_numpy(ist.pos.to_numpy().copy())
 
-    # compute C and gradC
-    compute_C_and_gradC_kernel(fine.pos_mid, fine.tet_indices, fine.B, fine.constraint, fine.gradC)
+        # compute C and gradC
+        compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
 
-    # assemble gradC_mat
-    gradC_mat = np.zeros((M, 3 * N), dtype=np.float32)
-    fill_gradC_np_kernel(gradC_mat, fine.gradC, fine.tet_indices)
-    gradC_mat = scipy.sparse.csr_matrix(gradC_mat)
+        # assemble gradC_mat
+        G = np.zeros((M, 3 * N), dtype=np.float32)
+        fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
+        G = scipy.sparse.csr_matrix(G)
 
-    # alphat_tilde
-    alpha_tilde_np = fine.alpha_tilde.to_numpy()
-    alpha_tilde_diag = scipy.sparse.diags(alpha_tilde_np)
+        # assemble alphat_tilde
+        alpha_tilde_np = ist.alpha_tilde.to_numpy()
+        ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
-    # inv mass
-    inv_mass_np = fine.inv_mass.to_numpy()
-    inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-    inv_mass_diag = scipy.sparse.diags(inv_mass_np)
+        # assemble inv mass
+        inv_mass_np = ist.inv_mass.to_numpy()
+        inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+        M_inv = scipy.sparse.diags(inv_mass_np)
 
-    # assemble A1
-    A1 = gradC_mat @ inv_mass_diag @ gradC_mat.transpose() + alpha_tilde_diag
+        # assemble A1
+        A1 = G @ M_inv @ G.transpose() + ALPHA
 
-    # assemble b1
-    b1 = -fine.constraint.to_numpy() - alpha_tilde_np * fine.lagrangian.to_numpy()
+        # assemble b1
+        b1 = -ist.constraint.to_numpy() - alpha_tilde_np * ist.lagrangian.to_numpy()
 
-    # x1 initial guess
-    x1 = np.zeros_like(b1)
-    r1 = b1 - A1 @ x1
-    print("r1 initial(b1):", np.linalg.norm(r1))
+        # x1 initial guess
+        x1 = np.zeros_like(b1)
+        r1 = b1 - A1 @ x1
+        print("r1 initial(b1):", np.linalg.norm(r1))
 
-    print("A1 shape:", A1.shape)
-    # ------------------------------------ AMG ----------------------------------- #
-    print("--------start AMG---------")
+        print("A1 shape:", A1.shape)
+        # ------------------------------------ AMG ----------------------------------- #
+        print("--------start AMG---------")
 
-    # 1. pre-smooth jacobian
-    print(">>> 1. pre-smooth jacobian")
-    x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=2)
-    print("r1 after pre-smooth:", np.linalg.norm(r1))
+        # 1. pre-smooth jacobian
+        print(">>> 1. pre-smooth jacobian")
+        x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=2)
+        print("r1 after pre-smooth:", np.linalg.norm(r1))
 
-    # 2 restriction: pass r1 to r2 and construct A2
-    print(">>> 2. restriction")
-    r2 = R @ r1
-    A2 = R @ A1 @ P
+        # 2 restriction: pass r1 to r2 and construct A2
+        print(">>> 2. restriction")
+        # print(R.shape, r1.shape, P.shape, A1.shape)
+        r2 = R @ r1
+        A2 = R @ A1 @ P
 
-    # 3 solve coarse level A2E2=r2
-    print(">>> 3. solve coarse and prolongate")
-    E2 = scipy.sparse.linalg.spsolve(A2, r2)
+        # 3 solve coarse level A2E2=r2
+        print(">>> 3. solve coarse and prolongate")
+        E2 = scipy.sparse.linalg.spsolve(A2, r2)
 
-    # 4 prolongation: get E1 and add to x1
-    print(">>> 4. prolongate")
-    E1 = P @ E2
-    x1 += E1
+        # 4 prolongation: get E1 and add to x1
+        print(">>> 4. prolongate")
+        E1 = P @ E2
+        x1 += E1
 
-    r1 = b1 - A1 @ x1
-    print("r1 after solve coarse and prolongate:", np.linalg.norm(r1))
+        r1 = b1 - A1 @ x1
+        print("r1 after solve coarse and prolongate:", np.linalg.norm(r1))
 
-    # 5 post-smooth jacobian
-    print(">>> 5. post-smooth jacobian")
-    x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=100, tolerance=1e-3, relative_tolerance=1e-3)
+        # 5 post-smooth jacobian
+        print(">>> 5. post-smooth jacobian")
+        x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=100, tolerance=1e-3, relative_tolerance=1e-3)
 
-    print("----------finish AMG-----------")
-    # --------------------- transfer the matrices back to PBD -------------------- #
-    # dlambda = x1
-    fine.dlambda.from_numpy(x1)
+        print("----------finish AMG-----------")
+        # --------------------- transfer the matrices back to PBD -------------------- #
+        # dlambda = x1
+        ist.dlambda.from_numpy(x1)
 
-    # dpos = inv_mass_diag @ gradC_mat.transpose() @ dlambda
-    dpos = inv_mass_diag @ gradC_mat.transpose() @ fine.dlambda.to_numpy()
+        # dpos = M_inv @ G.transpose() @ dlambda
+        dpos = M_inv @ G.transpose() @ ist.dlambda.to_numpy()
 
-    # pos += dpos
-    fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+        # pos += dpos
+        ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
-    collsion_response(fine.pos)
-    update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+    collsion_response(ist.pos)
+    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 
 # ---------------------------------------------------------------------------- #
@@ -1092,7 +1094,7 @@ def main():
     gui = window.get_gui()
     wire_frame = True
     show_coarse_mesh = True
-    show_fine_mesh = False
+    show_fine_mesh = True
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
@@ -1119,7 +1121,8 @@ def main():
             t = time()
 
             # substep_directsolver(coarse, 1)
-            substep_directsolver_scipy(coarse, 1)
+            # substep_directsolver_scipy(coarse, 5)
+            substep_amg(P, R, fine, 5)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

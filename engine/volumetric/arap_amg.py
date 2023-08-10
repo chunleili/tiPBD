@@ -43,7 +43,7 @@ class Meta:
         self.log_residual_range = range(*self.args.log_residual_range)
         self.frame_to_save = self.args.save_at
         self.load_at = self.args.load_at
-        self.pause = True
+        self.pause = False
         self.pause_at = self.args.pause_at
         self.use_multigrid = True
 
@@ -159,7 +159,7 @@ class ArapMultigrid:
         self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
         self.residual = ti.field(ti.f32, shape=self.NT)
         self.dlambda = ti.field(ti.f32, shape=self.NT)
-        self.C_plus_alpha_lambda = ti.field(ti.f32, shape=self.NT)
+        self.negative_C_plus_alpha_lambda = ti.field(ti.f32, shape=self.NT)
         self.tet_centroid = ti.Vector.field(3, ti.f32, shape=self.NT)
 
         self.state = [
@@ -215,57 +215,6 @@ class ArapMultigrid:
         self.inv_mass_mat = assemble_inv_mass_mat(self.inv_mass)
         self.alpha_tilde_mat = assemble_alpha_tilde_mat(self.alpha_tilde)
 
-    def one_iter_direct_solver(self, A=None):
-        if A is None:
-            self.solve_constraints()
-            gradC_mat = self.assemble_gradC()
-            A = assemble_A(gradC_mat, self.inv_mass_mat, self.alpha_tilde_mat)
-
-        b = self.residual
-
-        x = solve_direct_solver(A, b)
-
-        dpos = self.inv_mass_mat @ gradC_mat.transpose() @ x
-        self.pos.from_numpy(self.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-        self.schur_residual = A @ x - b.to_numpy()
-        print(f"schur residual for direct solver: {np.linalg.norm(self.schur_residual)}")
-
-    def one_iter_jacobian(self):
-        project_constraints(
-            self.pos_mid,
-            self.tet_indices,
-            self.inv_mass,
-            self.lagrangian,
-            self.B,
-            self.pos,
-            self.alpha_tilde,
-            self.constraint,
-            self.residual,
-            self.gradC,
-            self.dlambda,
-            self.dpos,
-        )
-
-    def iterate_single_mesh(self, solver_type, A=None):
-        reset_lagrangian(self.lagrangian)
-        for ite in range(self.max_iter):
-            if ite == 0:
-                log_residual(meta.frame, meta.residual_filename, self)
-            log_energy(meta.frame, meta.energy_filename, self)
-            if solver_type == "Jacobian":
-                self.one_iter_jacobian()
-            if solver_type == "DirectSolver":
-                self.one_iter_direct_solver(A)
-            log_residual(meta.frame, meta.residual_filename, self)
-        collsion_response(self.pos)
-        update_velocity(meta.h, self.pos, self.old_pos, self.vel)
-
-    def substep_single_mesh(self, solver_type):
-        semi_euler(meta.h, self.pos, self.predict_pos, self.old_pos, self.vel, meta.damping_coeff)
-        self.iterate_single_mesh(solver_type)
-        update_velocity(meta.h, self.pos, self.old_pos, self.vel)
-
     def solve_constraints(self):
         solve_constraints_kernel(
             self.pos_mid,
@@ -281,24 +230,9 @@ class ArapMultigrid:
             self.dlambda,
         )
 
-    def solve_constraints_new(self):
-        solve_constraints_kernel_new(
-            self.pos_mid,
-            self.tet_indices,
-            self.inv_mass,
-            self.lagrangian,
-            self.B,
-            self.alpha_tilde,
-            self.constraint,
-            self.residual,
-            self.gradC,
-            self.dlambda,
-        )
-
     def assemble_gradC(self):
         gradC_builder = ti.linalg.SparseMatrixBuilder(self.M, 3 * self.N, max_num_triplets=12 * self.M)
-        fill_gradC(gradC_builder, self.gradC, self.tet_indices)
-        # compute_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.gradC, gradC_builder)
+        fill_gradC_kernel(gradC_builder, self.gradC, self.tet_indices)
         gradC_mat = gradC_builder.build()
         return gradC_mat
 
@@ -346,7 +280,7 @@ def fill_diag(A: ti.types.sparse_matrix_builder(), val: ti.template()):
 
 # fill gradC
 @ti.kernel
-def fill_gradC(
+def fill_gradC_kernel(
     A: ti.types.sparse_matrix_builder(),
     gradC: ti.template(),
     tet_indices: ti.template(),
@@ -359,28 +293,27 @@ def fill_gradC(
                 A[j, 3 * pid + d] += gradC[j, p][d]
 
 
+# fill gradC
+@ti.kernel
+def fill_gradC_np_kernel(
+    A: ti.types.ndarray(),
+    gradC: ti.template(),
+    tet_indices: ti.template(),
+):
+    for j in range(tet_indices.shape[0]):
+        ind = tet_indices[j]
+        for p in range(4):
+            for d in range(3):
+                pid = ind[p]
+                A[j, 3 * pid + d] = gradC[j, p][d]
+
+
 @ti.kernel
 def fill_invmass(A: ti.types.sparse_matrix_builder(), val: ti.template()):
     for i in range(val.shape[0]):
         A[3 * i, 3 * i] += val[i]
         A[3 * i + 1, 3 * i + 1] += val[i]
         A[3 * i + 2, 3 * i + 2] += val[i]
-
-
-def coarse_to_fine_pos(P, fine, coarse):
-    fine.pos.from_numpy(P @ coarse.pos.to_numpy())
-
-
-def fine_to_coarse_pos(R, fine, coarse):
-    coarse.pos.from_numpy(R @ fine.pos.to_numpy())
-
-
-def restriction(R, fine_val):
-    return R @ fine_val
-
-
-def prolongation(P, coarse_val):
-    return P @ coarse_val
 
 
 @ti.kernel
@@ -568,7 +501,7 @@ def solve_constraints_kernel(
 
 
 @ti.kernel
-def compute_C_gradC(
+def compute_C_gradC_kernel(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
     B: ti.template(),
@@ -587,6 +520,22 @@ def compute_C_gradC(
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
         gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
+
+
+def compute_negative_C_plus_alpha_lambda(constraint, alpha_tilde, lagrangian, negative_C_plus_alpha_lambda):
+    compute_negative_C_plus_alpha_lambda_kernel(constraint, alpha_tilde, lagrangian, negative_C_plus_alpha_lambda)
+    return negative_C_plus_alpha_lambda.to_numpy()
+
+
+@ti.kernel
+def compute_negative_C_plus_alpha_lambda_kernel(
+    constraint: ti.template(),
+    alpha_tilde: ti.template(),
+    lagrangian: ti.template(),
+    negative_C_plus_alpha_lambda: ti.template(),
+):
+    for t in range(negative_C_plus_alpha_lambda.shape[0]):
+        negative_C_plus_alpha_lambda[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
 
 
 @ti.kernel
@@ -683,85 +632,82 @@ def collsion_response(pos: ti.template()):
             pos[i][1] = -1.3
 
 
-@ti.kernel
-def compute_inertial(mass: ti.template(), pos: ti.template(), predict_pos: ti.template()) -> ti.f32:
-    it = 0.0
-    for i in pos:
-        it += mass[i] * (pos[i] - predict_pos[i]).norm_sqr()
-    return it * 0.5
+# ---------------------------------------------------------------------------- #
+#                              jacobian iteration                              #
+# ---------------------------------------------------------------------------- #
+def jacobian_iter(A, b, x0, max_iterations=100, tolerance=1e-6):
+    x = x0.copy()
+
+    res = jacobian_residual_kernel(A, b, x)
+    i = 0
+    while res > tolerance and i < max_iterations:
+        i += 1
+        jacobian_iter_once_kernel(A, b, x)
+        res = jacobian_residual_kernel(A, b, x)
+        print(f"iter {i}, residual={res:0.10f}")
 
 
 @ti.kernel
-def compute_potential_energy(
-    pos: ti.template(),
-    tet_indices: ti.template(),
-    B: ti.template(),
-    alpha_tilde: ti.template(),
-) -> ti.f32:
-    pe = 0.0
-    for i in tet_indices:
-        ia, ib, ic, id = tet_indices[i]
-        a, b, c, d = pos[ia], pos[ib], pos[ic], pos[id]
-        D_s = ti.Matrix.cols([b - a, c - a, d - a])
-        F = D_s @ B[i]
-        U, S, V = ti.svd(F)
-        if S[2, 2] < 0.0:  # S[2, 2] is the smallest singular value
-            S[2, 2] *= -1.0
-        constraint_squared = (S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2
-        pe += (1.0 / alpha_tilde[i]) * constraint_squared
-    return pe * 0.5
+def jacobian_iter_once_kernel(A: ti.template(), b: ti.types.ndarray(), x: ti.types.ndarray()):
+    n = b.shape[0]
+    for i in range(n):
+        r = b[i]
+        for j in range(n):
+            if i != j:
+                r -= A[i, j] * x[j]
+        x[i] = r / A[i, i]
 
 
-def compute_energy(mass, pos, predict_pos, tet_indices, B, alpha_tilde):
-    it = compute_inertial(mass, pos, predict_pos)
-    pe = compute_potential_energy(pos, tet_indices, B, alpha_tilde)
-    return it + pe, it, pe
+@ti.kernel
+def jacobian_residual_kernel(A: ti.template(), b: ti.types.ndarray(), x: ti.types.ndarray()) -> ti.f32:
+    res = 0.0
+    n = b.shape[0]
+
+    for i in range(n):
+        r = b[i] * 1.0
+        for j in range(n):
+            r -= A[i, j] * x[j]
+        res += r * r
+
+    return res
 
 
-def log_energy(frame, filename_to_save, instance):
-    if frame in meta.log_energy_range:
-        te, it, pe = compute_energy(
-            instance.mass, instance.pos, instance.predict_pos, instance.tet_indices, instance.B, instance.alpha_tilde
-        )
-        info(f"energy:\t{te}")
-        with open(filename_to_save, "a") as f:
-            np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
+def jacobi_iteration_sparse(A, b, x0, max_iterations=20, tolerance=1e-6, relative_tolerance=1e-12):
+    n = len(b)
+    x = x0.copy()  # 初始解向量
+    x_new = x0.copy()  # 存储更新后的解向量
+    L = scipy.sparse.tril(A, k=-1)
+    U = scipy.sparse.triu(A, k=1)
+    D = A.diagonal()
+    D_inv = 1.0 / D[:]
+    D_inv = scipy.sparse.diags(D_inv)
 
+    residual = b - (A @ x_new)
+    r_norm = np.linalg.norm(residual)
+    print(f"initial residual: {r_norm}")
 
-def log_residual(frame, filename_to_save, instance):
-    if frame in meta.log_residual_range:
-        r_norm = np.linalg.norm(instance.residual.to_numpy())
-        logging.info("residual:\t{}".format(r_norm))
-        with open(filename_to_save, "a") as f:
-            np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
+    for iteration in range(max_iterations):
+        x_new = D_inv @ (b - (L + U) @ x)
 
+        residual = b - (A @ x_new)
+        r_norm = np.linalg.norm(residual)
 
-def save_state(filename, fine, coarse):
-    state = fine.state + coarse.state
-    state.insert(0, meta.frame)
-    for i in range(1, len(state)):
-        state[i] = state[i].to_numpy()
-    np.savez(filename, *state)
-    logging.info(f"saved state to '{filename}', totally saved {len(state)} variables")
+        if r_norm < tolerance:
+            print(f"reach abs tolerance at iter: {iteration}")
+            break
+        elif r_norm < relative_tolerance * np.linalg.norm(b):
+            print(f"reach relative tolerance at iter: {iteration}")
+            break
+        elif r_norm > 1e10:
+            print(f"diverge at iter: {iteration}")
+            break
+        print(f"jacobian iter: {iteration}, residual: {r_norm}")
+        x = x_new.copy()
 
+    if iteration == max_iterations - 1:
+        print(f"reach max iterations")
 
-def load_state(filename, fine, coarse):
-    npzfile = np.load(filename)
-    state = fine.state + coarse.state
-    meta.frame = int(npzfile["arr_0"])
-    for i in range(1, len(state)):
-        state[i].from_numpy(npzfile["arr_" + str(i)])
-
-    logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
-
-
-def substep_hpbd(P, R, fine, coarse, solver_type="Jacobian"):
-    semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-    fine_to_coarse_pos(R, fine, coarse)
-    coarse.iterate_single_mesh(solver_type)
-    coarse_to_fine_pos(P, fine, coarse)
-    fine.iterate_single_mesh(solver_type)
-    update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+    return x_new, residual
 
 
 # ---------------------------------------------------------------------------- #
@@ -779,144 +725,89 @@ def solve_direct_solver(A, b):
     return x
 
 
-@ti.kernel
-def copy_field(dst: ti.template(), src: ti.template()):
-    for i in src:
-        dst[i] = src[i]
-
-
-def update_pos_from_dlambda(gradC_mat, dlambda, pos_mid, inv_mass_mat, pos):
-    dpos = inv_mass_mat @ gradC_mat.transpose() @ dlambda.to_numpy()
-    pos.from_numpy(pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-
-def jacobi_iteration_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
-    n = len(b)
-    x = x0.copy()  # 初始解向量
-    x_new = np.zeros_like(x)  # 存储更新后的解向量
-    L = scipy.sparse.tril(A, k=-1)
-    U = scipy.sparse.triu(A, k=1)
-    D = A.diagonal()
-    D_inv = 1.0 / D[:]
-    D_inv = scipy.sparse.diags(D_inv)
-    for iteration in range(max_iterations):
-        x_new = D_inv @ (b - (L + U) @ x)
-
-        residual = b - (A @ x_new)
-        r_norm = np.linalg.norm(residual)
-        if r_norm < tolerance:
-            break
-        print(f"jacobian iter: {iteration}, residual: {r_norm}")
-        x = x_new.copy()
-    return x_new, residual
-
-
-@ti.kernel
-def compute_A_matrix_free(
-    gradC: ti.types.ndarray(),
-    inv_mass: ti.types.ndarray(),
-    alpha_tilde: ti.types.ndarray(),
-    A_triplet: ti.types.ndarray(),
-):
-    ...
-
-
-def substep_amg_pure_numerical(P, R, fine):
-    ...
-    semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-
-    copy_field(fine.pos_mid, fine.pos)
-    gradC_mat = fine.assemble_gradC()
-    inv_mass_mat = fine.assemble_inv_mass()
-    alpha_tilde_mat = fine.assemble_alpha_tilde()
-
-    A1 = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
-    b1 = fine.residual.to_numpy()
-
-    # pre-smooth jacobian:
-    fine.jacobi_iteration_sparse(A1, b1, b1, 3)
-
-    # # assemble A1, b1, x1, r1
-    # gradC_mat = fine.assemble_gradC()
-    # A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
-    # b1 = fine.residual.to_numpy()
-    # x1 = fine.dlambda.to_numpy()
-    # r1 = b1 - A1 @ x1
-    # print(f"b1:{np.linalg.norm(b1)}")
-    # print(f"r1 after pre-smooth:{np.linalg.norm(r1)}")
-
-    # # restriction: pass r1 to r2 and construct A2
-    # r2 = R @ r1
-    # A2 = R @ A1 @ P
-
-    # # solve coarse level A2E2=r2
-    # E2 = solve_direct_solver(A2, r2)
-
-    # # prolongation:
-    # E1 = P @ E2
-    # x1 += E1
-
-    # r1 = b1 - A1 @ x1
-    # print(f"r1 after pre-smooth:{np.linalg.norm(r1)}")
-
-    # fine.dlambda.from_numpy(x1)
-    # dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ fine.dlambda
-    # fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-    # # post-smooth jacobian:
-    # for ite in range(3):
-    #     fine.solve_constraints_new()
-    # x1 = fine.dlambda.to_numpy()
-    # copy_field(fine.pos, fine.pos_mid)
-
-    collsion_response(fine.pos)
-    update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
-
-
 def substep_amg(P, R, fine):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-
-    # pre-smooth jacobian:
     reset_lagrangian(fine.lagrangian)
-    for ite in range(3):
-        fine.one_iter_jacobian()
 
-    # assemble A1, b1, x1, r1
-    gradC_mat = fine.assemble_gradC()
-    A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
-    b1 = fine.residual.to_numpy()
-    x1 = fine.dlambda.to_numpy()
+    # ----------------prepare the matrices------------------
+    # M and N
+    M = fine.NT  # num of tet
+    N = fine.NV  # num of vertex
+
+    R = scipy.sparse.csr_matrix(R)
+    P = scipy.sparse.csr_matrix(P)
+
+    # back up pos to pos_mid
+    fine.pos_mid.from_numpy(fine.pos.to_numpy().copy())
+
+    # compute C and gradC
+    compute_C_gradC_kernel(fine.pos_mid, fine.tet_indices, fine.B, fine.constraint, fine.gradC)
+
+    # assemble gradC_mat
+    gradC_mat = np.zeros((M, 3 * N), dtype=np.float32)
+    fill_gradC_np_kernel(gradC_mat, fine.gradC, fine.tet_indices)
+    gradC_mat = scipy.sparse.csr_matrix(gradC_mat)
+
+    # alphat_tilde
+    alpha_tilde_np = fine.alpha_tilde.to_numpy()
+    alpha_tilde_diag = scipy.sparse.diags(alpha_tilde_np)
+
+    # inv mass
+    inv_mass_np = fine.inv_mass.to_numpy()
+    inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+    inv_mass_diag = scipy.sparse.diags(inv_mass_np)
+
+    # assemble A1
+    A1 = gradC_mat @ inv_mass_diag @ gradC_mat.transpose() + alpha_tilde_diag
+
+    # assemble b1
+    b1 = fine.constraint.to_numpy() + alpha_tilde_np * fine.lagrangian.to_numpy()
+
+    # x1 initial guess
+    x1 = np.zeros_like(b1)
     r1 = b1 - A1 @ x1
+    print("r1 initial(b1):", np.linalg.norm(r1))
 
+    print("A1 shape:", A1.shape)
+    # ------------------------------------ AMG ----------------------------------- #
+    print("--------start AMG---------")
+
+    # 1. pre-smooth jacobian
+    print(">>> 1. pre-smooth jacobian")
+    x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=2)
     print("r1 after pre-smooth:", np.linalg.norm(r1))
 
-    # restriction: pass r1 to r2 and construct A2
+    # 2 restriction: pass r1 to r2 and construct A2
+    print(">>> 2. restriction")
     r2 = R @ r1
     A2 = R @ A1 @ P
 
-    # solve coarse level A2E2=r2
-    E2 = solve_direct_solver(A2, r2)
+    # 3 solve coarse level A2E2=r2
+    print(">>> 3. solve coarse and prolongate")
+    E2 = scipy.sparse.linalg.spsolve(A2, r2)
 
-    # prolongation:
+    # 4 prolongation: get E1 and add to x1
+    print(">>> 4. prolongate")
     E1 = P @ E2
     x1 += E1
 
     r1 = b1 - A1 @ x1
     print("r1 after solve coarse and prolongate:", np.linalg.norm(r1))
 
+    # 5 post-smooth jacobian
+    print(">>> 5. post-smooth jacobian")
+    x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=100, tolerance=1e-3, relative_tolerance=1e-3)
+
+    print("----------finish AMG-----------")
+    # --------------------- transfer the matrices back to PBD -------------------- #
+    # dlambda = x1
     fine.dlambda.from_numpy(x1)
 
-    dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ fine.dlambda
+    # dpos = inv_mass_diag @ gradC_mat.transpose() @ dlambda
+    dpos = inv_mass_diag @ gradC_mat.transpose() @ fine.dlambda.to_numpy()
+
+    # pos += dpos
     fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-    # post-smooth jacobian:
-    reset_lagrangian(fine.lagrangian)
-    for ite in range(3):
-        fine.one_iter_jacobian()
-    x1 = fine.dlambda.to_numpy()
-
-    r1_new = b1 - A1 @ x1
-    print(f"r1 after post-smooth:{np.linalg.norm(r1_new)}")
 
     collsion_response(fine.pos)
     update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
@@ -974,7 +865,54 @@ def compute_R_kernel_new(
             print("Warning: fine tet centroid {i} not in any coarse tet")
 
 
-def compute_R_and_P_new(coarse, fine):
+# def compute_R_and_P_ti(coarse, fine):
+#     # 计算所有四面体的质心
+#     print(">>Computing all tet centroid...")
+#     compute_all_centroid(fine.pos, fine.tet_indices, fine.tet_centroid)
+#     compute_all_centroid(coarse.pos, coarse.tet_indices, coarse.tet_centroid)
+
+#     # 计算R 和 P
+#     print(">>Computing P and R...")
+#     t = time()
+#     M, N = coarse.tet_indices.shape[0], fine.tet_indices.shape[0]
+#     R_builder = ti.linalg.SparseMatrixBuilder(M, N, max_num_triplets=40 * N)
+#     compute_R_kernel_new(
+#         fine.pos, fine.tet_indices, fine.tet_centroid, coarse.pos, coarse.tet_indices, coarse.tet_centroid, R_builder
+#     )
+#     R = R_builder.build()
+#     P = R.transpose()
+#     print(f"Computing P and R done, time = {time() - t}")
+#     # print(f"writing P and R...")
+#     # R.mmwrite("R.mtx")
+#     # P.mmwrite("P.mtx")
+#     return R, P
+
+
+@ti.kernel
+def compute_R_kernel_np(
+    fine_pos: ti.template(),
+    fine_tet_indices: ti.template(),
+    fine_centroid: ti.template(),
+    coarse_pos: ti.template(),
+    coarse_tet_indices: ti.template(),
+    coarse_centroid: ti.template(),
+    R: ti.types.ndarray(),
+):
+    for i in fine_centroid:
+        p = fine_centroid[i]
+        flag = False
+        for tc in range(coarse_tet_indices.shape[0]):
+            a, b, c, d = coarse_tet_indices[tc]
+            p0, p1, p2, p3 = coarse_pos[a], coarse_pos[b], coarse_pos[c], coarse_pos[d]
+            flag, x = is_in_tet_func(p, p0, p1, p2, p3)
+            if flag:
+                R[tc, i] = 1
+                break
+        if not flag:
+            print("Warning: fine tet centroid {i} not in any coarse tet")
+
+
+def compute_R_and_P(coarse, fine):
     # 计算所有四面体的质心
     print(">>Computing all tet centroid...")
     compute_all_centroid(fine.pos, fine.tet_indices, fine.tet_centroid)
@@ -984,11 +922,10 @@ def compute_R_and_P_new(coarse, fine):
     print(">>Computing P and R...")
     t = time()
     M, N = coarse.tet_indices.shape[0], fine.tet_indices.shape[0]
-    R_builder = ti.linalg.SparseMatrixBuilder(M, N, max_num_triplets=40 * N)
-    compute_R_kernel_new(
-        fine.pos, fine.tet_indices, fine.tet_centroid, coarse.pos, coarse.tet_indices, coarse.tet_centroid, R_builder
+    R = np.zeros((M, N))
+    compute_R_kernel_np(
+        fine.pos, fine.tet_indices, fine.tet_centroid, coarse.pos, coarse.tet_indices, coarse.tet_centroid, R
     )
-    R = R_builder.build()
     P = R.transpose()
     print(f"Computing P and R done, time = {time() - t}")
     # print(f"writing P and R...")
@@ -1004,60 +941,13 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    model_path = Path(meta.args.fine_model_path).parent.as_posix() + "/"
-
     fine = ArapMultigrid(meta.args.fine_model_path)
     coarse = ArapMultigrid(meta.args.coarse_model_path)
 
     fine.initialize()
     coarse.initialize()
 
-    if coarse.max_iter == 0:
-        suffix = "onlyfine"
-        info("#############################################")
-        info("########## Using Only Fine Mesh ###########")
-        info("#############################################")
-    elif fine.max_iter == 0:
-        suffix = "onlycoarse"
-        info("#############################################")
-        info("########## Using Only Coarse Mesh ###########")
-        info("#############################################")
-    elif fine.max_iter != 0 and coarse.max_iter != 0:
-        if meta.args.multigrid_type == "HPBD":
-            info("#############################################")
-            info("########## Using HPBD Multigrid #############")
-            info("#############################################")
-            suffix = "hpbd"
-            P = scipy.io.mmread(model_path + "P_pos.mtx")
-            R = scipy.io.mmread(model_path + "R_pos.mtx")
-        elif meta.args.multigrid_type == "AMG":
-            info("#############################################")
-            info("########## Using AMG Multigrid ##############")
-            info("#############################################")
-            suffix = "amg"
-            # R, P = compute_R_and_P(coarse, fine)
-            R, P = compute_R_and_P_new(coarse, fine)
-
-    if meta.args.solver_type == "Jacobian":
-        info("#############################################")
-        info("########## Using Jacobian Solver ############")
-        info("#############################################")
-    elif meta.args.solver_type == "DirectSolver":
-        info("#############################################")
-        info("########## Using Direct Solver ##############")
-        info("#############################################")
-
-    meta.energy_filename = "result/log/totalEnergy_" + (suffix) + ".txt"
-    meta.residual_filename = "result/log/residual_" + (suffix) + ".txt"
-    if os.path.exists(meta.energy_filename):
-        os.remove(meta.energy_filename)
-    if os.path.exists(meta.residual_filename):
-        os.remove(meta.residual_filename)
-
-    save_state_filename = "result/save/frame_"
-    if meta.load_at != -1:
-        meta.filename_to_load = save_state_filename + str(meta.load_at) + ".npz"
-        load_state(meta.filename_to_load, fine, coarse)
+    R, P = compute_R_and_P(coarse, fine)
 
     window = ti.ui.Window("3D ARAP FEM XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
@@ -1069,8 +959,6 @@ def main():
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
     gui = window.get_gui()
     wire_frame = True
-    show_coarse_mesh = True
-    show_fine_mesh = True
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -1084,49 +972,15 @@ def main():
         if window.is_pressed(ti.ui.SPACE):
             meta.pause = not meta.pause
 
-        gui.text("frame {}".format(meta.frame))
-        meta.pause = gui.checkbox("pause", meta.pause)
-        wire_frame = gui.checkbox("wireframe", wire_frame)
-        show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
-        show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
-        coarse.max_iter = gui.slider_int("coarse_iter", coarse.max_iter, 0, 50)
-        fine.max_iter = gui.slider_int("fine_iter", fine.max_iter, 0, 50)
-        gui.text("total iterations: {}".format(coarse.max_iter + fine.max_iter))
-
-        if meta.frame == meta.frame_to_save:
-            save_state(save_state_filename + str(meta.frame), fine, coarse)
-
         if not meta.pause:
             info("----")
             info(f"frame {meta.frame}")
             t = time()
-            if coarse.max_iter == 0 and fine.max_iter != 0:
-                fine.substep_single_mesh(meta.args.solver_type)
-                show_coarse_mesh = False
-            elif fine.max_iter == 0 and coarse.max_iter != 0:
-                coarse.substep_single_mesh(meta.args.solver_type)
-                show_fine_mesh = False
-            elif fine.max_iter != 0 and coarse.max_iter != 0:
-                if meta.args.multigrid_type == "HPBD":
-                    substep_hpbd(P, R, fine, coarse, meta.args.solver_type)
-                elif meta.args.multigrid_type == "AMG":
-                    substep_amg(P, R, fine)
-                    # substep_amg_pure_numerical(P, R, fine)
-
-            # ti.profiler.print_kernel_profiler_info()
+            substep_amg(P, R, fine)
             info(f"step time: {time() - t}")
-
             meta.frame += 1
 
-        if meta.frame == meta.max_frame:
-            window.running = False
-
-        if show_fine_mesh:
-            scene.mesh(fine.pos, fine.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
-
-        if show_coarse_mesh:
-            scene.mesh(coarse.pos, coarse.display_indices, color=(0.0, 0.5, 1.0), show_wireframe=wire_frame)
-
+        scene.mesh(fine.pos, fine.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
         canvas.scene(scene)
         window.show()
 

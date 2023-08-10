@@ -811,68 +811,6 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
     return x_new, residual
 
 
-@ti.kernel
-def compute_A_matrix_free(
-    gradC: ti.types.ndarray(),
-    inv_mass: ti.types.ndarray(),
-    alpha_tilde: ti.types.ndarray(),
-    A_triplet: ti.types.ndarray(),
-):
-    ...
-
-
-def substep_amg_pure_numerical(P, R, fine):
-    ...
-    semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-
-    copy_field(fine.pos_mid, fine.pos)
-    gradC_mat = fine.assemble_gradC()
-    inv_mass_mat = fine.assemble_inv_mass()
-    alpha_tilde_mat = fine.assemble_alpha_tilde()
-
-    A1 = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
-    b1 = fine.residual.to_numpy()
-
-    # pre-smooth jacobian:
-    fine.jacobi_iteration_sparse(A1, b1, b1, 3)
-
-    # # assemble A1, b1, x1, r1
-    # gradC_mat = fine.assemble_gradC()
-    # A1 = assemble_A(gradC_mat, fine.inv_mass_mat, fine.alpha_tilde_mat)
-    # b1 = fine.residual.to_numpy()
-    # x1 = fine.dlambda.to_numpy()
-    # r1 = b1 - A1 @ x1
-    # print(f"b1:{np.linalg.norm(b1)}")
-    # print(f"r1 after pre-smooth:{np.linalg.norm(r1)}")
-
-    # # restriction: pass r1 to r2 and construct A2
-    # r2 = R @ r1
-    # A2 = R @ A1 @ P
-
-    # # solve coarse level A2E2=r2
-    # E2 = solve_direct_solver(A2, r2)
-
-    # # prolongation:
-    # E1 = P @ E2
-    # x1 += E1
-
-    # r1 = b1 - A1 @ x1
-    # print(f"r1 after pre-smooth:{np.linalg.norm(r1)}")
-
-    # fine.dlambda.from_numpy(x1)
-    # dpos = fine.inv_mass_mat @ gradC_mat.transpose() @ fine.dlambda
-    # fine.pos.from_numpy(fine.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-    # # post-smooth jacobian:
-    # for ite in range(3):
-    #     fine.solve_constraints_new()
-    # x1 = fine.dlambda.to_numpy()
-    # copy_field(fine.pos, fine.pos_mid)
-
-    collsion_response(fine.pos)
-    update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
-
-
 def substep_amg(P, R, fine):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
 
@@ -888,6 +826,9 @@ def substep_amg(P, R, fine):
     x1 = fine.dlambda.to_numpy()
     r1 = b1 - A1 @ x1
 
+    A1.mmwrite("A1.mtx")
+    print("write A1 to A1.mtx")
+    exit()
     print("r1 after pre-smooth:", np.linalg.norm(r1))
 
     # restriction: pass r1 to r2 and construct A2

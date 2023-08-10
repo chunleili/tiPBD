@@ -602,44 +602,49 @@ def load_state(filename):
     logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
-def substep_directsolver(instance, max_iter=1):
-    ist = instance
+def substep_directsolver(ist, max_iter=1):
+    # ist is instance of fine or coarse
 
-    semi_euler(meta.h, instance.pos, instance.predict_pos, instance.old_pos, instance.vel, meta.damping_coeff)
-    reset_lagrangian(instance.lagrangian)
+    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    reset_lagrangian(ist.lagrangian)
+
     for ite in range(max_iter):
         t = time()
 
+        # ----------------------------- prepare matrices ----------------------------- #
         # copy pos to pos_mid
-        instance.pos_mid.from_numpy(instance.pos.to_numpy())
+        ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
 
         # fill G matrix (gradC)
-        fill_gradC(instance.gradC_builder, instance.gradC, instance.tet_indices)
-        gradC_mat = instance.gradC_builder.build()
+        fill_gradC(ist.gradC_builder, ist.gradC, ist.tet_indices)
+        G = ist.gradC_builder.build()
 
-        # fill M_inv and AL
-        fill_invmass(instance.inv_mass_builder, instance.inv_mass)
-        fill_diag(instance.alpha_tilde_builder, instance.alpha_tilde)
-        inv_mass_mat = instance.inv_mass_builder.build()
-        alpha_tilde_mat = instance.alpha_tilde_builder.build()
+        # fill M_inv and ALPHA
+        fill_invmass(ist.inv_mass_builder, ist.inv_mass)
+        fill_diag(ist.alpha_tilde_builder, ist.alpha_tilde)
+        M_inv = ist.inv_mass_builder.build()
+        ALPHA = ist.alpha_tilde_builder.build()
 
         # assemble A and b
-        A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
-        b = -instance.constraint.to_numpy() - instance.alpha_tilde.to_numpy() * instance.lagrangian.to_numpy()
+        A = G @ M_inv @ G.transpose() + ALPHA
+        b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
+        # -------------------------------- solve Ax=b -------------------------------- #
         solver = ti.linalg.SparseSolver(solver_type="LLT")
         solver.analyze_pattern(A)
         solver.factorize(A)
         x = solver.solve(b)
         print(f"direct solver time of solve: {time() - t}")
 
-        instance.dlambda = x
-        dpos = inv_mass_mat @ gradC_mat.transpose() @ instance.dlambda
-        instance.pos.from_numpy(instance.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-    collsion_response(instance.pos)
-    update_velocity(meta.h, instance.pos, instance.old_pos, instance.vel)
+        # ------------------------- transfer data back to PBD ------------------------ #
+        ist.dlambda = x
+        dpos = M_inv @ G.transpose() @ ist.dlambda
+        ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+    collsion_response(ist.pos)
+    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 
 def main():
@@ -699,7 +704,7 @@ def main():
     gui = window.get_gui()
     wire_frame = True
     show_coarse_mesh = True
-    show_fine_mesh = True
+    show_fine_mesh = False
 
     if meta.use_multigrid:
         suffix = "mg"

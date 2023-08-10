@@ -640,7 +640,13 @@ def substep_directsolver(ist, max_iter=1):
 
         # ------------------------- transfer data back to PBD ------------------------ #
         ist.dlambda = x
+
+        # lam += dlambda
+        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + ist.dlambda)
+
+        # dpos = M_inv @ G^T @ dlambda
         dpos = M_inv @ G.transpose() @ ist.dlambda
+        # pos+=dpos
         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
     collsion_response(ist.pos)

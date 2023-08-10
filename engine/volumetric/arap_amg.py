@@ -159,7 +159,7 @@ class ArapMultigrid:
         self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
         self.residual = ti.field(ti.f32, shape=self.NT)
         self.dlambda = ti.field(ti.f32, shape=self.NT)
-        self.negative_C_plus_alpha_lambda = ti.field(ti.f32, shape=self.NT)
+        self.negative_C_minus_alpha_lambda = ti.field(ti.f32, shape=self.NT)
         self.tet_centroid = ti.Vector.field(3, ti.f32, shape=self.NT)
 
         self.state = [
@@ -522,20 +522,20 @@ def compute_C_gradC_kernel(
         gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
 
 
-def compute_negative_C_plus_alpha_lambda(constraint, alpha_tilde, lagrangian, negative_C_plus_alpha_lambda):
-    compute_negative_C_plus_alpha_lambda_kernel(constraint, alpha_tilde, lagrangian, negative_C_plus_alpha_lambda)
-    return negative_C_plus_alpha_lambda.to_numpy()
+def compute_negative_C_minus_alpha_lambda(constraint, alpha_tilde, lagrangian, negative_C_minus_alpha_lambda):
+    compute_negative_C_minus_alpha_lambda_kernel(constraint, alpha_tilde, lagrangian, negative_C_minus_alpha_lambda)
+    return negative_C_minus_alpha_lambda.to_numpy()
 
 
 @ti.kernel
-def compute_negative_C_plus_alpha_lambda_kernel(
+def compute_negative_C_minus_alpha_lambda_kernel(
     constraint: ti.template(),
     alpha_tilde: ti.template(),
     lagrangian: ti.template(),
-    negative_C_plus_alpha_lambda: ti.template(),
+    negative_C_minus_alpha_lambda: ti.template(),
 ):
-    for t in range(negative_C_plus_alpha_lambda.shape[0]):
-        negative_C_plus_alpha_lambda[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+    for t in range(negative_C_minus_alpha_lambda.shape[0]):
+        negative_C_minus_alpha_lambda[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
 
 
 @ti.kernel

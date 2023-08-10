@@ -137,7 +137,7 @@ class ArapMultigrid:
         self.gradC = ti.Vector.field(3, ti.f32, shape=(self.NT, 4))
         self.constraint = ti.field(ti.f32, shape=(self.NT))
         self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
-        self.residual = ti.field(ti.f32, shape=self.NT)
+        self.negative_C_minus_alpha_lambda = ti.field(ti.f32, shape=self.NT)
         self.dlambda = ti.field(ti.f32, shape=self.NT)
 
         self.state = [
@@ -159,7 +159,7 @@ class ArapMultigrid:
             self.gradC,
             self.constraint,
             self.dpos,
-            self.residual,
+            self.negative_C_minus_alpha_lambda,
             self.dlambda,
         ]
 
@@ -180,7 +180,7 @@ class ArapMultigrid:
             self.B,
             self.alpha_tilde,
             self.constraint,
-            self.residual,
+            self.negative_C_minus_alpha_lambda,
             self.gradC,
         )
 
@@ -192,7 +192,7 @@ class ArapMultigrid:
         inv_mass_mat = self.inv_mass_builder.build()
         alpha_tilde_mat = self.alpha_tilde_builder.build()
         self.A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
-        self.b = self.residual
+        self.b = self.negative_C_minus_alpha_lambda
         return self.A, self.b, gradC_mat, inv_mass_mat
 
     def direct_solver(self):
@@ -241,6 +241,28 @@ def fill_invmass(A: ti.types.sparse_matrix_builder(), val: ti.template()):
         A[3 * i, 3 * i] += val[i]
         A[3 * i + 1, 3 * i + 1] += val[i]
         A[3 * i + 2, 3 * i + 2] += val[i]
+
+
+@ti.kernel
+def compute_C_gradC_kernel(
+    pos_mid: ti.template(),
+    tet_indices: ti.template(),
+    B: ti.template(),
+    constraint: ti.template(),
+    gradC: ti.template(),
+):
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
 
 
 @ti.kernel
@@ -556,7 +578,7 @@ def log_energy(frame, filename_to_save):
 
 def log_residual(frame, filename_to_save):
     if frame in meta.log_residual_range:
-        r_norm = np.linalg.norm(fine.residual.to_numpy())
+        r_norm = np.linalg.norm(fine.negative_C_minus_alpha_lambda.to_numpy())
         logging.info("residual:\t{}".format(r_norm))
         with open(filename_to_save, "a") as f:
             np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
@@ -580,11 +602,43 @@ def load_state(filename):
     logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
-def substep_directsolver(instance):
+def substep_directsolver(instance, max_iter=1):
     semi_euler(meta.h, instance.pos, instance.predict_pos, instance.old_pos, instance.vel, meta.damping_coeff)
     reset_lagrangian(instance.lagrangian)
-    for ite in range(1):
-        instance.direct_solver()
+    for ite in range(max_iter):
+        t = time()
+
+        prepare_for_direct_solver(
+            instance.pos_mid,
+            instance.pos,
+            instance.tet_indices,
+            instance.lagrangian,
+            instance.B,
+            instance.alpha_tilde,
+            instance.constraint,
+            instance.negative_C_minus_alpha_lambda,
+            instance.gradC,
+        )
+
+        fill_gradC(instance.gradC_builder, instance.gradC, instance.tet_indices)
+        gradC_mat = instance.gradC_builder.build()
+        # compute schur complement as A
+        fill_invmass(instance.inv_mass_builder, instance.inv_mass)
+        fill_diag(instance.alpha_tilde_builder, instance.alpha_tilde)
+        inv_mass_mat = instance.inv_mass_builder.build()
+        alpha_tilde_mat = instance.alpha_tilde_builder.build()
+        A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
+        b = instance.negative_C_minus_alpha_lambda.to_numpy()
+
+        solver = ti.linalg.SparseSolver(solver_type="LLT")
+        solver.analyze_pattern(A)
+        solver.factorize(A)
+        x = solver.solve(b)
+        print(f"direct solver time of solve: {time() - t}")
+
+        instance.dlambda = x
+        dpos = inv_mass_mat @ gradC_mat.transpose() @ instance.dlambda
+        instance.pos.from_numpy(instance.pos_mid.to_numpy() + dpos.reshape(-1, 3))
     collsion_response(instance.pos)
     update_velocity(meta.h, instance.pos, instance.old_pos, instance.vel)
 
@@ -700,7 +754,7 @@ def main():
             info(f"frame {meta.frame}")
             t = time()
 
-            substep_directsolver(coarse)
+            substep_directsolver(coarse, 1)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

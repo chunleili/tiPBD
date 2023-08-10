@@ -826,11 +826,6 @@ def substep_amg(P, R, fine):
     x1 = fine.dlambda.to_numpy()
     r1 = b1 - A1 @ x1
 
-    A1.mmwrite("A1.mtx")
-    print("write A1 to A1.mtx")
-    exit()
-    print("r1 after pre-smooth:", np.linalg.norm(r1))
-
     # restriction: pass r1 to r2 and construct A2
     r2 = R @ r1
     A2 = R @ A1 @ P

@@ -711,7 +711,7 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=20, tolerance=1e-6, relativ
 
 
 # ---------------------------------------------------------------------------- #
-#                                      AMG                                     #
+#                                 direct_solver                                #
 # ---------------------------------------------------------------------------- #
 def solve_direct_solver(A, b):
     t = time()
@@ -725,6 +725,81 @@ def solve_direct_solver(A, b):
     return x
 
 
+@ti.kernel
+def fill_gradC(
+    A: ti.types.sparse_matrix_builder(),
+    gradC: ti.template(),
+    tet_indices: ti.template(),
+):
+    for j in range(tet_indices.shape[0]):
+        ind = tet_indices[j]
+        for p in range(4):
+            for d in range(3):
+                pid = ind[p]
+                A[j, 3 * pid + d] += gradC[j, p][d]
+
+
+def substep_directsolver(ist, max_iter=1):
+    # ist is instance of fine or coarse
+
+    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    reset_lagrangian(ist.lagrangian)
+
+    for ite in range(max_iter):
+        t = time()
+
+        # ----------------------------- prepare matrices ----------------------------- #
+        # copy pos to pos_mid
+        ist.pos_mid.from_numpy(ist.pos.to_numpy())
+
+        M = ist.NT
+        N = ist.NV
+        gradC_builder = ti.linalg.SparseMatrixBuilder(M, 3 * N, max_num_triplets=12 * M)
+        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * N, 3 * N, max_num_triplets=3 * N)
+        alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(M, M, max_num_triplets=12 * M)
+        A = ti.linalg.SparseMatrix(M, M)
+
+        compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
+
+        # fill G matrix (gradC)
+        fill_gradC(gradC_builder, ist.gradC, ist.tet_indices)
+        G = gradC_builder.build()
+
+        # fill M_inv and ALPHA
+        fill_invmass(inv_mass_builder, ist.inv_mass)
+        fill_diag(alpha_tilde_builder, ist.alpha_tilde)
+        M_inv = inv_mass_builder.build()
+        ALPHA = alpha_tilde_builder.build()
+
+        # assemble A and b
+        A = G @ M_inv @ G.transpose() + ALPHA
+        b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
+
+        # -------------------------------- solve Ax=b -------------------------------- #
+        solver = ti.linalg.SparseSolver(solver_type="LLT")
+        solver.analyze_pattern(A)
+        solver.factorize(A)
+        x = solver.solve(b)
+        print(f"direct solver time of solve: {time() - t}")
+
+        # ------------------------- transfer data back to PBD ------------------------ #
+        ist.dlambda = x
+
+        # lam += dlambda
+        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + ist.dlambda)
+
+        # dpos = M_inv @ G^T @ dlambda
+        dpos = M_inv @ G.transpose() @ ist.dlambda
+        # pos+=dpos
+        ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+    collsion_response(ist.pos)
+    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
+
+
+# ---------------------------------------------------------------------------- #
+#                                      AMG                                     #
+# ---------------------------------------------------------------------------- #
 def substep_amg(P, R, fine):
     semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
     reset_lagrangian(fine.lagrangian)
@@ -949,7 +1024,7 @@ def main():
 
     R, P = compute_R_and_P(coarse, fine)
 
-    window = ti.ui.Window("3D ARAP FEM XPBD", (1300, 900), vsync=True)
+    window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
     camera = ti.ui.Camera()
@@ -959,6 +1034,9 @@ def main():
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
     gui = window.get_gui()
     wire_frame = True
+    show_coarse_mesh = True
+    show_fine_mesh = False
+
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -972,15 +1050,30 @@ def main():
         if window.is_pressed(ti.ui.SPACE):
             meta.pause = not meta.pause
 
+        gui.text("frame {}".format(meta.frame))
+        meta.pause = gui.checkbox("pause", meta.pause)
+        wire_frame = gui.checkbox("wireframe", wire_frame)
+        show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
+        show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
+
         if not meta.pause:
             info("----")
             info(f"frame {meta.frame}")
             t = time()
-            substep_amg(P, R, fine)
-            info(f"step time: {time() - t}")
-            meta.frame += 1
 
-        scene.mesh(fine.pos, fine.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
+            substep_directsolver(coarse, 1)
+
+            meta.frame += 1
+            info(f"step time: {time() - t}")
+
+        if meta.frame == meta.max_frame:
+            window.running = False
+
+        if show_fine_mesh:
+            scene.mesh(fine.pos, fine.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
+        if show_coarse_mesh:
+            scene.mesh(coarse.pos, coarse.display_indices, color=(0.0, 0.5, 1.0), show_wireframe=wire_frame)
+
         canvas.scene(scene)
         window.show()
 

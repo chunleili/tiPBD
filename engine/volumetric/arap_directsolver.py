@@ -615,17 +615,24 @@ def substep_directsolver(ist, max_iter=1):
         # copy pos to pos_mid
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
+        M = ist.NT
+        N = ist.NV
+        gradC_builder = ti.linalg.SparseMatrixBuilder(M, 3 * N, max_num_triplets=12 * M)
+        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * N, 3 * N, max_num_triplets=3 * N)
+        alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(M, M, max_num_triplets=12 * M)
+        A = ti.linalg.SparseMatrix(M, M)
+
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
 
         # fill G matrix (gradC)
-        fill_gradC(ist.gradC_builder, ist.gradC, ist.tet_indices)
-        G = ist.gradC_builder.build()
+        fill_gradC(gradC_builder, ist.gradC, ist.tet_indices)
+        G = gradC_builder.build()
 
         # fill M_inv and ALPHA
-        fill_invmass(ist.inv_mass_builder, ist.inv_mass)
-        fill_diag(ist.alpha_tilde_builder, ist.alpha_tilde)
-        M_inv = ist.inv_mass_builder.build()
-        ALPHA = ist.alpha_tilde_builder.build()
+        fill_invmass(inv_mass_builder, ist.inv_mass)
+        fill_diag(alpha_tilde_builder, ist.alpha_tilde)
+        M_inv = inv_mass_builder.build()
+        ALPHA = alpha_tilde_builder.build()
 
         # assemble A and b
         A = G @ M_inv @ G.transpose() + ALPHA

@@ -580,6 +580,15 @@ def load_state(filename):
     logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
+def substep_directsolver(instance):
+    semi_euler(meta.h, instance.pos, instance.predict_pos, instance.old_pos, instance.vel, meta.damping_coeff)
+    reset_lagrangian(instance.lagrangian)
+    for ite in range(1):
+        instance.direct_solver()
+    collsion_response(instance.pos)
+    update_velocity(meta.h, instance.pos, instance.old_pos, instance.vel)
+
+
 def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
@@ -687,17 +696,14 @@ def main():
             save_state(save_state_filename + str(meta.frame))
 
         if not meta.pause:
-            info(f"######## frame {meta.frame} ########")
-            semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-            reset_lagrangian(fine.lagrangian)
-            for ite in range(1):
-                fine.direct_solver()
-            collsion_response(fine.pos)
-            update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
-            log_residual(meta.frame, residual_filename)
-            log_energy(meta.frame, energy_filename)
-            ti.profiler.print_kernel_profiler_info()
+            info("----")
+            info(f"frame {meta.frame}")
+            t = time()
+
+            substep_directsolver(coarse)
+
             meta.frame += 1
+            info(f"step time: {time() - t}")
 
         if meta.frame == meta.max_frame:
             window.running = False

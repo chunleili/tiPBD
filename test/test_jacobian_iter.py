@@ -117,7 +117,10 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=20, tolerance=1e-6, relativ
 
 
 if __name__ == "__main__":
-    A, b, x0 = prepare_A_b_x()
+    # A, b, x0 = prepare_A_b_x()
+    A = scipy.io.mmread("AAA.mtx")
+    b = np.loadtxt("bbb.txt")
+    x0 = np.zeros_like(b)
 
     # solving with dense matrix in taichi:
     x = x0.copy()

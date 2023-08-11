@@ -749,6 +749,7 @@ def substep_directsolver(ist, max_iter=1):
         t = time()
 
         # ----------------------------- prepare matrices ----------------------------- #
+        print("prepare matrices")
         # copy pos to pos_mid
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
@@ -797,7 +798,7 @@ def substep_directsolver(ist, max_iter=1):
     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 
-def substep_directsolver_scipy(ist, max_iter=1):
+def substep_jacobian(ist, max_iter=1):
     # ist is instance of fine or coarse
 
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
@@ -807,6 +808,8 @@ def substep_directsolver_scipy(ist, max_iter=1):
         t = time()
 
         # ----------------------------- prepare matrices ----------------------------- #
+        print(f"----iter {ite}----")
+        print("solving by jacobi")
         # copy pos to pos_mid
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
@@ -824,29 +827,34 @@ def substep_directsolver_scipy(ist, max_iter=1):
         inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
         M_inv = scipy.sparse.diags(inv_mass_np)
 
-        # assemble A and b
         alpha_tilde_np = ist.alpha_tilde.to_numpy()
         ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
+        # assemble A and b
         A = G @ M_inv @ G.transpose() + ALPHA
+        A = scipy.sparse.csr_matrix(A)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
         # -------------------------------- solve Ax=b -------------------------------- #
+        print("solve Ax=b")
         # solver = ti.linalg.SparseSolver(solver_type="LLT")
         # solver.analyze_pattern(A)
         # solver.factorize(A)
         # x = solver.solve(b)
         # print(f"direct solver time of solve: {time() - t}")
-        x = scipy.sparse.linalg.spsolve(A, b)
+        # x = scipy.sparse.linalg.spsolve(A, b)
+        x0 = np.zeros_like(b)
+        x, r = jacobi_iteration_sparse(A, b, x0, 100, 1e-6)
 
         # ------------------------- transfer data back to PBD ------------------------ #
-        ist.dlambda = x
+        print("transfer data back to PBD")
+        dlambda = x
 
         # lam += dlambda
-        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + ist.dlambda)
+        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
 
         # dpos = M_inv @ G^T @ dlambda
-        dpos = M_inv @ G.transpose() @ ist.dlambda
+        dpos = M_inv @ G.transpose() @ dlambda
         # pos+=dpos
         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
@@ -1116,13 +1124,13 @@ def main():
         show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
 
         if not meta.pause:
-            info("----")
+            info("\n\n----------------------")
             info(f"frame {meta.frame}")
             t = time()
 
             # substep_directsolver(coarse, 1)
-            # substep_directsolver_scipy(coarse, 5)
-            substep_amg(P, R, fine, 5)
+            substep_jacobian(coarse, 5)
+            # substep_amg(P, R, fine, 5)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

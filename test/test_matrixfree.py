@@ -13,6 +13,7 @@ lam = np.random.rand(m, 1)
 gradC_vec = np.random.rand(m, 4, 3)
 tet_indices = np.random.randint(low=0, high=n, size=(m, 4))
 inv_mass = np.random.rand(n).repeat(3)
+alpha_tilde = np.random.rand(m, 1)
 
 
 # ---------------------------------------------------------------------------- #
@@ -46,7 +47,7 @@ gradC_scipy = fill_gradC_scipy(gradC_vec)
 
 # Assemble A
 inv_mass_mat = scipy.sparse.diags(inv_mass)
-A = gradC_scipy @ inv_mass_mat @ gradC_scipy.T
+A = gradC_scipy @ inv_mass_mat
 print("A\n", A.todense())
 
 
@@ -64,3 +65,23 @@ def matmul(A, B):
         for j in range(k):
             for l in range(n):
                 C[i, j] += A[i, l] * B[l, j]
+
+
+def matrixfree_assemble_A(gradC, inv_mass, alpha_tilde):
+    # gradC: m x 3n
+    # inv_mass: 3n x 1
+    # alpha_tilde: m x 1
+    # A1: m x 3n
+    A1 = np.zeros((m, 3 * n), dtype=np.float32)
+    for j in range(tet_indices.shape[0]):
+        ind = tet_indices[j]
+        for p in range(4):
+            for d in range(3):
+                pid = ind[p]
+                A1[j, 3 * pid + d] += gradC[j, p][d] * inv_mass[3 * pid + d]
+
+    return A
+
+
+A_mf = matrixfree_assemble_A(gradC_vec, inv_mass, alpha_tilde)
+print("A mf\n", A_mf.todense())

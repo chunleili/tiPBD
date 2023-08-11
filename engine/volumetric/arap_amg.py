@@ -2,7 +2,7 @@ import taichi as ti
 from taichi.lang.ops import sqrt
 import numpy as np
 import logging
-from logging import info
+from logging import info, warning
 import scipy
 import sys, os, argparse
 from time import time
@@ -691,17 +691,21 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=20, tolerance=1e-6, relativ
 
         residual = b - (A @ x_new)
         r_norm = np.linalg.norm(residual)
+        r_norm_last = np.linalg.norm(b - (A @ x))
 
         if r_norm < tolerance:
-            print(f"reach abs tolerance at iter: {iteration}")
+            info(f"reach abs tolerance at iter: {iteration}")
             break
         elif r_norm < relative_tolerance * np.linalg.norm(b):
-            print(f"reach relative tolerance at iter: {iteration}")
+            info(f"reach relative tolerance at iter: {iteration}")
             break
         elif r_norm > 1e10:
-            print(f"diverge at iter: {iteration}")
+            Warning(f"diverge at iter: {iteration}")
             break
-        print(f"jacobian iter: {iteration}, residual: {r_norm}")
+        elif r_norm > r_norm_last:
+            Warning(f"r increased, diverge at iter: {iteration}")
+
+        info(f"jacobian iter: {iteration}, residual: {r_norm}")
         x = x_new.copy()
 
     if iteration == max_iterations - 1:
@@ -866,50 +870,49 @@ def substep_jacobian(ist, max_iter=1):
 #                                      AMG                                     #
 # ---------------------------------------------------------------------------- #
 def substep_amg(P, R, ist, max_iter=1):
+    # ist is instance of fine or coarse
+
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
 
     for ite in range(max_iter):
-        # ----------------prepare the matrices------------------
-        # M and N
-        M = ist.NT  # num of tet
-        N = ist.NV  # num of vertex
+        t = time()
 
-        R = scipy.sparse.csr_matrix(R)
-        P = scipy.sparse.csr_matrix(P)
+        # ----------------------------- prepare matrices ----------------------------- #
+        print(f"----iter {ite}----")
+        print("solving by AMG")
+        # copy pos to pos_mid
+        ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
-        # back up pos to pos_mid
-        ist.pos_mid.from_numpy(ist.pos.to_numpy().copy())
+        M = ist.NT
+        N = ist.NV
+        info(f"M={M}, N={N}")
 
-        # compute C and gradC
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
 
-        # assemble gradC_mat
-        G = np.zeros((M, 3 * N), dtype=np.float32)
+        # fill G matrix (gradC)
+        G = np.zeros((M, 3 * N))
         fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
         G = scipy.sparse.csr_matrix(G)
 
-        # assemble alphat_tilde
-        alpha_tilde_np = ist.alpha_tilde.to_numpy()
-        ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-        # assemble inv mass
+        # fill M_inv and ALPHA
         inv_mass_np = ist.inv_mass.to_numpy()
         inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
         M_inv = scipy.sparse.diags(inv_mass_np)
 
-        # assemble A1
-        A1 = G @ M_inv @ G.transpose() + ALPHA
+        alpha_tilde_np = ist.alpha_tilde.to_numpy()
+        ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
-        # assemble b1
+        # assemble A and b
+        print("assemble A and b")
+        A = G @ M_inv @ G.transpose() + ALPHA
+        A1 = scipy.sparse.csr_matrix(A)
         b1 = -ist.constraint.to_numpy() - alpha_tilde_np * ist.lagrangian.to_numpy()
 
         # x1 initial guess
         x1 = np.zeros_like(b1)
         r1 = b1 - A1 @ x1
         print("r1 initial(b1):", np.linalg.norm(r1))
-
-        print("A1 shape:", A1.shape)
         # ------------------------------------ AMG ----------------------------------- #
         print("--------start AMG---------")
 
@@ -942,13 +945,15 @@ def substep_amg(P, R, ist, max_iter=1):
 
         print("----------finish AMG-----------")
         # --------------------- transfer the matrices back to PBD -------------------- #
-        # dlambda = x1
-        ist.dlambda.from_numpy(x1)
+        print("transfer data back to PBD")
+        dlambda = x1
 
-        # dpos = M_inv @ G.transpose() @ dlambda
-        dpos = M_inv @ G.transpose() @ ist.dlambda.to_numpy()
+        # lam += dlambda
+        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
 
-        # pos += dpos
+        # dpos = M_inv @ G^T @ dlambda
+        dpos = M_inv @ G.transpose() @ dlambda
+        # pos+=dpos
         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
     collsion_response(ist.pos)
@@ -1068,6 +1073,7 @@ def compute_R_and_P(coarse, fine):
     compute_R_kernel_np(
         fine.pos, fine.tet_indices, fine.tet_centroid, coarse.pos, coarse.tet_indices, coarse.tet_centroid, R
     )
+    R = scipy.sparse.csr_matrix(R)
     P = R.transpose()
     print(f"Computing P and R done, time = {time() - t}")
     # print(f"writing P and R...")
@@ -1129,8 +1135,8 @@ def main():
             t = time()
 
             # substep_directsolver(coarse, 1)
-            substep_jacobian(coarse, 5)
-            # substep_amg(P, R, fine, 5)
+            # substep_jacobian(coarse, 1)
+            substep_amg(P, R, fine, 1)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

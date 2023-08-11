@@ -116,6 +116,83 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=20, tolerance=1e-6, relativ
     return x_new, residual
 
 
+import numpy as np
+
+
+def sor_jacobi(A, b, x0, omega, max_iterations, tol):
+    n = A.shape[0]
+    x = x0.copy()
+
+    for iteration in range(max_iterations):
+        x_new = x.copy()
+
+        for i in range(n):
+            x_new[i] = (1 - omega) * x[i] + (omega / A[i, i]) * (
+                b[i] - np.dot(A[i, :i], x_new[:i]) - np.dot(A[i, i + 1 :], x[i + 1 :])
+            )
+
+        residual = np.linalg.norm(A @ x_new - b)
+
+        print(f"iter: {iteration}, res: {residual:.2e}")
+
+        if residual < tol:
+            print(f"Converged after {iteration + 1} iterations.")
+            return x_new
+
+        x = x_new
+
+    print("Did not converge within the maximum number of iterations.")
+    return x
+
+
+def test_sor():
+    # Example usage
+    A = np.array([[1.0, -1.0, 0.0, -1.0], [-1.0, 1.0, -1.0, 0.0], [0.0, -1.0, 1.0, -1.0], [-1.0, 0.0, -1.0, 1.0]])
+
+    b = np.array([10.0, 10.0, 10.0, 10.0])
+    x0 = np.zeros(4)
+    omega = 0.0001  # SOR relaxation parameter
+    max_iterations = 1000
+    tolerance = 1e-6
+
+    solution = sor_jacobi(A, b, x0, omega, max_iterations, tolerance)
+    print("Solution:", solution)
+
+    x_true = np.linalg.solve(A, b)
+    print("True Solution By DirectSolver:", x_true)
+
+
+test_sor()
+
+
+def jacobi_with_pivot(A, b, x0, max_iterations, tol):
+    """
+    选主元的雅可比迭代法
+    """
+    n = A.shape[0]
+    x = x0.copy()
+
+    for iteration in range(max_iterations):
+        x_new = np.zeros(n)
+        for i in range(n):
+            pivot_row = np.argmax(np.abs(A[i, :]))  # Choose pivot element
+            if i != pivot_row:
+                A[[i, pivot_row], :] = A[[pivot_row, i], :]  # Swap rows
+                b[i], b[pivot_row] = b[pivot_row], b[i]  # Swap elements of b
+
+            x_new[i] = (b[i] - np.dot(A[i, :i], x[:i]) - np.dot(A[i, i + 1 :], x[i + 1 :])) / A[i, i]
+
+        residual = np.linalg.norm(A @ x_new - b)
+        if residual < tol:
+            print(f"Converged after {iteration + 1} iterations.")
+            return x_new
+
+        x = x_new
+
+    print("Did not converge within the maximum number of iterations.")
+    return x
+
+
 if __name__ == "__main__":
     # A, b, x0 = prepare_A_b_x()
     A = scipy.io.mmread("AAA.mtx")

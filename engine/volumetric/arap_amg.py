@@ -714,6 +714,40 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=20, tolerance=1e-6, relativ
     return x_new, residual
 
 
+def solve_sor(A, b, x0, omega, max_iterations, atol):
+    n = A.shape[0]
+    x = x0.copy()
+
+    # D = np.diag(A)
+    # L = np.tril(A, k=-1)
+    # U = np.triu(A, k=1)
+    # Lw = np.linalg.inv(D + omega * L) @ (- omega * U + (1 - omega) * D )
+    # spectral_radius_Lw = max(abs(np.linalg.eigvals(Lw)))
+    # print(f"spectral radius of Lw: {spectral_radius_Lw:.2f}")
+
+    for iteration in range(max_iterations):
+        x_new = x.copy()
+
+        for i in range(n):
+            x_new[i] = (1 - omega) * x[i] + (omega / A[i, i]) * (
+                b[i] - np.dot(A[i, :i], x_new[:i]) - np.dot(A[i, i + 1 :], x[i + 1 :])
+            )
+
+        r = A @ x_new - b
+        r_norm = np.linalg.norm(A @ x_new - b)
+
+        print(f"iter: {iteration}, res: {r_norm:.2e}")
+
+        if r_norm < atol:
+            print(f"Converged after {iteration + 1} iterations.")
+            return x_new, r
+
+        x = x_new
+
+    print("Did not converge within the maximum number of iterations.")
+    return x_new, r
+
+
 # ---------------------------------------------------------------------------- #
 #                                 direct_solver                                #
 # ---------------------------------------------------------------------------- #
@@ -802,6 +836,9 @@ def substep_directsolver(ist, max_iter=1):
     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 
+# ---------------------------------------------------------------------------- #
+#                               Jacobi Iteration                               #
+# ---------------------------------------------------------------------------- #
 def substep_jacobian(ist, max_iter=1):
     # ist is instance of fine or coarse
 
@@ -849,6 +886,71 @@ def substep_jacobian(ist, max_iter=1):
         # x = scipy.sparse.linalg.spsolve(A, b)
         x0 = np.zeros_like(b)
         x, r = jacobi_iteration_sparse(A, b, x0, 100, 1e-6)
+
+        # ------------------------- transfer data back to PBD ------------------------ #
+        print("transfer data back to PBD")
+        dlambda = x
+
+        # lam += dlambda
+        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
+
+        # dpos = M_inv @ G^T @ dlambda
+        dpos = M_inv @ G.transpose() @ dlambda
+        # pos+=dpos
+        ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+    collsion_response(ist.pos)
+    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
+
+
+def substep_sor(ist, max_iter=1):
+    # ist is instance of fine or coarse
+
+    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    reset_lagrangian(ist.lagrangian)
+
+    for ite in range(max_iter):
+        t = time()
+
+        # ----------------------------- prepare matrices ----------------------------- #
+        print(f"----iter {ite}----")
+        print("solving by SOR")
+        # copy pos to pos_mid
+        ist.pos_mid.from_numpy(ist.pos.to_numpy())
+
+        M = ist.NT
+        N = ist.NV
+
+        compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
+
+        # fill G matrix (gradC)
+        G = np.zeros((M, 3 * N))
+        fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
+
+        # fill M_inv and ALPHA
+        inv_mass_np = ist.inv_mass.to_numpy()
+        inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+        M_inv = scipy.sparse.diags(inv_mass_np)
+
+        alpha_tilde_np = ist.alpha_tilde.to_numpy()
+        ALPHA = scipy.sparse.diags(alpha_tilde_np)
+
+        # assemble A and b
+        A = G @ M_inv @ G.transpose() + ALPHA
+        A = scipy.sparse.csr_matrix(A)
+        b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
+
+        # -------------------------------- solve Ax=b -------------------------------- #
+        print("solve Ax=b")
+        # solver = ti.linalg.SparseSolver(solver_type="LLT")
+        # solver.analyze_pattern(A)
+        # solver.factorize(A)
+        # x = solver.solve(b)
+        # print(f"direct solver time of solve: {time() - t}")
+        # x = scipy.sparse.linalg.spsolve(A, b)
+        x0 = np.zeros_like(b)
+        A = A.todense()
+        x, r = solve_sor(A, b, x0, 1.5, 100, 1e-6)
 
         # ------------------------- transfer data back to PBD ------------------------ #
         print("transfer data back to PBD")
@@ -1136,7 +1238,8 @@ def main():
 
             # substep_directsolver(coarse, 1)
             # substep_jacobian(coarse, 1)
-            substep_amg(P, R, fine, 1)
+            # substep_amg(P, R, fine, 1)
+            substep_sor(coarse)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

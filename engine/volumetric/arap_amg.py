@@ -29,6 +29,7 @@ parser.add_argument("--solver_type", type=str, default="Jacobian", choices=["Jac
 parser.add_argument("--multigrid_type", type=str, default="HPBD", choices=["HPBD", "AMG", "GMG"])
 parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
 parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
+parser.add_argument("--kmeans_k", type=int, default=1000)
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
@@ -1184,6 +1185,52 @@ def compute_R_and_P(coarse, fine):
     return R, P
 
 
+def compute_R_and_P_kmeans(fine):
+    from scipy.cluster.vq import vq, kmeans, whiten
+
+    # 计算所有四面体的质心
+    print(">>Computing all tet centroid...")
+    compute_all_centroid(fine.pos, fine.tet_indices, fine.tet_centroid)
+    # np.savetxt("fine_tet_centroid.txt", fine.tet_centroid.to_numpy())
+
+    # 计算R 和 P
+    print(">>Computing P and R...")
+    t = time()
+
+    # ----------------------------------- kmans ---------------------------------- #
+    print("kmeans start")
+    input = fine.tet_centroid.to_numpy()
+    N = input.shape[0]
+    k = int(N / 100)
+    print("N: ", N)
+    print("k: ", k)
+
+    # run kmeans
+    input = whiten(input)
+    print("whiten done")
+
+    centroids, distortion = kmeans(obs=input, k_or_guess=k, iter=20)
+    labels, _ = vq(input, centroids)
+
+    print("kmeans done")
+    print("distortion: ", distortion)
+
+    # ----------------------------------- kmans ---------------------------------- #
+    R = np.zeros((fine.NT, k))
+
+    # TODO
+    # compute_R_based_on_kmeans_label(fine.tet_centroid, labels, R)
+
+    # R = scipy.sparse.csr_matrix(R)
+    P = R.transpose()
+    print(f"Computing P and R done, time = {time() - t}")
+
+    print(f"writing P and R...")
+    R.mmwrite("R.mtx")
+    P.mmwrite("P.mtx")
+    return R, P
+
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1198,6 +1245,7 @@ def main():
     coarse.initialize()
 
     R, P = compute_R_and_P(coarse, fine)
+    # R, P = compute_R_and_P_kmeans(fine)
 
     window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()

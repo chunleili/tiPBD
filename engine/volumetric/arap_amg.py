@@ -832,12 +832,13 @@ def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
         print(f"iter: {iteration}, res: {r_norm:.2e}")
 
         if r_norm < tolerance:
-            print(f"Converged after {iteration + 1} iterations.")
+            print(f"Converged after {iteration + 1} iterations. Final residual: {r_norm:.2e}")
             return x_new, r
 
         x = x_new
 
     print("Did not converge within the maximum number of iterations.")
+    print(f"Final residual: {r_norm:.2e}")
     return x_new, r
 
 
@@ -853,13 +854,45 @@ def solve_direct_solver(A, b):
     return x
 
 
+@ti.kernel
+def gauss_seidel_kernel(A: ti.types.ndarray(), b: ti.types.ndarray(), x: ti.types.ndarray(), xOld: ti.types.ndarray()):
+    N = b.shape[0]
+    for i in range(N):
+        entry = b[i]
+        diagonal = A[i, i]
+        if ti.abs(diagonal) < 1e-10:
+            print("Diagonal element is too small")
+
+        for j in range(i):
+            entry -= A[i, j] * x[j]
+        for j in range(i + 1, N):
+            entry -= A[i, j] * xOld[j]
+        x[i] = entry / diagonal
+
+
+def solve_gauss_seidel_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
+    x = x0.copy()
+    for iter in range(max_iterations):
+        xOld = x.copy()
+        gauss_seidel_kernel(A, b, x, xOld)
+        r = A @ x - b
+        r_norm = np.linalg.norm(r)
+        print(f"iter: {iter}, res: {r_norm:.2e}")
+        if r_norm < tolerance:
+            print(f"Converge at iter: {iter}. Final residual: {r_norm:.2e}")
+            return x, r
+    if iter == max_iterations - 1:
+        print("Max iteration reached.")
+    return x, r
+
+
 # ---------------------------------------------------------------------------- #
 #                               substep functions                              #
 # ---------------------------------------------------------------------------- #
 
 
 # direct solver taichi
-def substep_directsolver(ist, max_iter=1):
+def substep_directsolver_ti(ist, max_iter=1):
     # ist is instance of fine or coarse
 
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
@@ -960,7 +993,6 @@ def substep_directsolver_scipy(ist, max_iter=1):
         print("solve Ax=b")
         x = scipy.sparse.linalg.spsolve(A, b)
         print(f"direct solver time of solve: {time() - t}")
-        x = scipy.sparse.linalg.spsolve(A, b)
 
         # ------------------------- transfer data back to PBD ------------------------ #
         print("transfer data back to PBD")
@@ -1122,6 +1154,76 @@ def substep_sor(ist, max_iter=1):
     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 
+def substep_gauss_seidel(ist, max_iter=1):
+    # ist is instance of fine or coarse
+
+    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    reset_lagrangian(ist.lagrangian)
+
+    for ite in range(max_iter):
+        t = time()
+
+        # ----------------------------- prepare matrices ----------------------------- #
+        print(f"----iter {ite}----")
+        print("Solving by Gauss-Seidel")
+        print("Assembling matrix")
+        # copy pos to pos_mid
+        ist.pos_mid.from_numpy(ist.pos.to_numpy())
+
+        M = ist.NT
+        N = ist.NV
+
+        compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
+
+        # fill G matrix (gradC)
+        G = np.zeros((M, 3 * N))
+        fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
+        G = scipy.sparse.csr_matrix(G)
+
+        # fill M_inv and ALPHA
+        inv_mass_np = ist.inv_mass.to_numpy()
+        inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+        M_inv = scipy.sparse.diags(inv_mass_np)
+
+        alpha_tilde_np = ist.alpha_tilde.to_numpy()
+        ALPHA = scipy.sparse.diags(alpha_tilde_np)
+
+        # assemble A and b
+        print("Assemble A")
+        A = G @ M_inv @ G.transpose() + ALPHA
+        A = scipy.sparse.csr_matrix(A)
+        b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
+
+        # print("Assemble matrix done")
+        # print("Save matrix to file")
+        # scipy.io.mmwrite("A.mtx", A)
+        # np.savetxt("b.txt", b)
+        # exit()
+
+        # -------------------------------- solve Ax=b -------------------------------- #
+        print("solve Ax=b")
+        x0 = np.zeros_like(b)
+        # A = scipy.sparse.csr_matrix(A)
+        A = A.todense()
+        A = np.asarray(A)
+        x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)
+
+        # ------------------------- transfer data back to PBD ------------------------ #
+        print("transfer data back to PBD")
+        dlambda = x
+
+        # lam += dlambda
+        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
+
+        # dpos = M_inv @ G^T @ dlambda
+        dpos = M_inv @ G.transpose() @ dlambda
+        # pos+=dpos
+        ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+    collsion_response(ist.pos)
+    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
+
+
 # ---------------------------------------------------------------------------- #
 #                                      AMG                                     #
 # ---------------------------------------------------------------------------- #
@@ -1172,14 +1274,14 @@ def substep_amg(P, R, ist, max_iter=1):
         # ------------------------------------ AMG ----------------------------------- #
         print("--------start AMG---------")
         A1 = A1.todense()
-        A1 = np.asarray(A1)
         P = P.todense()
         R = R.todense()
+        A1 = np.asarray(A1)
         P = np.asarray(P)
         R = np.asarray(R)
 
         # 1. pre-smooth jacobian
-        print(">>> 1. pre-smooth jacobian")
+        print(">>> 1. pre-smooth")
         x1, r1 = solve_sor(A1, b1, x1, max_iterations=50, tolerance=1e-2)
         print(f"r1 after pre-smooth:{np.linalg.norm(r1):.2e}")
 
@@ -1204,7 +1306,7 @@ def substep_amg(P, R, ist, max_iter=1):
         print(f"r1 after solve coarse:{ np.linalg.norm(r1):.2e}")
 
         # 5 post-smooth jacobian
-        print(">>> 5. post-smooth jacobian")
+        print(">>> 5. post-smooth")
         x1, r1 = solve_sor(A1, b1, x1, max_iterations=100, tolerance=1e-5)
         print(f"r1 after post-smooth:{np.linalg.norm(r1):.2e}")
 
@@ -1459,11 +1561,12 @@ def main():
             info(f"frame {meta.frame}")
             t = time()
 
-            # substep_directsolver_scipy(fine, 3)
-            # substep_directsolver(coarse, 1)
+            # substep_directsolver_ti(coarse, 1)
+            # substep_directsolver_scipy(coarse, 1)
             # substep_jacobian(coarse, 1)
-            substep_amg(P, R, coarse, 1)
+            # substep_amg(P, R, coarse, 1)
             # substep_sor(coarse, 1)
+            substep_gauss_seidel(coarse, 1)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

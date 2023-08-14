@@ -25,8 +25,10 @@ parser.add_argument("--dt", type=float, default=3e-3)
 parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
-parser.add_argument("--solver_type", type=str, default="Jacobian", choices=["Jacobian", "GaussSeidel", "DirectSolver"])
-parser.add_argument("--multigrid_type", type=str, default="HPBD", choices=["HPBD", "AMG", "GMG"])
+parser.add_argument(
+    "--solver_type", type=str, default="Jacobian", choices=["Jacobian", "GaussSeidel", "DirectSolver", "SOR"]
+)
+parser.add_argument("--multigrid_type", type=str, default="HPBD", choices=["HPBD", "AMG"])
 parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
 parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
@@ -365,8 +367,18 @@ def init_physics(
         inv_mass[i] = 1.0 / mass[i]
 
     # init alpha_tilde
+    avg_alpha_tilde = 0.0
+    max_alpha_tilde = 0.0
+    min_alpha_tilde = 1e10
     for i in alpha_tilde:
         alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V[i]
+        avg_alpha_tilde += alpha_tilde[i]
+        max_alpha_tilde = ti.math.max(max_alpha_tilde, alpha_tilde[i])
+        min_alpha_tilde = ti.math.min(min_alpha_tilde, alpha_tilde[i])
+    avg_alpha_tilde /= alpha_tilde.shape[0]
+    print("avg_alpha_tilde: ", avg_alpha_tilde)
+    print("max_alpha_tilde: ", max_alpha_tilde)
+    print("min_alpha_tilde: ", min_alpha_tilde)
 
     # init par_2_tet
     for i in tet_indices:
@@ -795,7 +807,7 @@ def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, atol=1e-6):
     return x, r
 
 
-def solve_sor(A, b, x0, omega, max_iterations, atol):
+def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
     n = A.shape[0]
     x = x0.copy()
 
@@ -819,7 +831,7 @@ def solve_sor(A, b, x0, omega, max_iterations, atol):
 
         print(f"iter: {iteration}, res: {r_norm:.2e}")
 
-        if r_norm < atol:
+        if r_norm < tolerance:
             print(f"Converged after {iteration + 1} iterations.")
             return x_new, r
 
@@ -1159,10 +1171,16 @@ def substep_amg(P, R, ist, max_iter=1):
         print(f"r1 initial(b1):{np.linalg.norm(r1)}")
         # ------------------------------------ AMG ----------------------------------- #
         print("--------start AMG---------")
+        A1 = A1.todense()
+        A1 = np.asarray(A1)
+        P = P.todense()
+        R = R.todense()
+        P = np.asarray(P)
+        R = np.asarray(R)
 
         # 1. pre-smooth jacobian
         print(">>> 1. pre-smooth jacobian")
-        x1, r1 = solve_jacobian_sparse(A1, b1, x1, max_iterations=50, tolerance=1e-3)
+        x1, r1 = solve_sor(A1, b1, x1, max_iterations=50, tolerance=1e-2)
         print(f"r1 after pre-smooth:{np.linalg.norm(r1):.2e}")
 
         # 2 restriction: pass r1 to r2 and construct A2
@@ -1172,20 +1190,23 @@ def substep_amg(P, R, ist, max_iter=1):
         A2 = R @ A1 @ P
 
         # 3 solve coarse level A2E2=r2
-        print(">>> 3. solve coarse and prolongate")
-        E2 = scipy.sparse.linalg.spsolve(A2, r2)
+        print(">>> 3. solve coarse")
+        # E2 = scipy.sparse.linalg.spsolve(A2, r2)
+        E2 = np.linalg.solve(A2, r2)
 
         # 4 prolongation: get E1 and add to x1
         print(">>> 4. prolongate")
         E1 = P @ E2
         x1 += E1
 
+        print(f"r1 before solve coarse:{ np.linalg.norm(r1):.2e}")
         r1 = b1 - A1 @ x1
         print(f"r1 after solve coarse:{ np.linalg.norm(r1):.2e}")
 
         # 5 post-smooth jacobian
         print(">>> 5. post-smooth jacobian")
-        x1, r1 = solve_jacobian_sparse(A1, b1, x1, max_iterations=100, tolerance=1e-5, relative_tolerance=1e-5)
+        x1, r1 = solve_sor(A1, b1, x1, max_iterations=100, tolerance=1e-5)
+        print(f"r1 after post-smooth:{np.linalg.norm(r1):.2e}")
 
         print("----------finish AMG-----------")
         # --------------------- transfer the matrices back to PBD -------------------- #
@@ -1337,7 +1358,7 @@ def compute_R_and_P(coarse, fine):
     return R, P
 
 
-def compute_R_and_P_kmeans(fine):
+def compute_R_and_P_kmeans(ist):
     print(">>Computing P and R...")
     t = time()
 
@@ -1345,12 +1366,11 @@ def compute_R_and_P_kmeans(fine):
 
     # 计算所有四面体的质心
     print(">>Computing all tet centroid...")
-    compute_all_centroid(fine.pos, fine.tet_indices, fine.tet_centroid)
-    # np.savetxt("fine_tet_centroid.txt", fine.tet_centroid.to_numpy())
+    compute_all_centroid(ist.pos, ist.tet_indices, ist.tet_centroid)
 
     # ----------------------------------- kmans ---------------------------------- #
     print("kmeans start")
-    input = fine.tet_centroid.to_numpy()
+    input = ist.tet_centroid.to_numpy()
     N = input.shape[0]
     k = int(N / 100)
     print("N: ", N)
@@ -1378,10 +1398,10 @@ def compute_R_and_P_kmeans(fine):
     P = R.transpose()
     print(f"Computing P and R done, time = {time() - t}")
 
-    print(f"writing P and R...")
-    scipy.io.mmwrite("R.mtx", R)
-    scipy.io.mmwrite("P.mtx", P)
-    print(f"writing P and R done")
+    # print(f"writing P and R...")
+    # scipy.io.mmwrite("R.mtx", R)
+    # scipy.io.mmwrite("P.mtx", P)
+    # print(f"writing P and R done")
 
     return R, P
 
@@ -1400,7 +1420,7 @@ def main():
     coarse.initialize()
 
     # R, P = compute_R_and_P(coarse, fine)
-    # R, P = compute_R_and_P_kmeans(fine)
+    R, P = compute_R_and_P_kmeans(coarse)
 
     window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
@@ -1413,7 +1433,7 @@ def main():
     gui = window.get_gui()
     wire_frame = True
     show_coarse_mesh = True
-    show_fine_mesh = True
+    show_fine_mesh = False
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
@@ -1442,7 +1462,7 @@ def main():
             # substep_directsolver_scipy(fine, 3)
             # substep_directsolver(coarse, 1)
             # substep_jacobian(coarse, 1)
-            substep_amg(P, R, fine, 1)
+            substep_amg(P, R, coarse, 1)
             # substep_sor(coarse, 1)
 
             meta.frame += 1

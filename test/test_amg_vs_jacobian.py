@@ -10,15 +10,15 @@ sys.path.append(os.getcwd())
 
 def test_amg_vs_jacobian():
     print("loading data...")
-    A1 = scipy.io.mmread("A1.mtx")
-    b1 = np.loadtxt("b1.txt")
+    A1 = scipy.io.mmread("A.mtx")
+    b1 = np.loadtxt("b.txt")
     R = scipy.io.mmread("R.mtx")
     # P = scipy.io.mmread("P.mtx")
     # R = sp.random(1000, 34295, density=0.001, dtype=bool)
     P = R.transpose()
     print(f"R: {R.shape}, P: {P.shape}, A1: {A1.shape}, b1: {b1.shape}")
     t = time()
-    amg_step(A1, b1, R, P)
+    amg_step_new(A1, b1, R, P)
     print(f"AMG time: {time() - t}")
 
 
@@ -30,14 +30,13 @@ def jacobi_iteration(A, b, x0, max_iterations=100, tolerance=1e-6):
         for i in range(n):
             sum_term = np.dot(A[i, :n], x[:n]) - A[i, i] * x[i]
             x_new[i] = (b[i] - sum_term) / A[i, i]
-        residual = (b - np.dot(A, x_new))
+        residual = b - np.dot(A, x_new)
         r_norm = np.linalg.norm(residual)
         if r_norm < tolerance:
             break
         print(f"iter: {iteration}, residual: {residual}")
         x = x_new.copy()
     return x_new, residual
-
 
 
 # 定义稀疏矩阵的雅可比迭代函数
@@ -60,6 +59,38 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
         print(f"jacobian iter: {iteration}, residual: {r_norm}")
         x = x_new.copy()
     return x_new, residual
+
+
+def amg_step_new(A1, b1, R, P):
+    # 1. pre-smooth jacobian
+    print(">>> 1. pre-smooth jacobian")
+    x1 = b1.copy()
+    x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=2)
+    print("r1 after pre-smooth:", np.linalg.norm(r1))
+
+    # 2 restriction: pass r1 to r2 and construct A2
+    print(">>> 2. restriction")
+    # print(R.shape, r1.shape, P.shape, A1.shape)
+    r2 = R @ r1
+    A2 = R @ A1 @ P
+
+    # 3 solve coarse level A2E2=r2
+    print(">>> 3. solve coarse and prolongate")
+    E2 = scipy.sparse.linalg.spsolve(A2, r2)
+
+    # 4 prolongation: get E1 and add to x1
+    print(">>> 4. prolongate")
+    E1 = P @ E2
+    x1 += E1
+
+    r1 = b1 - A1 @ x1
+    print("r1 after solve coarse and prolongate:", np.linalg.norm(r1))
+
+    # 5 post-smooth jacobian
+    print(">>> 5. post-smooth jacobian")
+    x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=100)
+
+    print("----------finish AMG-----------")
 
 
 def amg_step(A1, b1, R, P):

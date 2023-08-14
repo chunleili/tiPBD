@@ -673,7 +673,7 @@ def jacobian_residual_kernel(A: ti.template(), b: ti.types.ndarray(), x: ti.type
     return res
 
 
-def jacobi_iteration_sparse(A, b, x0, max_iterations=20, tolerance=1e-6, relative_tolerance=1e-12):
+def jacobi_iteration_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, relative_tolerance=1e-12):
     n = len(b)
     x = x0.copy()  # 初始解向量
     x_new = x0.copy()  # 存储更新后的解向量
@@ -685,7 +685,7 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=20, tolerance=1e-6, relativ
 
     residual = b - (A @ x_new)
     r_norm = np.linalg.norm(residual)
-    print(f"initial residual: {r_norm}")
+    print(f"initial residual: {r_norm:.2e}")
 
     for iteration in range(max_iterations):
         x_new = D_inv @ (b - (L + U) @ x)
@@ -706,7 +706,7 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=20, tolerance=1e-6, relativ
         elif r_norm > r_norm_last:
             Warning(f"r increased, diverge at iter: {iteration}")
 
-        info(f"jacobian iter: {iteration}, residual: {r_norm}")
+        info(f"jacobian iter: {iteration}, residual: {r_norm:.2e}")
         x = x_new.copy()
 
     if iteration == max_iterations - 1:
@@ -778,6 +778,7 @@ def fill_gradC(
                 A[j, 3 * pid + d] += gradC[j, p][d]
 
 
+# direct solver taichi
 def substep_directsolver(ist, max_iter=1):
     # ist is instance of fine or coarse
 
@@ -837,6 +838,66 @@ def substep_directsolver(ist, max_iter=1):
     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 
+def substep_directsolver_scipy(ist, max_iter=1):
+    # ist is instance of fine or coarse
+
+    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    reset_lagrangian(ist.lagrangian)
+
+    for ite in range(max_iter):
+        t = time()
+
+        # ----------------------------- prepare matrices ----------------------------- #
+        print(f"----iter {ite}----")
+        print("solving by direct solver scipy")
+        # copy pos to pos_mid
+        ist.pos_mid.from_numpy(ist.pos.to_numpy())
+
+        M = ist.NT
+        N = ist.NV
+
+        compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
+
+        # fill G matrix (gradC)
+        G = np.zeros((M, 3 * N))
+        fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
+        G = scipy.sparse.csr_matrix(G)
+
+        # fill M_inv and ALPHA
+        inv_mass_np = ist.inv_mass.to_numpy()
+        inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+        M_inv = scipy.sparse.diags(inv_mass_np)
+
+        alpha_tilde_np = ist.alpha_tilde.to_numpy()
+        ALPHA = scipy.sparse.diags(alpha_tilde_np)
+
+        # assemble A and b
+        A = G @ M_inv @ G.transpose() + ALPHA
+        A = scipy.sparse.csr_matrix(A)
+        b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
+
+        # -------------------------------- solve Ax=b -------------------------------- #
+        print("solve Ax=b")
+        x = scipy.sparse.linalg.spsolve(A, b)
+        print(f"direct solver time of solve: {time() - t}")
+        x = scipy.sparse.linalg.spsolve(A, b)
+
+        # ------------------------- transfer data back to PBD ------------------------ #
+        print("transfer data back to PBD")
+        dlambda = x
+
+        # lam += dlambda
+        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
+
+        # dpos = M_inv @ G^T @ dlambda
+        dpos = M_inv @ G.transpose() @ dlambda
+        # pos+=dpos
+        ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+    collsion_response(ist.pos)
+    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
+
+
 # ---------------------------------------------------------------------------- #
 #                               Jacobi Iteration                               #
 # ---------------------------------------------------------------------------- #
@@ -863,6 +924,7 @@ def substep_jacobian(ist, max_iter=1):
         # fill G matrix (gradC)
         G = np.zeros((M, 3 * N))
         fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
+        G = scipy.sparse.csr_matrix(G)
 
         # fill M_inv and ALPHA
         inv_mass_np = ist.inv_mass.to_numpy()
@@ -915,7 +977,8 @@ def substep_sor(ist, max_iter=1):
 
         # ----------------------------- prepare matrices ----------------------------- #
         print(f"----iter {ite}----")
-        print("solving by SOR")
+        print("Solving by SOR")
+        print("Assembling matrix")
         # copy pos to pos_mid
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
@@ -927,6 +990,7 @@ def substep_sor(ist, max_iter=1):
         # fill G matrix (gradC)
         G = np.zeros((M, 3 * N))
         fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
+        G = scipy.sparse.csr_matrix(G)
 
         # fill M_inv and ALPHA
         inv_mass_np = ist.inv_mass.to_numpy()
@@ -937,9 +1001,16 @@ def substep_sor(ist, max_iter=1):
         ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
         # assemble A and b
+        print("Assemble A")
         A = G @ M_inv @ G.transpose() + ALPHA
         A = scipy.sparse.csr_matrix(A)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
+
+        # print("Assemble matrix done")
+        # print("Save matrix to file")
+        # scipy.io.mmwrite("A.mtx", A)
+        # np.savetxt("b.txt", b)
+        # exit()
 
         # -------------------------------- solve Ax=b -------------------------------- #
         print("solve Ax=b")
@@ -951,7 +1022,7 @@ def substep_sor(ist, max_iter=1):
         # x = scipy.sparse.linalg.spsolve(A, b)
         x0 = np.zeros_like(b)
         A = A.todense()
-        x, r = solve_sor(A, b, x0, 1.5, 100, 1e-6)
+        x, r = solve_sor(A, b, x0, 1.5, 100, 1e-5)
 
         # ------------------------- transfer data back to PBD ------------------------ #
         print("transfer data back to PBD")
@@ -1008,21 +1079,21 @@ def substep_amg(P, R, ist, max_iter=1):
 
         # assemble A and b
         print("assemble A and b")
-        A = G @ M_inv @ G.transpose() + ALPHA
-        A1 = scipy.sparse.csr_matrix(A)
+        A1 = G @ M_inv @ G.transpose() + ALPHA
+        A1 = scipy.sparse.csr_matrix(A1)
         b1 = -ist.constraint.to_numpy() - alpha_tilde_np * ist.lagrangian.to_numpy()
 
         # x1 initial guess
         x1 = np.zeros_like(b1)
         r1 = b1 - A1 @ x1
-        print("r1 initial(b1):", np.linalg.norm(r1))
+        print(f"r1 initial(b1):{np.linalg.norm(r1)}")
         # ------------------------------------ AMG ----------------------------------- #
         print("--------start AMG---------")
 
         # 1. pre-smooth jacobian
         print(">>> 1. pre-smooth jacobian")
-        x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=2)
-        print("r1 after pre-smooth:", np.linalg.norm(r1))
+        x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=50, tolerance=1e-3)
+        print(f"r1 after pre-smooth:{np.linalg.norm(r1):.2e}")
 
         # 2 restriction: pass r1 to r2 and construct A2
         print(">>> 2. restriction")
@@ -1040,11 +1111,11 @@ def substep_amg(P, R, ist, max_iter=1):
         x1 += E1
 
         r1 = b1 - A1 @ x1
-        print("r1 after solve coarse and prolongate:", np.linalg.norm(r1))
+        print(f"r1 after solve coarse:{ np.linalg.norm(r1):.2e}")
 
         # 5 post-smooth jacobian
         print(">>> 5. post-smooth jacobian")
-        x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=100, tolerance=1e-3, relative_tolerance=1e-3)
+        x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=100, tolerance=1e-5, relative_tolerance=1e-5)
 
         print("----------finish AMG-----------")
         # --------------------- transfer the matrices back to PBD -------------------- #
@@ -1162,6 +1233,17 @@ def compute_R_kernel_np(
             print("Warning: fine tet centroid {i} not in any coarse tet")
 
 
+@ti.kernel
+def compute_R_based_on_kmeans_label(
+    labels: ti.types.ndarray(dtype=int),
+    R: ti.types.ndarray(),
+):
+    for i in range(R.shape[0]):
+        for j in range(R.shape[1]):
+            if labels[j] == i:
+                R[i, j] = 1
+
+
 def compute_R_and_P(coarse, fine):
     # 计算所有四面体的质心
     print(">>Computing all tet centroid...")
@@ -1186,16 +1268,15 @@ def compute_R_and_P(coarse, fine):
 
 
 def compute_R_and_P_kmeans(fine):
+    print(">>Computing P and R...")
+    t = time()
+
     from scipy.cluster.vq import vq, kmeans, whiten
 
     # 计算所有四面体的质心
     print(">>Computing all tet centroid...")
     compute_all_centroid(fine.pos, fine.tet_indices, fine.tet_centroid)
     # np.savetxt("fine_tet_centroid.txt", fine.tet_centroid.to_numpy())
-
-    # 计算R 和 P
-    print(">>Computing P and R...")
-    t = time()
 
     # ----------------------------------- kmans ---------------------------------- #
     print("kmeans start")
@@ -1209,25 +1290,29 @@ def compute_R_and_P_kmeans(fine):
     input = whiten(input)
     print("whiten done")
 
+    print("computing kmeans...")
     centroids, distortion = kmeans(obs=input, k_or_guess=k, iter=20)
     labels, _ = vq(input, centroids)
 
-    print("kmeans done")
     print("distortion: ", distortion)
+    print("kmeans done")
 
-    # ----------------------------------- kmans ---------------------------------- #
-    R = np.zeros((fine.NT, k))
+    # ----------------------------------- R and P --------------------------------- #
+    # 计算R 和 P
+    R = np.zeros((k, N), dtype=np.float32)
 
     # TODO
-    # compute_R_based_on_kmeans_label(fine.tet_centroid, labels, R)
+    compute_R_based_on_kmeans_label(labels, R)
 
-    # R = scipy.sparse.csr_matrix(R)
+    R = scipy.sparse.csr_matrix(R)
     P = R.transpose()
     print(f"Computing P and R done, time = {time() - t}")
 
     print(f"writing P and R...")
-    R.mmwrite("R.mtx")
-    P.mmwrite("P.mtx")
+    scipy.io.mmwrite("R.mtx", R)
+    scipy.io.mmwrite("P.mtx", P)
+    print(f"writing P and R done")
+
     return R, P
 
 
@@ -1244,8 +1329,8 @@ def main():
     fine.initialize()
     coarse.initialize()
 
-    R, P = compute_R_and_P(coarse, fine)
-    # R, P = compute_R_and_P_kmeans(fine)
+    # R, P = compute_R_and_P(coarse, fine)
+    R, P = compute_R_and_P_kmeans(fine)
 
     window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
@@ -1284,10 +1369,11 @@ def main():
             info(f"frame {meta.frame}")
             t = time()
 
+            # substep_directsolver_scipy(fine, 3)
             # substep_directsolver(coarse, 1)
             # substep_jacobian(coarse, 1)
             # substep_amg(P, R, fine, 1)
-            substep_sor(coarse)
+            substep_sor(coarse, 1)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

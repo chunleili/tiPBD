@@ -664,44 +664,47 @@ def fill_gradC(
 # ---------------------------------------------------------------------------- #
 #                              Ax=b Solvers                                    #
 # ---------------------------------------------------------------------------- #
-def jacobian_iter(A, b, x0, max_iterations=100, tolerance=1e-6):
+def solve_jacobian_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
+    print("Solving Ax=b using Jacobian, taichi implementation...")
+    n = A.shape[0]
     x = x0.copy()
 
-    res = jacobian_residual_kernel(A, b, x)
-    i = 0
-    while res > tolerance and i < max_iterations:
-        i += 1
-        jacobian_iter_once_kernel(A, b, x)
-        res = jacobian_residual_kernel(A, b, x)
-        print(f"iter {i}, residual={res:0.10f}")
+    r = b - (A @ x)
+    r_norm = np.linalg.norm(r)
+    print(f"initial residual: {r_norm:.2e}")
+
+    for iter in range(max_iterations):
+        x_new = x.copy()
+        jacobian_iter_once_kernel(A, b, x, x_new)
+        x = x_new.copy()
+
+        # 计算残差并检查收敛
+        r = A @ x - b
+        r_norm = np.linalg.norm(r)
+        print(f"iter {iter}, r={r_norm:.2e}")
+        if r_norm < tolerance:
+            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
+            return x, r
+
+    print("Did not converge within the maximum number of iterations.")
+    print(f"Final residual: {r_norm:.2e}")
+    return x, r
 
 
 @ti.kernel
-def jacobian_iter_once_kernel(A: ti.template(), b: ti.types.ndarray(), x: ti.types.ndarray()):
+def jacobian_iter_once_kernel(
+    A: ti.types.ndarray(), b: ti.types.ndarray(), x: ti.types.ndarray(), x_new: ti.types.ndarray()
+):
     n = b.shape[0]
     for i in range(n):
         r = b[i]
         for j in range(n):
             if i != j:
                 r -= A[i, j] * x[j]
-        x[i] = r / A[i, i]
+        x_new[i] = r / A[i, i]
 
 
-@ti.kernel
-def jacobian_residual_kernel(A: ti.template(), b: ti.types.ndarray(), x: ti.types.ndarray()) -> ti.f32:
-    res = 0.0
-    n = b.shape[0]
-
-    for i in range(n):
-        r = b[i] * 1.0
-        for j in range(n):
-            r -= A[i, j] * x[j]
-        res += r * r
-
-    return res
-
-
-def solve_jacobian_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, relative_tolerance=1e-12):
+def solve_jacobian_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
     n = len(b)
     x = x0.copy()  # 初始解向量
     x_new = x0.copy()  # 存储更新后的解向量
@@ -711,84 +714,32 @@ def solve_jacobian_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, relative
     D_inv = 1.0 / D[:]
     D_inv = scipy.sparse.diags(D_inv)
 
-    residual = b - (A @ x_new)
-    r_norm = np.linalg.norm(residual)
+    r = b - (A @ x_new)
+    r_norm = np.linalg.norm(r)
     print(f"initial residual: {r_norm:.2e}")
 
-    for iteration in range(max_iterations):
+    for iter in range(max_iterations):
         x_new = D_inv @ (b - (L + U) @ x)
 
-        residual = b - (A @ x_new)
-        r_norm = np.linalg.norm(residual)
-        r_norm_last = np.linalg.norm(b - (A @ x))
-
-        if r_norm < tolerance:
-            info(f"reach abs tolerance at iter: {iteration}")
-            break
-        elif r_norm < relative_tolerance * np.linalg.norm(b):
-            info(f"reach relative tolerance at iter: {iteration}")
-            break
-        elif r_norm > 1e10:
-            Warning(f"diverge at iter: {iteration}")
-            break
-        elif r_norm > r_norm_last:
-            Warning(f"r increased, diverge at iter: {iteration}")
-
-        info(f"jacobian iter: {iteration}, residual: {r_norm:.2e}")
         x = x_new.copy()
 
-    if iteration == max_iterations - 1:
-        print(f"reach max iterations")
+        # 计算残差并检查收敛
+        r = A @ x - b
+        r_norm = np.linalg.norm(r)
+        print(f"iter {iter}, r={r_norm:.2e}")
+        if r_norm < tolerance:
+            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
+            return x, r
 
-    return x_new, residual
-
-
-# def solve_sor_sparse(A, b, x0, omega=1.5, max_iter=100, atol=1e-6):
-#     """
-#     Solve the linear system Ax = b using SOR method with sparse matrix A.
-
-#     Parameters:
-#     A (scipy.sparse.csr_matrix): Coefficient matrix.
-#     b (numpy.ndarray): Right-hand side vector.
-#     x0 (numpy.ndarray): Initial guess.
-#     omega (float): Relaxation factor.
-#     tol (float): Tolerance for stopping criterion.
-#     max_iter (int): Maximum number of iterations.
-
-#     Returns:
-#     numpy.ndarray: Solution vector.
-#     int: Number of iterations performed.
-#     """
-#     x = x0.copy()
-#     x_new = x0.copy()
-#     n = A.shape[0]
-#     iterations = 0
-
-#     while iterations < max_iter:
-#         for i in range(n):
-#             row_start = A.indptr[i]
-#             row_end = A.indptr[i+1]
-#             Ax_new = A.data[row_start:i] @ x_new[A.indices[row_start:i]]
-#             Ax_old = A.data[i+1:row_end] @ x[A.indices[i+1:row_end]]
-#             x_new[i] = (1 - omega) * x[i] + (omega / A[i, i]) * (b[i] - Ax_new - Ax_old)
-#         x  = x_new.copy()
-
-#         r = A @ x - b
-#         residual = np.linalg.norm(r)
-#         print(f"iter: {iterations}, residual: {residual:.2e}")
-#         if residual < atol:
-#             print(f"reach tolerance at iter: {iterations}")
-#             break
-
-#         iterations += 1
-
-#     return x, r
+    print("Did not converge within the maximum number of iterations.")
+    print(f"Final residual: {r_norm:.2e}")
+    return x, r
 
 
 def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
     n = A.shape[0]
     x = x0.copy()
-    for iteration in range(max_iterations):
+    for iter in range(max_iterations):
         new_x = np.copy(x)
         for i in range(A.shape[0]):
             start_idx = A.indptr[i]
@@ -798,11 +749,14 @@ def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
 
         # 计算残差并检查收敛
         r = A @ x - b
-        residual = np.linalg.norm(r)
-        print(f"iter {iteration}, residual={residual:.2e}")
-        if residual < tolerance:
-            print(f"达到指定精度，迭代次数：{iteration+1}")
-            break
+        r_norm = np.linalg.norm(r)
+        print(f"iter {iter}, r={r_norm:.2e}")
+        if r_norm < tolerance:
+            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
+            return x, r
+
+    print("Did not converge within the maximum number of iterations.")
+    print(f"Final residual: {r_norm:.2e}")
     return x, r
 
 
@@ -817,7 +771,7 @@ def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
     # spectral_radius_Lw = max(abs(np.linalg.eigvals(Lw)))
     # print(f"spectral radius of Lw: {spectral_radius_Lw:.2f}")
 
-    for iteration in range(max_iterations):
+    for iter in range(max_iterations):
         x_new = x.copy()
 
         for i in range(n):
@@ -825,20 +779,19 @@ def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
                 b[i] - np.dot(A[i, :i], x_new[:i]) - np.dot(A[i, i + 1 :], x[i + 1 :])
             )
 
-        r = A @ x_new - b
-        r_norm = np.linalg.norm(A @ x_new - b)
+        x = x_new.copy()
 
-        print(f"iter: {iteration}, res: {r_norm:.2e}")
-
+        # 计算残差并检查收敛
+        r = A @ x - b
+        r_norm = np.linalg.norm(r)
+        print(f"iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
-            print(f"Converged after {iteration + 1} iterations. Final residual: {r_norm:.2e}")
-            return x_new, r
-
-        x = x_new
+            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
+            return x, r
 
     print("Did not converge within the maximum number of iterations.")
     print(f"Final residual: {r_norm:.2e}")
-    return x_new, r
+    return x, r
 
 
 def solve_direct_solver(A, b):
@@ -847,7 +800,7 @@ def solve_direct_solver(A, b):
     solver.analyze_pattern(A)
     solver.factorize(A)
     x = solver.solve(b)
-    print(f"direct solver time: {time() - t}")
+    print(f"time: {time() - t}")
     print(f"shape of A: {A.shape}")
     print(f"solve success: {solver.info()}")
     return x
@@ -874,14 +827,17 @@ def solve_gauss_seidel_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
     for iter in range(max_iterations):
         xOld = x.copy()
         gauss_seidel_kernel(A, b, x, xOld)
+
+        # 计算残差并检查收敛
         r = A @ x - b
         r_norm = np.linalg.norm(r)
-        print(f"iter: {iter}, res: {r_norm:.2e}")
+        print(f"iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
-            print(f"Converge at iter: {iter}. Final residual: {r_norm:.2e}")
+            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
             return x, r
-    if iter == max_iterations - 1:
-        print("Max iteration reached.")
+
+    print("Did not converge within the maximum number of iterations.")
+    print(f"Final residual: {r_norm:.2e}")
     return x, r
 
 
@@ -950,387 +906,17 @@ def substep_directsolver_ti(ist, max_iter=1):
     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 
-# def substep_directsolver_scipy(ist, max_iter=1):
-#     # ist is instance of fine or coarse
-
-#     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
-#     reset_lagrangian(ist.lagrangian)
-
-#     for ite in range(max_iter):
-#         t = time()
-
-#         # ----------------------------- prepare matrices ----------------------------- #
-#         print(f"----iter {ite}----")
-#         print("solving by direct solver scipy")
-#         # copy pos to pos_mid
-#         ist.pos_mid.from_numpy(ist.pos.to_numpy())
-
-#         M = ist.NT
-#         N = ist.NV
-
-#         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-#         # fill G matrix (gradC)
-#         G = np.zeros((M, 3 * N))
-#         fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
-#         G = scipy.sparse.csr_matrix(G)
-
-#         # fill M_inv and ALPHA
-#         inv_mass_np = ist.inv_mass.to_numpy()
-#         inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-#         M_inv = scipy.sparse.diags(inv_mass_np)
-
-#         alpha_tilde_np = ist.alpha_tilde.to_numpy()
-#         ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-#         # assemble A and b
-#         A = G @ M_inv @ G.transpose() + ALPHA
-#         A = scipy.sparse.csr_matrix(A)
-#         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
-
-#         # -------------------------------- solve Ax=b -------------------------------- #
-#         print("solve Ax=b")
-#         x = scipy.sparse.linalg.spsolve(A, b)
-#         print(f"direct solver time of solve: {time() - t}")
-
-#         # ------------------------- transfer data back to PBD ------------------------ #
-#         print("transfer data back to PBD")
-#         dlambda = x
-
-#         # lam += dlambda
-#         ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-
-#         # dpos = M_inv @ G^T @ dlambda
-#         dpos = M_inv @ G.transpose() @ dlambda
-#         # pos+=dpos
-#         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-#     collsion_response(ist.pos)
-#     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
-
-
-# # ---------------------------------------------------------------------------- #
-# #                               Jacobi Iteration                               #
-# # ---------------------------------------------------------------------------- #
-# def substep_jacobian(ist, max_iter=1):
-#     # ist is instance of fine or coarse
-
-#     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
-#     reset_lagrangian(ist.lagrangian)
-
-#     for ite in range(max_iter):
-#         t = time()
-
-#         # ----------------------------- prepare matrices ----------------------------- #
-#         print(f"----iter {ite}----")
-#         print("solving by jacobi")
-#         # copy pos to pos_mid
-#         ist.pos_mid.from_numpy(ist.pos.to_numpy())
-
-#         M = ist.NT
-#         N = ist.NV
-
-#         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-#         # fill G matrix (gradC)
-#         G = np.zeros((M, 3 * N))
-#         fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
-#         G = scipy.sparse.csr_matrix(G)
-
-#         # fill M_inv and ALPHA
-#         inv_mass_np = ist.inv_mass.to_numpy()
-#         inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-#         M_inv = scipy.sparse.diags(inv_mass_np)
-
-#         alpha_tilde_np = ist.alpha_tilde.to_numpy()
-#         ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-#         # assemble A and b
-#         A = G @ M_inv @ G.transpose() + ALPHA
-#         A = scipy.sparse.csr_matrix(A)
-#         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
-
-#         # -------------------------------- solve Ax=b -------------------------------- #
-#         print("solve Ax=b")
-#         # solver = ti.linalg.SparseSolver(solver_type="LLT")
-#         # solver.analyze_pattern(A)
-#         # solver.factorize(A)
-#         # x = solver.solve(b)
-#         # print(f"direct solver time of solve: {time() - t}")
-#         # x = scipy.sparse.linalg.spsolve(A, b)
-#         x0 = np.zeros_like(b)
-#         x, r = solve_jacobian_sparse(A, b, x0, 100, 1e-6)
-
-#         # ------------------------- transfer data back to PBD ------------------------ #
-#         print("transfer data back to PBD")
-#         dlambda = x
-
-#         # lam += dlambda
-#         ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-
-#         # dpos = M_inv @ G^T @ dlambda
-#         dpos = M_inv @ G.transpose() @ dlambda
-#         # pos+=dpos
-#         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-#     collsion_response(ist.pos)
-#     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
-
-
-# def substep_sor(ist, max_iter=1):
-#     # ist is instance of fine or coarse
-
-#     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
-#     reset_lagrangian(ist.lagrangian)
-
-#     for ite in range(max_iter):
-#         t = time()
-
-#         # ----------------------------- prepare matrices ----------------------------- #
-#         print(f"----iter {ite}----")
-#         print("Solving by SOR")
-#         print("Assembling matrix")
-#         # copy pos to pos_mid
-#         ist.pos_mid.from_numpy(ist.pos.to_numpy())
-
-#         M = ist.NT
-#         N = ist.NV
-
-#         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-#         # fill G matrix (gradC)
-#         G = np.zeros((M, 3 * N))
-#         fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
-#         G = scipy.sparse.csr_matrix(G)
-
-#         # fill M_inv and ALPHA
-#         inv_mass_np = ist.inv_mass.to_numpy()
-#         inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-#         M_inv = scipy.sparse.diags(inv_mass_np)
-
-#         alpha_tilde_np = ist.alpha_tilde.to_numpy()
-#         ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-#         # assemble A and b
-#         print("Assemble A")
-#         A = G @ M_inv @ G.transpose() + ALPHA
-#         A = scipy.sparse.csr_matrix(A)
-#         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
-
-#         # print("Assemble matrix done")
-#         # print("Save matrix to file")
-#         # scipy.io.mmwrite("A.mtx", A)
-#         # np.savetxt("b.txt", b)
-#         # exit()
-
-#         # -------------------------------- solve Ax=b -------------------------------- #
-#         print("solve Ax=b")
-#         # solver = ti.linalg.SparseSolver(solver_type="LLT")
-#         # solver.analyze_pattern(A)
-#         # solver.factorize(A)
-#         # x = solver.solve(b)
-#         # print(f"direct solver time of solve: {time() - t}")
-#         # x = scipy.sparse.linalg.spsolve(A, b)
-#         x0 = np.zeros_like(b)
-#         # A = A.todense()
-#         # x, r = solve_sor(A, b, x0, 1.5, 100, 1e-5)
-#         A = scipy.sparse.csr_matrix(A)
-#         x, r = solve_sor_sparse(A, b, x0, 1.5, 100, 1e-6)
-
-#         # ------------------------- transfer data back to PBD ------------------------ #
-#         print("transfer data back to PBD")
-#         dlambda = x
-
-#         # lam += dlambda
-#         ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-
-#         # dpos = M_inv @ G^T @ dlambda
-#         dpos = M_inv @ G.transpose() @ dlambda
-#         # pos+=dpos
-#         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-#     collsion_response(ist.pos)
-#     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
-
-
-# def substep_gauss_seidel(ist, max_iter=1):
-#     # ist is instance of fine or coarse
-
-#     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
-#     reset_lagrangian(ist.lagrangian)
-
-#     for ite in range(max_iter):
-#         t = time()
-
-#         # ----------------------------- prepare matrices ----------------------------- #
-#         print(f"----iter {ite}----")
-#         print("Solving by Gauss-Seidel")
-#         print("Assembling matrix")
-#         # copy pos to pos_mid
-#         ist.pos_mid.from_numpy(ist.pos.to_numpy())
-
-#         M = ist.NT
-#         N = ist.NV
-
-#         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-#         # fill G matrix (gradC)
-#         G = np.zeros((M, 3 * N))
-#         fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
-#         G = scipy.sparse.csr_matrix(G)
-
-#         # fill M_inv and ALPHA
-#         inv_mass_np = ist.inv_mass.to_numpy()
-#         inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-#         M_inv = scipy.sparse.diags(inv_mass_np)
-
-#         alpha_tilde_np = ist.alpha_tilde.to_numpy()
-#         ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-#         # assemble A and b
-#         print("Assemble A")
-#         A = G @ M_inv @ G.transpose() + ALPHA
-#         A = scipy.sparse.csr_matrix(A)
-#         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
-
-#         # print("Assemble matrix done")
-#         # print("Save matrix to file")
-#         # scipy.io.mmwrite("A.mtx", A)
-#         # np.savetxt("b.txt", b)
-#         # exit()
-
-#         # -------------------------------- solve Ax=b -------------------------------- #
-#         print("solve Ax=b")
-#         x0 = np.zeros_like(b)
-#         # A = scipy.sparse.csr_matrix(A)
-#         A = A.todense()
-#         A = np.asarray(A)
-#         x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)
-
-#         # ------------------------- transfer data back to PBD ------------------------ #
-#         print("transfer data back to PBD")
-#         dlambda = x
-
-#         # lam += dlambda
-#         ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-
-#         # dpos = M_inv @ G^T @ dlambda
-#         dpos = M_inv @ G.transpose() @ dlambda
-#         # pos+=dpos
-#         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-#     collsion_response(ist.pos)
-#     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
-
-
-# # ---------------------------------------------------------------------------- #
-# #                                      AMG                                     #
-# # ---------------------------------------------------------------------------- #
-# def substep_amg(P, R, ist, max_iter=1):
-#     # ist is instance of fine or coarse
-
-#     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
-#     reset_lagrangian(ist.lagrangian)
-
-#     for ite in range(max_iter):
-#         t = time()
-
-#         # ----------------------------- prepare matrices ----------------------------- #
-#         print(f"----iter {ite}----")
-#         print("solving by AMG")
-#         # copy pos to pos_mid
-#         ist.pos_mid.from_numpy(ist.pos.to_numpy())
-
-#         M = ist.NT
-#         N = ist.NV
-#         info(f"M={M}, N={N}")
-
-#         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-#         # fill G matrix (gradC)
-#         G = np.zeros((M, 3 * N))
-#         fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
-#         G = scipy.sparse.csr_matrix(G)
-
-#         # fill M_inv and ALPHA
-#         inv_mass_np = ist.inv_mass.to_numpy()
-#         inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-#         M_inv = scipy.sparse.diags(inv_mass_np)
-
-#         alpha_tilde_np = ist.alpha_tilde.to_numpy()
-#         ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-#         # assemble A and b
-#         print("assemble A and b")
-#         A1 = G @ M_inv @ G.transpose() + ALPHA
-#         A1 = scipy.sparse.csr_matrix(A1)
-#         b1 = -ist.constraint.to_numpy() - alpha_tilde_np * ist.lagrangian.to_numpy()
-
-#         # x1 initial guess
-#         x1 = np.zeros_like(b1)
-#         r1 = b1 - A1 @ x1
-#         print(f"r1 initial(b1):{np.linalg.norm(r1)}")
-#         # ------------------------------------ AMG ----------------------------------- #
-#         print("--------start AMG---------")
-#         # A1 = A1.todense()
-#         # P = P.todense()
-#         # R = R.todense()
-#         # A1 = np.asarray(A1)
-#         # P = np.asarray(P)
-#         # R = np.asarray(R)
-
-#         # 1. pre-smooth jacobian
-#         print(">>> 1. pre-smooth")
-#         x1, r1 = solve_sor_sparse(A1, b1, x1, max_iterations=50, tolerance=1e-2)
-#         print(f"r1 after pre-smooth:{np.linalg.norm(r1):.2e}")
-
-#         # 2 restriction: pass r1 to r2 and construct A2
-#         print(">>> 2. restriction")
-#         # print(R.shape, r1.shape, P.shape, A1.shape)
-#         r2 = R @ r1
-#         A2 = R @ A1 @ P
-
-#         # 3 solve coarse level A2E2=r2
-#         print(">>> 3. solve coarse")
-#         E2 = scipy.sparse.linalg.spsolve(A2, r2)
-#         # E2 = np.linalg.solve(A2, r2)
-
-#         # 4 prolongation: get E1 and add to x1
-#         print(">>> 4. prolongate")
-#         E1 = P @ E2
-#         x1 += E1
-
-#         print(f"r1 before solve coarse:{ np.linalg.norm(r1):.2e}")
-#         r1 = b1 - A1 @ x1
-#         print(f"r1 after solve coarse:{ np.linalg.norm(r1):.2e}")
-
-#         # 5 post-smooth jacobian
-#         print(">>> 5. post-smooth")
-#         print(f"r1 before post-smooth:{np.linalg.norm(r1):.2e}")
-#         x1, r1 = solve_sor_sparse(A1, b1, x1, max_iterations=100, tolerance=1e-5)
-#         print(f"r1 after post-smooth:{np.linalg.norm(r1):.2e}")
-
-#         print("----------finish AMG-----------")
-#         # --------------------- transfer the matrices back to PBD -------------------- #
-#         print("transfer data back to PBD")
-#         dlambda = x1
-
-#         # lam += dlambda
-#         ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-
-#         # dpos = M_inv @ G^T @ dlambda
-#         dpos = M_inv @ G.transpose() @ dlambda
-#         # pos+=dpos
-#         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-#     collsion_response(ist.pos)
-#     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
-
-
 # ---------------------------------------------------------------------------- #
 #                        All solvers refactored into one                       #
 # ---------------------------------------------------------------------------- #
 def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
+    """
+    ist: 要输入的instance: coarse or fine mesh\\
+    max_iter: 最大迭代次数\\
+    solver: 选择的solver, 可选项为: "Jacobian", "Gauss-Seidel", "SOR", "DirectSolver", "AMG"\\
+    P: 粗网格到细网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
+    R: 细网格到粗网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
+    """
     # ist is instance of fine or coarse
 
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
@@ -1382,16 +968,26 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
         print("solve Ax=b")
         print(f"Solving by {solver}")
 
+        dense = False
+        if dense == True:
+            A = np.asarray(A.todense())
+
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
 
         if solver == "Jacobian":
+            # x, r = solve_jacobian_ti(A, b, x0, 100, 1e-6) # for dense A
             x, r = solve_jacobian_sparse(A, b, x0, 100, 1e-6)
         elif solver == "GaussSeidel":
-            x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)
+            A = np.asarray(A.todense())
+            x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)  # for dense A
         elif solver == "SOR":
-            # solve_sor(A, b, x0, 1.5, 100, 1e-6)
+            # x,r = solve_sor(A, b, x0, 1.5, 100, 1e-6) # for dense A
             x, r = solve_sor_sparse(A, b, x0, 1.5, 100, 1e-6)
+        elif solver == "DirectSolver":
+            # x = scipy.linalg.solve(A, b)# for dense A
+            x = scipy.sparse.linalg.spsolve(A, b)
+
         elif solver == "AMG":
             A1 = A
 
@@ -1686,11 +1282,10 @@ def main():
             t = time()
 
             # substep_directsolver_ti(coarse, 1)
-            # substep_directsolver_scipy(coarse, 1)
-            # substep_jacobian(coarse, 1)
-            # substep_amg(P, R, coarse, 1)
-            # substep_sor(coarse, 1)
-            # substep_gauss_seidel(coarse, 1)
+            # substep_all_solver(coarse, 1, "Jacobian", P, R)
+            # substep_all_solver(coarse, 1, "SOR", P, R)
+            # substep_all_solver(coarse, 1, "GaussSeidel", P, R)
+            # substep_all_solver(coarse, 1, "DirectSolver", P, R)
             substep_all_solver(coarse, 1, "AMG", P, R)
 
             meta.frame += 1

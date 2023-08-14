@@ -794,6 +794,33 @@ def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
     return x, r
 
 
+def solve_sor_sparse_new(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
+    n = A.shape[0]
+    x = x0.copy()
+
+    for iter in range(max_iterations):
+        x_new = x.copy()
+
+        for i in range(n):
+            Ax_new = A[i, :i].dot(x_new[:i])
+            Ax_old = A[i, i + 1 :].dot(x[i + 1 :])
+            x_new[i] = (1 - omega) * x[i] + (omega / A[i, i]) * (b[i] - Ax_new - Ax_old)
+
+        x = x_new.copy()
+
+        # 计算残差并检查收敛
+        r = A @ x - b
+        r_norm = np.linalg.norm(r)
+        print(f"iter {iter}, r={r_norm:.2e}")
+        if r_norm < tolerance:
+            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
+            return x, r
+
+    print("Did not converge within the maximum number of iterations.")
+    print(f"Final residual: {r_norm:.2e}")
+    return x, r
+
+
 def solve_direct_solver(A, b):
     t = time()
     solver = ti.linalg.SparseSolver(solver_type="LLT")
@@ -827,6 +854,34 @@ def solve_gauss_seidel_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
     for iter in range(max_iterations):
         xOld = x.copy()
         gauss_seidel_kernel(A, b, x, xOld)
+
+        # 计算残差并检查收敛
+        r = A @ x - b
+        r_norm = np.linalg.norm(r)
+        print(f"iter {iter}, r={r_norm:.2e}")
+        if r_norm < tolerance:
+            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
+            return x, r
+
+    print("Did not converge within the maximum number of iterations.")
+    print(f"Final residual: {r_norm:.2e}")
+    return x, r
+
+
+def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
+    # gauss seidel is just omega = 1 in SOR
+    n = A.shape[0]
+    x = x0.copy()
+
+    for iter in range(max_iterations):
+        x_new = x.copy()
+
+        for i in range(n):
+            Ax_new = A[i, :i].dot(x_new[:i])
+            Ax_old = A[i, i + 1 :].dot(x[i + 1 :])
+            x_new[i] = (1.0 / A[i, i]) * (b[i] - Ax_new - Ax_old)
+
+        x = x_new.copy()
 
         # 计算残差并检查收敛
         r = A @ x - b
@@ -979,8 +1034,9 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
             # x, r = solve_jacobian_ti(A, b, x0, 100, 1e-6) # for dense A
             x, r = solve_jacobian_sparse(A, b, x0, 100, 1e-6)
         elif solver == "GaussSeidel":
-            A = np.asarray(A.todense())
-            x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)  # for dense A
+            # A = np.asarray(A.todense())
+            # x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)  # for dense A
+            x, r = solve_gauss_seidel_sparse(A, b, x0, 100, 1e-6)
         elif solver == "SOR":
             # x,r = solve_sor(A, b, x0, 1.5, 100, 1e-6) # for dense A
             x, r = solve_sor_sparse(A, b, x0, 1.5, 100, 1e-6)

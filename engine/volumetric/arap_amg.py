@@ -251,6 +251,9 @@ class ArapMultigrid:
         return alpha_tilde_mat
 
 
+# ---------------------------------------------------------------------------- #
+#                                    kernels                                   #
+# ---------------------------------------------------------------------------- #
 def assemble_inv_mass_mat(inv_mass):
     N = inv_mass.shape[0]
     inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * N, 3 * N, max_num_triplets=3 * N)
@@ -633,8 +636,22 @@ def collsion_response(pos: ti.template()):
             pos[i][1] = -1.3
 
 
+@ti.kernel
+def fill_gradC(
+    A: ti.types.sparse_matrix_builder(),
+    gradC: ti.template(),
+    tet_indices: ti.template(),
+):
+    for j in range(tet_indices.shape[0]):
+        ind = tet_indices[j]
+        for p in range(4):
+            for d in range(3):
+                pid = ind[p]
+                A[j, 3 * pid + d] += gradC[j, p][d]
+
+
 # ---------------------------------------------------------------------------- #
-#                              jacobian iteration                              #
+#                              Ax=b Solvers                                    #
 # ---------------------------------------------------------------------------- #
 def jacobian_iter(A, b, x0, max_iterations=100, tolerance=1e-6):
     x = x0.copy()
@@ -673,7 +690,7 @@ def jacobian_residual_kernel(A: ti.template(), b: ti.types.ndarray(), x: ti.type
     return res
 
 
-def jacobi_iteration_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, relative_tolerance=1e-12):
+def solve_jacobian_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, relative_tolerance=1e-12):
     n = len(b)
     x = x0.copy()  # 初始解向量
     x_new = x0.copy()  # 存储更新后的解向量
@@ -715,6 +732,69 @@ def jacobi_iteration_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, relati
     return x_new, residual
 
 
+# def solve_sor_sparse(A, b, x0, omega=1.5, max_iter=100, atol=1e-6):
+#     """
+#     Solve the linear system Ax = b using SOR method with sparse matrix A.
+
+#     Parameters:
+#     A (scipy.sparse.csr_matrix): Coefficient matrix.
+#     b (numpy.ndarray): Right-hand side vector.
+#     x0 (numpy.ndarray): Initial guess.
+#     omega (float): Relaxation factor.
+#     tol (float): Tolerance for stopping criterion.
+#     max_iter (int): Maximum number of iterations.
+
+#     Returns:
+#     numpy.ndarray: Solution vector.
+#     int: Number of iterations performed.
+#     """
+#     x = x0.copy()
+#     x_new = x0.copy()
+#     n = A.shape[0]
+#     iterations = 0
+
+#     while iterations < max_iter:
+#         for i in range(n):
+#             row_start = A.indptr[i]
+#             row_end = A.indptr[i+1]
+#             Ax_new = A.data[row_start:i] @ x_new[A.indices[row_start:i]]
+#             Ax_old = A.data[i+1:row_end] @ x[A.indices[i+1:row_end]]
+#             x_new[i] = (1 - omega) * x[i] + (omega / A[i, i]) * (b[i] - Ax_new - Ax_old)
+#         x  = x_new.copy()
+
+#         r = A @ x - b
+#         residual = np.linalg.norm(r)
+#         print(f"iter: {iterations}, residual: {residual:.2e}")
+#         if residual < atol:
+#             print(f"reach tolerance at iter: {iterations}")
+#             break
+
+#         iterations += 1
+
+#     return x, r
+
+
+def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, atol=1e-6):
+    n = A.shape[0]
+    x = x0.copy()
+    for iteration in range(max_iterations):
+        new_x = np.copy(x)
+        for i in range(A.shape[0]):
+            start_idx = A.indptr[i]
+            end_idx = A.indptr[i + 1]
+            row_sum = A.data[start_idx:end_idx] @ new_x[A.indices[start_idx:end_idx]]
+            x[i] = new_x[i] + omega * (b[i] - row_sum) / A.data[start_idx:end_idx].sum()
+
+        # 计算残差并检查收敛
+        r = A @ x - b
+        residual = np.linalg.norm(r)
+        print(f"iter {iteration}, residual={residual:.2e}")
+        if residual < atol:
+            print(f"达到指定精度，迭代次数：{iteration+1}")
+            break
+    return x, r
+
+
 def solve_sor(A, b, x0, omega, max_iterations, atol):
     n = A.shape[0]
     x = x0.copy()
@@ -749,9 +829,6 @@ def solve_sor(A, b, x0, omega, max_iterations, atol):
     return x_new, r
 
 
-# ---------------------------------------------------------------------------- #
-#                                 direct_solver                                #
-# ---------------------------------------------------------------------------- #
 def solve_direct_solver(A, b):
     t = time()
     solver = ti.linalg.SparseSolver(solver_type="LLT")
@@ -764,18 +841,9 @@ def solve_direct_solver(A, b):
     return x
 
 
-@ti.kernel
-def fill_gradC(
-    A: ti.types.sparse_matrix_builder(),
-    gradC: ti.template(),
-    tet_indices: ti.template(),
-):
-    for j in range(tet_indices.shape[0]):
-        ind = tet_indices[j]
-        for p in range(4):
-            for d in range(3):
-                pid = ind[p]
-                A[j, 3 * pid + d] += gradC[j, p][d]
+# ---------------------------------------------------------------------------- #
+#                               substep functions                              #
+# ---------------------------------------------------------------------------- #
 
 
 # direct solver taichi
@@ -948,7 +1016,7 @@ def substep_jacobian(ist, max_iter=1):
         # print(f"direct solver time of solve: {time() - t}")
         # x = scipy.sparse.linalg.spsolve(A, b)
         x0 = np.zeros_like(b)
-        x, r = jacobi_iteration_sparse(A, b, x0, 100, 1e-6)
+        x, r = solve_jacobian_sparse(A, b, x0, 100, 1e-6)
 
         # ------------------------- transfer data back to PBD ------------------------ #
         print("transfer data back to PBD")
@@ -1021,8 +1089,10 @@ def substep_sor(ist, max_iter=1):
         # print(f"direct solver time of solve: {time() - t}")
         # x = scipy.sparse.linalg.spsolve(A, b)
         x0 = np.zeros_like(b)
-        A = A.todense()
-        x, r = solve_sor(A, b, x0, 1.5, 100, 1e-5)
+        # A = A.todense()
+        # x, r = solve_sor(A, b, x0, 1.5, 100, 1e-5)
+        A = scipy.sparse.csr_matrix(A)
+        x, r = solve_sor_sparse(A, b, x0, 1.5, 100, 1e-6)
 
         # ------------------------- transfer data back to PBD ------------------------ #
         print("transfer data back to PBD")
@@ -1092,7 +1162,7 @@ def substep_amg(P, R, ist, max_iter=1):
 
         # 1. pre-smooth jacobian
         print(">>> 1. pre-smooth jacobian")
-        x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=50, tolerance=1e-3)
+        x1, r1 = solve_jacobian_sparse(A1, b1, x1, max_iterations=50, tolerance=1e-3)
         print(f"r1 after pre-smooth:{np.linalg.norm(r1):.2e}")
 
         # 2 restriction: pass r1 to r2 and construct A2
@@ -1115,7 +1185,7 @@ def substep_amg(P, R, ist, max_iter=1):
 
         # 5 post-smooth jacobian
         print(">>> 5. post-smooth jacobian")
-        x1, r1 = jacobi_iteration_sparse(A1, b1, x1, max_iterations=100, tolerance=1e-5, relative_tolerance=1e-5)
+        x1, r1 = solve_jacobian_sparse(A1, b1, x1, max_iterations=100, tolerance=1e-5, relative_tolerance=1e-5)
 
         print("----------finish AMG-----------")
         # --------------------- transfer the matrices back to PBD -------------------- #
@@ -1330,7 +1400,7 @@ def main():
     coarse.initialize()
 
     # R, P = compute_R_and_P(coarse, fine)
-    R, P = compute_R_and_P_kmeans(fine)
+    # R, P = compute_R_and_P_kmeans(fine)
 
     window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
@@ -1372,8 +1442,8 @@ def main():
             # substep_directsolver_scipy(fine, 3)
             # substep_directsolver(coarse, 1)
             # substep_jacobian(coarse, 1)
-            # substep_amg(P, R, fine, 1)
-            substep_sor(coarse, 1)
+            substep_amg(P, R, fine, 1)
+            # substep_sor(coarse, 1)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

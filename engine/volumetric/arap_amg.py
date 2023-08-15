@@ -1019,6 +1019,11 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
 
         print("Assemble matrix done")
 
+        # print("Save matrix to file")
+        # scipy.io.mmwrite("A.mtx", A)
+        # np.savetxt("b.txt", b)
+        # exit()
+
         # -------------------------------- solve Ax=b -------------------------------- #
         print("solve Ax=b")
         print(f"Solving by {solver}")

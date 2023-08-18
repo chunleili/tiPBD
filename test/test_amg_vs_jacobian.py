@@ -19,7 +19,7 @@ global r_norm_list
 r_norm_list = []
 
 
-def test_amg_vs_jacobian():
+def test_amg_vs_jacobi():
     # # # ------------------------------- data prepare ------------------------------- #
     # print("loading data...")
     # A = scipy.io.mmread("A.mtx")
@@ -122,7 +122,7 @@ def test_amg_vs_jacobian():
         r_norm_list.clear()
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_jacobi, r_jacobi = solve_jacobian_sparse(A, b, x0, 100, 1e-5)
+        x_jacobi, r_jacobi = solve_jacobi_sparse(A, b, x0, 100, 1e-5)
         t_jacobi = perf_counter() - t
         t = perf_counter()
         r_norm_list_jacobi = r_norm_list.copy()
@@ -162,7 +162,7 @@ def test_amg_vs_jacobian():
     if use_AMG:
         print(f"AMG time: {t_amg:.2e}")
     if use_jacobi:
-        print(f"Jacobian time: {t_jacobi:.2e}")
+        print(f"jacobi time: {t_jacobi:.2e}")
     if use_gs:
         print(f"Gauss-Seidel time: {t_gs:.2e}")
     if use_sor:
@@ -231,7 +231,7 @@ def solve_amg(A1, b, x0, R, P):
     print(f"r1 initial:{np.linalg.norm(r1)}")
     r_norm_list.append(np.linalg.norm(r1))
 
-    # 1. pre-smooth jacobian
+    # 1. pre-smooth jacobi
     print(">>> 1. pre-smooth")
     print(f"r1 before pre-smooth:{np.linalg.norm(r1):.2e}")
     x1, r1 = solve_gauss_seidel_sparse(A1, b, x1, max_iterations=3, tolerance=1e-2)
@@ -259,7 +259,7 @@ def solve_amg(A1, b, x0, R, P):
     print(f"r1 after solve coarse:{ np.linalg.norm(r1):.2e}")
     r_norm_list.append(np.linalg.norm(r1))
 
-    # 5 post-smooth jacobian
+    # 5 post-smooth jacobi
     print(">>> 5. post-smooth")
     print(f"r1 before post-smooth:{np.linalg.norm(r1):.2e}")
     x1, r1 = solve_gauss_seidel_sparse(A1, b, x1, max_iterations=3, tolerance=1e-5)
@@ -291,7 +291,7 @@ def solve_amg_recursive(A, b, x0, R, P, level=0):
     print(f"r1 initial:{np.linalg.norm(r1)}")
     r_norm_list.append(np.linalg.norm(r1))
 
-    # 1. pre-smooth jacobian
+    # 1. pre-smooth jacobi
     print(">>> 1. pre-smooth")
     print(f"r1 before pre-smooth:{np.linalg.norm(r1):.2e}")
     # x1, r1 = solve_gauss_seidel_sparse(A, b, x1, max_iterations=50, tolerance=1e-2)
@@ -328,7 +328,7 @@ def solve_amg_recursive(A, b, x0, R, P, level=0):
     print(f"r1 after solve coarse:{ np.linalg.norm(r1):.2e}")
     r_norm_list.append(np.linalg.norm(r1))
 
-    # 5 post-smooth jacobian
+    # 5 post-smooth jacobi
     print(">>> 5. post-smooth")
     print(f"r1 before post-smooth:{np.linalg.norm(r1):.2e}")
     # x1, r1 = solve_gauss_seidel_sparse(A, b, x1, max_iterations=100, tolerance=1e-5)
@@ -382,8 +382,8 @@ def solve_amg_yp(A, f, x, R, P):
 # ---------------------------------------------------------------------------- #
 
 
-def solve_jacobian_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
-    print("Solving Ax=b using Jacobian, taichi implementation...")
+def solve_jacobi_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
+    print("Solving Ax=b using jacobi, taichi implementation...")
     n = A.shape[0]
     x = x0.copy()
 
@@ -393,7 +393,7 @@ def solve_jacobian_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
 
     for iter in range(max_iterations):
         x_new = x.copy()
-        jacobian_iter_once_kernel(A, b, x, x_new)
+        jacobi_iter_once_kernel(A, b, x, x_new)
         x = x_new.copy()
 
         # 计算残差并检查收敛
@@ -410,7 +410,7 @@ def solve_jacobian_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
 
 
 @ti.kernel
-def jacobian_iter_once_kernel(
+def jacobi_iter_once_kernel(
     A: ti.types.ndarray(), b: ti.types.ndarray(), x: ti.types.ndarray(), x_new: ti.types.ndarray()
 ):
     n = b.shape[0]
@@ -422,7 +422,7 @@ def jacobian_iter_once_kernel(
         x_new[i] = r / A[i, i]
 
 
-def solve_jacobian_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
+def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
     global r_norm_list
     n = len(b)
     x = x0.copy()  # 初始解向量
@@ -475,7 +475,7 @@ def solve_jacobian_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
 #         r_norm = np.linalg.norm(residual)
 #         if r_norm < tolerance:
 #             break
-#         print(f"jacobian iter: {iteration}, residual: {r_norm}")
+#         print(f"jacobi iter: {iteration}, residual: {r_norm}")
 #         x = x_new.copy()
 #     return x_new, residual
 
@@ -655,4 +655,4 @@ def plot_r_norm_list(data, ax, title):
 
 
 if __name__ == "__main__":
-    test_amg_vs_jacobian()
+    test_amg_vs_jacobi()

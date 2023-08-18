@@ -14,91 +14,160 @@ r_norm_list = []
 
 
 def test_amg_vs_jacobian():
-    # ------------------------------- data prepare ------------------------------- #
+    # # # ------------------------------- data prepare ------------------------------- #
+    # print("loading data...")
+    # A = scipy.io.mmread("A.mtx")
+    # A = A.tocsr()
+    # b = np.loadtxt("b.txt")
+    # R = scipy.io.mmread("R.mtx")
+    # # P = scipy.io.mmread("P.mtx")
+    # # R = sp.random(1000, 34295, density=0.001, dtype=bool)
+    # P = R.transpose()
+    # print(f"R: {R.shape}, P: {P.shape}, A: {A.shape}, b1: {b.shape}")
+
+    # # ------------------------------- data prepare ------------------------------- #
     print("loading data...")
     A = scipy.io.mmread("A.mtx")
     A = A.tocsr()
     b = np.loadtxt("b.txt")
-    R = scipy.io.mmread("R.mtx")
-    # P = scipy.io.mmread("P.mtx")
-    # R = sp.random(1000, 34295, density=0.001, dtype=bool)
-    P = R.transpose()
-    print(f"R: {R.shape}, P: {P.shape}, A: {A.shape}, b1: {b.shape}")
+    n = b.shape[0]
+    R1 = sp.random(int(n/10), n, density=0.01, dtype=bool)
+    P1 = R1.transpose()
+    R2 = sp.random(int(n/100), int(n/10), density=0.01, dtype=bool)
+    P2 = R2.transpose()
+    R3 = sp.random(int(n/1000), int(n/100), density=0.01, dtype=bool)
+    P3 = R3.transpose()
+    R = [R1, R2, R3]
+    P = [P1, P2, P3]
+    print(f"A: {A.shape}")
+
+    # # --------------------------- generate a SPD matrix -------------------------- #
+    # # # prepare data
+    # n = 3000  # Size of the matrix
+    # random_matrix = np.random.rand(n, n)
+    # symmetric_matrix = random_matrix @ random_matrix.T  # Generate a symmetric matrix
+    # positive_definite_matrix = (
+    #     symmetric_matrix + np.eye(n) * 1
+    # ) * 10  # Add a small diagonal to make it positive definite
+    # print("Random Symmetric Positive Definite Matrix:")
+    # print(positive_definite_matrix)
+    # A = positive_definite_matrix
+    # b = np.random.rand(n)
+    # A = sp.csr_matrix(A)
+
+    # R1 = sp.random(int(n/10), n, density=0.01, dtype=bool)
+    # P1 = R1.transpose()
+    # R2 = sp.random(int(n/100), int(n/10), density=0.01, dtype=bool)
+    # P2 = R2.transpose()
+    # R3 = sp.random(int(n/1000), int(n/100), density=0.01, dtype=bool)
+    # P3 = R3.transpose()
+    # R = [R1, R2, R3]
+    # P = [P1, P2, P3]
+    # print(f"R: {R1.shape}, P: {P1.shape}, A: {A.shape}, b: {b.shape}")
 
     # ------------------------------- test solvers ------------------------------- #
     global r_norm_list
 
-    # Direct solver
-    r_norm_list.clear()
-    t = perf_counter()
-    x0 = np.zeros_like(b)
-    x_direct = scipy.sparse.linalg.spsolve(A, b)
-    t_direct = perf_counter() - t
-    t = perf_counter()
+    use_AMG = True
+    use_direct = False
+    use_jacobi = False
+    use_gs = False
+    use_sor = False
+
 
     # AMG
-    r_norm_list.clear()
-    t = perf_counter()
-    x0 = np.zeros_like(b)
-    x_amg, r_amg = solve_amg(A, b, x0, R, P)
-    t_amg = perf_counter() - t
-    t = perf_counter()
-    r_norm_list_amg = r_norm_list.copy()
+    if use_AMG:
+        r_norm_list.clear()
+        t = perf_counter()
+        x0 = np.zeros_like(b)
+        x_amg, r_amg = solve_amg_recursive(A, b, x0, R, P)
+        t_amg = perf_counter() - t
+        t = perf_counter()
+        r_norm_list_amg = r_norm_list.copy()
+
+
+    # Direct solver
+    if use_direct:
+        r_norm_list.clear()
+        t = perf_counter()
+        x0 = np.zeros_like(b)
+        x_direct = scipy.sparse.linalg.spsolve(A, b)
+        t_direct = perf_counter() - t
+        t = perf_counter()
 
     # Jacobi
-    r_norm_list.clear()
-    t = perf_counter()
-    x0 = np.zeros_like(b)
-    x_jacobi, r_jacobi = solve_jacobian_sparse(A, b, x0, 100, 1e-5)
-    t_jacobi = perf_counter() - t
-    t = perf_counter()
-    r_norm_list_jacobi = r_norm_list.copy()
+    if use_jacobi:
+        r_norm_list.clear()
+        t = perf_counter()
+        x0 = np.zeros_like(b)
+        x_jacobi, r_jacobi = solve_jacobian_sparse(A, b, x0, 100, 1e-5)
+        t_jacobi = perf_counter() - t
+        t = perf_counter()
+        r_norm_list_jacobi = r_norm_list.copy()
 
     # Gauss-Seidel
-    r_norm_list.clear()
-    t = perf_counter()
-    x0 = np.zeros_like(b)
-    x_gs, r_gs = solve_gauss_seidel_sparse(A, b, x0, 100, 1e-5)
-    t_gs = perf_counter() - t
-    t = perf_counter()
-    r_norm_list_gs = r_norm_list.copy()
+    if use_gs:
+        r_norm_list.clear()
+        t = perf_counter()
+        x0 = np.zeros_like(b)
+        x_gs, r_gs = solve_gauss_seidel_sparse(A, b, x0, 100, 1e-5)
+        t_gs = perf_counter() - t
+        t = perf_counter()
+        r_norm_list_gs = r_norm_list.copy()
 
     # SOR
-    r_norm_list.clear()
-    t = perf_counter()
-    x0 = np.zeros_like(b)
-    x_sor, r_sor = solve_sor_sparse(A, b, x0, 1.25, 100, 1e-5)
-    t_sor = perf_counter() - t
-    t = perf_counter()
-    r_norm_list_sor = r_norm_list.copy()
+    if use_sor:
+        r_norm_list.clear()
+        t = perf_counter()
+        x0 = np.zeros_like(b)
+        x_sor, r_sor = solve_sor_sparse(A, b, x0, 1.25, 100, 1e-5)
+        t_sor = perf_counter() - t
+        t = perf_counter()
+        r_norm_list_sor = r_norm_list.copy()
 
     # ------------------------------- print results ------------------------------- #
-    print(f"Direct solver time: {t_direct:.2e}")
-    print(f"AMG time: {t_amg:.2e}")
-    print(f"Jacobian time: {t_jacobi:.2e}")
-    print(f"Gauss-Seidel time: {t_gs:.2e}")
-    print(f"SOR time: {t_sor:.2e}")
+    if use_direct:
+        print(f"Direct solver time: {t_direct:.2e}")
+    if use_AMG:
+        print(f"AMG time: {t_amg:.2e}")
+    if use_jacobi:
+        print(f"Jacobian time: {t_jacobi:.2e}")
+    if use_gs:
+        print(f"Gauss-Seidel time: {t_gs:.2e}")
+    if use_sor:
+        print(f"SOR time: {t_sor:.2e}")
 
-    print(f"Jacobi: max diff with direct solver: {np.linalg.norm(x_jacobi-x_direct, np.inf)}")
-    assert np.allclose(x_jacobi, x_direct, atol=1e-4), f"max diff: {np.linalg.norm(x_jacobi-x_direct, np.inf)}"
-    print(f"AMG: max diff with direct solver: {np.linalg.norm(x_amg-x_direct, np.inf)}")
-    assert np.allclose(x_amg, x_direct, atol=1e-4), f"max diff: {np.linalg.norm(x_amg-x_direct, np.inf)}"
-    print(f"Gauss-Seidel: max diff with direct solver: {np.linalg.norm(x_gs-x_direct, np.inf)}")
-    assert np.allclose(x_gs, x_direct, atol=1e-4), f"max diff: {np.linalg.norm(x_gs-x_direct, np.inf)}"
-    print(f"SOR: max diff with direct solver: {np.linalg.norm(x_sor-x_direct, np.inf)}")
-    assert np.allclose(x_sor, x_direct, atol=1e-4), f"max diff: {np.linalg.norm(x_sor-x_direct, np.inf)}"
-    print("All solutions is correct!\n")
 
     # ------------------------------- plot ------------------------------- #
     fig, axs = plt.subplots(2, 2, figsize=(10, 4))
 
-    plot_r_norm_list(r_norm_list_amg, axs[0, 0], "AMG")
-    plot_r_norm_list(r_norm_list_jacobi, axs[0, 1], "Jacobi")
-    plot_r_norm_list(r_norm_list_gs, axs[1, 0], "Gauss-Seidel")
-    plot_r_norm_list(r_norm_list_sor, axs[1, 1], "SOR Omega=1.25")
+    if use_AMG:
+        plot_r_norm_list(r_norm_list_amg, axs[0, 0], "AMG")
+    if use_jacobi:
+        plot_r_norm_list(r_norm_list_jacobi, axs[0, 1], "Jacobi")
+    if use_gs:
+        plot_r_norm_list(r_norm_list_gs, axs[1, 0], "Gauss-Seidel")
+    if use_sor:
+        plot_r_norm_list(r_norm_list_sor, axs[1, 1], "SOR Omega=1.25")
 
     plt.tight_layout()
     plt.show()
+
+    if use_AMG:
+        print(f"AMG: max diff with direct solver: {np.linalg.norm(x_amg-x_direct, np.inf)}")
+        assert np.allclose(x_amg, x_direct, atol=1e-4), f"max diff: {np.linalg.norm(x_amg-x_direct, np.inf)}"
+    if use_jacobi:
+        print(f"Jacobi: max diff with direct solver: {np.linalg.norm(x_jacobi-x_direct, np.inf)}")
+        assert np.allclose(x_jacobi, x_direct, atol=1e-4), f"max diff: {np.linalg.norm(x_jacobi-x_direct, np.inf)}"
+    if use_gs:
+        print(f"Gauss-Seidel: max diff with direct solver: {np.linalg.norm(x_gs-x_direct, np.inf)}")
+        assert np.allclose(x_gs, x_direct, atol=1e-4), f"max diff: {np.linalg.norm(x_gs-x_direct, np.inf)}"
+    if use_sor:
+        print(f"SOR: max diff with direct solver: {np.linalg.norm(x_sor-x_direct, np.inf)}")
+        assert np.allclose(x_sor, x_direct, atol=1e-4), f"max diff: {np.linalg.norm(x_sor-x_direct, np.inf)}"
+    print("All solutions is correct!\n")
+
+
 
 
 def jacobi_iteration(A, b, x0, max_iterations=100, tolerance=1e-6):
@@ -171,6 +240,65 @@ def solve_amg(A1, b, x0, R, P):
     print("----------finish AMG-----------\n")
     return x, r1
 
+
+def solve_amg_recursive(A, b, x0, R, P, level=0):
+    print("\n----------start AMG-----------")
+    print(f"level: {level}")
+    global r_norm_list
+
+    # x1 initial guess
+    x1 = x0
+    r1 = b - A @ x1
+    print(f"r1 initial:{np.linalg.norm(r1)}")
+    r_norm_list.append(np.linalg.norm(r1))
+
+    # 1. pre-smooth jacobian
+    print(">>> 1. pre-smooth")
+    print(f"r1 before pre-smooth:{np.linalg.norm(r1):.2e}")
+    # x1, r1 = solve_gauss_seidel_sparse(A, b, x1, max_iterations=50, tolerance=1e-2)
+    print(f"r1 after pre-smooth:{np.linalg.norm(r1):.2e}")
+    r_norm_list.append(np.linalg.norm(r1))
+
+    # 2 restriction: pass r1 to r2 and construct A2
+    print(">>> 2. restriction")
+    # print(R.shape, r1.shape, P.shape, A.shape)
+    r2 = R[0] @ r1
+    A2 = R[0] @ A @ P[0]
+
+    # 3 solve coarse level A2E2=r2
+    print(">>> 3. solve coarse")
+    # E2 = scipy.sparse.linalg.spsolve(A2, r2)
+    # E2 = np.linalg.solve(A2, r2)
+    # E2, _ = solve_amg_recursive(A2, r2, np.zeros_like(r2), R, P, level+1)
+    r3 = R[1] @ r2
+    A2 = R[1] @ A2 @ P[1]
+    
+    # bottom level solve
+    E3 = scipy.sparse.linalg.spsolve(A2, r3)
+
+    # 4 prolongation: get E1 and add to x1
+    print(">>> 4. prolongate")
+    E2 = P[1] @ E3
+    E1 = P[0] @ E2
+
+    # correction to original x
+    x1 += E1
+
+    print(f"r1 before solve coarse:{ np.linalg.norm(r1):.2e}")
+    r1 = b - A @ x1
+    print(f"r1 after solve coarse:{ np.linalg.norm(r1):.2e}")
+    r_norm_list.append(np.linalg.norm(r1))
+
+    # 5 post-smooth jacobian
+    print(">>> 5. post-smooth")
+    print(f"r1 before post-smooth:{np.linalg.norm(r1):.2e}")
+    # x1, r1 = solve_gauss_seidel_sparse(A, b, x1, max_iterations=100, tolerance=1e-5)
+    print(f"r1 after post-smooth:{np.linalg.norm(r1):.2e}")
+    r_norm_list.append(np.linalg.norm(r1))
+
+    x = x1
+    print("----------finish AMG-----------\n")
+    return x, r1
 
 # ---------------------------------------------------------------------------- #
 #                                 Ax=b solvers                                 #

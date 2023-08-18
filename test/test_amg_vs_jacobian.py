@@ -119,7 +119,7 @@ def test_amg_vs_jacobi():
         r_norm_list_jacobi = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_jacobi, r_jacobi = solve_jacobi_sparse(A, b, x0, 100, 1e-5, r_norm_list_jacobi)
+        x_jacobi, r_jacobi = solve_jacobi_sparse(A, b, x0, 50, 1e-5, r_norm_list_jacobi)
         t_jacobi = perf_counter() - t
         t = perf_counter()
 
@@ -128,7 +128,7 @@ def test_amg_vs_jacobi():
         r_norm_list_gs = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_gs, r_gs = solve_gauss_seidel_sparse(A, b, x0, 100, 1e-5, r_norm_list_gs)
+        x_gs, r_gs = solve_gauss_seidel_sparse(A, b, x0, 50, 1e-5, r_norm_list_gs)
         t_gs = perf_counter() - t
         t = perf_counter()
 
@@ -137,7 +137,7 @@ def test_amg_vs_jacobi():
         r_norm_list_sor = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_sor, r_sor = solve_sor_sparse(A, b, x0, 1.25, 100, 1e-5, r_norm_list_sor)
+        x_sor, r_sor = solve_sor_sparse_new(A, b, x0, 1, 50, 1e-5, r_norm_list_sor)
         t_sor = perf_counter() - t
         t = perf_counter()
 
@@ -202,16 +202,16 @@ def jacobi_iteration(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[
         for i in range(n):
             sum_term = np.dot(A[i, :n], x[:n]) - A[i, i] * x[i]
             x_new[i] = (b[i] - sum_term) / A[i, i]
-        residual = b - np.dot(A, x_new)
-        r_norm = np.linalg.norm(residual)
 
+        r = b - np.dot(A, x_new)
+        r_norm = np.linalg.norm(r)
         r_norm_list.append(r_norm)
-
+        print(f"Jacobi iter: {iteration}, res: {r_norm:.2e}")
         if r_norm < tolerance:
             break
-        print(f"iter: {iteration}, residual: {residual}")
+
         x = x_new.copy()
-    return x_new, residual
+    return x_new, r
 
 
 def solve_amg(A1, b, x0, R, P, r_norm_list=[]):
@@ -389,7 +389,7 @@ def solve_jacobi_ti(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]
         r = A @ x - b
         r_norm = np.linalg.norm(r)
         r_norm_list.append(r_norm)
-        print(f"iter {iter}, r={r_norm:.2e}")
+        print(f"Jacobi iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
             return x, r
@@ -437,7 +437,7 @@ def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_lis
         r = A @ x - b
         r_norm = np.linalg.norm(r)
         r_norm_list.append(r_norm)
-        print(f"iter {iter}, r={r_norm:.2e}")
+        print(f"Jacobi iter {iter}, r={r_norm:.2e}")
 
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
@@ -485,7 +485,7 @@ def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6, r_
         r = A @ x - b
         r_norm = np.linalg.norm(r)
         r_norm_list.append(r_norm)
-        print(f"iter {iter}, r={r_norm:.2e}")
+        print(f"SOR iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
             return x, r
@@ -519,7 +519,7 @@ def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
         # 计算残差并检查收敛
         r = A @ x - b
         r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
+        print(f"SOR iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
             return x, r
@@ -529,7 +529,7 @@ def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
     return x, r
 
 
-def solve_sor_sparse_new(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
+def solve_sor_sparse_new(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
     n = A.shape[0]
     x = x0.copy()
 
@@ -546,7 +546,8 @@ def solve_sor_sparse_new(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6
         # 计算残差并检查收敛
         r = A @ x - b
         r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
+        r_norm_list.append(r_norm)
+        print(f"SOR iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
             return x, r
@@ -593,7 +594,7 @@ def solve_gauss_seidel_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
         # 计算残差并检查收敛
         r = A @ x - b
         r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
+        print(f"GS iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
             return x, r
@@ -622,7 +623,7 @@ def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_no
         r = A @ x - b
         r_norm = np.linalg.norm(r)
         r_norm_list.append(r_norm)
-        print(f"iter {iter}, r={r_norm:.2e}")
+        print(f"GS iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
             return x, r

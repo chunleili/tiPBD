@@ -137,7 +137,7 @@ def test_amg_vs_jacobi():
         r_norm_list_sor = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_sor, r_sor = solve_sor_sparse_new(A, b, x0, 1, 50, 1e-5, r_norm_list_sor)
+        x_sor, r_sor = solve_sor(A, b, x0, 1.25, 50, 1e-5, r_norm_list_sor)
         t_sor = perf_counter() - t
         t = perf_counter()
 
@@ -413,8 +413,6 @@ def jacobi_iter_once_kernel(
 
 
 def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
-    r_norm_list = []
-
     n = len(b)
     x = x0.copy()  # 初始解向量
     x_new = x0.copy()  # 存储更新后的解向量
@@ -470,7 +468,7 @@ def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_lis
 #     return x_new, residual
 
 
-def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
+def solve_sor_sparse_legacy(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
     n = A.shape[0]
     x = x0.copy()
     for iter in range(max_iterations):
@@ -495,7 +493,7 @@ def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6, r_
     return x, r
 
 
-def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
+def solve_sor_legacy(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
     n = A.shape[0]
     x = x0.copy()
 
@@ -519,6 +517,7 @@ def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
         # 计算残差并检查收敛
         r = A @ x - b
         r_norm = np.linalg.norm(r)
+        r_norm_list.append(r_norm)
         print(f"SOR iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
@@ -529,7 +528,7 @@ def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
     return x, r
 
 
-def solve_sor_sparse_new(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
+def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
     n = A.shape[0]
     x = x0.copy()
 
@@ -640,7 +639,6 @@ def plot_r_norm_list(data, ax, title):
     ax.set_yscale("log")
     ax.set_xlabel("iteration")
     ax.set_ylabel("residual")
-    ax.xaxis.set_major_locator(matplotlib.ticker.MultipleLocator())
 
 
 if __name__ == "__main__":

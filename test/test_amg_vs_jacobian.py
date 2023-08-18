@@ -15,8 +15,8 @@ from pyamg.classical.split import RS
 
 sys.path.append(os.getcwd())
 
-global r_norm_list
-r_norm_list = []
+# global r_norm_list
+# r_norm_list = []
 
 
 def test_amg_vs_jacobi():
@@ -78,7 +78,7 @@ def test_amg_vs_jacobi():
     # A = pyamg.gallery.stencil_grid(stencil, (n, n), format='csr')
     # b = np.random.rand(A.shape[0])                     # pick a random right hand side
 
-    A = poisson((100, 100), format="csr")
+    A = poisson((10, 10), format="csr")
     b = np.random.rand(A.shape[0])
     print(f"A: {A.shape}, b: {b.shape}")
 
@@ -89,28 +89,25 @@ def test_amg_vs_jacobi():
     R = ml.levels[0].R
 
     # ------------------------------- test solvers ------------------------------- #
-    global r_norm_list
 
     use_AMG = True
-    use_direct = False
-    use_jacobi = False
-    use_gs = False
-    use_sor = False
+    use_direct = True
+    use_jacobi = True
+    use_gs = True
+    use_sor = True
     use_pyamg = True
 
     # AMG
     if use_AMG:
-        r_norm_list.clear()
+        r_norm_list_amg = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_amg, r_amg = solve_amg(A, b, x0, R, P)
+        x_amg, r_amg = solve_amg(A, b, x0, R, P, r_norm_list_amg)
         t_amg = perf_counter() - t
         t = perf_counter()
-        r_norm_list_amg = r_norm_list.copy()
 
     # Direct solver
     if use_direct:
-        r_norm_list.clear()
         t = perf_counter()
         x0 = np.zeros_like(b)
         x_direct = scipy.sparse.linalg.spsolve(A, b)
@@ -119,42 +116,39 @@ def test_amg_vs_jacobi():
 
     # Jacobi
     if use_jacobi:
-        r_norm_list.clear()
+        r_norm_list_jacobi = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_jacobi, r_jacobi = solve_jacobi_sparse(A, b, x0, 100, 1e-5)
+        x_jacobi, r_jacobi = solve_jacobi_sparse(A, b, x0, 100, 1e-5, r_norm_list_jacobi)
         t_jacobi = perf_counter() - t
         t = perf_counter()
-        r_norm_list_jacobi = r_norm_list.copy()
 
     # Gauss-Seidel
     if use_gs:
-        r_norm_list.clear()
+        r_norm_list_gs = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_gs, r_gs = solve_gauss_seidel_sparse(A, b, x0, 100, 1e-5)
+        x_gs, r_gs = solve_gauss_seidel_sparse(A, b, x0, 100, 1e-5, r_norm_list_gs)
         t_gs = perf_counter() - t
         t = perf_counter()
-        r_norm_list_gs = r_norm_list.copy()
 
     # SOR
     if use_sor:
-        r_norm_list.clear()
+        r_norm_list_sor = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_sor, r_sor = solve_sor_sparse(A, b, x0, 1.25, 100, 1e-5)
+        x_sor, r_sor = solve_sor_sparse(A, b, x0, 1.25, 100, 1e-5, r_norm_list_sor)
         t_sor = perf_counter() - t
         t = perf_counter()
-        r_norm_list_sor = r_norm_list.copy()
 
     # pyamg
     if use_pyamg:
+        r_norm_list_pyamg = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_pyamg, r_pyamg = solve_pyamg(A, b, x0, R, P)
+        x_pyamg = solve_pyamg(A, b, x0, R, P, r_norm_list_pyamg)
         t_pyamg = perf_counter() - t
         t = perf_counter()
-        r_norm_list_pyamg = r_pyamg
 
     # ------------------------------- print results ------------------------------- #
     if use_direct:
@@ -200,8 +194,7 @@ def test_amg_vs_jacobi():
     print("All solutions is correct!\n")
 
 
-def jacobi_iteration(A, b, x0, max_iterations=100, tolerance=1e-6):
-    global r_norm_list
+def jacobi_iteration(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
     n = len(b)
     x = x0.copy()  # 初始解向量
     x_new = np.zeros_like(x)  # 存储更新后的解向量
@@ -221,9 +214,8 @@ def jacobi_iteration(A, b, x0, max_iterations=100, tolerance=1e-6):
     return x_new, residual
 
 
-def solve_amg(A1, b, x0, R, P):
+def solve_amg(A1, b, x0, R, P, r_norm_list=[]):
     print("\n----------start AMG-----------")
-    global r_norm_list
 
     # x1 initial guess
     x1 = x0
@@ -271,19 +263,17 @@ def solve_amg(A1, b, x0, R, P):
     return x, r1
 
 
-def solve_pyamg(A, b, x0, R, P):
-    res1 = []
+def solve_pyamg(A, b, x0, R, P, r_norm_list=[]):
     ml = pyamg.classical.ruge_stuben_solver(A, max_levels=2)  # construct the multigrid hierarchy
     ml.levels[0].R = R
     ml.levels[0].P = P
-    x = ml.solve(b, tol=1e-3, residuals=res1, maxiter=1)  # solve Ax=b to a tolerance of 1e-12
-    return x, res1
+    x = ml.solve(b, tol=1e-3, residuals=r_norm_list, maxiter=1)  # solve Ax=b to a tolerance of 1e-12
+    return x
 
 
-def solve_amg_recursive(A, b, x0, R, P, level=0):
+def solve_amg_recursive(A, b, x0, R, P, level=0, r_norm_list=[]):
     print("\n----------start AMG-----------")
     print(f"level: {level}")
-    global r_norm_list
 
     # x1 initial guess
     x1 = x0
@@ -340,9 +330,7 @@ def solve_amg_recursive(A, b, x0, R, P, level=0):
     return x, r1
 
 
-def solve_amg_yp(A, f, x, R, P):
-    global r_norm_list
-
+def solve_amg_yp(A, f, x, R, P, r_norm_list=[]):
     # step 1: smoother
     x, _ = solve_gauss_seidel_sparse(A, np.zeros_like(f), f, max_iterations=5)
 
@@ -382,13 +370,14 @@ def solve_amg_yp(A, f, x, R, P):
 # ---------------------------------------------------------------------------- #
 
 
-def solve_jacobi_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
+def solve_jacobi_ti(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
     print("Solving Ax=b using jacobi, taichi implementation...")
     n = A.shape[0]
     x = x0.copy()
 
     r = b - (A @ x)
     r_norm = np.linalg.norm(r)
+    r_norm_list.append(r_norm)
     print(f"initial residual: {r_norm:.2e}")
 
     for iter in range(max_iterations):
@@ -399,6 +388,7 @@ def solve_jacobi_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
         # 计算残差并检查收敛
         r = A @ x - b
         r_norm = np.linalg.norm(r)
+        r_norm_list.append(r_norm)
         print(f"iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
@@ -422,8 +412,9 @@ def jacobi_iter_once_kernel(
         x_new[i] = r / A[i, i]
 
 
-def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
-    global r_norm_list
+def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
+    r_norm_list = []
+
     n = len(b)
     x = x0.copy()  # 初始解向量
     x_new = x0.copy()  # 存储更新后的解向量
@@ -445,9 +436,8 @@ def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
         # 计算残差并检查收敛
         r = A @ x - b
         r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
-
         r_norm_list.append(r_norm)
+        print(f"iter {iter}, r={r_norm:.2e}")
 
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
@@ -480,8 +470,7 @@ def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
 #     return x_new, residual
 
 
-def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
-    global r_norm_list
+def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
     n = A.shape[0]
     x = x0.copy()
     for iter in range(max_iterations):
@@ -614,8 +603,7 @@ def solve_gauss_seidel_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
     return x, r
 
 
-def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
-    global r_norm_list
+def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
     # gauss seidel is just omega = 1 in SOR
     n = A.shape[0]
     x = x0.copy()

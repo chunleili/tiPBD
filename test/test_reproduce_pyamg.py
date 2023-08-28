@@ -47,7 +47,7 @@ def test_amg_vs_jacobi():
     use_AMG = True
     use_pyamg = True
     use_pyamgmy = True
-    use_symGS = True
+    use_symGS = False
 
     # pyamg
     if use_pyamg:
@@ -81,7 +81,8 @@ def test_amg_vs_jacobi():
 
     print(f"r pyamg: {r_norm_list_pyamg[0]:.2e}, {r_norm_list_pyamg[1]:.2e}")
     print(f"r pyamgmy: {r_norm_list_pyamgmy[0]:.2e}, {r_norm_list_pyamgmy[1]:.2e}")
-    print(f"r symGS: {r_norm_list_symGS[0]:.2e}, {r_norm_list_symGS[1]:.2e}")
+    if use_symGS:
+        print(f"r symGS: {r_norm_list_symGS[0]:.2e}, {r_norm_list_symGS[1]:.2e}")
 
     if use_pyamg:
         plot_r_norm_list(r_norm_list_pyamg, axs[0], "pyamg")
@@ -181,15 +182,35 @@ def gauss_seidel(A, x, b, iterations=1, sweep="forward"):
 
     for _iter in range(iterations):
         # forward sweep
+        print("forward sweeping")
         for _ in range(iterations):
-            amg_core.gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
 
         # backward sweep
+        print("backward sweeping")
         for _ in range(iterations):
-            amg_core.gauss_seidel(
+            amg_core_gauss_seidel(
                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
             )
     return
+
+
+def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
+    for i in range(row_start, row_stop, row_step):
+        start = Ap[i]
+        end = Ap[i + 1]
+        rsum = 0.0
+        diag = 0.0
+
+        for jj in range(start, end):
+            j = Aj[jj]
+            if i == j:
+                diag = Ax[jj]
+            else:
+                rsum += Ax[jj] * x[j]
+
+        if diag != 0.0:
+            x[i] = (b[i] - rsum) / diag
 
 
 def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]):

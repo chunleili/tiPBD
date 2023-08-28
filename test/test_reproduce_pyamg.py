@@ -151,8 +151,8 @@ def solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list=[]):
 def __solve(levels, lvl, x, b, cycle, cycles_per_level=1):
     A = levels[lvl].A
 
-    levels[lvl].presmoother(A, x, b)
-    # x,_= solve_gauss_seidel_sparse(A, b, x, max_iterations=1)
+    # levels[lvl].presmoother(A, x, b)
+    x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
 
     residual = b - A @ x
 
@@ -167,8 +167,8 @@ def __solve(levels, lvl, x, b, cycle, cycles_per_level=1):
 
     x += levels[lvl].P @ coarse_x  # coarse grid correction
 
-    levels[lvl].postsmoother(A, x, b)
-    # x,_= solve_gauss_seidel_sparse(A, b, x, max_iterations=1)
+    # levels[lvl].postsmoother(A, x, b)
+    x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
 
 
 def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]):

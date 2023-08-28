@@ -9,6 +9,8 @@ import pyamg
 from pyamg.gallery import poisson
 from collections import namedtuple
 
+# from pyamg.relaxation import make_system
+from pyamg import amg_core
 
 sys.path.append(os.getcwd())
 
@@ -152,7 +154,8 @@ def __solve(levels, lvl, x, b, cycle, cycles_per_level=1):
     A = levels[lvl].A
 
     # levels[lvl].presmoother(A, x, b)
-    x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
+    # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
+    gauss_seidel(A, x, b, iterations=1, sweep="symmetric")
 
     residual = b - A @ x
 
@@ -168,7 +171,25 @@ def __solve(levels, lvl, x, b, cycle, cycles_per_level=1):
     x += levels[lvl].P @ coarse_x  # coarse grid correction
 
     # levels[lvl].postsmoother(A, x, b)
-    x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
+    # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
+    gauss_seidel(A, x, b, iterations=1, sweep="symmetric")
+
+
+def gauss_seidel(A, x, b, iterations=1, sweep="forward"):
+    if not sparse.isspmatrix_csr(A):
+        raise ValueError("A must be csr matrix!")
+
+    for _iter in range(iterations):
+        # forward sweep
+        for _ in range(iterations):
+            amg_core.gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+
+        # backward sweep
+        for _ in range(iterations):
+            amg_core.gauss_seidel(
+                A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
+            )
+    return
 
 
 def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]):

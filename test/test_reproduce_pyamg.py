@@ -67,6 +67,9 @@ def test_amg_vs_jacobi():
     # ------------------------------- plot ------------------------------- #
     fig, axs = plt.subplots(1, 2, figsize=(10, 4))
 
+    print(f"r pyamg: {r_norm_list_pyamg[0]:.2e}, {r_norm_list_pyamg[1]:.2e}")
+    print(f"r pyamgmy: {r_norm_list_pyamgmy[0]:.2e}, {r_norm_list_pyamgmy[1]:.2e}")
+
     if use_pyamg:
         plot_r_norm_list(r_norm_list_pyamg, axs[0], "pyamg")
     if use_pyamgmy:
@@ -136,6 +139,7 @@ def __solve(levels, lvl, x, b, cycle, cycles_per_level=1):
     A = levels[lvl].A
 
     levels[lvl].presmoother(A, x, b)
+    # x,_= solve_gauss_seidel_sparse(A, b, x, max_iterations=1)
 
     residual = b - A @ x
 
@@ -151,6 +155,36 @@ def __solve(levels, lvl, x, b, cycle, cycles_per_level=1):
     x += levels[lvl].P @ coarse_x  # coarse grid correction
 
     levels[lvl].postsmoother(A, x, b)
+    # x,_= solve_gauss_seidel_sparse(A, b, x, max_iterations=1)
+
+
+def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_norm_list=[]):
+    # gauss seidel is just omega = 1 in SOR
+    n = A.shape[0]
+    x = x0.copy()
+
+    for iter in range(max_iterations):
+        x_new = x.copy()
+
+        for i in range(n):
+            Ax_new = A[i, :i].dot(x_new[:i])
+            Ax_old = A[i, i + 1 :].dot(x[i + 1 :])
+            x_new[i] = (1.0 / A[i, i]) * (b[i] - Ax_new - Ax_old)
+
+        x = x_new.copy()
+
+        # 计算残差并检查收敛
+        r = A @ x - b
+        r_norm = np.linalg.norm(r)
+        r_norm_list.append(r_norm)
+        print(f"GS iter {iter}, r={r_norm:.2e}")
+        if r_norm < tolerance:
+            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
+            return x, r
+
+    print("Did not converge within the maximum number of iterations.")
+    print(f"Final residual: {r_norm:.2e}")
+    return x, r
 
 
 def coarse_solver(A2, r2):

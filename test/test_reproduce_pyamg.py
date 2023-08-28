@@ -45,6 +45,7 @@ def test_amg_vs_jacobi():
     use_AMG = True
     use_pyamg = True
     use_pyamgmy = True
+    use_symGS = True
 
     # pyamg
     if use_pyamg:
@@ -60,20 +61,32 @@ def test_amg_vs_jacobi():
         r_norm_list_pyamgmy = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_pyamg = solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list_pyamgmy)
-        t_pyamg = perf_counter() - t
+        x_pyamgmy = solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list_pyamgmy)
+        t_pyamgmy = perf_counter() - t
+        t = perf_counter()
+
+    # my symmetic gauss seidel
+    if use_symGS:
+        r_norm_list_symGS = []
+        t = perf_counter()
+        x0 = np.zeros_like(b)
+        x_symGS = solve_gauss_seidel_symmetric(A, b, x0, 20, 1e-6, r_norm_list_symGS)
+        t_symGS = perf_counter() - t
         t = perf_counter()
 
     # ------------------------------- plot ------------------------------- #
-    fig, axs = plt.subplots(1, 2, figsize=(10, 4))
+    fig, axs = plt.subplots(1, 3, figsize=(10, 4))
 
     print(f"r pyamg: {r_norm_list_pyamg[0]:.2e}, {r_norm_list_pyamg[1]:.2e}")
     print(f"r pyamgmy: {r_norm_list_pyamgmy[0]:.2e}, {r_norm_list_pyamgmy[1]:.2e}")
+    print(f"r symGS: {r_norm_list_symGS[0]:.2e}, {r_norm_list_symGS[1]:.2e}")
 
     if use_pyamg:
         plot_r_norm_list(r_norm_list_pyamg, axs[0], "pyamg")
     if use_pyamgmy:
         plot_r_norm_list(r_norm_list_pyamgmy, axs[1], "pyamgmy")
+    if use_symGS:
+        plot_r_norm_list(r_norm_list_symGS, axs[2], "symGS")
     plt.tight_layout()
     plt.show()
 
@@ -187,6 +200,51 @@ def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6, r_no
     return x, r
 
 
+def solve_gauss_seidel_symmetric(A, b, x0, max_iterations=1, tolerance=1e-6, r_norm_list=[]):
+    # gauss seidel is just omega = 1 in SOR
+    n = A.shape[0]
+    x = x0.copy()
+    print("Symmetric Gauss Seidel")
+
+    print("forward sweeping")
+    x, r = solve_gauss_seidel_sparse(A, b, x0, max_iterations=max_iterations, tolerance=1e-6, r_norm_list=r_norm_list)
+    print("backward sweeping")
+    x, r = solve_gauss_seidel_backward(A, b, x, max_iterations=max_iterations, tolerance=1e-6, r_norm_list=r_norm_list)
+
+    return x, r
+
+
+def solve_gauss_seidel_backward(A, b, x0, max_iterations=1, tolerance=1e-6, r_norm_list=[]):
+    # gauss seidel is just omega = 1 in SOR
+    n = A.shape[0]
+    x = x0.copy()
+
+    for iter in range(max_iterations):
+        x_new = x.copy()
+
+        for i in range(n):
+            # Ax_new = A[i, :i].dot(x_new[:i])
+            # Ax_old = A[i, i + 1 :].dot(x[i + 1 :])
+            Ax_new = A[i, i + 1 :].dot(x_new[i + 1 :])
+            Ax_old = A[i, :i].dot(x[:i])
+            x_new[i] = (1.0 / A[i, i]) * (b[i] - Ax_new - Ax_old)
+
+        x = x_new.copy()
+
+        # 计算残差并检查收敛
+        r = A @ x - b
+        r_norm = np.linalg.norm(r)
+        r_norm_list.append(r_norm)
+        print(f"GS iter {iter}, r={r_norm:.2e}")
+        if r_norm < tolerance:
+            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
+            return x, r
+
+    print("Did not converge within the maximum number of iterations.")
+    print(f"Final residual: {r_norm:.2e}")
+    return x, r
+
+
 def coarse_solver(A2, r2):
     global ml
     return ml.coarse_solver(A2, r2)
@@ -196,7 +254,7 @@ def plot_r_norm_list(data, ax, title):
     x = np.arange(len(data))
     ax.plot(x, data, "-o")
     ax.set_title(title)
-    ax.set_yscale("log")
+    # ax.set_yscale("log")
     ax.set_xlabel("iteration")
     ax.set_ylabel("residual")
 

@@ -7,6 +7,7 @@ from time import perf_counter
 from matplotlib import pyplot as plt
 import pyamg
 from pyamg.gallery import poisson
+from pyamg.relaxation.smoothing import change_smoothers
 from collections import namedtuple
 
 # from pyamg.relaxation import make_system
@@ -63,6 +64,7 @@ def test_amg_vs_jacobi():
         r_norm_list_pyamgmy = []
         t = perf_counter()
         x0 = np.zeros_like(b)
+        # change_smoothers(ml, presmoother=("jacobi"), postsmoother=("jacobi"))
         x_pyamgmy = solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list_pyamgmy)
         t_pyamgmy = perf_counter() - t
         t = perf_counter()

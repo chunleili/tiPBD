@@ -65,7 +65,7 @@ def test_amg_vs_jacobi():
         t = perf_counter()
         x0 = np.zeros_like(b)
         # change_smoothers(ml, presmoother=("jacobi"), postsmoother=("jacobi"))
-        x_pyamgmy = solve_pyamg_my(A, b, x0, R, P, r_norm_list_pyamgmy)
+        x_pyamgmy = solve_pyamg_my2(A, b, x0, R, P, r_norm_list_pyamgmy)
         t_pyamgmy = perf_counter() - t
         t = perf_counter()
 
@@ -99,6 +99,52 @@ def test_amg_vs_jacobi():
 def solve_pyamg(ml, b, r_norm_list=[]):
     x = ml.solve(b, tol=1e-3, residuals=r_norm_list, maxiter=1)
     return x
+
+
+def solve_pyamg_my2(A, b, x0, R, P, r_norm_list=[]):
+    tol = 1e-3
+    residuals = r_norm_list
+    maxiter = 1
+
+    A2 = R @ A @ P
+
+    x = x0
+
+    normb = np.linalg.norm(b)
+    if normb == 0.0:
+        normb = 1.0  # set so that we have an absolute tolerance
+    normr = np.linalg.norm(b - A @ x)
+    if residuals is not None:
+        residuals[:] = [normr]  # initial residual
+
+    b = np.ravel(b)
+    x = np.ravel(x)
+
+    it = 0
+    while True:  # it <= maxiter and normr >= tol:
+        gauss_seidel(A, x, b, iterations=1)  # presmoother
+
+        residual = b - A @ x
+
+        coarse_b = R @ residual  # restriction
+
+        coarse_x = np.zeros_like(coarse_b)
+
+        coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
+
+        x += P @ coarse_x  # coarse grid correction
+
+        gauss_seidel(A, x, b, iterations=1)  # postsmoother
+
+        it += 1
+
+        normr = np.linalg.norm(b - A @ x)
+        if residuals is not None:
+            residuals.append(normr)
+        if normr < tol * normb:
+            return x
+        if it == maxiter:
+            return x
 
 
 def solve_pyamg_my(A, b, x0, R, P, r_norm_list=[]):
@@ -159,7 +205,7 @@ def __solve(levels, lvl, x, b):
 
     # levels[lvl].presmoother(A, x, b)
     # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
-    gauss_seidel(A, x, b, iterations=1, sweep="symmetric")
+    gauss_seidel(A, x, b, iterations=1)
 
     residual = b - A @ x
 
@@ -176,10 +222,10 @@ def __solve(levels, lvl, x, b):
 
     # levels[lvl].postsmoother(A, x, b)
     # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
-    gauss_seidel(A, x, b, iterations=1, sweep="symmetric")
+    gauss_seidel(A, x, b, iterations=1)
 
 
-def gauss_seidel(A, x, b, iterations=1, sweep="forward"):
+def gauss_seidel(A, x, b, iterations=1):
     if not sparse.isspmatrix_csr(A):
         raise ValueError("A must be csr matrix!")
 

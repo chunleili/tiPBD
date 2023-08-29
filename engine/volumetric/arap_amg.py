@@ -4,11 +4,12 @@ import numpy as np
 import logging
 from logging import info, warning
 import scipy
+import scipy.sparse as sparse
 import sys, os, argparse
 from time import time
 from pathlib import Path
 import meshio
-
+from collections import namedtuple
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--load_at", type=int, default=-1)
@@ -1050,47 +1051,48 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
             x = scipy.sparse.linalg.spsolve(A, b)
 
         elif solver == "AMG":
-            A1 = A
+            solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list=[])
+            # A1 = A
 
-            # x1 initial guess
-            x1 = x0
-            r1 = b - A1 @ x1
-            print(f"r1 initial:{np.linalg.norm(r1)}")
+            # # x1 initial guess
+            # x1 = x0
+            # r1 = b - A1 @ x1
+            # print(f"r1 initial:{np.linalg.norm(r1)}")
 
-            # 1. pre-smooth jacobian
-            print(">>> 1. pre-smooth")
-            print(f"r1 before pre-smooth:{np.linalg.norm(r1):.2e}")
-            x1, r1 = solve_sor_sparse(A1, b, x1, max_iterations=50, tolerance=1e-2)
-            print(f"r1 after pre-smooth:{np.linalg.norm(r1):.2e}")
+            # # 1. pre-smooth jacobian
+            # print(">>> 1. pre-smooth")
+            # print(f"r1 before pre-smooth:{np.linalg.norm(r1):.2e}")
+            # x1, r1 = solve_sor_sparse(A1, b, x1, max_iterations=50, tolerance=1e-2)
+            # print(f"r1 after pre-smooth:{np.linalg.norm(r1):.2e}")
 
-            # 2 restriction: pass r1 to r2 and construct A2
-            print(">>> 2. restriction")
-            # print(R.shape, r1.shape, P.shape, A1.shape)
-            r2 = R @ r1
-            A2 = R @ A1 @ P
+            # # 2 restriction: pass r1 to r2 and construct A2
+            # print(">>> 2. restriction")
+            # # print(R.shape, r1.shape, P.shape, A1.shape)
+            # r2 = R @ r1
+            # A2 = R @ A1 @ P
 
-            # 3 solve coarse level A2E2=r2
-            print(">>> 3. solve coarse")
-            E2 = scipy.sparse.linalg.spsolve(A2, r2)
-            # E2 = np.linalg.solve(A2, r2)
+            # # 3 solve coarse level A2E2=r2
+            # print(">>> 3. solve coarse")
+            # E2 = scipy.sparse.linalg.spsolve(A2, r2)
+            # # E2 = np.linalg.solve(A2, r2)
 
-            # 4 prolongation: get E1 and add to x1
-            print(">>> 4. prolongate")
-            E1 = P @ E2
-            x1 += E1
+            # # 4 prolongation: get E1 and add to x1
+            # print(">>> 4. prolongate")
+            # E1 = P @ E2
+            # x1 += E1
 
-            print(f"r1 before solve coarse:{ np.linalg.norm(r1):.2e}")
-            r1 = b - A1 @ x1
-            print(f"r1 after solve coarse:{ np.linalg.norm(r1):.2e}")
+            # print(f"r1 before solve coarse:{ np.linalg.norm(r1):.2e}")
+            # r1 = b - A1 @ x1
+            # print(f"r1 after solve coarse:{ np.linalg.norm(r1):.2e}")
 
-            # 5 post-smooth jacobian
-            print(">>> 5. post-smooth")
-            print(f"r1 before post-smooth:{np.linalg.norm(r1):.2e}")
-            x1, r1 = solve_sor_sparse(A1, b, x1, max_iterations=100, tolerance=1e-5)
-            print(f"r1 after post-smooth:{np.linalg.norm(r1):.2e}")
+            # # 5 post-smooth jacobian
+            # print(">>> 5. post-smooth")
+            # print(f"r1 before post-smooth:{np.linalg.norm(r1):.2e}")
+            # x1, r1 = solve_sor_sparse(A1, b, x1, max_iterations=100, tolerance=1e-5)
+            # print(f"r1 after post-smooth:{np.linalg.norm(r1):.2e}")
 
-            x = x1
-            print("----------finish AMG-----------")
+            # x = x1
+            # print("----------finish AMG-----------")
 
         # ------------------------- transfer data back to PBD ------------------------ #
         print("transfer data back to PBD")
@@ -1106,6 +1108,123 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
 
     collsion_response(ist.pos)
     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
+
+
+# ---------------------------------------------------------------------------- #
+#                               PYAMG reproduced                               #
+# ---------------------------------------------------------------------------- #
+def solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list=[]):
+    max_levels = 2
+
+    tol = 1e-3
+    residuals = r_norm_list
+    maxiter = 1
+
+    levels = []
+
+    Level = namedtuple("Level", ["A", "R", "P", "presmoother", "postsmoother"])
+    levels.append(Level(A, R, P, ml.levels[0].presmoother, ml.levels[0].postsmoother))
+    A2 = R @ A @ P
+    levels.append(Level(A2, None, None, None, None))
+
+    x = np.zeros_like(b)
+
+    # Scale tol by normb
+    # Don't scale tol earlier. The accel routine should also scale tol
+    normb = np.linalg.norm(b)
+    if normb == 0.0:
+        normb = 1.0  # set so that we have an absolute tolerance
+
+    # Start cycling (no acceleration)
+    normr = np.linalg.norm(b - A @ x)
+    if residuals is not None:
+        residuals[:] = [normr]  # initial residual
+
+    b = np.ravel(b)
+    x = np.ravel(x)
+
+    it = 0
+
+    while True:  # it <= maxiter and normr >= tol:
+        if len(levels) == 1:
+            # hierarchy has only 1 level
+            x = ml.coarse_solver(A, b)
+        else:
+            __solve(levels, 0, x, b, cycle="V", cycles_per_level=1)
+
+        it += 1
+
+        normr = np.linalg.norm(b - A @ x)
+        if residuals is not None:
+            residuals.append(normr)
+
+        if normr < tol * normb:
+            return x
+
+        if it == maxiter:
+            return x
+
+
+def __solve(levels, lvl, x, b, cycle, cycles_per_level=1):
+    A = levels[lvl].A
+
+    # levels[lvl].presmoother(A, x, b)
+    # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
+    gauss_seidel(A, x, b, iterations=1, sweep="symmetric")
+
+    residual = b - A @ x
+
+    coarse_b = levels[lvl].R @ residual
+    coarse_x = np.zeros_like(coarse_b)
+
+    if lvl == len(levels) - 2:
+        # coarse_x[:] = coarse_solver(levels[-1].A, coarse_b)
+        coarse_x[:] = scipy.sparse.linalg.spsolve(levels[-1].A, coarse_b)
+    else:
+        ...
+
+    x += levels[lvl].P @ coarse_x  # coarse grid correction
+
+    # levels[lvl].postsmoother(A, x, b)
+    # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
+    gauss_seidel(A, x, b, iterations=1, sweep="symmetric")
+
+
+def gauss_seidel(A, x, b, iterations=1, sweep="forward"):
+    if not sparse.isspmatrix_csr(A):
+        raise ValueError("A must be csr matrix!")
+
+    for _iter in range(iterations):
+        # forward sweep
+        print("forward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+
+        # backward sweep
+        print("backward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(
+                A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
+            )
+    return
+
+
+def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
+    for i in range(row_start, row_stop, row_step):
+        start = Ap[i]
+        end = Ap[i + 1]
+        rsum = 0.0
+        diag = 0.0
+
+        for jj in range(start, end):
+            j = Aj[jj]
+            if i == j:
+                diag = Ax[jj]
+            else:
+                rsum += Ax[jj] * x[j]
+
+        if diag != 0.0:
+            x[i] = (b[i] - rsum) / diag
 
 
 # ---------------------------------------------------------------------------- #

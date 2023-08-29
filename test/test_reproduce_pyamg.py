@@ -65,7 +65,7 @@ def test_amg_vs_jacobi():
         t = perf_counter()
         x0 = np.zeros_like(b)
         # change_smoothers(ml, presmoother=("jacobi"), postsmoother=("jacobi"))
-        x_pyamgmy = solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list_pyamgmy)
+        x_pyamgmy = solve_pyamg_my(A, b, x0, R, P, r_norm_list_pyamgmy)
         t_pyamgmy = perf_counter() - t
         t = perf_counter()
 
@@ -101,7 +101,7 @@ def solve_pyamg(ml, b, r_norm_list=[]):
     return x
 
 
-def solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list=[]):
+def solve_pyamg_my(A, b, x0, R, P, r_norm_list=[]):
     max_levels = 2
 
     tol = 1e-3
@@ -111,7 +111,7 @@ def solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list=[]):
     levels = []
 
     Level = namedtuple("Level", ["A", "R", "P", "presmoother", "postsmoother"])
-    levels.append(Level(A, R, P, ml.levels[0].presmoother, ml.levels[0].postsmoother))
+    levels.append(Level(A, R, P, None, None))
     A2 = R @ A @ P
     levels.append(Level(A2, None, None, None, None))
 
@@ -136,9 +136,10 @@ def solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list=[]):
     while True:  # it <= maxiter and normr >= tol:
         if len(levels) == 1:
             # hierarchy has only 1 level
-            x = ml.coarse_solver(A, b)
+            # x = ml.coarse_solver(A, b)
+            x = scipy.sparse.linalg.spsolve(A, b)
         else:
-            __solve(levels, 0, x, b, cycle="V", cycles_per_level=1)
+            __solve(levels, 0, x, b)
 
         it += 1
 
@@ -153,7 +154,7 @@ def solve_pyamg_my(A, b, x0, R, P, ml, r_norm_list=[]):
             return x
 
 
-def __solve(levels, lvl, x, b, cycle, cycles_per_level=1):
+def __solve(levels, lvl, x, b):
     A = levels[lvl].A
 
     # levels[lvl].presmoother(A, x, b)

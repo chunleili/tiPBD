@@ -11,7 +11,7 @@ from pyamg.relaxation.smoothing import change_smoothers
 from collections import namedtuple
 
 # from pyamg.relaxation import make_system
-from pyamg import amg_core
+# from pyamg import amg_core
 
 sys.path.append(os.getcwd())
 
@@ -29,7 +29,7 @@ def generate_A_b_pyamg(n=10):
     return A, b
 
 
-def test_amg_vs_jacobi():
+def test_amg():
     # ------------------------------- prepare data ------------------------------- #
     # generate_A_b_pyamg(n=10)
     A = mmread("A.mtx")
@@ -48,10 +48,11 @@ def test_amg_vs_jacobi():
     use_AMG = True
     use_pyamg = True
     use_pyamgmy = True
-    use_symGS = False
+    use_symGS = True
 
     # pyamg
     if use_pyamg:
+        print("pyamg")
         r_norm_list_pyamg = []
         t = perf_counter()
         x0 = np.zeros_like(b)
@@ -61,6 +62,7 @@ def test_amg_vs_jacobi():
 
     # my pyamg reproduction
     if use_pyamgmy:
+        print("pyamgmy")
         r_norm_list_pyamgmy = []
         t = perf_counter()
         x0 = np.zeros_like(b)
@@ -71,10 +73,11 @@ def test_amg_vs_jacobi():
 
     # my symmetic gauss seidel
     if use_symGS:
+        print("symGS")
         r_norm_list_symGS = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_symGS = solve_gauss_seidel_symmetric(A, b, x0, 20, 1e-6, r_norm_list_symGS)
+        x_symGS = solve_gauss_seidel_symmetric(A, b, x0, 10, 1e-6, r_norm_list_symGS)
         t_symGS = perf_counter() - t
         t = perf_counter()
 
@@ -351,4 +354,4 @@ def plot_r_norm_list(data, ax, title):
 
 
 if __name__ == "__main__":
-    test_amg_vs_jacobi()
+    test_amg()

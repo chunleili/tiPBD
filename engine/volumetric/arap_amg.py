@@ -35,6 +35,8 @@ parser.add_argument("--kmeans_k", type=int, default=1000)
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
+# r_norm_list = []
+
 
 class Meta:
     def __init__(self) -> None:
@@ -887,6 +889,9 @@ def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
         # 计算残差并检查收敛
         r = A @ x - b
         r_norm = np.linalg.norm(r)
+
+        # r_norm_list.append(r_norm)
+
         print(f"iter {iter}, r={r_norm:.2e}")
         if r_norm < tolerance:
             print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
@@ -1012,12 +1017,6 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
         A = scipy.sparse.csr_matrix(A)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
-        # print("Assemble matrix done")
-        # print("Save matrix to file")
-        # scipy.io.mmwrite("A.mtx", A)
-        # np.savetxt("b.txt", b)
-        # exit()
-
         print("Assemble matrix done")
 
         # print("Save matrix to file")
@@ -1051,7 +1050,7 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
             x = scipy.sparse.linalg.spsolve(A, b)
 
         elif solver == "AMG":
-            x = solve_pyamg_my2(A, b, x0, R, P, r_norm_list=[])
+            x = solve_pyamg_my2(A, b, x0, R, P)
 
         print(f"solver time of solve: {time() - t}")
 
@@ -1076,9 +1075,10 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
 # ---------------------------------------------------------------------------- #
 
 
-def solve_pyamg_my2(A, b, x0, R, P, r_norm_list=[]):
+def solve_pyamg_my2(A, b, x0, R, P):
     tol = 1e-3
-    residuals = r_norm_list
+    # residuals = r_norm_list
+    residuals = []
     maxiter = 1
 
     A2 = R @ A @ P
@@ -1413,6 +1413,9 @@ def main():
 
         canvas.scene(scene)
         window.show()
+
+        # np.savetxt(f"result/r_norm_list_gs_{meta.frame}.txt", r_norm_list)
+        # r_norm_list.clear()
 
 
 if __name__ == "__main__":

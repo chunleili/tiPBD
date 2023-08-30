@@ -1042,13 +1042,14 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
             # A = np.asarray(A.todense())
             # x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)  # for dense A
             x, r = solve_gauss_seidel_sparse(A, b, x0, 100, 1e-6)
+            # x = np.zeros_like(b)
+            # gauss_seidel(A, x, b, 1)
         elif solver == "SOR":
             # x,r = solve_sor(A, b, x0, 1.5, 100, 1e-6) # for dense A
             x, r = solve_sor_sparse(A, b, x0, 1.5, 100, 1e-6)
         elif solver == "DirectSolver":
             # x = scipy.linalg.solve(A, b)# for dense A
             x = scipy.sparse.linalg.spsolve(A, b)
-
         elif solver == "AMG":
             x = solve_pyamg_my2(A, b, x0, R, P)
 
@@ -1138,7 +1139,7 @@ def gauss_seidel(A, x, b, iterations=1):
             amg_core_gauss_seidel(
                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
             )
-    return
+    return x
 
 
 def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):

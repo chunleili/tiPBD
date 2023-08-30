@@ -1395,10 +1395,10 @@ def main():
             t = time()
 
             # substep_directsolver_ti(coarse, 1)
-            # substep_all_solver(coarse, 1, "Jacobi", P, R)
-            # substep_all_solver(coarse, 1, "SOR", P, R)
-            # substep_all_solver(coarse, 1, "GaussSeidel", P, R)
-            # substep_all_solver(coarse, 1, "DirectSolver", P, R)
+            # substep_all_solver(coarse, 1, "Jacobi")
+            # substep_all_solver(coarse, 1, "SOR")
+            # substep_all_solver(coarse, 1, "GaussSeidel")
+            # substep_all_solver(coarse, 1, "DirectSolver")
             substep_all_solver(coarse, 1, "AMG", P, R)
 
             meta.frame += 1

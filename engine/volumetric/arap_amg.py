@@ -27,7 +27,7 @@ parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument(
-    "--solver", type=str, default="Jacobian", choices=["Jacobian", "GaussSeidel", "DirectSolver", "SOR", "AMG", "HPBD"]
+    "--solver", type=str, default="Jacobi", choices=["Jacobi", "GaussSeidel", "DirectSolver", "SOR", "AMG", "HPBD"]
 )
 parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
 parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
@@ -667,8 +667,8 @@ def fill_gradC(
 # ---------------------------------------------------------------------------- #
 #                              Ax=b Solvers                                    #
 # ---------------------------------------------------------------------------- #
-def solve_jacobian_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
-    print("Solving Ax=b using Jacobian, taichi implementation...")
+def solve_jacobi_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
+    print("Solving Ax=b using Jacobi, taichi implementation...")
     n = A.shape[0]
     x = x0.copy()
 
@@ -678,7 +678,7 @@ def solve_jacobian_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
 
     for iter in range(max_iterations):
         x_new = x.copy()
-        jacobian_iter_once_kernel(A, b, x, x_new)
+        jacobi_iter_once_kernel(A, b, x, x_new)
         x = x_new.copy()
 
         # 计算残差并检查收敛
@@ -695,7 +695,7 @@ def solve_jacobian_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
 
 
 @ti.kernel
-def jacobian_iter_once_kernel(
+def jacobi_iter_once_kernel(
     A: ti.types.ndarray(), b: ti.types.ndarray(), x: ti.types.ndarray(), x_new: ti.types.ndarray()
 ):
     n = b.shape[0]
@@ -707,7 +707,7 @@ def jacobian_iter_once_kernel(
         x_new[i] = r / A[i, i]
 
 
-def solve_jacobian_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
+def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
     n = len(b)
     x = x0.copy()  # 初始解向量
     x_new = x0.copy()  # 存储更新后的解向量
@@ -970,11 +970,11 @@ def substep_directsolver_ti(ist, max_iter=1):
 # ---------------------------------------------------------------------------- #
 #                        All solvers refactored into one                       #
 # ---------------------------------------------------------------------------- #
-def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
+def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
     """
     ist: 要输入的instance: coarse or fine mesh\\
     max_iter: 最大迭代次数\\
-    solver: 选择的solver, 可选项为: "Jacobian", "Gauss-Seidel", "SOR", "DirectSolver", "AMG"\\
+    solver: 选择的solver, 可选项为: "Jacobi", "Gauss-Seidel", "SOR", "DirectSolver", "AMG"\\
     P: 粗网格到细网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
     R: 细网格到粗网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
     """
@@ -1035,9 +1035,9 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobian", P=None, R=None):
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
 
-        if solver == "Jacobian":
-            # x, r = solve_jacobian_ti(A, b, x0, 100, 1e-6) # for dense A
-            x, r = solve_jacobian_sparse(A, b, x0, 100, 1e-6)
+        if solver == "Jacobi":
+            # x, r = solve_jacobi_ti(A, b, x0, 100, 1e-6) # for dense A
+            x, r = solve_jacobi_sparse(A, b, x0, 100, 1e-6)
         elif solver == "GaussSeidel":
             # A = np.asarray(A.todense())
             # x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)  # for dense A
@@ -1395,7 +1395,7 @@ def main():
             t = time()
 
             # substep_directsolver_ti(coarse, 1)
-            # substep_all_solver(coarse, 1, "Jacobian", P, R)
+            # substep_all_solver(coarse, 1, "Jacobi", P, R)
             # substep_all_solver(coarse, 1, "SOR", P, R)
             # substep_all_solver(coarse, 1, "GaussSeidel", P, R)
             # substep_all_solver(coarse, 1, "DirectSolver", P, R)

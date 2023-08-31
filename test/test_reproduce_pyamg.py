@@ -51,6 +51,7 @@ def test_amg():
     use_pyamg = False
     use_pyamgmy = True
     use_symGS = False
+    use_GS = True
 
     # pyamg
     if use_pyamg:
@@ -83,6 +84,19 @@ def test_amg():
         t_symGS = perf_counter() - t
         t = perf_counter()
 
+    if use_GS:
+        print("GS")
+        r_norm_list_GS = []
+        t = perf_counter()
+        x0 = np.zeros_like(b)
+        x_GS = np.zeros_like(b)
+        for _ in range(5):
+            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x_GS, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+            r_norm = np.linalg.norm(A @ x_GS - b)
+            r_norm_list_GS.append(r_norm)
+        t_GS = perf_counter() - t
+        t = perf_counter()
+
     # ------------------------------- plot ------------------------------- #
     fig, axs = plt.subplots(1, 3, figsize=(10, 4))
 
@@ -93,13 +107,18 @@ def test_amg():
         print(*r_norm_list_pyamgmy)
     if use_symGS:
         print(f"r symGS: {r_norm_list_symGS[0]:.2e}, {r_norm_list_symGS[1]:.2e}")
+    if use_GS:
+        print(f"r GS:")
+        print(*r_norm_list_GS)
 
     if use_pyamg:
         plot_r_norm_list(r_norm_list_pyamg, axs[0], "pyamg")
     if use_pyamgmy:
         plot_r_norm_list(r_norm_list_pyamgmy, axs[1], "pyamgmy")
-    if use_symGS:
-        plot_r_norm_list(r_norm_list_symGS, axs[2], "symGS")
+    # if use_symGS:
+    #     plot_r_norm_list(r_norm_list_symGS, axs[2], "symGS")
+    if use_GS:
+        plot_r_norm_list(r_norm_list_GS, axs[2], "GS")
     plt.tight_layout()
     plt.show()
 

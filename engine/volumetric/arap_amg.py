@@ -29,8 +29,10 @@ parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument(
     "--solver", type=str, default="Jacobi", choices=["Jacobi", "GaussSeidel", "DirectSolver", "SOR", "AMG", "HPBD"]
 )
-parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
-parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
+# parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
+# parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
+parser.add_argument("--coarse_model_path", type=str, default="data/model/bunny1k2k/coarse.node")
+parser.add_argument("--fine_model_path", type=str, default="data/model/bunny1k2k/fine.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
@@ -1333,10 +1335,10 @@ def compute_R_and_P_kmeans(ist):
     P = R.transpose()
     print(f"Computing P and R done, time = {time() - t}")
 
-    # print(f"writing P and R...")
-    # scipy.io.mmwrite("R.mtx", R)
-    # scipy.io.mmwrite("P.mtx", P)
-    # print(f"writing P and R done")
+    print(f"writing P and R...")
+    scipy.io.mmwrite("R.mtx", R)
+    scipy.io.mmwrite("P.mtx", P)
+    print(f"writing P and R done")
 
     return R, P
 
@@ -1355,7 +1357,7 @@ def main():
     coarse.initialize()
 
     # R, P = compute_R_and_P(coarse, fine)
-    R, P = compute_R_and_P_kmeans(coarse)
+    R, P = compute_R_and_P_kmeans(fine)
 
     window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
@@ -1399,7 +1401,7 @@ def main():
             # substep_all_solver(coarse, 1, "SOR")
             # substep_all_solver(coarse, 1, "GaussSeidel")
             # substep_all_solver(coarse, 1, "DirectSolver")
-            substep_all_solver(coarse, 1, "AMG", P, R)
+            substep_all_solver(fine, 1, "AMG", P, R)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

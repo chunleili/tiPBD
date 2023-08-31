@@ -37,18 +37,20 @@ def test_amg():
     b = np.loadtxt("b.txt")
 
     # generate R by pyamg
-    global ml
     ml = pyamg.classical.ruge_stuben_solver(A, max_levels=2)  # construct the multigrid hierarchy
-    print("ml bulit")
-    P = ml.levels[0].P
-    R = ml.levels[0].R
+    # print("ml bulit")
+    # P = ml.levels[0].P
+    # R = ml.levels[0].R
+    R = mmread("R.mtx")
+    P = mmread("P.mtx")
+    print(f"R: {R.shape}, P: {P.shape}")
 
     # ------------------------------- test solvers ------------------------------- #
 
     use_AMG = True
-    use_pyamg = True
+    use_pyamg = False
     use_pyamgmy = True
-    use_symGS = True
+    use_symGS = False
 
     # pyamg
     if use_pyamg:
@@ -67,7 +69,7 @@ def test_amg():
         t = perf_counter()
         x0 = np.zeros_like(b)
         # change_smoothers(ml, presmoother=("jacobi"), postsmoother=("jacobi"))
-        x_pyamgmy = solve_pyamg_my2(A, b, x0, R, P, r_norm_list_pyamgmy)
+        x_pyamgmy = solve_pyamg_my(A, b, x0, R, P, r_norm_list_pyamgmy)
         t_pyamgmy = perf_counter() - t
         t = perf_counter()
 
@@ -77,15 +79,18 @@ def test_amg():
         r_norm_list_symGS = []
         t = perf_counter()
         x0 = np.zeros_like(b)
-        x_symGS = solve_gauss_seidel_symmetric(A, b, x0, 10, 1e-6, r_norm_list_symGS)
+        x_symGS = solve_gauss_seidel_symmetric_new(A, b, x0, 5, r_norm_list_symGS)
         t_symGS = perf_counter() - t
         t = perf_counter()
 
     # ------------------------------- plot ------------------------------- #
     fig, axs = plt.subplots(1, 3, figsize=(10, 4))
 
-    print(f"r pyamg: {r_norm_list_pyamg[0]:.2e}, {r_norm_list_pyamg[1]:.2e}")
-    print(f"r pyamgmy: {r_norm_list_pyamgmy[0]:.2e}, {r_norm_list_pyamgmy[1]:.2e}")
+    if use_pyamg:
+        print(f"r pyamg: {r_norm_list_pyamg[0]:.2e}, {r_norm_list_pyamg[1]:.2e}")
+    if use_pyamgmy:
+        print(f"r pyamgmy:")
+        print(*r_norm_list_pyamgmy)
     if use_symGS:
         print(f"r symGS: {r_norm_list_symGS[0]:.2e}, {r_norm_list_symGS[1]:.2e}")
 
@@ -244,7 +249,7 @@ def gauss_seidel(A, x, b, iterations=1):
             amg_core_gauss_seidel(
                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
             )
-    return
+    return x
 
 
 def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
@@ -306,6 +311,30 @@ def solve_gauss_seidel_symmetric(A, b, x0, max_iterations=1, tolerance=1e-6, r_n
     x, r = solve_gauss_seidel_backward(A, b, x, max_iterations=max_iterations, tolerance=1e-6, r_norm_list=r_norm_list)
 
     return x, r
+
+
+def solve_gauss_seidel_symmetric_new(A, x, b, iterations=1, r_norm_list=[]):
+    if not sparse.isspmatrix_csr(A):
+        raise ValueError("A must be csr matrix!")
+
+    for _iter in range(iterations):
+        print(f"symGS iter {_iter}")
+        # forward sweep
+        print("forward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+            r_norm = np.linalg.norm(A @ x - b)
+            r_norm_list.append(r_norm)
+
+        # backward sweep
+        print("backward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(
+                A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
+            )
+            r_norm = np.linalg.norm(A @ x - b)
+            r_norm_list.append(r_norm)
+    return x
 
 
 def solve_gauss_seidel_backward(A, b, x0, max_iterations=1, tolerance=1e-6, r_norm_list=[]):

@@ -11,7 +11,7 @@ ti.init(arch=ti.cpu)
 # input = np.random.rand(N, 3) * 10
 
 # read centroids of tetrahedron
-input = np.loadtxt("fine_tet_centroid.txt")
+input = np.loadtxt("tet_centroid.txt")
 N = input.shape[0]
 k = int(N / 100)
 print("N: ", N)

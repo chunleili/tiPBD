@@ -48,7 +48,7 @@ def test_amg():
     # ------------------------------- test solvers ------------------------------- #
 
     use_AMG = True
-    use_pyamg = False
+    use_pyamg = True
     use_pyamgmy = True
     use_symGS = False
     use_GS = True
@@ -233,23 +233,29 @@ def __solve(levels, lvl, x, b):
     # levels[lvl].presmoother(A, x, b)
     # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
     gauss_seidel(A, x, b, iterations=1)
+    
+    # np.savetxt("r1_after_presmooth.txt", b - A @ x)
 
     residual = b - A @ x
 
     coarse_b = levels[lvl].R @ residual
     coarse_x = np.zeros_like(coarse_b)
 
-    if lvl == len(levels) - 2:
-        # coarse_x[:] = coarse_solver(levels[-1].A, coarse_b)
-        coarse_x[:] = scipy.sparse.linalg.spsolve(levels[-1].A, coarse_b)
-    else:
-        ...
+    # if lvl == len(levels) - 2:
+    #     # coarse_x[:] = coarse_solver(levels[-1].A, coarse_b)
+    #     coarse_x[:] = scipy.sparse.linalg.spsolve(levels[-1].A, coarse_b)
+    # else:
+    #     ...
 
     x += levels[lvl].P @ coarse_x  # coarse grid correction
+
+    # np.savetxt("r1_after_prolongate.txt", b - A @ x)
 
     # levels[lvl].postsmoother(A, x, b)
     # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
     gauss_seidel(A, x, b, iterations=1)
+
+    # np.savetxt("r1_after_postsmooth.txt", b - A @ x)
 
 
 def gauss_seidel(A, x, b, iterations=1):

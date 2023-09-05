@@ -33,6 +33,8 @@ parser.add_argument(
 # parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
 parser.add_argument("--coarse_model_path", type=str, default="data/model/bunny1k2k/coarse.node")
 parser.add_argument("--fine_model_path", type=str, default="data/model/bunny1k2k/fine.node")
+# parser.add_argument("--coarse_model_path", type=str, default="data/model/toy/toy.node")
+# parser.add_argument("--fine_model_path", type=str, default="data/model/toy/toy.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
@@ -140,7 +142,7 @@ class ArapMultigrid:
         self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.display_indices.from_numpy(self.model_tri.flatten())
 
-        self.name = ""
+        self.name = "fine"
         if "coarse" in path:
             self.name = "coarse"
         elif "fine" in path:
@@ -1308,6 +1310,9 @@ def compute_R_and_P_kmeans(ist):
     # ----------------------------------- kmans ---------------------------------- #
     print("kmeans start")
     input = ist.tet_centroid.to_numpy()
+
+    np.savetxt("tet_centroid.txt", input)
+
     N = input.shape[0]
     k = int(N / 100)
     print("N: ", N)
@@ -1318,8 +1323,8 @@ def compute_R_and_P_kmeans(ist):
     print("whiten done")
 
     print("computing kmeans...")
-    centroids, distortion = kmeans(obs=input, k_or_guess=k, iter=20)
-    labels, _ = vq(input, centroids)
+    kmeans_centroids, distortion = kmeans(obs=input, k_or_guess=k, iter=20)
+    labels, _ = vq(input, kmeans_centroids)
 
     print("distortion: ", distortion)
     print("kmeans done")
@@ -1369,8 +1374,8 @@ def main():
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
     gui = window.get_gui()
     wire_frame = True
-    show_coarse_mesh = True
-    show_fine_mesh = False
+    show_coarse_mesh = False
+    show_fine_mesh = True
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))

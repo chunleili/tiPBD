@@ -425,11 +425,12 @@ gui = ti.GUI('XPBD-FEM')
 first = True
 drawTime = 0
 sumTime = 0
-steps_num = 0
+frame_num = 0
+end_frame = 100
 
 while gui.running:
-    steps_num += 1
-    print("steps_num: ", steps_num)
+    frame_num += 1
+    print("frame_num: ", frame_num)
     realStart = time.time()
     for e in gui.get_events():
         if e.key == gui.ESCAPE:
@@ -442,18 +443,19 @@ while gui.running:
 
 
     
-    mouse_pos = gui.get_cursor_pos()
+    # mouse_pos = gui.get_cursor_pos()
+    mouse_pos = [0,0]
     attractor_pos[None] = mouse_pos
-    attractor_strength[None] = gui.is_pressed(gui.LMB) - gui.is_pressed(
-        gui.RMB)
-    gui.circle(mouse_pos, radius=15, color=0x336699)
+    # attractor_strength[None] = gui.is_pressed(gui.LMB) - gui.is_pressed( gui.RMB)
+    attractor_strength[None] = 1
 
+    gui.circle(mouse_pos, radius=15, color=0x336699)
 
 
 
     if not pause:
         for i in range(NumSteps):
-            substep_all_solver(1,"DirectSolver")
+            substep_all_solver(2,"DirectSolver")
             # semiEuler()
             # resetLagrangian()
             # for ite in range(MaxIte):
@@ -475,7 +477,7 @@ while gui.running:
         staticVerts = positions[k]
         gui.circle(staticVerts, radius=5, color=0xFF0000)
 
-    filename = f'result/{steps_num:04d}.png'   # create filename with suffix png
+    filename = f'result/iter2/{frame_num:04d}.png'   # create filename with suffix png
     print(f'Frame {i} is recorded in {filename}')
     gui.show(filename)  # export and show in GUI
 
@@ -483,5 +485,8 @@ while gui.running:
     drawTime = (end - start)
     sumTime = (end - realStart)
     print("Draw Time Ratio; ", drawTime / sumTime)
+
+    if frame_num == end_frame:
+        break
 
 # ti.print_kernel_profile_info()

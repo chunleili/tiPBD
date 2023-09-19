@@ -10,6 +10,7 @@ import numpy as np
 from collections import namedtuple
 import scipy.sparse as sparse
 import os, shutil, sys
+from pathlib import Path
 
 ti.init(arch=ti.gpu, kernel_profiler=True)
 
@@ -443,8 +444,6 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         r_norm_list = []
 
-        if not os.path.exists("result/residuals"):
-            os.makedirs("result/residuals")
         
         if solver == "DirectSolver":
             print("DirectSolver")
@@ -458,7 +457,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
             x = np.zeros_like(b)
             r_norm = np.linalg.norm(A @ x - b)
             r_norm_list_GS.append(r_norm)
-            for _ in range(1):
+            for _ in range(100):
                 amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 r_norm = np.linalg.norm(A @ x - b)
                 r_norm_list_GS.append(r_norm)
@@ -466,7 +465,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
             t_GS = perf_counter() - t
             t = perf_counter()
             r_norm_list = r_norm_list_GS
-            np.savetxt(f"result/residuals/GS_{frame_num}.txt",np.array(r_norm_list))
+            np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
 
         elif solver == "AMG":
             r_norm_list_amgmy = []
@@ -475,7 +474,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
                 print(f"{_} r:{r_norm_list_amgmy[_]:.2g}")
 
             r_norm_list = r_norm_list_amgmy
-            np.savetxt(f"result/residuals/amg_{frame_num}.txt",np.array(r_norm_list))
+            np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
 
         print(f"time of solve Ax=b: {time.time() - t:.2g}")
 
@@ -576,6 +575,23 @@ def compute_R_based_on_kmeans_label(
 #     ax.set_xlabel("iteration")
 #     ax.set_ylabel("residual")
 
+def mkdir_if_not_exist(path=None, is_file=False):
+    """ Create directory if not exist, including intermediate directory.
+    Args:
+        path (str): Directory or file path to be created. Default assumes directory.
+        is_file (bool): If True, path is a file path istead of a directory path.
+    """
+    if is_file:
+        directory_path = Path(file_path).parent
+    else:
+        directory_path = Path(path)
+    directory_path.mkdir(parents=True, exist_ok=True)
+    if not os.path.exists(directory_path):
+        os.makedirs(path)
+
+def clean_result_folder():
+    if os.path.exists("result"):
+        shutil.rmtree("result")
 
 
 init_mesh()
@@ -590,6 +606,8 @@ drawTime = 0
 sumTime = 0
 frame_num = 0
 end_frame = 100
+out_dir = f"./result/GSOurter1Inner100/"
+mkdir_if_not_exist(out_dir)
 
 while gui.running:
     frame_num += 1
@@ -644,13 +662,9 @@ while gui.running:
         staticVerts = positions[k]
         gui.circle(staticVerts, radius=5, color=0xFF0000)
 
-    filename = f'result/GSOurter1Inner1/{frame_num:04d}.png'  
+    file_path = out_dir + f"{frame_num:04d}.png"
 
-    out_dir = os.path.dirname(filename)
-    if not os.path.exists(out_dir):
-        os.makedirs(dir)
-
-    gui.show(filename)  # export and show in GUI
+    gui.show(file_path)  # export and show in GUI
 
     end = time.time()
     drawTime = (end - start)

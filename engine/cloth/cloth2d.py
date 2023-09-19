@@ -3,9 +3,12 @@ Then we use XPBD-FEM (gpu version, Jacobian solver) to simulate the deformation 
 """
 import taichi as ti
 import time
+from time import perf_counter
 from taichi.lang.ops import sqrt
 import scipy
 import numpy as np
+from collections import namedtuple
+import scipy.sparse as sparse
 
 ti.init(arch=ti.gpu, kernel_profiler=True)
 
@@ -237,11 +240,159 @@ def fill_gradC_np_kernel(
 
 
 
+def solve_symGS(A, x, b, iterations=1, r_norm_list=[]):
+    if not sparse.isspmatrix_csr(A):
+        raise ValueError("A must be csr matrix!")
+    
+    r_norm = np.linalg.norm(A @ x - b)
+    r_norm_list.append(r_norm)
+
+    for _iter in range(iterations):
+        print(f"symGS iter {_iter}")
+        # forward sweep
+        print("forward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+            r_norm = np.linalg.norm(A @ x - b)
+            r_norm_list.append(r_norm)
+
+        # backward sweep
+        print("backward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(
+                A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
+            )
+            r_norm = np.linalg.norm(A @ x - b)
+            r_norm_list.append(r_norm)
+    return x
+
+
+def solve_amg_my(A, b, x0, R, P, r_norm_list=[]):
+    max_levels = 2
+
+    tol = 1e-3
+    residuals = r_norm_list
+    maxiter = 1
+
+    levels = []
+
+    Level = namedtuple("Level", ["A", "R", "P", "presmoother", "postsmoother"])
+    levels.append(Level(A, R, P, None, None))
+    A2 = R @ A @ P
+    levels.append(Level(A2, None, None, None, None))
+
+    x = np.zeros_like(b)
+
+    # Scale tol by normb
+    # Don't scale tol earlier. The accel routine should also scale tol
+    normb = np.linalg.norm(b)
+    if normb == 0.0:
+        normb = 1.0  # set so that we have an absolute tolerance
+
+    # Start cycling (no acceleration)
+    normr = np.linalg.norm(b - A @ x)
+    if residuals is not None:
+        residuals[:] = [normr]  # initial residual
+        print(f"r:{normr:.2g}")
+
+    b = np.ravel(b)
+    x = np.ravel(x)
+
+    it = 0
+
+    while True:  # it <= maxiter and normr >= tol:
+        if len(levels) == 1:
+            # hierarchy has only 1 level
+            # x = ml.coarse_solver(A, b)
+            x = scipy.sparse.linalg.spsolve(A, b)
+        else:
+            __solve(levels, 0, x, b)
+
+        it += 1
+
+        normr = np.linalg.norm(b - A @ x)
+        if residuals is not None:
+            residuals.append(normr)
+            print(f"r:{normr:.2g}")
+
+        if normr < tol * normb:
+            return x
+
+        if it == maxiter:
+            return x
+
+
+def __solve(levels, lvl, x, b):
+    A = levels[lvl].A
+
+    # levels[lvl].presmoother(A, x, b)
+    # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
+    symGS(A, x, b, iterations=1)
+    
+    # np.savetxt("r1_after_presmooth.txt", b - A @ x)
+
+    residual = b - A @ x
+
+    coarse_b = levels[lvl].R @ residual
+    coarse_x = np.zeros_like(coarse_b)
+
+    # if lvl == len(levels) - 2:
+    #     # coarse_x[:] = coarse_solver(levels[-1].A, coarse_b)
+    #     coarse_x[:] = scipy.sparse.linalg.spsolve(levels[-1].A, coarse_b)
+    # else:
+    #     ...
+
+    x += levels[lvl].P @ coarse_x  # coarse grid correction
+
+    # np.savetxt("r1_after_prolongate.txt", b - A @ x)
+
+    # levels[lvl].postsmoother(A, x, b)
+    # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
+    symGS(A, x, b, iterations=1)
+
+    # np.savetxt("r1_after_postsmooth.txt", b - A @ x)
+
+
+def symGS(A, x, b, iterations=1):
+    if not sparse.isspmatrix_csr(A):
+        raise ValueError("A must be csr matrix!")
+
+    for _iter in range(iterations):
+        # forward sweep
+        print("forward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+
+        # backward sweep
+        print("backward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(
+                A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
+            )
+    return x
+
+def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
+    for i in range(row_start, row_stop, row_step):
+        start = Ap[i]
+        end = Ap[i + 1]
+        rsum = 0.0
+        diag = 0.0
+
+        for jj in range(start, end):
+            j = Aj[jj]
+            if i == j:
+                diag = Ax[jj]
+            else:
+                rsum += Ax[jj] * x[j]
+
+        if diag != 0.0:
+            x[i] = (b[i] - rsum) / diag
+
 
 # ---------------------------------------------------------------------------- #
 #                        All solvers refactored into one                       #
 # ---------------------------------------------------------------------------- #
-def substep_all_solver(max_iter=1, solver="Jacobi", P=None, R=None):
+def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     """
     ist: 要输入的instance: coarse or fine mesh\\
     max_iter: 最大迭代次数\\
@@ -307,23 +458,31 @@ def substep_all_solver(max_iter=1, solver="Jacobi", P=None, R=None):
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
 
-        if solver == "Jacobi":
-            # x, r = solve_jacobi_ti(A, b, x0, 100, 1e-6) # for dense A
-            x, r = solve_jacobi_sparse(A, b, x0, 100, 1e-6)
-        elif solver == "GaussSeidel":
-            # A = np.asarray(A.todense())
-            # x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)  # for dense A
-            x, r = solve_gauss_seidel_sparse(A, b, x0, 100, 1e-6)
-            # x = np.zeros_like(b)
-            # gauss_seidel(A, x, b, 1)
-        elif solver == "SOR":
-            # x,r = solve_sor(A, b, x0, 1.5, 100, 1e-6) # for dense A
-            x, r = solve_sor_sparse(A, b, x0, 1.5, 100, 1e-6)
-        elif solver == "DirectSolver":
-            # x = scipy.linalg.solve(A, b)# for dense A
+
+        if solver == "DirectSolver":
+            print("DirectSolver")
             x = scipy.sparse.linalg.spsolve(A, b)
+            print(f"r: {np.linalg.norm(A @ x - b):.2g}", )
+        if solver == "GaussSeidel":
+            print("GS")
+            r_norm_list_GS = []
+            t = perf_counter()
+            x0 = np.zeros_like(b)
+            x = np.zeros_like(b)
+            r_norm = np.linalg.norm(A @ x - b)
+            r_norm_list_GS.append(r_norm)
+            for _ in range(5):
+                amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+                r_norm = np.linalg.norm(A @ x - b)
+                r_norm_list_GS.append(r_norm)
+                print(f"{_} r:{r_norm:.2g}")
+            t_GS = perf_counter() - t
+            t = perf_counter()
         elif solver == "AMG":
-            x = solve_pyamg_my2(A, b, x0, R, P)
+            r_norm_list_amgmy = []
+            x = solve_amg_my(A, b, x0, R, P, r_norm_list_amgmy)
+            # for _ in r_norm_list_amgmy:
+            #     print("{_} r:{r_norm_list_amgmy[_]:.2g}")
 
         print(f"solver time of solve: {time.time() - t}")
 
@@ -369,7 +528,7 @@ def compute_R_and_P_kmeans():
     np.savetxt("centroid.txt", input)
 
     N = input.shape[0]
-    k = int(N / 100)
+    k = int(N / 10)
     print("N: ", N)
     print("k: ", k)
 
@@ -395,10 +554,10 @@ def compute_R_and_P_kmeans():
     P = R.transpose()
     print(f"Computing P and R done, time = {time.time() - t}")
 
-    print(f"writing P and R...")
-    scipy.io.mmwrite("R.mtx", R)
-    scipy.io.mmwrite("P.mtx", P)
-    print(f"writing P and R done")
+    # print(f"writing P and R...")
+    # scipy.io.mmwrite("R.mtx", R)
+    # scipy.io.mmwrite("P.mtx", P)
+    # print(f"writing P and R done")
 
     return R, P
 
@@ -414,11 +573,20 @@ def compute_R_based_on_kmeans_label(
                 R[i, j] = 1
 
 
+# def plot_r_norm_list(data, ax, title):
+#     x = np.arange(len(data))
+#     ax.plot(x, data, "-o")
+#     ax.set_title(title)
+#     # ax.set_yscale("log")
+#     ax.set_xlabel("iteration")
+#     ax.set_ylabel("residual")
+
+
 
 init_mesh()
 init_pos()
 
-compute_R_and_P_kmeans()
+R, P = compute_R_and_P_kmeans()
 
 pause = False
 gui = ti.GUI('XPBD-FEM')
@@ -430,7 +598,7 @@ end_frame = 100
 
 while gui.running:
     frame_num += 1
-    print("frame_num: ", frame_num)
+    print("\n\nframe_num: ", frame_num)
     realStart = time.time()
     for e in gui.get_events():
         if e.key == gui.ESCAPE:
@@ -455,7 +623,9 @@ while gui.running:
 
     if not pause:
         for i in range(NumSteps):
-            substep_all_solver(2,"DirectSolver")
+            # substep_all_solver(1,"DirectSolver")
+            # substep_all_solver(1,"GaussSeidel")
+            substep_all_solver(1,"AMG", R, P)
             # semiEuler()
             # resetLagrangian()
             # for ite in range(MaxIte):
@@ -477,8 +647,8 @@ while gui.running:
         staticVerts = positions[k]
         gui.circle(staticVerts, radius=5, color=0xFF0000)
 
-    filename = f'result/iter2/{frame_num:04d}.png'   # create filename with suffix png
-    print(f'Frame {i} is recorded in {filename}')
+    filename = f'result/iter1/{frame_num:04d}.png'   # create filename with suffix png
+    print(f'Frame {frame_num} is recorded in {filename}')
     gui.show(filename)  # export and show in GUI
 
     end = time.time()

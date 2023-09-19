@@ -90,6 +90,8 @@ def test_amg():
         t = perf_counter()
         x0 = np.zeros_like(b)
         x_GS = np.zeros_like(b)
+        r_norm = np.linalg.norm(A @ x_GS - b)
+        r_norm_list_GS.append(r_norm)
         for _ in range(5):
             amg_core_gauss_seidel(A.indptr, A.indices, A.data, x_GS, b, row_start=0, row_stop=int(len(x0)), row_step=1)
             r_norm = np.linalg.norm(A @ x_GS - b)

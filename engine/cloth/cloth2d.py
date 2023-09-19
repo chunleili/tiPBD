@@ -440,11 +440,12 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
 
-
+        r_norm_list = []
+        
         if solver == "DirectSolver":
             print("DirectSolver")
             x = scipy.sparse.linalg.spsolve(A, b)
-            print(f"r: {np.linalg.norm(A @ x - b):.2g}", )
+            print(f"r: {np.linalg.norm(A @ x - b):.2g}" )
         if solver == "GaussSeidel":
             print("GS")
             r_norm_list_GS = []
@@ -460,11 +461,17 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
                 print(f"{_} r:{r_norm:.2g}")
             t_GS = perf_counter() - t
             t = perf_counter()
+            r_norm_list = r_norm_list_GS
+            np.savetxt(f"result/residuals/GS_{frame_num}.txt",np.array(r_norm_list))
+
         elif solver == "AMG":
             r_norm_list_amgmy = []
-            x = solve_amg_my(A, b, x0, R, P, 5, r_norm_list_amgmy)
+            x = solve_amg_my(A, b, x0, R, P, 1, r_norm_list_amgmy)
             for _ in range(len(r_norm_list_amgmy)):
                 print(f"{_} r:{r_norm_list_amgmy[_]:.2g}")
+
+            r_norm_list = r_norm_list_amgmy
+            np.savetxt(f"result/residuals/amg_{frame_num}.txt",np.array(r_norm_list))
 
         print(f"time of solve Ax=b: {time.time() - t:.2g}")
 
@@ -481,6 +488,8 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         pos.from_numpy(pos_mid.to_numpy() + dpos.reshape(-1, 2))
 
     updteVelocity()
+
+    return r_norm_list
 
 
 @ti.kernel
@@ -606,14 +615,16 @@ while gui.running:
     if not pause:
         for i in range(NumSteps):
             # substep_all_solver(1,"DirectSolver")
-            # substep_all_solver(1,"GaussSeidel")
-            substep_all_solver(1,"AMG", R, P)
+            r_norm_list = substep_all_solver(1,"GaussSeidel")
+            # substep_all_solver(1,"AMG", R, P)
             # semiEuler()
             # resetLagrangian()
             # for ite in range(MaxIte):
             #     computeGradientVector()
             #     updatePos()
             # updteVelocity()
+    
+
     ti.sync()
     start = time.time()
     faces = f2v.to_numpy()

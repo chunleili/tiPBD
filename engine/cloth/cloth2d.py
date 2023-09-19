@@ -240,39 +240,13 @@ def fill_gradC_np_kernel(
 
 
 
-def solve_symGS(A, x, b, iterations=1, r_norm_list=[]):
-    if not sparse.isspmatrix_csr(A):
-        raise ValueError("A must be csr matrix!")
-    
-    r_norm = np.linalg.norm(A @ x - b)
-    r_norm_list.append(r_norm)
-
-    for _iter in range(iterations):
-        print(f"symGS iter {_iter}")
-        # forward sweep
-        print("forward sweeping")
-        for _ in range(iterations):
-            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
-            r_norm = np.linalg.norm(A @ x - b)
-            r_norm_list.append(r_norm)
-
-        # backward sweep
-        print("backward sweeping")
-        for _ in range(iterations):
-            amg_core_gauss_seidel(
-                A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
-            )
-            r_norm = np.linalg.norm(A @ x - b)
-            r_norm_list.append(r_norm)
-    return x
 
 
-def solve_amg_my(A, b, x0, R, P, r_norm_list=[]):
+def solve_amg_my(A, b, x0, R, P, max_iter=1, r_norm_list=[]):
     max_levels = 2
 
     tol = 1e-3
     residuals = r_norm_list
-    maxiter = 1
 
     levels = []
 
@@ -293,14 +267,14 @@ def solve_amg_my(A, b, x0, R, P, r_norm_list=[]):
     normr = np.linalg.norm(b - A @ x)
     if residuals is not None:
         residuals[:] = [normr]  # initial residual
-        print(f"r:{normr:.2g}")
+        # print(f"r:{normr:.2g}")
 
     b = np.ravel(b)
     x = np.ravel(x)
 
     it = 0
 
-    while True:  # it <= maxiter and normr >= tol:
+    while True:  # it <= max_iter and normr >= tol:
         if len(levels) == 1:
             # hierarchy has only 1 level
             # x = ml.coarse_solver(A, b)
@@ -313,12 +287,12 @@ def solve_amg_my(A, b, x0, R, P, r_norm_list=[]):
         normr = np.linalg.norm(b - A @ x)
         if residuals is not None:
             residuals.append(normr)
-            print(f"r:{normr:.2g}")
+            # print(f"r:{normr:.2g}")
 
         if normr < tol * normb:
             return x
 
-        if it == maxiter:
+        if it == max_iter:
             return x
 
 
@@ -327,7 +301,7 @@ def __solve(levels, lvl, x, b):
 
     # levels[lvl].presmoother(A, x, b)
     # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
-    symGS(A, x, b, iterations=1)
+    solve_symGS(A, x, b, iterations=1)
     
     # np.savetxt("r1_after_presmooth.txt", b - A @ x)
 
@@ -348,28 +322,36 @@ def __solve(levels, lvl, x, b):
 
     # levels[lvl].postsmoother(A, x, b)
     # x, _ = solve_gauss_seidel_symmetric(A, b, x, max_iterations=1)
-    symGS(A, x, b, iterations=1)
+    solve_symGS(A, x, b, iterations=1)
 
     # np.savetxt("r1_after_postsmooth.txt", b - A @ x)
 
 
-def symGS(A, x, b, iterations=1):
+def solve_symGS(A, x, b, iterations=1, r_norm_list=[]):
     if not sparse.isspmatrix_csr(A):
         raise ValueError("A must be csr matrix!")
+    
+    r_norm = np.linalg.norm(A @ x - b)
+    r_norm_list.append(r_norm)
 
     for _iter in range(iterations):
         # forward sweep
-        print("forward sweeping")
+        # print("forward sweeping")
         for _ in range(iterations):
             amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+            r_norm = np.linalg.norm(A @ x - b)
+            r_norm_list.append(r_norm)
 
         # backward sweep
-        print("backward sweeping")
+        # print("backward sweeping")
         for _ in range(iterations):
             amg_core_gauss_seidel(
                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
             )
+            r_norm = np.linalg.norm(A @ x - b)
+            r_norm_list.append(r_norm)
     return x
+
 
 def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
     for i in range(row_start, row_stop, row_step):
@@ -480,11 +462,11 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
             t = perf_counter()
         elif solver == "AMG":
             r_norm_list_amgmy = []
-            x = solve_amg_my(A, b, x0, R, P, r_norm_list_amgmy)
-            # for _ in r_norm_list_amgmy:
-            #     print("{_} r:{r_norm_list_amgmy[_]:.2g}")
+            x = solve_amg_my(A, b, x0, R, P, 5, r_norm_list_amgmy)
+            for _ in range(len(r_norm_list_amgmy)):
+                print(f"{_} r:{r_norm_list_amgmy[_]:.2g}")
 
-        print(f"solver time of solve: {time.time() - t}")
+        print(f"time of solve Ax=b: {time.time() - t:.2g}")
 
         # ------------------------- transfer data back to PBD ------------------------ #
         print("transfer data back to PBD")

@@ -9,6 +9,7 @@ import scipy
 import numpy as np
 from collections import namedtuple
 import scipy.sparse as sparse
+import os, shutil, sys
 
 ti.init(arch=ti.gpu, kernel_profiler=True)
 
@@ -441,6 +442,9 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         A = scipy.sparse.csr_matrix(A)
 
         r_norm_list = []
+
+        if not os.path.exists("result/residuals"):
+            os.makedirs("result/residuals")
         
         if solver == "DirectSolver":
             print("DirectSolver")
@@ -454,7 +458,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
             x = np.zeros_like(b)
             r_norm = np.linalg.norm(A @ x - b)
             r_norm_list_GS.append(r_norm)
-            for _ in range(5):
+            for _ in range(1):
                 amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 r_norm = np.linalg.norm(A @ x - b)
                 r_norm_list_GS.append(r_norm)
@@ -640,8 +644,12 @@ while gui.running:
         staticVerts = positions[k]
         gui.circle(staticVerts, radius=5, color=0xFF0000)
 
-    filename = f'result/iter1/{frame_num:04d}.png'   # create filename with suffix png
-    print(f'Frame {frame_num} is recorded in {filename}')
+    filename = f'result/GSOurter1Inner1/{frame_num:04d}.png'  
+
+    out_dir = os.path.dirname(filename)
+    if not os.path.exists(out_dir):
+        os.makedirs(dir)
+
     gui.show(filename)  # export and show in GUI
 
     end = time.time()

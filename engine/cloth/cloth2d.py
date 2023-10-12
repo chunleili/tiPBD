@@ -216,13 +216,13 @@ def compute_C_and_gradC_kernel():
         g0, g1, g2, isSuccess = computeGradient(i, U, S, V)
 
         if isSuccess:
-            l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr(
-            ) + invM2 * g2.norm_sqr()
-            dLambda[i] = -(constraint + alpha * lagrangian[i]) / (l + alpha)
-            lagrangian[i] = lagrangian[i] + dLambda[i]
-            gradient[3 * i + 0] = g0
-            gradient[3 * i + 1] = g1
-            gradient[3 * i + 2] = g2
+            # l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr(
+            # ) + invM2 * g2.norm_sqr()
+            # dLambda[i] = -(constraint + alpha * lagrangian[i]) / (l + alpha)
+            # lagrangian[i] = lagrangian[i] + dLambda[i]
+            # gradient[3 * i + 0] = g0
+            # gradient[3 * i + 1] = g1
+            # gradient[3 * i + 2] = g2
 
             gradC[i, 0], gradC[i, 1], gradC[i, 2] = g0, g1, g2
 
@@ -457,7 +457,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
             x = np.zeros_like(b)
             r_norm = np.linalg.norm(A @ x - b)
             r_norm_list_GS.append(r_norm)
-            for _ in range(100):
+            for _ in range(1):
                 amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 r_norm = np.linalg.norm(A @ x - b)
                 r_norm_list_GS.append(r_norm)
@@ -637,7 +637,7 @@ while gui.running:
     if not pause:
         for i in range(NumSteps):
             # substep_all_solver(1,"DirectSolver")
-            r_norm_list = substep_all_solver(1,"GaussSeidel")
+            r_norm_list = substep_all_solver(10,"GaussSeidel")
             # substep_all_solver(1,"AMG", R, P)
             # semiEuler()
             # resetLagrangian()

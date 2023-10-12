@@ -21,3 +21,4 @@ run.py
 /*.npy
 ./P.mtx
 ./R.mtx
+profile*

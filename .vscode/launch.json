@@ -1,7 +1,16 @@
 {
     "version": "0.2.0",
     "configurations": [
-
+        {
+            "name": "profile",
+            "type": "python",
+            "request": "launch",
+            "module": "cProfile",
+            "justMyCode": true,
+            "args":["-o",
+                    "profile",
+                    "${file}"]
+        },
         {
             "name": "Python: 当前文件",
             "type": "python",
@@ -9,7 +18,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": [ ]
+            "args": []
         },
         {
             "name": "hpbd 5 5",
@@ -17,11 +26,16 @@
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
-            "args": ["--fine_iterations", "5",
-                     "--coarse_iterations", "5",
-                     "--solver_type", "Jacobian",
-                     "--multigrid_type", "HPBD"
-                    ]
+            "args": [
+                "--fine_iterations",
+                "5",
+                "--coarse_iterations",
+                "5",
+                "--solver_type",
+                "Jacobian",
+                "--multigrid_type",
+                "HPBD"
+            ]
         },
         {
             "name": "coarse direct",
@@ -29,10 +43,14 @@
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
-            "args": ["--fine_iterations", "0",
-                     "--coarse_iterations", "1",
-                     "--solver_type", "DirectSolver"
-                    ]
+            "args": [
+                "--fine_iterations",
+                "0",
+                "--coarse_iterations",
+                "1",
+                "--solver_type",
+                "DirectSolver"
+            ]
         },
         {
             "name": "fine direct",
@@ -40,10 +58,14 @@
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
-            "args": ["--fine_iterations", "1",
-                     "--coarse_iterations", "0",
-                     "--solver_type", "DirectSolver"
-                    ]
+            "args": [
+                "--fine_iterations",
+                "1",
+                "--coarse_iterations",
+                "0",
+                "--solver_type",
+                "DirectSolver"
+            ]
         },
         {
             "name": "amg direct",
@@ -51,11 +73,16 @@
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
-            "args": ["--fine_iterations", "1",
-                     "--coarse_iterations", "1",
-                     "--solver_type", "DirectSolver",
-                     "--multigrid_type", "AMG"
-                    ]
+            "args": [
+                "--fine_iterations",
+                "1",
+                "--coarse_iterations",
+                "1",
+                "--solver_type",
+                "DirectSolver",
+                "--multigrid_type",
+                "AMG"
+            ]
         },
         {
             "name": "fine Jacobian",
@@ -63,10 +90,14 @@
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
-            "args": ["--fine_iterations", "1",
-                     "--coarse_iterations", "0",
-                     "--solver_type", "Jacobian",
-                    ]
+            "args": [
+                "--fine_iterations",
+                "1",
+                "--coarse_iterations",
+                "0",
+                "--solver_type",
+                "Jacobian",
+            ]
         }
     ]
 }

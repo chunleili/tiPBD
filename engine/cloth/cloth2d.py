@@ -373,6 +373,33 @@ def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_s
             x[i] = (b[i] - rsum) / diag
 
 
+def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
+                                 Aj: ti.types.ndarray(),
+                                 Ax: ti.types.ndarray(),
+                                 x: ti.types.ndarray(),
+                                 b: ti.types.ndarray(),
+                                 row_start: int,
+                                 row_stop: int,
+                                 row_step: int):
+    for i in range(row_start, row_stop):
+        if i%row_step != 0:
+            continue
+
+        start = Ap[i]
+        end = Ap[i + 1]
+        rsum = 0.0
+        diag = 0.0
+
+        for jj in range(start, end):
+            j = Aj[jj]
+            if i == j:
+                diag = Ax[jj]
+            else:
+                rsum += Ax[jj] * x[j]
+
+        if diag != 0.0:
+            x[i] = (b[i] - rsum) / diag
+
 # ---------------------------------------------------------------------------- #
 #                        All solvers refactored into one                       #
 # ---------------------------------------------------------------------------- #
@@ -444,7 +471,8 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         r_norm_list = []
 
-        
+        t = perf_counter()
+
         if solver == "DirectSolver":
             print("DirectSolver")
             x = scipy.sparse.linalg.spsolve(A, b)
@@ -452,18 +480,16 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         if solver == "GaussSeidel":
             print("GS")
             r_norm_list_GS = []
-            t = perf_counter()
             x0 = np.zeros_like(b)
             x = np.zeros_like(b)
             r_norm = np.linalg.norm(A @ x - b)
             r_norm_list_GS.append(r_norm)
             for _ in range(1):
-                amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+                # amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+                amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 r_norm = np.linalg.norm(A @ x - b)
                 r_norm_list_GS.append(r_norm)
                 print(f"{_} r:{r_norm:.2g}")
-            t_GS = perf_counter() - t
-            t = perf_counter()
             r_norm_list = r_norm_list_GS
             np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
 
@@ -476,7 +502,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
             r_norm_list = r_norm_list_amgmy
             np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
 
-        print(f"time of solve Ax=b: {time.time() - t:.2g}")
+        print(f"time of Ax=b: {(time.perf_counter() - t):.2g}")
 
         # ------------------------- transfer data back to PBD ------------------------ #
         print("transfer data back to PBD")

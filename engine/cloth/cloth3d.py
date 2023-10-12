@@ -1,4 +1,10 @@
 import taichi as ti
+import numpy as np
+import time
+import scipy
+from pathlib import Path
+import os
+from matplotlib import pyplot as plt
 
 ti.init(arch=ti.vulkan)
 N = 50
@@ -18,6 +24,16 @@ h = 0.01
 MaxIte = 100
 
 paused = ti.field(ti.i32, shape=())
+
+NF=NT
+compliance = 1.0e-6  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
+alpha = compliance * (1.0 / h / h)  # timestep related compliance, see XPBD paper
+lagrangian = ti.field(float, NE)  # lagrangian multipliers
+pos_mid = ti.Vector.field(3, float, NV)  # mid pos
+constraints = ti.field(float, NE)
+gradC = ti.Vector.field(3, float, (NE,2))  # gradient of constraints
+e2v = ti.Vector.field(3, int, NE)  # ids of three vertices of each edge
+dLambda = ti.field(float, NE)
 
 
 @ti.kernel
@@ -101,6 +117,22 @@ def solve_constraints():
             acc_pos[idx1] -= invM1 * l * gradient
 
 @ti.kernel
+def solve_constraints_xpbd():
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        dis = pos[idx0] - pos[idx1]
+        constraint = dis.norm() - rest_len[i]
+        gradient = dis.normalized()
+        l = -constraint / (invM0 + invM1)
+        delta_lagrangian = -(constraint + lagrangian[i] * alpha) / (invM0 + invM1 + alpha)
+        lagrangian[i] += delta_lagrangian
+        if invM0 != 0.0:
+            acc_pos[idx0] += invM0 * delta_lagrangian * gradient
+        if invM1 != 0.0:
+            acc_pos[idx1] -= invM1 * delta_lagrangian * gradient
+
+@ti.kernel
 def update_pos():
     for i in range(NV):
         if inv_mass[i] != 0.0:
@@ -123,7 +155,7 @@ def reset_accpos():
     for i in range(NV):
         acc_pos[i] = ti.Vector([0.0, 0.0, 0.0])
 
-def step():
+def step_pbd():
     semi_euler()
     for i in range(MaxIte):
         reset_accpos()
@@ -132,6 +164,218 @@ def step():
         collision()
     update_vel()
 
+def step_xpbd():
+    semi_euler()
+    reset_lagrangian()
+    for i in range(MaxIte):
+        reset_accpos()
+        solve_constraints_xpbd()
+        update_pos()
+        collision()
+    update_vel()
+
+
+
+# ---------------------------------------------------------------------------- #
+#                                   for ours                                   #
+# ---------------------------------------------------------------------------- #
+
+@ti.kernel
+def compute_C_and_gradC_kernel():
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        dis = pos[idx0] - pos[idx1]
+        constraint = dis.norm() - rest_len[i]
+        gradient_dist = dis.normalized()
+
+        gradC[i, 0], gradC[i, 1] = gradient_dist, -gradient_dist
+        constraints[i] = constraint
+
+
+@ti.kernel
+def fill_gradC_np_kernel(
+    A: ti.types.ndarray(),
+    gradC: ti.template(),
+    e2v: ti.template(),
+):
+    for j in e2v:
+        ind = e2v[j]
+        for p in range(2): #which point in the edge
+            for d in range(3): #which dimension
+                pid = ind[p]
+                A[j, 3 * pid + d] = gradC[j, p][d]
+
+
+@ti.kernel
+def reset_lagrangian():
+    for i in range(NE):
+        lagrangian[i] = 0.0
+
+
+def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
+    for i in range(row_start, row_stop, row_step):
+        start = Ap[i]
+        end = Ap[i + 1]
+        rsum = 0.0
+        diag = 0.0
+
+        for jj in range(start, end):
+            j = Aj[jj]
+            if i == j:
+                diag = Ax[jj]
+            else:
+                rsum += Ax[jj] * x[j]
+
+        if diag != 0.0:
+            x[i] = (b[i] - rsum) / diag
+
+
+def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
+                                 Aj: ti.types.ndarray(),
+                                 Ax: ti.types.ndarray(),
+                                 x: ti.types.ndarray(),
+                                 b: ti.types.ndarray(),
+                                 row_start: int,
+                                 row_stop: int,
+                                 row_step: int):
+    for i in range(row_start, row_stop):
+        if i%row_step != 0:
+            continue
+
+        start = Ap[i]
+        end = Ap[i + 1]
+        rsum = 0.0
+        diag = 0.0
+
+        for jj in range(start, end):
+            j = Aj[jj]
+            if i == j:
+                diag = Ax[jj]
+            else:
+                rsum += Ax[jj] * x[j]
+
+        if diag != 0.0:
+            x[i] = (b[i] - rsum) / diag
+
+
+def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
+    """
+    max_iter: 最大迭代次数\\
+    solver: 选择的solver, 可选项为: "Jacobi", "Gauss-Seidel", "SOR", "DirectSolver", "AMG"\\
+    P: 粗网格到细网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
+    R: 细网格到粗网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
+    """
+    # ist is instance of fine or coarse
+
+    semi_euler()
+    reset_lagrangian()
+    
+    for ite in range(max_iter):
+        t = time.time()
+
+        # ----------------------------- prepare matrices ----------------------------- #
+        print(f"----iter {ite}----")
+
+        print("Assembling matrix")
+        # copy pos to pos_mid
+        pos_mid.from_numpy(pos.to_numpy())
+
+        M = NE
+        N = NV
+
+        compute_C_and_gradC_kernel()
+
+        # fill G matrix (gradC)
+        G = np.zeros((M, 3 * N))
+        fill_gradC_np_kernel(G, gradC, e2v)
+        G = scipy.sparse.csr_matrix(G)
+
+        # fill M_inv and ALPHA
+        inv_mass_np = inv_mass.to_numpy()
+        inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+        M_inv = scipy.sparse.diags(inv_mass_np)
+
+        alpha_tilde_np = np.array([alpha] * M)
+        ALPHA = scipy.sparse.diags(alpha_tilde_np)
+
+        # assemble A and b
+        print("Assemble A")
+        A = G @ M_inv @ G.transpose() + ALPHA
+        A = scipy.sparse.csr_matrix(A)
+        b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
+
+        print("Assemble matrix done")
+        print("A:", A.shape, " b:", b.shape)
+
+        # scipy.io.mmwrite("A.mtx", A)
+        # plt.spy(A, markersize=1)
+        # plt.show()
+        # exit()
+
+        # -------------------------------- solve Ax=b -------------------------------- #
+        print("solve Ax=b")
+        print(f"Solving by {solver}")
+
+        t = time.perf_counter()
+
+        x0 = np.zeros_like(b)
+
+        r_norm_list = []
+        r_norm_list.append(np.linalg.norm(A @ x0 - b)) # first residual
+        
+        if solver == "DirectSolver":
+            print("DirectSolver")
+            x = scipy.sparse.linalg.spsolve(A, b)
+            print(f"r: {np.linalg.norm(A @ x - b):.2g}" )
+        if solver == "GaussSeidel":
+            print("GaussSeidel")
+            x = np.zeros_like(b)
+            for _ in range(1):
+                # amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+                amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+                r_norm = np.linalg.norm(A @ x - b)
+                r_norm_list.append(r_norm)
+                print(f"{_} r:{r_norm:.2g}")
+            np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
+
+        elif solver == "AMG":
+            x = solve_amg_my(A, b, x0, R, P, 1, r_norm_list)
+            for _ in range(len(r_norm_list)):
+                print(f"{_} r:{r_norm_list[_]:.2g}")
+            np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
+
+        print(f"time of Ax=b: {(time.perf_counter() - t):.2g}")
+
+        # ------------------------- transfer data back to pos ------------------------ #
+        print("transfer data back to pos")
+        dlambda = x
+
+        # lam += dlambda
+        lagrangian.from_numpy(lagrangian.to_numpy() + dlambda)
+
+        # dpos = M_inv @ G^T @ dlambda
+        dpos = M_inv @ G.transpose() @ dlambda
+        # pos+=dpos
+        pos.from_numpy(pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+    update_vel()
+
+    return r_norm_list
+
+
+def mkdir_if_not_exist(path=None):
+    directory_path = Path(path)
+    directory_path.mkdir(parents=True, exist_ok=True)
+    if not os.path.exists(directory_path):
+        os.makedirs(path)
+
+
+
+frame_num = 0
+end_frame = 1000
+out_dir = f"./result/cloth3d/"
+mkdir_if_not_exist(out_dir)
+
 
 init_pos()
 init_tri()
@@ -139,6 +383,7 @@ init_edge()
 
 window = ti.ui.Window("Display Mesh", (1024, 1024))
 canvas = window.get_canvas()
+canvas.set_background_color((1, 1, 1))
 scene = ti.ui.Scene()
 camera = ti.ui.Camera()
 camera.position(0.5, 0.0, 2.5)
@@ -147,6 +392,9 @@ camera.fov(90)
 
 paused[None] = 0
 while window.running:
+    frame_num += 1
+    print("\n\nframe_num: ", frame_num)
+
     for e in window.get_events(ti.ui.PRESS):
         if e.key in [ti.ui.ESCAPE]:
             exit()
@@ -155,13 +403,23 @@ while window.running:
             print("paused:",paused[None])
 
     if not paused[None]:
-        step()
+        # step_pbd()
+        # step_xpbd()
+        substep_all_solver(max_iter=10, solver="GaussSeidel")
     
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)
     scene.set_camera(camera)
     scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
 
-    scene.mesh(pos, tri, color=(1.0,1.0,1.0), two_sided=True)
-    # scene.particles(pos, radius=0.001, color=(0.6,0.0,0.0))
+    scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
+    # scene.particles(pos, radius=0.01, color=(0.6,0.0,0.0))
     canvas.scene(scene)
+
+    # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
     window.show()
+
+    # file_path = out_dir + f"{frame_num:04d}.png"
+    # window.save_image(file_path)  # export and show in GUI
+
+    if frame_num == end_frame:
+        break

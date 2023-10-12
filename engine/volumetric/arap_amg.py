@@ -1042,12 +1042,15 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
         if solver == "Jacobi":
             # x, r = solve_jacobi_ti(A, b, x0, 100, 1e-6) # for dense A
             x, r = solve_jacobi_sparse(A, b, x0, 100, 1e-6)
-        elif solver == "GaussSeidel":
-            # A = np.asarray(A.todense())
-            # x, r = solve_gauss_seidel_ti(A, b, x0, 100, 1e-6)  # for dense A
-            x, r = solve_gauss_seidel_sparse(A, b, x0, 100, 1e-6)
-            # x = np.zeros_like(b)
-            # gauss_seidel(A, x, b, 1)
+        if solver == "GaussSeidel":
+            print("GaussSeidel")
+            x = np.zeros_like(b)
+            for _ in range(1):
+                amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+                r_norm = np.linalg.norm(A @ x - b)
+                # r_norm_list.append(r_norm)
+                print(f"{_} r:{r_norm:.2g}")
+
         elif solver == "SOR":
             # x,r = solve_sor(A, b, x0, 1.5, 100, 1e-6) # for dense A
             x, r = solve_sor_sparse(A, b, x0, 1.5, 100, 1e-6)
@@ -1164,6 +1167,34 @@ def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_s
             x[i] = (b[i] - rsum) / diag
 
 
+def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(dtype=int),
+                                 Aj: ti.types.ndarray(dtype=int),
+                                 Ax: ti.types.ndarray(dtype=float),
+                                 x: ti.types.ndarray(),
+                                 b: ti.types.ndarray(),
+                                 row_start: int,
+                                 row_stop: int,
+                                 row_step: int):
+    if row_step < 0:
+        assert "row_step must be positive"
+    for i in range(row_start, row_stop):
+        if i%row_step != 0:
+            continue
+
+        start = Ap[i]
+        end = Ap[i + 1]
+        rsum = 0.0
+        diag = 0.0
+
+        for jj in range(start, end):
+            j = Aj[jj]
+            if i == j:
+                diag = Ax[jj]
+            else:
+                rsum += Ax[jj] * x[j]
+
+        if diag != 0.0:
+            x[i] = (b[i] - rsum) / diag
 # ---------------------------------------------------------------------------- #
 #                                compute R and P                               #
 # ---------------------------------------------------------------------------- #
@@ -1362,7 +1393,7 @@ def main():
     coarse.initialize()
 
     # R, P = compute_R_and_P(coarse, fine)
-    R, P = compute_R_and_P_kmeans(fine)
+    # R, P = compute_R_and_P_kmeans(fine)
 
     window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
@@ -1404,9 +1435,9 @@ def main():
             # substep_directsolver_ti(coarse, 1)
             # substep_all_solver(coarse, 1, "Jacobi")
             # substep_all_solver(coarse, 1, "SOR")
-            # substep_all_solver(coarse, 1, "GaussSeidel")
+            substep_all_solver(coarse, 10, "GaussSeidel")
             # substep_all_solver(coarse, 1, "DirectSolver")
-            substep_all_solver(fine, 1, "AMG", P, R)
+            # substep_all_solver(fine, 1, "AMG", P, R)
 
             meta.frame += 1
             info(f"step time: {time() - t}")

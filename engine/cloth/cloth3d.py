@@ -21,7 +21,6 @@ inv_mass = ti.field(ti.f32, NV)
 vel = ti.Vector.field(3, ti.f32, NV)
 rest_len = ti.field(ti.f32, NE)
 h = 0.01
-MaxIte = 100
 
 paused = ti.field(ti.i32, shape=())
 
@@ -155,19 +154,19 @@ def reset_accpos():
     for i in range(NV):
         acc_pos[i] = ti.Vector([0.0, 0.0, 0.0])
 
-def step_pbd():
+def step_pbd(max_iter):
     semi_euler()
-    for i in range(MaxIte):
+    for i in range(max_iter):
         reset_accpos()
         solve_constraints()
         update_pos()
         collision()
     update_vel()
 
-def step_xpbd():
+def step_xpbd(max_iter):
     semi_euler()
     reset_lagrangian()
-    for i in range(MaxIte):
+    for i in range(max_iter):
         reset_accpos()
         solve_constraints_xpbd()
         update_pos()
@@ -206,6 +205,46 @@ def fill_gradC_np_kernel(
                 A[j, 3 * pid + d] = gradC[j, p][d]
 
 
+
+@ti.kernel
+def fill_gradC_csr_kernel(
+    A_indptr: ti.types.ndarray(dtype=int),
+    A_indices: ti.types.ndarray(dtype=int),
+    A_data: ti.types.ndarray(dtype=float),
+    gradC: ti.template(),
+    e2v: ti.template(),
+):
+    '''
+    fill CSR format sparse matrix A with gradC
+    CSR format: The column indices for row i are stored in indices[indptr[i]:indptr[i+1]] 
+    and their corresponding values are stored in data[indptr[i]:indptr[i+1]]
+    see https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
+    '''
+    A_indptr[0] = 0
+    for i in e2v:
+        ind = e2v[i]
+        A_indptr[i + 1] = i * 6 + 6
+        A_indices[i * 6 + 0] = 3 * ind[0] + 0
+        A_indices[i * 6 + 1] = 3 * ind[0] + 1
+        A_indices[i * 6 + 2] = 3 * ind[0] + 2
+        A_indices[i * 6 + 3] = 3 * ind[1] + 0
+        A_indices[i * 6 + 4] = 3 * ind[1] + 1
+        A_indices[i * 6 + 5] = 3 * ind[1] + 2
+        A_data[i * 6 + 0] = gradC[i, 0][0]
+        A_data[i * 6 + 1] = gradC[i, 0][1]
+        A_data[i * 6 + 2] = gradC[i, 0][2]
+        A_data[i * 6 + 3] = gradC[i, 1][0]
+        A_data[i * 6 + 4] = gradC[i, 1][1]
+        A_data[i * 6 + 5] = gradC[i, 1][2]
+        # for p in range(2): #which point in the edge
+        #     for d in range(3): #which dimension
+        #         pid = ind[p]
+        #         A_indices[i * 6 + p * 3 + d] = 3 * pid + d
+        #         A_data[i * 6 + p * 3 + d] = gradC[i, p][d]
+        # A_indptr[i + 1] = i * 6 + 6
+
+
+
 @ti.kernel
 def reset_lagrangian():
     for i in range(NE):
@@ -230,14 +269,16 @@ def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_s
             x[i] = (b[i] - rsum) / diag
 
 
-def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
-                                 Aj: ti.types.ndarray(),
-                                 Ax: ti.types.ndarray(),
+def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(dtype=int),
+                                 Aj: ti.types.ndarray(dtype=int),
+                                 Ax: ti.types.ndarray(dtype=float),
                                  x: ti.types.ndarray(),
                                  b: ti.types.ndarray(),
                                  row_start: int,
                                  row_stop: int,
                                  row_step: int):
+    if row_step < 0:
+        assert "row_step must be positive"
     for i in range(row_start, row_stop):
         if i%row_step != 0:
             continue
@@ -289,6 +330,17 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         G = np.zeros((M, 3 * N))
         fill_gradC_np_kernel(G, gradC, e2v)
         G = scipy.sparse.csr_matrix(G)
+        print("writing G.mtx")
+        scipy.io.mmwrite("G.mtx", G)
+
+        # G1_indptr = np.zeros((M+1),int)
+        # G1_indices = np.zeros((6*M),int)
+        # G1_data = np.zeros((6*M),float)
+        # fill_gradC_csr_kernel(G1_indptr, G1_indices, G1_data, gradC, e2v)
+        # G1 = scipy.sparse.csr_matrix((G1_data, G1_indices, G1_indptr),shape=(M, 3*N))
+        # print("writing G1.mtx")
+        # scipy.io.mmwrite("G1.mtx", G1)
+        # exit()
 
         # fill M_inv and ALPHA
         inv_mass_np = inv_mass.to_numpy()
@@ -373,9 +425,10 @@ def mkdir_if_not_exist(path=None):
 
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d/"
+out_dir = f"./result/cloth3d_1/"
 mkdir_if_not_exist(out_dir)
-
+save_image = True
+max_iter = 1
 
 init_pos()
 init_tri()
@@ -389,6 +442,7 @@ camera = ti.ui.Camera()
 camera.position(0.5, 0.0, 2.5)
 camera.lookat(0.5, 0.5, 0.0)
 camera.fov(90)
+gui = window.get_gui()
 
 paused[None] = 0
 while window.running:
@@ -403,9 +457,9 @@ while window.running:
             print("paused:",paused[None])
 
     if not paused[None]:
-        # step_pbd()
-        # step_xpbd()
-        substep_all_solver(max_iter=10, solver="GaussSeidel")
+        # step_pbd(max_iter)
+        step_xpbd(max_iter)
+        # substep_all_solver(max_iter=10, solver="GaussSeidel")
     
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)
     scene.set_camera(camera)
@@ -418,8 +472,9 @@ while window.running:
     # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
     window.show()
 
-    # file_path = out_dir + f"{frame_num:04d}.png"
-    # window.save_image(file_path)  # export and show in GUI
+    # if save_image and frame_num % 10 == 0:
+    file_path = out_dir + f"{frame_num:04d}.png"
+    window.save_image(file_path)  # export and show in GUI
 
     if frame_num == end_frame:
         break

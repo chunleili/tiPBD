@@ -7,7 +7,7 @@ import os
 from matplotlib import pyplot as plt
 
 ti.init(arch=ti.vulkan)
-N = 50
+N = 256
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
@@ -25,7 +25,7 @@ h = 0.01
 paused = ti.field(ti.i32, shape=())
 
 NF=NT
-compliance = 1.0e-6  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
+compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
 alpha = compliance * (1.0 / h / h)  # timestep related compliance, see XPBD paper
 lagrangian = ti.field(float, NE)  # lagrangian multipliers
 pos_mid = ti.Vector.field(3, float, NV)  # mid pos
@@ -379,6 +379,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
             print("DirectSolver")
             x = scipy.sparse.linalg.spsolve(A, b)
             print(f"r: {np.linalg.norm(A @ x - b):.2g}" )
+
         if solver == "GaussSeidel":
             print("GaussSeidel")
             x = np.zeros_like(b)
@@ -425,10 +426,10 @@ def mkdir_if_not_exist(path=None):
 
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d_1/"
+out_dir = f"./result/cloth3d_40/"
 mkdir_if_not_exist(out_dir)
 save_image = True
-max_iter = 1
+max_iter = 40
 
 init_pos()
 init_tri()

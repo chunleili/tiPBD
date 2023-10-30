@@ -1048,18 +1048,18 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
 
         # fill G matrix (gradC) by kernel
-        t = time()
-        G = np.zeros((M, 3 * N))
-        fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
-        G = scipy.sparse.csr_array(G)
-        print(f"fill G matrix time: {time() - t}")
+        # t = time()
+        # G = np.zeros((M, 3 * N))
+        # fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
+        # G = scipy.sparse.csr_array(G)
+        # print(f"fill G matrix time: {time() - t}")
 
         # fill G matrix (gradC) by dok
-        t=time()
-        G1 = scipy.sparse.dok_array((M, 3 * N), dtype=np.float32)
-        fill_gradC_dok(G1, ist.gradC, ist.tet_indices)
-        G1 = G1.tocsr()
-        print(f"fill G1 matrix time: {time() - t}")
+        # t=time()
+        # G1 = scipy.sparse.dok_array((M, 3 * N), dtype=np.float32)
+        # fill_gradC_dok(G1, ist.gradC, ist.tet_indices)
+        # G1 = G1.tocsr()
+        # print(f"fill G1 matrix time: {time() - t}")
 
 
         # fill G matrix (gradC) by triplets
@@ -1069,12 +1069,11 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
         G2 = scipy.sparse.coo_array((vv, (ii, jj)))
         print(f"fill G2 matrix time: {time() - t}")
 
-        print("G-G2")
-        res = G - G2
-        print(f"res: {res.nnz}")
-        print(res.data)
-
-        exit()
+        # print("G-G2")
+        # res = G - G2
+        # print(f"res: {res.nnz}")
+        # print(res.data)
+        # exit()
 
         # fill M_inv and ALPHA
         inv_mass_np = ist.inv_mass.to_numpy()

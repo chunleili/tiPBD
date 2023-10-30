@@ -7,7 +7,7 @@ import os
 from matplotlib import pyplot as plt
 
 ti.init(arch=ti.vulkan)
-N = 256
+N = 50
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
@@ -244,6 +244,23 @@ def fill_gradC_csr_kernel(
         # A_indptr[i + 1] = i * 6 + 6
 
 
+@ti.kernel
+def fill_gradC_triplets_kernel(
+    ii:ti.types.ndarray(dtype=ti.i32),
+    jj:ti.types.ndarray(dtype=ti.i32),
+    vv:ti.types.ndarray(dtype=ti.f32),
+    gradC: ti.template(),
+    tet_indices: ti.template(),
+):
+    cnt=0
+    ti.loop_config(serialize=True)
+    for j in range(tet_indices.shape[0]):
+        ind = tet_indices[j]
+        for p in range(4):
+            for d in range(3):
+                pid = ind[p]
+                ii[cnt],jj[cnt],vv[cnt] = j, 3 * pid + d, gradC[j, p][d]
+                cnt+=1
 
 @ti.kernel
 def reset_lagrangian():
@@ -330,8 +347,8 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         G = np.zeros((M, 3 * N))
         fill_gradC_np_kernel(G, gradC, e2v)
         G = scipy.sparse.csr_matrix(G)
-        print("writing G.mtx")
-        scipy.io.mmwrite("G.mtx", G)
+        # print("writing G.mtx")
+        # scipy.io.mmwrite("G.mtx", G)
 
         # G1_indptr = np.zeros((M+1),int)
         # G1_indices = np.zeros((6*M),int)
@@ -426,10 +443,10 @@ def mkdir_if_not_exist(path=None):
 
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d_40/"
+out_dir = f"./result/cloth3d_debug/"
 mkdir_if_not_exist(out_dir)
 save_image = True
-max_iter = 40
+max_iter = 10
 
 init_pos()
 init_tri()
@@ -459,8 +476,8 @@ while window.running:
 
     if not paused[None]:
         # step_pbd(max_iter)
-        step_xpbd(max_iter)
-        # substep_all_solver(max_iter=10, solver="GaussSeidel")
+        # step_xpbd(max_iter)
+        substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
     
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)
     scene.set_camera(camera)

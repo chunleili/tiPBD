@@ -176,6 +176,81 @@ def step_xpbd(max_iter):
 
 
 # ---------------------------------------------------------------------------- #
+#                                build hierarchy                               #
+# ---------------------------------------------------------------------------- #
+
+@ti.kernel
+def compute_all_centroid(pos: ti.template(), tet_indices: ti.template(), res: ti.template()):
+    for t in range(tet_indices.shape[0]):
+        a, b, c, d = tet_indices[t]
+        p0, p1, p2, p3 = pos[a], pos[b], pos[c], pos[d]
+        p = (p0 + p1 + p2 + p3) / 4
+        res[t] = p
+
+@ti.kernel
+def compute_R_based_on_kmeans_label_triplets(
+    labels: ti.types.ndarray(dtype=int),
+    ii: ti.types.ndarray(dtype=int),
+    jj: ti.types.ndarray(dtype=int),
+    vv: ti.types.ndarray(dtype=int),
+    new_M: ti.i32,
+    M: ti.i32
+):
+    cnt=0
+    ti.loop_config(serialize=True)
+    for i in range(new_M):
+        for j in range(M):
+            if labels[j] == i:
+                ii[cnt],jj[cnt],vv[cnt] = i,j,1
+                cnt+=1
+
+
+
+def compute_R_and_P_kmeans():
+    print(">>Computing P and R...")
+    t = time.time()
+
+    from scipy.cluster.vq import vq, kmeans, whiten
+
+    # ----------------------------------- kmans ---------------------------------- #
+    print("kmeans start")
+    input = pos.to_numpy()
+
+    M = input.shape[0]
+    new_M = int(M / 100)
+    print("M: ", M)
+    print("new_M: ", new_M)
+
+    # run kmeans
+    input = whiten(input)
+    print("whiten done")
+
+    print("computing kmeans...")
+    kmeans_centroids, distortion = kmeans(obs=input, k_or_guess=new_M, iter=5)
+    labels, _ = vq(input, kmeans_centroids)
+
+    print("distortion: ", distortion)
+    print("kmeans done")
+
+    # ----------------------------------- R and P --------------------------------- #
+    # 将labels转换为R
+    i_arr = np.zeros((M), dtype=np.int32)
+    j_arr = np.zeros((M), dtype=np.int32)
+    v_arr = np.zeros((M), dtype=np.int32)
+    compute_R_based_on_kmeans_label_triplets(labels, i_arr, j_arr, v_arr, new_M, M)
+
+    R = scipy.sparse.coo_array((v_arr, (i_arr, j_arr)), shape=(new_M, M)).tocsr()
+    P = R.transpose()
+    print(f"Computing P and R done, time = {time.time() - t}")
+
+    # print(f"writing P and R...")
+    # scipy.io.mmwrite("R.mtx", R)
+    # scipy.io.mmwrite("P.mtx", P)
+    # print(f"writing P and R done")
+
+    return R, P, labels, new_M
+
+# ---------------------------------------------------------------------------- #
 #                                   for ours                                   #
 # ---------------------------------------------------------------------------- #
 
@@ -451,6 +526,9 @@ max_iter = 10
 init_pos()
 init_tri()
 init_edge()
+# np.savetxt("pos.txt", pos.to_numpy())
+R, P, labels, new_M = compute_R_and_P_kmeans()
+
 
 window = ti.ui.Window("Display Mesh", (1024, 1024))
 canvas = window.get_canvas()
@@ -476,8 +554,8 @@ while window.running:
 
     if not paused[None]:
         # step_pbd(max_iter)
-        # step_xpbd(max_iter)
-        substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
+        step_xpbd(max_iter)
+        # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
     
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)
     scene.set_camera(camera)

@@ -1066,14 +1066,9 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
         t = time()
         ii, jj, vv = np.zeros(M*12, dtype=np.int32), np.zeros(M*12, dtype=np.int32), np.zeros(M*12, dtype=np.float32)
         fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
-        G2 = scipy.sparse.coo_array((vv, (ii, jj)))
-        print(f"fill G2 matrix time: {time() - t}")
+        G = scipy.sparse.coo_array((vv, (ii, jj)))
+        print(f"fill G matrix time: {time() - t}")
 
-        # print("G-G2")
-        # res = G - G2
-        # print(f"res: {res.nnz}")
-        # print(res.data)
-        # exit()
 
         # fill M_inv and ALPHA
         inv_mass_np = ist.inv_mass.to_numpy()

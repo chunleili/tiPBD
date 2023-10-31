@@ -35,6 +35,13 @@ e2v = ti.Vector.field(3, int, NE)  # ids of three vertices of each edge
 dLambda = ti.field(float, NE)
 
 
+new_M = int(NE / 100)
+y_jprime = ti.field(float, new_M)
+numerator = ti.field(float, NE)
+denominator = ti.field(float, NE)
+numerator_lumped = ti.field(float, new_M)
+denominator_lumped = ti.field(float, new_M)
+
 @ti.kernel
 def init_pos():
     for i, j in ti.ndrange(N + 1, N + 1):
@@ -115,6 +122,40 @@ def solve_constraints():
         if invM1 != 0.0:
             acc_pos[idx1] -= invM1 * l * gradient
 
+
+@ti.kernel
+def solve_subspace_constraints_xpbd(
+    labels: ti.types.ndarray(dtype=int),
+):
+    #subspace solving
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        dis = pos[idx0] - pos[idx1]
+        constraint = dis.norm() - rest_len[i]
+        numerator[i] = -(constraint + lagrangian[i] * alpha)
+        denominator[i] = invM0 + invM1 + alpha
+    for i in range(new_M):
+        jp = labels[i]
+        numerator_lumped[jp] += numerator[i]
+        denominator_lumped[jp] += denominator[i]
+    for j in range(new_M):
+        y_jprime[j] = numerator_lumped[j] / denominator_lumped[j]
+    
+    # prolongation
+    for i in range(NE):
+        jp = labels[i]
+        dLambda[i] =  y_jprime[jp]
+        lagrangian[i] += dLambda[i]
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        dis = pos[idx0] - pos[idx1]
+        gradient = dis.normalized()
+        if invM0 != 0.0:
+            acc_pos[idx0] += invM0 * dLambda[i] * gradient
+        if invM1 != 0.0:
+            acc_pos[idx1] -= invM1 * dLambda[i] * gradient
+
 @ti.kernel
 def solve_constraints_xpbd():
     for i in range(NE):
@@ -168,6 +209,7 @@ def step_xpbd(max_iter):
     reset_lagrangian()
     for i in range(max_iter):
         reset_accpos()
+        solve_subspace_constraints_xpbd(labels)
         solve_constraints_xpbd()
         update_pos()
         collision()

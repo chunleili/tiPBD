@@ -6,8 +6,8 @@ from pathlib import Path
 import os
 from matplotlib import pyplot as plt
 
-ti.init(arch=ti.vulkan)
-N = 50
+ti.init(arch=ti.cpu, debug=True)
+N = 256
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
@@ -36,11 +36,15 @@ dLambda = ti.field(float, NE)
 
 
 new_M = int(NE / 100)
-y_jprime = ti.field(float, new_M)
-numerator = ti.field(float, NE)
-denominator = ti.field(float, NE)
-numerator_lumped = ti.field(float, new_M)
-denominator_lumped = ti.field(float, new_M)
+y_jprime = np.zeros((new_M),float)
+numerator = np.zeros((NE),float)
+denominator = np.zeros((NE),float)
+numerator_lumped = np.zeros((new_M),float)
+denominator_lumped = np.zeros((new_M),float)
+edge_center = np.zeros((NE,3),float)
+
+minus_C_minus_alpha_lambda = ti.field(float, NE)
+
 
 @ti.kernel
 def init_pos():
@@ -97,6 +101,13 @@ def init_edge():
         p1, p2 = pos[idx1], pos[idx2]
         rest_len[i] = (p1 - p2).norm()
 
+@ti.kernel
+def init_edge_center(edge_center:ti.types.ndarray(dtype=ti.math.vec3)):
+    for i in range(NE):
+        idx1, idx2 = edge[i]
+        p1, p2 = pos[idx1], pos[idx2]
+        edge_center[i] = (p1 + p2) / 2.0
+
 
 @ti.kernel
 def semi_euler():
@@ -126,8 +137,14 @@ def solve_constraints():
 @ti.kernel
 def solve_subspace_constraints_xpbd(
     labels: ti.types.ndarray(dtype=int),
+    numerator: ti.types.ndarray(dtype=float),
+    denominator: ti.types.ndarray(dtype=float),
+    numerator_lumped: ti.types.ndarray(dtype=float),
+    denominator_lumped: ti.types.ndarray(dtype=float),
+    y_jprime: ti.types.ndarray(dtype=float),
 ):
     #subspace solving
+    # ti.loop_config(serialize=True)
     for i in range(NE):
         idx0, idx1 = edge[i]
         invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
@@ -135,12 +152,16 @@ def solve_subspace_constraints_xpbd(
         constraint = dis.norm() - rest_len[i]
         numerator[i] = -(constraint + lagrangian[i] * alpha)
         denominator[i] = invM0 + invM1 + alpha
+
     for i in range(new_M):
+        numerator_lumped[i] = 0.0
+        denominator_lumped[i] = 0.0
+    for i in range(NE):
         jp = labels[i]
         numerator_lumped[jp] += numerator[i]
         denominator_lumped[jp] += denominator[i]
-    for j in range(new_M):
-        y_jprime[j] = numerator_lumped[j] / denominator_lumped[j]
+    for jp in range(new_M):
+        y_jprime[jp] = numerator_lumped[jp] / denominator_lumped[jp]
     
     # prolongation
     for i in range(NE):
@@ -167,6 +188,10 @@ def solve_constraints_xpbd():
         l = -constraint / (invM0 + invM1)
         delta_lagrangian = -(constraint + lagrangian[i] * alpha) / (invM0 + invM1 + alpha)
         lagrangian[i] += delta_lagrangian
+
+        # residual
+        minus_C_minus_alpha_lambda[i] = -(constraint + alpha * lagrangian[i])
+        
         if invM0 != 0.0:
             acc_pos[idx0] += invM0 * delta_lagrangian * gradient
         if invM1 != 0.0:
@@ -204,15 +229,36 @@ def step_pbd(max_iter):
         collision()
     update_vel()
 
+
+@ti.kernel
+def calc_residual():
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        dis = pos[idx0] - pos[idx1]
+        constraint = dis.norm() - rest_len[i]
+
+        # residual(lagrangian=0 for first iteration)
+        minus_C_minus_alpha_lambda[i] = -(constraint + alpha * lagrangian[i])
+
+
 def step_xpbd(max_iter):
     semi_euler()
     reset_lagrangian()
+
+    residual = np.zeros((max_iter+1),float)
+    calc_residual()
+    residual[0] = np.linalg.norm(minus_C_minus_alpha_lambda.to_numpy())
+
     for i in range(max_iter):
         reset_accpos()
-        solve_subspace_constraints_xpbd(labels)
+        # solve_subspace_constraints_xpbd(labels, numerator, denominator, numerator_lumped, denominator_lumped, y_jprime)
         solve_constraints_xpbd()
         update_pos()
         collision()
+
+        residual[i+1] = np.linalg.norm(minus_C_minus_alpha_lambda.to_numpy())
+    np.savetxt(out_dir + f"residual_{frame_num}.txt",residual)
+
     update_vel()
 
 
@@ -256,10 +302,10 @@ def compute_R_and_P_kmeans():
 
     # ----------------------------------- kmans ---------------------------------- #
     print("kmeans start")
-    input = pos.to_numpy()
+    input = edge_center
 
-    M = input.shape[0]
-    new_M = int(M / 100)
+    M = int(input.shape[0])
+    new_M = int(input.shape[0] / 100)
     print("M: ", M)
     print("new_M: ", new_M)
 
@@ -560,17 +606,20 @@ def mkdir_if_not_exist(path=None):
 
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d_debug/"
+# out_dir = f"./result/cloth3d_fullspace/"
+out_dir = f"./result/cloth3d_subspace/"
 mkdir_if_not_exist(out_dir)
 save_image = True
-max_iter = 10
+max_iter = 50
 
 init_pos()
 init_tri()
 init_edge()
-# np.savetxt("pos.txt", pos.to_numpy())
+init_edge_center(edge_center)
+# np.savetxt("edge_center.txt", edge_center)
 R, P, labels, new_M = compute_R_and_P_kmeans()
-
+# np.savetxt("labels.txt", labels)
+# np.loadtxt("labels.txt", labels)
 
 window = ti.ui.Window("Display Mesh", (1024, 1024))
 canvas = window.get_canvas()

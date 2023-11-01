@@ -1,19 +1,15 @@
-from math import sin
-
-
 def run():
     from multiprocessing import Process
 
     sub_process = Process(target=run_dearpygui)
     sub_process.start()
 
-
 def save_callback():
     print("Save Clicked")
 
-
 def run_dearpygui():
     import dearpygui.dearpygui as dpg
+    from math import sin
 
     dpg.create_context()
 
@@ -63,3 +59,6 @@ def run_dearpygui():
     dpg.show_viewport()
     dpg.start_dearpygui()
     dpg.destroy_context()
+
+if __name__ == "__main__":
+    run_dearpygui()

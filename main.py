@@ -7,9 +7,9 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format=" %(levelname)s %(message)s")
 
     if args.use_dearpygui:
-        import ui.dearpygui as dearpygui
+        import ui.run_dpg as run_dpg
 
-        dearpygui.run()
+        run_dpg.run()
 
     if args.use_webui:
         import ui.webui as webui

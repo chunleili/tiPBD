@@ -22,3 +22,4 @@ run.py
 ./P.mtx
 ./R.mtx
 profile*
+*.csv

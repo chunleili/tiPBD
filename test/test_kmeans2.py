@@ -11,7 +11,7 @@ import time
 ti.init(arch=ti.cpu)
 
 
-pos = np.loadtxt("pos.txt")
+pos = np.loadtxt("edge_center.txt")
 
 print(">>Computing P and R...")
 t = time.time()
@@ -73,12 +73,12 @@ for cluster_idx in range(k):
     )
 
 # Plot centroids in black
-ax.scatter(input[:, 0], input[:, 1], input[:, 2], c="k", marker="x", s=100, label="Centroids")
+ax.scatter(input[:, 0], input[:, 1], input[:, 2], c="k", marker="x", s=1, label="Centroids")
 
-ax.set_xlabel("X Label")
-ax.set_ylabel("Y Label")
-ax.set_zlabel("Z Label")
-ax.set_title("Clustered Data Points")
+# ax.set_xlabel("X Label")
+# ax.set_ylabel("Y Label")
+# ax.set_zlabel("Z Label")
+# ax.set_title("Clustered Data Points")
 if k <= 20:
     ax.legend()
 

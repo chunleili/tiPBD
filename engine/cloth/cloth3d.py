@@ -6,7 +6,7 @@ from pathlib import Path
 import os
 from matplotlib import pyplot as plt
 
-ti.init(arch=ti.vulkan)
+ti.init(arch=ti.cpu, debug=True)
 
 N = 50
 NV = (N + 1)**2
@@ -290,7 +290,7 @@ def step_xpbd(max_iter):
 
     for i in range(max_iter):
         reset_accpos(acc_pos)
-        solve_subspace_constraints_xpbd(labels, numerator, denominator, numerator_lumped, denominator_lumped, y_jprime, dLambda, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
+        # solve_subspace_constraints_xpbd(labels, numerator, denominator, numerator_lumped, denominator_lumped, y_jprime, dLambda, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
         solve_constraints_xpbd(minus_C_minus_alpha_lambda, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
         update_pos(inv_mass, acc_pos, pos)
         collision(pos)
@@ -371,26 +371,49 @@ def compute_R_and_P_kmeans():
 # ---------------------------------------------------------------------------- #
 #                                   for ours                                   #
 # ---------------------------------------------------------------------------- #
-
 @ti.kernel
 def compute_C_and_gradC_kernel(
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
     gradC: ti.types.ndarray(dtype=ti.math.vec3),
     edge:ti.types.ndarray(dtype=ti.math.vec2),
     constraints:ti.types.ndarray(dtype=ti.f32),
+    rest_len:ti.types.ndarray(dtype=ti.f32),
 ):
     for i in range(NE):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
-        constraint = dis.norm() - rest_len[i]
-        gradient_dist = dis.normalized()
+        constraints[i] = dis.norm() - rest_len[i]
+        g = dis.normalized()
 
-        gradC[i, 0], gradC[i, 1] = gradient_dist, -gradient_dist
-        constraints[i] = constraint
+        gradC[i, 0] = g
+        gradC[i, 1] = -g
+
+
+
+@ti.kernel
+def fill_gradC_triplets_kernel(
+    ii:ti.types.ndarray(dtype=ti.i32),
+    jj:ti.types.ndarray(dtype=ti.i32),
+    vv:ti.types.ndarray(dtype=ti.f32),
+    gradC: ti.types.ndarray(dtype=ti.math.vec3),
+    edge: ti.types.ndarray(dtype=ti.math.vec2),
+):
+    cnt=0
+    ti.loop_config(serialize=True)
+    for j in range(edge.shape[0]):
+        ind = edge[j]
+        for p in range(2):
+            for d in range(3):
+                pid = ind[p]
+                ii[cnt],jj[cnt],vv[cnt] = j, 3 * pid + d, gradC[j, p][d]
+                cnt+=1
+
+
 
 
 @ti.kernel
 def fill_gradC_np_kernel(
-    A: ti.types.ndarray(),
+    G: ti.types.ndarray(),
     gradC: ti.types.ndarray(dtype=ti.math.vec3),
     edge: ti.types.ndarray(dtype=ti.math.vec2),
 ):
@@ -399,7 +422,7 @@ def fill_gradC_np_kernel(
         for p in range(2): #which point in the edge
             for d in range(3): #which dimension
                 pid = ind[p]
-                A[j, 3 * pid + d] = gradC[j, p][d]
+                G[j, 3 * pid + d] = gradC[j, p][d]
 
 
 
@@ -440,24 +463,6 @@ def fill_gradC_csr_kernel(
         #         A_data[i * 6 + p * 3 + d] = gradC[i, p][d]
         # A_indptr[i + 1] = i * 6 + 6
 
-
-@ti.kernel
-def fill_gradC_triplets_kernel(
-    ii:ti.types.ndarray(dtype=ti.i32),
-    jj:ti.types.ndarray(dtype=ti.i32),
-    vv:ti.types.ndarray(dtype=ti.f32),
-    gradC: ti.types.ndarray(dtype=ti.math.vec3),
-    tet_indices: ti.template(),
-):
-    cnt=0
-    ti.loop_config(serialize=True)
-    for j in range(tet_indices.shape[0]):
-        ind = tet_indices[j]
-        for p in range(4):
-            for d in range(3):
-                pid = ind[p]
-                ii[cnt],jj[cnt],vv[cnt] = j, 3 * pid + d, gradC[j, p][d]
-                cnt+=1
 
 @ti.kernel
 def reset_lagrangian(lagrangian: ti.types.ndarray(dtype=ti.f32)):
@@ -520,11 +525,15 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     P: 粗网格到细网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
     R: 细网格到粗网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
     """
-    # ist is instance of fine or coarse
+    global pos, lagrangian
 
-    semi_euler()
+    t1 = time.time()
+
+    semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
     
+    print(f"semi_euler: {(time.time() - t1):.2g}")
+
     for ite in range(max_iter):
         t = time.time()
 
@@ -538,40 +547,37 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         M = NE
         N = NV
 
-        compute_C_and_gradC_kernel(gradC)
 
-        # fill G matrix (gradC)
-        G = np.zeros((M, 3 * N))
-        fill_gradC_np_kernel(G, gradC, edge)
-        G = scipy.sparse.csr_matrix(G)
-        # print("writing G.mtx")
-        # scipy.io.mmwrite("G.mtx", G)
+        t21 = time.time()
+        G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
+        compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
+        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
+        G = scipy.sparse.coo_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * N))
+        print(f"Time C and gradC and filling G: {(time.time() - t21):.2g}")
 
-        # G1_indptr = np.zeros((M+1),int)
-        # G1_indices = np.zeros((6*M),int)
-        # G1_data = np.zeros((6*M),float)
-        # fill_gradC_csr_kernel(G1_indptr, G1_indices, G1_data, gradC, edge)
-        # G1 = scipy.sparse.csr_matrix((G1_data, G1_indices, G1_indptr),shape=(M, 3*N))
-        # print("writing G1.mtx")
-        # scipy.io.mmwrite("G1.mtx", G1)
-        # exit()
+    
+        t4 = time.time()
 
         # fill M_inv and ALPHA
-        inv_mass_np = inv_mass
-        inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+        inv_mass_np = np.repeat(inv_mass, 3, axis=0)
         M_inv = scipy.sparse.diags(inv_mass_np)
 
         alpha_tilde_np = np.array([alpha] * M)
         ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
+        print(f"Time fill M_inv and ALPHA: {(time.time() - t4):.2g}")
+
+        t5 = time.time()
+
         # assemble A and b
         print("Assemble A")
         A = G @ M_inv @ G.transpose() + ALPHA
         A = scipy.sparse.csr_matrix(A)
-        b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
+        b = -constraints - alpha_tilde_np * lagrangian
 
         print("Assemble matrix done")
         print("A:", A.shape, " b:", b.shape)
+        print(f"Time assemble A and b: {(time.time() - t5):.2g}")
 
         # scipy.io.mmwrite("A.mtx", A)
         # plt.spy(A, markersize=1)
@@ -611,21 +617,25 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
                 print(f"{_} r:{r_norm_list[_]:.2g}")
             np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
 
-        print(f"time of Ax=b: {(time.perf_counter() - t):.2g}")
+        print(f"Time Ax=b: {(time.perf_counter() - t):.2g}")
 
         # ------------------------- transfer data back to pos ------------------------ #
+
+        t7 = time.time()
+
         print("transfer data back to pos")
         dLambda = x.copy()
 
-        # lam += dLambda
-        lagrangian.from_numpy(lagrangian + dLambda)
+        lagrangian += dLambda
 
-        # dpos = M_inv @ G^T @ dLambda
         dpos = M_inv @ G.transpose() @ dLambda
-        # pos+=dpos
-        pos = (pos_mid.copy() + dpos.reshape(-1, 3))
+        dpos = dpos.reshape(-1, 3)
 
-    update_vel()
+        pos = pos_mid + dpos
+
+        print(f"Time transfer data back: {(time.time() - t7):.2g}")
+
+    update_vel(old_pos, inv_mass, vel, pos)
 
     return r_norm_list
 
@@ -640,18 +650,17 @@ def mkdir_if_not_exist(path=None):
 
 frame_num = 0
 end_frame = 1000
-# out_dir = f"./result/cloth3d_fullspace/"
-out_dir = f"./result/cloth3d_subspace/"
+out_dir = f"./result/cloth3d_debug/"
 mkdir_if_not_exist(out_dir)
 save_image = True
-max_iter = 50
+max_iter = 10
 paused = False
 
 init_pos(inv_mass,pos)
 init_tri(tri)
 init_edge(edge, rest_len, pos)
 init_edge_center(edge_center, edge, pos)
-R, P, labels, new_M = compute_R_and_P_kmeans()
+# R, P, labels, new_M = compute_R_and_P_kmeans()
 
 
 window = ti.ui.Window("Display Mesh", (1024, 1024))
@@ -675,8 +684,8 @@ while window.running:
             print("paused:",paused)
 
     if not paused:
-        step_xpbd(max_iter)
-        # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
+        # step_xpbd(max_iter)
+        substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
     
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)
     scene.set_camera(camera)
@@ -692,7 +701,7 @@ while window.running:
 
     # if save_image and frame_num % 10 == 0:
     file_path = out_dir + f"{frame_num:04d}.png"
-    # window.save_image(file_path)  # export and show in GUI
+    window.save_image(file_path)  # export and show in GUI
 
     if frame_num == end_frame:
         break

@@ -5,6 +5,7 @@ import scipy
 from pathlib import Path
 import os
 from matplotlib import pyplot as plt
+import shutil, glob
 
 ti.init(arch=ti.cpu, debug=True)
 
@@ -39,7 +40,7 @@ denominator = np.zeros(shape=(NE),      dtype = np.float32)
 edge_center = np.zeros(shape=(NE,3),    dtype = np.float32)
 numerator_lumped    = np.zeros(shape=(new_M), dtype = np.float32)
 denominator_lumped  = np.zeros(shape=(new_M), dtype = np.float32)
-minus_C_minus_alpha_lambda = np.zeros(shape=(NE), dtype = np.float32)
+dual_residual       = np.zeros(shape=(NE),    dtype = np.float32) # -C - alpha * lagrangian
 
 
 @ti.kernel
@@ -205,7 +206,7 @@ def solve_subspace_constraints_xpbd(
 
 @ti.kernel
 def solve_constraints_xpbd(
-    minus_C_minus_alpha_lambda: ti.types.ndarray(dtype=float),
+    dual_residual: ti.types.ndarray(dtype=float),
     inv_mass:ti.types.ndarray(dtype=ti.f32),
     edge:ti.types.ndarray(dtype=ti.math.vec2),
     rest_len:ti.types.ndarray(dtype=ti.f32),
@@ -224,7 +225,7 @@ def solve_constraints_xpbd(
         lagrangian[i] += delta_lagrangian
 
         # residual
-        minus_C_minus_alpha_lambda[i] = -(constraint + alpha * lagrangian[i])
+        dual_residual[i] = -(constraint + alpha * lagrangian[i])
         
         if invM0 != 0.0:
             acc_pos[idx0] += invM0 * delta_lagrangian * gradient
@@ -266,8 +267,8 @@ def reset_accpos(acc_pos:ti.types.ndarray(dtype=ti.math.vec3)):
 
 
 @ti.kernel
-def calc_residual(
-    minus_C_minus_alpha_lambda: ti.types.ndarray(dtype=float),
+def calc_dual_residual(
+    dual_residual: ti.types.ndarray(dtype=float),
     edge:ti.types.ndarray(dtype=ti.math.vec2),
     rest_len:ti.types.ndarray(dtype=ti.f32),
     lagrangian:ti.types.ndarray(dtype=ti.f32),
@@ -279,7 +280,7 @@ def calc_residual(
         constraint = dis.norm() - rest_len[i]
 
         # residual(lagrangian=0 for first iteration)
-        minus_C_minus_alpha_lambda[i] = -(constraint + alpha * lagrangian[i])
+        dual_residual[i] = -(constraint + alpha * lagrangian[i])
 
 
 def step_xpbd(max_iter):
@@ -287,17 +288,17 @@ def step_xpbd(max_iter):
     reset_lagrangian(lagrangian)
 
     residual = np.zeros((max_iter+1),float)
-    calc_residual(minus_C_minus_alpha_lambda, edge, rest_len, lagrangian, pos)
-    residual[0] = np.linalg.norm(minus_C_minus_alpha_lambda)
+    calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+    residual[0] = np.linalg.norm(dual_residual)
 
     for i in range(max_iter):
         reset_accpos(acc_pos)
         # solve_subspace_constraints_xpbd(labels, numerator, denominator, numerator_lumped, denominator_lumped, y_jprime, dLambda, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
-        solve_constraints_xpbd(minus_C_minus_alpha_lambda, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
+        solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
         update_pos(inv_mass, acc_pos, pos)
         collision(pos)
 
-        residual[i+1] = np.linalg.norm(minus_C_minus_alpha_lambda)
+        residual[i+1] = np.linalg.norm(dual_residual)
     np.savetxt(out_dir + f"residual_{frame_num}.txt",residual)
 
     update_vel(old_pos, inv_mass, vel, pos)
@@ -481,7 +482,6 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(dtype=int),
 
 def solve_amg_my(A, b, x0, R, P):
     tol = 1e-3
-    # residuals = r_norm_list
     residuals = []
     maxiter = 1
 
@@ -540,6 +540,13 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     reset_lagrangian(lagrangian)
     print(f"Time semi_euler: {(time.perf_counter() - t1):.2g}s")
 
+    # fill M_inv and ALPHA
+    t4 = time.perf_counter()
+    inv_mass_np = np.repeat(inv_mass, 3, axis=0)
+    M_inv = scipy.sparse.diags(inv_mass_np)
+    alpha_tilde_np = np.array([alpha] * M)
+    ALPHA = scipy.sparse.diags(alpha_tilde_np)
+    print(f"Time fill M_inv and ALPHA: {(time.perf_counter() - t4):.2g}s")
 
     for ite in range(max_iter):
         t2 = time.perf_counter()
@@ -558,14 +565,6 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         G = scipy.sparse.coo_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
         print(f"Time C and gradC and fill G: {(time.perf_counter() - t3):.2g}s")
 
-        # fill M_inv and ALPHA
-        t4 = time.perf_counter()
-        inv_mass_np = np.repeat(inv_mass, 3, axis=0)
-        M_inv = scipy.sparse.diags(inv_mass_np)
-        alpha_tilde_np = np.array([alpha] * M)
-        ALPHA = scipy.sparse.diags(alpha_tilde_np)
-        print(f"Time fill M_inv and ALPHA: {(time.perf_counter() - t4):.2g}s")
-
         # assemble A and b
         t5 = time.perf_counter()
         # print("Assemble A")
@@ -582,39 +581,30 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         # -------------------------------- solve Ax=b -------------------------------- #
         print(f"Solve Ax=b by {solver}")
-
         t6 = time.perf_counter()
-
         x0 = np.zeros_like(b)
-
-        r_norm_list = []
-        r_norm_list.append(np.linalg.norm(A @ x0 - b)) # first residual
         
         if solver == "DirectSolver":
             x = scipy.sparse.linalg.spsolve(A, b)
-            print(f"r: {np.linalg.norm(A @ x - b):.2g}" )
 
         if solver == "GaussSeidel":
             x = np.zeros_like(b)
             for _ in range(1):
                 # amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
-                r_norm = np.linalg.norm(A @ x - b)
-                r_norm_list.append(r_norm)
-                print(f"{_} r:{r_norm:.2g}")
 
         elif solver == "AMG":
             x = solve_amg_my(A, b, x0, R, P)
-            for _ in range(len(r_norm_list)):
-                print(f"{_} r:{r_norm_list[_]:.2g}")
 
-        np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
         print(f"Time Ax=b: {(time.perf_counter() - t6):.2g}s")
 
-        # ------------------------- transfer data back to pos ------------------------ #
+        r_norm = np.linalg.norm(A @ x - b)
+        print(f"r: {r_norm:.2g}" )
+        with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
+            f.write(f"{r_norm}\n")
 
+        # ------------------------- transfer data back to pos ------------------------ #
         t7 = time.perf_counter()
-        # print("transfer data back to pos")
         dLambda = x.copy()
         lagrangian += dLambda
         dpos = M_inv @ G.transpose() @ dLambda
@@ -622,12 +612,18 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         pos = pos_mid + dpos
         print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
 
+        # calc dual residual
+        calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+        dual_r = np.linalg.norm(dual_residual).astype(np.float32)
+        print(f"dual r: {dual_r:.2g}" )
+        with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
+            f.write(f"{dual_r}\n")
+
         print(f"Time this iter: {(time.perf_counter() - t2):.2g}s")
 
     update_vel(old_pos, inv_mass, vel, pos)
+    print(f"Time this frame: {(time.perf_counter() - t1):.2g}s")
     print("\n\n\n")
-
-    return r_norm_list
 
 
 def mkdir_if_not_exist(path=None):
@@ -636,12 +632,17 @@ def mkdir_if_not_exist(path=None):
     if not os.path.exists(directory_path):
         os.makedirs(path)
 
+def delete_txt_files(folder_path):
+    txt_files = glob.glob(os.path.join(folder_path, '*r_frame_*.txt'))
+    for file_path in txt_files:
+        os.remove(file_path)
 
 
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d_amg_assemble_256_50/"
+out_dir = f"./result/cloth3d_assemble_256_50_amg/"
 mkdir_if_not_exist(out_dir)
+delete_txt_files(out_dir)
 save_image = True
 max_iter = 50
 paused = False
@@ -652,15 +653,14 @@ init_tri(tri)
 init_edge(edge, rest_len, pos)
 init_edge_center(edge_center, edge, pos)
 
-R, P, labels, new_M = compute_R_and_P_kmeans()
-
 if save_P:
+    R, P, labels, new_M = compute_R_and_P_kmeans()
     scipy.io.mmwrite(out_dir + "R.mtx", R)
     scipy.io.mmwrite(out_dir + "P.mtx", P)
-    np.savetxt(out_dir + "labels.txt", labels)
+    np.savetxt(out_dir + "labels.txt", labels, fmt="%d")
 if load_P:
-    scipy.io.mmread(out_dir + "R.mtx", R)
-    scipy.io.mmread(out_dir + "P.mtx", P)
+    R = scipy.io.mmread(out_dir + "R.mtx")
+    P = scipy.io.mmread(out_dir + "P.mtx")
     labels = np.loadtxt(out_dir + "labels.txt", dtype=np.int32)
 
 window = ti.ui.Window("Display Mesh", (1024, 1024))

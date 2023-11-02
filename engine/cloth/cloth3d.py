@@ -8,11 +8,12 @@ from matplotlib import pyplot as plt
 
 ti.init(arch=ti.cpu, debug=True)
 
-N = 50
+N = 256
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
 h = 0.01
+M = NE
 new_M = int(NE / 100)
 compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
 alpha = compliance * (1.0 / h / h)  # timestep related compliance, see XPBD paper
@@ -48,8 +49,8 @@ def init_pos(
 ):
     for i, j in ti.ndrange(N + 1, N + 1):
         idx = i * (N + 1) + j
-        pos[idx] = ti.Vector([i / N,  j / N, 0.5])
-        # pos[idx] = ti.Vector([i / N, 0.5, j / N])
+        # pos[idx] = ti.Vector([i / N,  j / N, 0.5])  # vertical hang
+        pos[idx] = ti.Vector([i / N, 0.5, j / N]) # horizontal hang
         inv_mass[idx] = 1.0
     inv_mass[N] = 0.0
     inv_mass[NV-1] = 0.0
@@ -335,10 +336,9 @@ def compute_R_and_P_kmeans():
     print("kmeans start")
     input = edge_center
 
-    M = int(input.shape[0])
-    new_M = int(input.shape[0] / 100)
-    print("M: ", M)
-    print("new_M: ", new_M)
+    M = NE
+    global new_M
+    print("M: ", M, "  new_M: ", new_M)
 
     # run kmeans
     input = whiten(input)
@@ -411,7 +411,6 @@ def fill_gradC_triplets_kernel(
 
 
 
-
 @ti.kernel
 def fill_gradC_np_kernel(
     G: ti.types.ndarray(),
@@ -424,45 +423,6 @@ def fill_gradC_np_kernel(
             for d in range(3): #which dimension
                 pid = ind[p]
                 G[j, 3 * pid + d] = gradC[j, p][d]
-
-
-
-@ti.kernel
-def fill_gradC_csr_kernel(
-    A_indptr: ti.types.ndarray(dtype=int),
-    A_indices: ti.types.ndarray(dtype=int),
-    A_data: ti.types.ndarray(dtype=float),
-    gradC: ti.template(),
-    edge: ti.types.ndarray(dtype=ti.math.vec2),
-):
-    '''
-    fill CSR format sparse matrix A with gradC
-    CSR format: The column indices for row i are stored in indices[indptr[i]:indptr[i+1]] 
-    and their corresponding values are stored in data[indptr[i]:indptr[i+1]]
-    see https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
-    '''
-    A_indptr[0] = 0
-    for i in edge:
-        ind = edge[i]
-        A_indptr[i + 1] = i * 6 + 6
-        A_indices[i * 6 + 0] = 3 * ind[0] + 0
-        A_indices[i * 6 + 1] = 3 * ind[0] + 1
-        A_indices[i * 6 + 2] = 3 * ind[0] + 2
-        A_indices[i * 6 + 3] = 3 * ind[1] + 0
-        A_indices[i * 6 + 4] = 3 * ind[1] + 1
-        A_indices[i * 6 + 5] = 3 * ind[1] + 2
-        A_data[i * 6 + 0] = gradC[i, 0][0]
-        A_data[i * 6 + 1] = gradC[i, 0][1]
-        A_data[i * 6 + 2] = gradC[i, 0][2]
-        A_data[i * 6 + 3] = gradC[i, 1][0]
-        A_data[i * 6 + 4] = gradC[i, 1][1]
-        A_data[i * 6 + 5] = gradC[i, 1][2]
-        # for p in range(2): #which point in the edge
-        #     for d in range(3): #which dimension
-        #         pid = ind[p]
-        #         A_indices[i * 6 + p * 3 + d] = 3 * pid + d
-        #         A_data[i * 6 + p * 3 + d] = gradC[i, p][d]
-        # A_indptr[i + 1] = i * 6 + 6
 
 
 @ti.kernel
@@ -519,6 +479,53 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(dtype=int),
             x[i] = (b[i] - rsum) / diag
 
 
+def solve_amg_my(A, b, x0, R, P):
+    tol = 1e-3
+    # residuals = r_norm_list
+    residuals = []
+    maxiter = 1
+
+    A2 = R @ A @ P
+
+    x = x0
+
+    normb = np.linalg.norm(b)
+    if normb == 0.0:
+        normb = 1.0  # set so that we have an absolute tolerance
+    normr = np.linalg.norm(b - A @ x)
+    if residuals is not None:
+        residuals[:] = [normr]  # initial residual
+
+    b = np.ravel(b)
+    x = np.ravel(x)
+
+    it = 0
+    while True:  # it <= maxiter and normr >= tol:
+        # gauss_seidel(A, x, b, iterations=1)  # presmoother
+
+        residual = b - A @ x
+
+        coarse_b = R @ residual  # restriction
+
+        coarse_x = np.zeros_like(coarse_b)
+
+        coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
+
+        x += P @ coarse_x  # coarse grid correction
+
+        # gauss_seidel(A, x, b, iterations=1)  # postsmoother
+        amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+
+        it += 1
+
+        normr = np.linalg.norm(b - A @ x)
+        if residuals is not None:
+            residuals.append(normr)
+        if normr < tol * normb:
+            return x
+        if it == maxiter:
+            return x
+
 def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     """
     max_iter: 最大迭代次数\\
@@ -533,8 +540,6 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     reset_lagrangian(lagrangian)
     print(f"Time semi_euler: {(time.perf_counter() - t1):.2g}s")
 
-    M = NE
-    N = NV
 
     for ite in range(max_iter):
         t2 = time.perf_counter()
@@ -550,7 +555,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
         fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
-        G = scipy.sparse.coo_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * N))
+        G = scipy.sparse.coo_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
         print(f"Time C and gradC and fill G: {(time.perf_counter() - t3):.2g}s")
 
         # fill M_inv and ALPHA
@@ -598,10 +603,10 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
                 r_norm_list.append(r_norm)
                 print(f"{_} r:{r_norm:.2g}")
 
-        # elif solver == "AMG":
-        #     x = solve_amg_my(A, b, x0, R, P, 1, r_norm_list)
-        #     for _ in range(len(r_norm_list)):
-        #         print(f"{_} r:{r_norm_list[_]:.2g}")
+        elif solver == "AMG":
+            x = solve_amg_my(A, b, x0, R, P)
+            for _ in range(len(r_norm_list)):
+                print(f"{_} r:{r_norm_list[_]:.2g}")
 
         np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
         print(f"Time Ax=b: {(time.perf_counter() - t6):.2g}s")
@@ -635,18 +640,28 @@ def mkdir_if_not_exist(path=None):
 
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d_debug/"
+out_dir = f"./result/cloth3d_amg_assemble_256_50/"
 mkdir_if_not_exist(out_dir)
 save_image = True
-max_iter = 10
+max_iter = 50
 paused = False
+save_P, load_P = True, False
 
 init_pos(inv_mass,pos)
 init_tri(tri)
 init_edge(edge, rest_len, pos)
 init_edge_center(edge_center, edge, pos)
-# R, P, labels, new_M = compute_R_and_P_kmeans()
 
+R, P, labels, new_M = compute_R_and_P_kmeans()
+
+if save_P:
+    scipy.io.mmwrite(out_dir + "R.mtx", R)
+    scipy.io.mmwrite(out_dir + "P.mtx", P)
+    np.savetxt(out_dir + "labels.txt", labels)
+if load_P:
+    scipy.io.mmread(out_dir + "R.mtx", R)
+    scipy.io.mmread(out_dir + "P.mtx", P)
+    labels = np.loadtxt(out_dir + "labels.txt", dtype=np.int32)
 
 window = ti.ui.Window("Display Mesh", (1024, 1024))
 canvas = window.get_canvas()
@@ -669,10 +684,11 @@ while window.running:
             print("paused:",paused)
 
     if not paused:
-        step_xpbd(max_iter)
+        # step_xpbd(max_iter)
         # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
+        substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
 
-    print("cam",camera.curr_position,camera.curr_lookat)
+    # print("cam",camera.curr_position,camera.curr_lookat)
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)
     scene.set_camera(camera)
     scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
@@ -687,7 +703,7 @@ while window.running:
 
     # if save_image and frame_num % 10 == 0:
     file_path = out_dir + f"{frame_num:04d}.png"
-    # window.save_image(file_path)  # export and show in GUI
+    window.save_image(file_path)  # export and show in GUI
 
     if frame_num == end_frame:
         break

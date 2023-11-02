@@ -326,7 +326,7 @@ def compute_R_based_on_kmeans_label_triplets(
 
 def compute_R_and_P_kmeans():
     print(">>Computing P and R...")
-    t = time.time()
+    t = time.perf_counter()
 
     from scipy.cluster.vq import vq, kmeans, whiten
 
@@ -359,7 +359,7 @@ def compute_R_and_P_kmeans():
 
     R = scipy.sparse.coo_array((v_arr, (i_arr, j_arr)), shape=(new_M, M)).tocsr()
     P = R.transpose()
-    print(f"Computing P and R done, time = {time.time() - t}")
+    print(f"Computing P and R done, time = {time.perf_counter() - t}")
 
     # print(f"writing P and R...")
     # scipy.io.mmwrite("R.mtx", R)
@@ -527,68 +527,57 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     """
     global pos, lagrangian
 
-    t1 = time.time()
-
+    t1 = time.perf_counter()
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
-    
-    print(f"semi_euler: {(time.time() - t1):.2g}")
+    print(f"Time semi_euler: {(time.perf_counter() - t1):.2g}s")
+
+    M = NE
+    N = NV
 
     for ite in range(max_iter):
-        t = time.time()
-
+        t2 = time.perf_counter()
         # ----------------------------- prepare matrices ----------------------------- #
-        print(f"----iter {ite}----")
+        print(f"\n----iter {ite}----")
+        print("Assemble matrix")
 
-        print("Assembling matrix")
         # copy pos to pos_mid
         pos_mid= pos.copy()
 
-        M = NE
-        N = NV
-
-
-        t21 = time.time()
+        # C and gradC and fill G
+        t3 = time.perf_counter()
         G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
         fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
         G = scipy.sparse.coo_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * N))
-        print(f"Time C and gradC and filling G: {(time.time() - t21):.2g}")
-
-    
-        t4 = time.time()
+        print(f"Time C and gradC and fill G: {(time.perf_counter() - t3):.2g}s")
 
         # fill M_inv and ALPHA
+        t4 = time.perf_counter()
         inv_mass_np = np.repeat(inv_mass, 3, axis=0)
         M_inv = scipy.sparse.diags(inv_mass_np)
-
         alpha_tilde_np = np.array([alpha] * M)
         ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-        print(f"Time fill M_inv and ALPHA: {(time.time() - t4):.2g}")
-
-        t5 = time.time()
+        print(f"Time fill M_inv and ALPHA: {(time.perf_counter() - t4):.2g}s")
 
         # assemble A and b
-        print("Assemble A")
+        t5 = time.perf_counter()
+        # print("Assemble A")
         A = G @ M_inv @ G.transpose() + ALPHA
         A = scipy.sparse.csr_matrix(A)
         b = -constraints - alpha_tilde_np * lagrangian
-
         print("Assemble matrix done")
         print("A:", A.shape, " b:", b.shape)
-        print(f"Time assemble A and b: {(time.time() - t5):.2g}")
-
+        print(f"Time assemble A and b: {(time.perf_counter() - t5):.2g}s")
         # scipy.io.mmwrite("A.mtx", A)
         # plt.spy(A, markersize=1)
         # plt.show()
         # exit()
 
         # -------------------------------- solve Ax=b -------------------------------- #
-        print("solve Ax=b")
-        print(f"Solving by {solver}")
+        print(f"Solve Ax=b by {solver}")
 
-        t = time.perf_counter()
+        t6 = time.perf_counter()
 
         x0 = np.zeros_like(b)
 
@@ -596,12 +585,10 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         r_norm_list.append(np.linalg.norm(A @ x0 - b)) # first residual
         
         if solver == "DirectSolver":
-            print("DirectSolver")
             x = scipy.sparse.linalg.spsolve(A, b)
             print(f"r: {np.linalg.norm(A @ x - b):.2g}" )
 
         if solver == "GaussSeidel":
-            print("GaussSeidel")
             x = np.zeros_like(b)
             for _ in range(1):
                 # amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
@@ -609,33 +596,30 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
                 r_norm = np.linalg.norm(A @ x - b)
                 r_norm_list.append(r_norm)
                 print(f"{_} r:{r_norm:.2g}")
-            np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
 
-        elif solver == "AMG":
-            x = solve_amg_my(A, b, x0, R, P, 1, r_norm_list)
-            for _ in range(len(r_norm_list)):
-                print(f"{_} r:{r_norm_list[_]:.2g}")
-            np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
+        # elif solver == "AMG":
+        #     x = solve_amg_my(A, b, x0, R, P, 1, r_norm_list)
+        #     for _ in range(len(r_norm_list)):
+        #         print(f"{_} r:{r_norm_list[_]:.2g}")
 
-        print(f"Time Ax=b: {(time.perf_counter() - t):.2g}")
+        np.savetxt(out_dir + f"residual_frame_{frame_num}.txt",np.array(r_norm_list))
+        print(f"Time Ax=b: {(time.perf_counter() - t6):.2g}s")
 
         # ------------------------- transfer data back to pos ------------------------ #
 
-        t7 = time.time()
-
-        print("transfer data back to pos")
+        t7 = time.perf_counter()
+        # print("transfer data back to pos")
         dLambda = x.copy()
-
         lagrangian += dLambda
-
         dpos = M_inv @ G.transpose() @ dLambda
         dpos = dpos.reshape(-1, 3)
-
         pos = pos_mid + dpos
+        print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
 
-        print(f"Time transfer data back: {(time.time() - t7):.2g}")
+        print(f"Time this iter: {(time.perf_counter() - t2):.2g}s")
 
     update_vel(old_pos, inv_mass, vel, pos)
+    print("\n\n\n")
 
     return r_norm_list
 
@@ -675,7 +659,7 @@ gui = window.get_gui()
 
 while window.running:
     frame_num += 1
-    print("\n\nframe_num: ", frame_num)
+    print(f"\n\n--------frame_num:{frame_num}----------")
     for e in window.get_events(ti.ui.PRESS):
         if e.key in [ti.ui.ESCAPE]:
             exit()

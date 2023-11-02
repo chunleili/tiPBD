@@ -48,7 +48,8 @@ def init_pos(
 ):
     for i, j in ti.ndrange(N + 1, N + 1):
         idx = i * (N + 1) + j
-        pos[idx] = ti.Vector([i / N, 0.5, j / N])
+        pos[idx] = ti.Vector([i / N,  j / N, 0.5])
+        # pos[idx] = ti.Vector([i / N, 0.5, j / N])
         inv_mass[idx] = 1.0
     inv_mass[N] = 0.0
     inv_mass[NV-1] = 0.0
@@ -652,8 +653,8 @@ canvas = window.get_canvas()
 canvas.set_background_color((1, 1, 1))
 scene = ti.ui.Scene()
 camera = ti.ui.Camera()
-camera.position(0.5, 0.0, 2.5)
-camera.lookat(0.5, 0.5, 0.0)
+camera.position(0.5, 0.4702609, 1.52483202)
+camera.lookat(0.5, 0.9702609, -0.97516798)
 camera.fov(90)
 gui = window.get_gui()
 
@@ -668,9 +669,10 @@ while window.running:
             print("paused:",paused)
 
     if not paused:
-        # step_xpbd(max_iter)
-        substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
-    
+        step_xpbd(max_iter)
+        # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
+
+    print("cam",camera.curr_position,camera.curr_lookat)
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)
     scene.set_camera(camera)
     scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
@@ -685,7 +687,7 @@ while window.running:
 
     # if save_image and frame_num % 10 == 0:
     file_path = out_dir + f"{frame_num:04d}.png"
-    window.save_image(file_path)  # export and show in GUI
+    # window.save_image(file_path)  # export and show in GUI
 
     if frame_num == end_frame:
         break

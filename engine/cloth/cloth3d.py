@@ -6,48 +6,46 @@ from pathlib import Path
 import os
 from matplotlib import pyplot as plt
 
-ti.init(arch=ti.cpu, debug=True)
-N = 256
+ti.init(arch=ti.vulkan)
+
+N = 50
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
-pos = ti.Vector.field(3, ti.f32, shape=NV)
-acc_pos = ti.Vector.field(3, ti.f32, shape=NV)
-tri = ti.field(ti.i32, shape=3 * NT)
-edge = ti.Vector.field(2, ti.i32, shape=NE)
-
-old_pos = ti.Vector.field(3, ti.f32, NV)
-inv_mass = ti.field(ti.f32, NV)
-vel = ti.Vector.field(3, ti.f32, NV)
-rest_len = ti.field(ti.f32, NE)
 h = 0.01
-
-paused = ti.field(ti.i32, shape=())
-
-NF=NT
+new_M = int(NE / 100)
 compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
 alpha = compliance * (1.0 / h / h)  # timestep related compliance, see XPBD paper
-lagrangian = ti.field(float, NE)  # lagrangian multipliers
-pos_mid = ti.Vector.field(3, float, NV)  # mid pos
-constraints = ti.field(float, NE)
-gradC = ti.Vector.field(3, float, (NE,2))  # gradient of constraints
-e2v = ti.Vector.field(3, int, NE)  # ids of three vertices of each edge
-dLambda = ti.field(float, NE)
 
+tri = ti.field(ti.i32, shape=3 * NT)
+pos_ti = ti.Vector.field(3, ti.f32, shape=NV)
 
-new_M = int(NE / 100)
-y_jprime = np.zeros((new_M),float)
-numerator = np.zeros((NE),float)
-denominator = np.zeros((NE),float)
-numerator_lumped = np.zeros((new_M),float)
-denominator_lumped = np.zeros((new_M),float)
-edge_center = np.zeros((NE,3),float)
-
-minus_C_minus_alpha_lambda = ti.field(float, NE)
+edge        = np.zeros(shape=(NE,2),    dtype = np.int32)
+pos         = np.zeros(shape=(NV,3),    dtype = np.float32)
+acc_pos     = np.zeros(shape=(NV,3),    dtype = np.float32)
+old_pos     = np.zeros(shape=(NV,3),    dtype = np.float32)
+inv_mass    = np.zeros(shape=(NV),      dtype = np.float32)
+vel         = np.zeros(shape=(NV,3),    dtype = np.float32)
+rest_len    = np.zeros(shape=(NE),      dtype = np.float32)
+lagrangian  = np.zeros(shape=(NE),      dtype = np.float32)  
+pos_mid     = np.zeros(shape=(NV,3),    dtype = np.float32)
+constraints = np.zeros(shape=(NE),      dtype = np.float32)  
+gradC       = np.zeros(shape=(NE,2,3),  dtype = np.float32)  
+dLambda     = np.zeros(shape=(NE),      dtype = np.float32)
+y_jprime    = np.zeros(shape=(new_M),   dtype = np.float32)
+numerator   = np.zeros(shape=(NE),      dtype = np.float32)
+denominator = np.zeros(shape=(NE),      dtype = np.float32)
+edge_center = np.zeros(shape=(NE,3),    dtype = np.float32)
+numerator_lumped    = np.zeros(shape=(new_M), dtype = np.float32)
+denominator_lumped  = np.zeros(shape=(new_M), dtype = np.float32)
+minus_C_minus_alpha_lambda = np.zeros(shape=(NE), dtype = np.float32)
 
 
 @ti.kernel
-def init_pos():
+def init_pos(
+    inv_mass:ti.types.ndarray(dtype=ti.f32),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
+):
     for i, j in ti.ndrange(N + 1, N + 1):
         idx = i * (N + 1) + j
         pos[idx] = ti.Vector([i / N, 0.5, j / N])
@@ -57,7 +55,7 @@ def init_pos():
 
 
 @ti.kernel
-def init_tri():
+def init_tri(tri:ti.template()):
     for i, j in ti.ndrange(N, N):
         tri_idx = 6 * (i * N + j)
         pos_idx = i * (N + 1) + j
@@ -78,7 +76,11 @@ def init_tri():
 
 
 @ti.kernel
-def init_edge():
+def init_edge(
+    edge:ti.types.ndarray(dtype=ti.math.vec2),
+    rest_len:ti.types.ndarray(dtype=ti.f32),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
+):
     for i, j in ti.ndrange(N + 1, N):
         edge_idx = i * N + j
         pos_idx = i * (N + 1) + j
@@ -102,7 +104,11 @@ def init_edge():
         rest_len[i] = (p1 - p2).norm()
 
 @ti.kernel
-def init_edge_center(edge_center:ti.types.ndarray(dtype=ti.math.vec3)):
+def init_edge_center(
+    edge_center:ti.types.ndarray(dtype=ti.math.vec3),
+    edge:ti.types.ndarray(dtype=ti.math.vec2),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
+):
     for i in range(NE):
         idx1, idx2 = edge[i]
         p1, p2 = pos[idx1], pos[idx2]
@@ -110,7 +116,12 @@ def init_edge_center(edge_center:ti.types.ndarray(dtype=ti.math.vec3)):
 
 
 @ti.kernel
-def semi_euler():
+def semi_euler(
+    old_pos:ti.types.ndarray(dtype=ti.math.vec3),
+    inv_mass:ti.types.ndarray(dtype=ti.f32),
+    vel:ti.types.ndarray(dtype=ti.math.vec3),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
+):
     gravity = ti.Vector([0.0, -0.1, 0.0])
     for i in range(NV):
         if inv_mass[i] != 0.0:
@@ -120,7 +131,13 @@ def semi_euler():
 
 
 @ti.kernel
-def solve_constraints():
+def solve_constraints(
+    inv_mass:ti.types.ndarray(dtype=ti.f32),
+    edge:ti.types.ndarray(dtype=ti.math.vec2),
+    rest_len:ti.types.ndarray(dtype=ti.f32),
+    acc_pos:ti.types.ndarray(dtype=ti.math.vec3),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
+):
     for i in range(NE):
         idx0, idx1 = edge[i]
         invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
@@ -142,6 +159,13 @@ def solve_subspace_constraints_xpbd(
     numerator_lumped: ti.types.ndarray(dtype=float),
     denominator_lumped: ti.types.ndarray(dtype=float),
     y_jprime: ti.types.ndarray(dtype=float),
+    dLambda: ti.types.ndarray(dtype=float),
+    inv_mass:ti.types.ndarray(dtype=ti.f32),
+    edge:ti.types.ndarray(dtype=ti.math.vec2),
+    rest_len:ti.types.ndarray(dtype=ti.f32),
+    lagrangian:ti.types.ndarray(dtype=ti.f32),
+    acc_pos:ti.types.ndarray(dtype=ti.math.vec3),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
 ):
     #subspace solving
     # ti.loop_config(serialize=True)
@@ -178,7 +202,15 @@ def solve_subspace_constraints_xpbd(
             acc_pos[idx1] -= invM1 * dLambda[i] * gradient
 
 @ti.kernel
-def solve_constraints_xpbd():
+def solve_constraints_xpbd(
+    minus_C_minus_alpha_lambda: ti.types.ndarray(dtype=float),
+    inv_mass:ti.types.ndarray(dtype=ti.f32),
+    edge:ti.types.ndarray(dtype=ti.math.vec2),
+    rest_len:ti.types.ndarray(dtype=ti.f32),
+    lagrangian:ti.types.ndarray(dtype=ti.f32),
+    acc_pos:ti.types.ndarray(dtype=ti.math.vec3),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
+):
     for i in range(NE):
         idx0, idx1 = edge[i]
         invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
@@ -198,40 +230,47 @@ def solve_constraints_xpbd():
             acc_pos[idx1] -= invM1 * delta_lagrangian * gradient
 
 @ti.kernel
-def update_pos():
+def update_pos(
+    inv_mass:ti.types.ndarray(dtype=ti.f32),
+    acc_pos:ti.types.ndarray(dtype=ti.math.vec3),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
+):
     for i in range(NV):
         if inv_mass[i] != 0.0:
             pos[i] += 0.5 * acc_pos[i]
 
 @ti.kernel
-def update_vel():
+def update_vel(
+    old_pos:ti.types.ndarray(dtype=ti.math.vec3),
+    inv_mass:ti.types.ndarray(dtype=ti.f32),    
+    vel:ti.types.ndarray(dtype=ti.math.vec3),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
+):
     for i in range(NV):
         if inv_mass[i] != 0.0:
             vel[i] = (pos[i] - old_pos[i]) / h
 
 @ti.kernel 
-def collision():
+def collision(pos:ti.types.ndarray(dtype=ti.math.vec3)):
     for i in range(NV):
         if pos[i][2] < -2.0:
             pos[i][2] = 0.0
 
 @ti.kernel 
-def reset_accpos():
+def reset_accpos(acc_pos:ti.types.ndarray(dtype=ti.math.vec3)):
     for i in range(NV):
         acc_pos[i] = ti.Vector([0.0, 0.0, 0.0])
 
-def step_pbd(max_iter):
-    semi_euler()
-    for i in range(max_iter):
-        reset_accpos()
-        solve_constraints()
-        update_pos()
-        collision()
-    update_vel()
 
 
 @ti.kernel
-def calc_residual():
+def calc_residual(
+    minus_C_minus_alpha_lambda: ti.types.ndarray(dtype=float),
+    edge:ti.types.ndarray(dtype=ti.math.vec2),
+    rest_len:ti.types.ndarray(dtype=ti.f32),
+    lagrangian:ti.types.ndarray(dtype=ti.f32),
+    pos:ti.types.ndarray(dtype=ti.math.vec3),
+):
     for i in range(NE):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
@@ -242,39 +281,30 @@ def calc_residual():
 
 
 def step_xpbd(max_iter):
-    semi_euler()
-    reset_lagrangian()
+    semi_euler(old_pos, inv_mass, vel, pos)
+    reset_lagrangian(lagrangian)
 
     residual = np.zeros((max_iter+1),float)
-    calc_residual()
-    residual[0] = np.linalg.norm(minus_C_minus_alpha_lambda.to_numpy())
+    calc_residual(minus_C_minus_alpha_lambda, edge, rest_len, lagrangian, pos)
+    residual[0] = np.linalg.norm(minus_C_minus_alpha_lambda)
 
     for i in range(max_iter):
-        reset_accpos()
-        # solve_subspace_constraints_xpbd(labels, numerator, denominator, numerator_lumped, denominator_lumped, y_jprime)
-        solve_constraints_xpbd()
-        update_pos()
-        collision()
+        reset_accpos(acc_pos)
+        solve_subspace_constraints_xpbd(labels, numerator, denominator, numerator_lumped, denominator_lumped, y_jprime, dLambda, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
+        solve_constraints_xpbd(minus_C_minus_alpha_lambda, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
+        update_pos(inv_mass, acc_pos, pos)
+        collision(pos)
 
-        residual[i+1] = np.linalg.norm(minus_C_minus_alpha_lambda.to_numpy())
+        residual[i+1] = np.linalg.norm(minus_C_minus_alpha_lambda)
     np.savetxt(out_dir + f"residual_{frame_num}.txt",residual)
 
-    update_vel()
+    update_vel(old_pos, inv_mass, vel, pos)
 
 
 
 # ---------------------------------------------------------------------------- #
 #                                build hierarchy                               #
 # ---------------------------------------------------------------------------- #
-
-@ti.kernel
-def compute_all_centroid(pos: ti.template(), tet_indices: ti.template(), res: ti.template()):
-    for t in range(tet_indices.shape[0]):
-        a, b, c, d = tet_indices[t]
-        p0, p1, p2, p3 = pos[a], pos[b], pos[c], pos[d]
-        p = (p0 + p1 + p2 + p3) / 4
-        res[t] = p
-
 @ti.kernel
 def compute_R_based_on_kmeans_label_triplets(
     labels: ti.types.ndarray(dtype=int),
@@ -343,7 +373,11 @@ def compute_R_and_P_kmeans():
 # ---------------------------------------------------------------------------- #
 
 @ti.kernel
-def compute_C_and_gradC_kernel():
+def compute_C_and_gradC_kernel(
+    gradC: ti.types.ndarray(dtype=ti.math.vec3),
+    edge:ti.types.ndarray(dtype=ti.math.vec2),
+    constraints:ti.types.ndarray(dtype=ti.f32),
+):
     for i in range(NE):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
@@ -357,11 +391,11 @@ def compute_C_and_gradC_kernel():
 @ti.kernel
 def fill_gradC_np_kernel(
     A: ti.types.ndarray(),
-    gradC: ti.template(),
-    e2v: ti.template(),
+    gradC: ti.types.ndarray(dtype=ti.math.vec3),
+    edge: ti.types.ndarray(dtype=ti.math.vec2),
 ):
-    for j in e2v:
-        ind = e2v[j]
+    for j in edge:
+        ind = edge[j]
         for p in range(2): #which point in the edge
             for d in range(3): #which dimension
                 pid = ind[p]
@@ -375,7 +409,7 @@ def fill_gradC_csr_kernel(
     A_indices: ti.types.ndarray(dtype=int),
     A_data: ti.types.ndarray(dtype=float),
     gradC: ti.template(),
-    e2v: ti.template(),
+    edge: ti.types.ndarray(dtype=ti.math.vec2),
 ):
     '''
     fill CSR format sparse matrix A with gradC
@@ -384,8 +418,8 @@ def fill_gradC_csr_kernel(
     see https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
     '''
     A_indptr[0] = 0
-    for i in e2v:
-        ind = e2v[i]
+    for i in edge:
+        ind = edge[i]
         A_indptr[i + 1] = i * 6 + 6
         A_indices[i * 6 + 0] = 3 * ind[0] + 0
         A_indices[i * 6 + 1] = 3 * ind[0] + 1
@@ -412,7 +446,7 @@ def fill_gradC_triplets_kernel(
     ii:ti.types.ndarray(dtype=ti.i32),
     jj:ti.types.ndarray(dtype=ti.i32),
     vv:ti.types.ndarray(dtype=ti.f32),
-    gradC: ti.template(),
+    gradC: ti.types.ndarray(dtype=ti.math.vec3),
     tet_indices: ti.template(),
 ):
     cnt=0
@@ -426,7 +460,7 @@ def fill_gradC_triplets_kernel(
                 cnt+=1
 
 @ti.kernel
-def reset_lagrangian():
+def reset_lagrangian(lagrangian: ti.types.ndarray(dtype=ti.f32)):
     for i in range(NE):
         lagrangian[i] = 0.0
 
@@ -489,7 +523,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     # ist is instance of fine or coarse
 
     semi_euler()
-    reset_lagrangian()
+    reset_lagrangian(lagrangian)
     
     for ite in range(max_iter):
         t = time.time()
@@ -499,16 +533,16 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         print("Assembling matrix")
         # copy pos to pos_mid
-        pos_mid.from_numpy(pos.to_numpy())
+        pos_mid= pos.copy()
 
         M = NE
         N = NV
 
-        compute_C_and_gradC_kernel()
+        compute_C_and_gradC_kernel(gradC)
 
         # fill G matrix (gradC)
         G = np.zeros((M, 3 * N))
-        fill_gradC_np_kernel(G, gradC, e2v)
+        fill_gradC_np_kernel(G, gradC, edge)
         G = scipy.sparse.csr_matrix(G)
         # print("writing G.mtx")
         # scipy.io.mmwrite("G.mtx", G)
@@ -516,14 +550,14 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         # G1_indptr = np.zeros((M+1),int)
         # G1_indices = np.zeros((6*M),int)
         # G1_data = np.zeros((6*M),float)
-        # fill_gradC_csr_kernel(G1_indptr, G1_indices, G1_data, gradC, e2v)
+        # fill_gradC_csr_kernel(G1_indptr, G1_indices, G1_data, gradC, edge)
         # G1 = scipy.sparse.csr_matrix((G1_data, G1_indices, G1_indptr),shape=(M, 3*N))
         # print("writing G1.mtx")
         # scipy.io.mmwrite("G1.mtx", G1)
         # exit()
 
         # fill M_inv and ALPHA
-        inv_mass_np = inv_mass.to_numpy()
+        inv_mass_np = inv_mass
         inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
         M_inv = scipy.sparse.diags(inv_mass_np)
 
@@ -581,15 +615,15 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         # ------------------------- transfer data back to pos ------------------------ #
         print("transfer data back to pos")
-        dlambda = x
+        dLambda = x.copy()
 
-        # lam += dlambda
-        lagrangian.from_numpy(lagrangian.to_numpy() + dlambda)
+        # lam += dLambda
+        lagrangian.from_numpy(lagrangian + dLambda)
 
-        # dpos = M_inv @ G^T @ dlambda
-        dpos = M_inv @ G.transpose() @ dlambda
+        # dpos = M_inv @ G^T @ dLambda
+        dpos = M_inv @ G.transpose() @ dLambda
         # pos+=dpos
-        pos.from_numpy(pos_mid.to_numpy() + dpos.reshape(-1, 3))
+        pos = (pos_mid.copy() + dpos.reshape(-1, 3))
 
     update_vel()
 
@@ -611,15 +645,14 @@ out_dir = f"./result/cloth3d_subspace/"
 mkdir_if_not_exist(out_dir)
 save_image = True
 max_iter = 50
+paused = False
 
-init_pos()
-init_tri()
-init_edge()
-init_edge_center(edge_center)
-# np.savetxt("edge_center.txt", edge_center)
+init_pos(inv_mass,pos)
+init_tri(tri)
+init_edge(edge, rest_len, pos)
+init_edge_center(edge_center, edge, pos)
 R, P, labels, new_M = compute_R_and_P_kmeans()
-# np.savetxt("labels.txt", labels)
-# np.loadtxt("labels.txt", labels)
+
 
 window = ti.ui.Window("Display Mesh", (1024, 1024))
 canvas = window.get_canvas()
@@ -631,20 +664,17 @@ camera.lookat(0.5, 0.5, 0.0)
 camera.fov(90)
 gui = window.get_gui()
 
-paused[None] = 0
 while window.running:
     frame_num += 1
     print("\n\nframe_num: ", frame_num)
-
     for e in window.get_events(ti.ui.PRESS):
         if e.key in [ti.ui.ESCAPE]:
             exit()
         if e.key == ti.ui.SPACE:
-            paused[None] = not paused[None]
-            print("paused:",paused[None])
+            paused = not paused
+            print("paused:",paused)
 
-    if not paused[None]:
-        # step_pbd(max_iter)
+    if not paused:
         step_xpbd(max_iter)
         # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
     
@@ -652,7 +682,8 @@ while window.running:
     scene.set_camera(camera)
     scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
 
-    scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
+    pos_ti.from_numpy(pos)
+    scene.mesh(pos_ti, tri, color=(1.0,0,0), two_sided=True)
     # scene.particles(pos, radius=0.01, color=(0.6,0.0,0.0))
     canvas.scene(scene)
 
@@ -661,7 +692,7 @@ while window.running:
 
     # if save_image and frame_num % 10 == 0:
     file_path = out_dir + f"{frame_num:04d}.png"
-    window.save_image(file_path)  # export and show in GUI
+    # window.save_image(file_path)  # export and show in GUI
 
     if frame_num == end_frame:
         break

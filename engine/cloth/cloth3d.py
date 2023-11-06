@@ -600,8 +600,8 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         r_norm = np.linalg.norm(A @ x - b)
         print(f"r: {r_norm:.2g}" )
-        with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
-            f.write(f"{r_norm}\n")
+        # with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
+        #     f.write(f"{r_norm}\n")
 
         # ------------------------- transfer data back to pos ------------------------ #
         t7 = time.perf_counter()
@@ -616,8 +616,8 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
         dual_r = np.linalg.norm(dual_residual).astype(np.float32)
         print(f"dual r: {dual_r:.2g}" )
-        with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
-            f.write(f"{dual_r}\n")
+        # with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
+        #     f.write(f"{dual_r}\n")
 
         print(f"Time this iter: {(time.perf_counter() - t2):.2g}s")
 
@@ -668,8 +668,10 @@ canvas = window.get_canvas()
 canvas.set_background_color((1, 1, 1))
 scene = ti.ui.Scene()
 camera = ti.ui.Camera()
-camera.position(0.5, 0.4702609, 1.52483202)
-camera.lookat(0.5, 0.9702609, -0.97516798)
+# camera.position(0.5, 0.4702609, 1.52483202)
+# camera.lookat(0.5, 0.9702609, -0.97516798)
+camera.position(0.5, 0.0, 2.5)
+camera.lookat(0.5, 0.5, 0.0)
 camera.fov(90)
 gui = window.get_gui()
 

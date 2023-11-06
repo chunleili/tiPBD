@@ -22,31 +22,31 @@ alpha = compliance * (1.0 / h / h)  # timestep related compliance, see XPBD pape
 tri = ti.field(ti.i32, shape=3 * NT)
 pos_ti = ti.Vector.field(3, ti.f32, shape=NV)
 
-edge        = np.zeros(shape=(NE,2),    dtype = np.int32)
-pos         = np.zeros(shape=(NV,3),    dtype = np.float32)
-acc_pos     = np.zeros(shape=(NV,3),    dtype = np.float32)
-old_pos     = np.zeros(shape=(NV,3),    dtype = np.float32)
-inv_mass    = np.zeros(shape=(NV),      dtype = np.float32)
-vel         = np.zeros(shape=(NV,3),    dtype = np.float32)
-rest_len    = np.zeros(shape=(NE),      dtype = np.float32)
-lagrangian  = np.zeros(shape=(NE),      dtype = np.float32)  
-pos_mid     = np.zeros(shape=(NV,3),    dtype = np.float32)
-constraints = np.zeros(shape=(NE),      dtype = np.float32)  
-gradC       = np.zeros(shape=(NE,2,3),  dtype = np.float32)  
-dLambda     = np.zeros(shape=(NE),      dtype = np.float32)
-y_jprime    = np.zeros(shape=(new_M),   dtype = np.float32)
-numerator   = np.zeros(shape=(NE),      dtype = np.float32)
-denominator = np.zeros(shape=(NE),      dtype = np.float32)
-edge_center = np.zeros(shape=(NE,3),    dtype = np.float32)
-numerator_lumped    = np.zeros(shape=(new_M), dtype = np.float32)
-denominator_lumped  = np.zeros(shape=(new_M), dtype = np.float32)
-dual_residual       = np.zeros(shape=(NE),    dtype = np.float32) # -C - alpha * lagrangian
 
+edge        = ti.Vector.field(2, dtype=int, shape=(NE))
+pos         = ti.Vector.field(3, dtype=float, shape=(NV))
+acc_pos     = ti.Vector.field(3, dtype=float, shape=(NV))
+old_pos     = ti.Vector.field(3, dtype=float, shape=(NV))
+vel         = ti.Vector.field(3, dtype=float, shape=(NV))
+pos_mid     = ti.Vector.field(3, dtype=float, shape=(NV))
+inv_mass    = ti.field(dtype=float, shape=(NV))
+rest_len    = ti.field(dtype=float, shape=(NE))
+lagrangian  = ti.field(dtype=float, shape=(NE))  
+constraints = ti.field(dtype=float, shape=(NE))  
+dLambda     = ti.field(dtype=float, shape=(NE))
+numerator   = ti.field(dtype=float, shape=(NE))
+denominator = ti.field(dtype=float, shape=(NE))
+gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
+edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
+y_jprime    = ti.field(shape=(new_M),   dtype = ti.float32)
+numerator_lumped    = ti.field(shape=(new_M), dtype = ti.float32)
+denominator_lumped  = ti.field(shape=(new_M), dtype = ti.float32)
+dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
 
 @ti.kernel
 def init_pos(
-    inv_mass:ti.types.ndarray(dtype=ti.f32),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    inv_mass:ti.template(),
+    pos:ti.template(),
 ):
     for i, j in ti.ndrange(N + 1, N + 1):
         idx = i * (N + 1) + j
@@ -80,9 +80,9 @@ def init_tri(tri:ti.template()):
 
 @ti.kernel
 def init_edge(
-    edge:ti.types.ndarray(dtype=ti.math.vec2),
-    rest_len:ti.types.ndarray(dtype=ti.f32),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    edge:ti.template(),
+    rest_len:ti.template(),
+    pos:ti.template(),
 ):
     for i, j in ti.ndrange(N + 1, N):
         edge_idx = i * N + j
@@ -108,9 +108,9 @@ def init_edge(
 
 @ti.kernel
 def init_edge_center(
-    edge_center:ti.types.ndarray(dtype=ti.math.vec3),
-    edge:ti.types.ndarray(dtype=ti.math.vec2),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    edge_center:ti.template(),
+    edge:ti.template(),
+    pos:ti.template(),
 ):
     for i in range(NE):
         idx1, idx2 = edge[i]
@@ -120,10 +120,10 @@ def init_edge_center(
 
 @ti.kernel
 def semi_euler(
-    old_pos:ti.types.ndarray(dtype=ti.math.vec3),
-    inv_mass:ti.types.ndarray(dtype=ti.f32),
-    vel:ti.types.ndarray(dtype=ti.math.vec3),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    old_pos:ti.template(),
+    inv_mass:ti.template(),
+    vel:ti.template(),
+    pos:ti.template(),
 ):
     gravity = ti.Vector([0.0, -0.1, 0.0])
     for i in range(NV):
@@ -135,11 +135,11 @@ def semi_euler(
 
 @ti.kernel
 def solve_constraints(
-    inv_mass:ti.types.ndarray(dtype=ti.f32),
-    edge:ti.types.ndarray(dtype=ti.math.vec2),
-    rest_len:ti.types.ndarray(dtype=ti.f32),
-    acc_pos:ti.types.ndarray(dtype=ti.math.vec3),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    inv_mass:ti.template(),
+    edge:ti.template(),
+    rest_len:ti.template(),
+    acc_pos:ti.template(),
+    pos:ti.template(),
 ):
     for i in range(NE):
         idx0, idx1 = edge[i]
@@ -156,19 +156,19 @@ def solve_constraints(
 
 @ti.kernel
 def solve_subspace_constraints_xpbd(
-    labels: ti.types.ndarray(dtype=int),
-    numerator: ti.types.ndarray(dtype=float),
-    denominator: ti.types.ndarray(dtype=float),
-    numerator_lumped: ti.types.ndarray(dtype=float),
-    denominator_lumped: ti.types.ndarray(dtype=float),
-    y_jprime: ti.types.ndarray(dtype=float),
-    dLambda: ti.types.ndarray(dtype=float),
-    inv_mass:ti.types.ndarray(dtype=ti.f32),
-    edge:ti.types.ndarray(dtype=ti.math.vec2),
-    rest_len:ti.types.ndarray(dtype=ti.f32),
-    lagrangian:ti.types.ndarray(dtype=ti.f32),
-    acc_pos:ti.types.ndarray(dtype=ti.math.vec3),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    labels: ti.template(),
+    numerator: ti.template(),
+    denominator: ti.template(),
+    numerator_lumped: ti.template(),
+    denominator_lumped: ti.template(),
+    y_jprime: ti.template(),
+    dLambda: ti.template(),
+    inv_mass:ti.template(),
+    edge:ti.template(),
+    rest_len:ti.template(),
+    lagrangian:ti.template(),
+    acc_pos:ti.template(),
+    pos:ti.template(),
 ):
     #subspace solving
     # ti.loop_config(serialize=True)
@@ -206,13 +206,13 @@ def solve_subspace_constraints_xpbd(
 
 @ti.kernel
 def solve_constraints_xpbd(
-    dual_residual: ti.types.ndarray(dtype=float),
-    inv_mass:ti.types.ndarray(dtype=ti.f32),
-    edge:ti.types.ndarray(dtype=ti.math.vec2),
-    rest_len:ti.types.ndarray(dtype=ti.f32),
-    lagrangian:ti.types.ndarray(dtype=ti.f32),
-    acc_pos:ti.types.ndarray(dtype=ti.math.vec3),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    dual_residual: ti.template(),
+    inv_mass:ti.template(),
+    edge:ti.template(),
+    rest_len:ti.template(),
+    lagrangian:ti.template(),
+    acc_pos:ti.template(),
+    pos:ti.template(),
 ):
     for i in range(NE):
         idx0, idx1 = edge[i]
@@ -234,9 +234,9 @@ def solve_constraints_xpbd(
 
 @ti.kernel
 def update_pos(
-    inv_mass:ti.types.ndarray(dtype=ti.f32),
-    acc_pos:ti.types.ndarray(dtype=ti.math.vec3),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    inv_mass:ti.template(),
+    acc_pos:ti.template(),
+    pos:ti.template(),
 ):
     for i in range(NV):
         if inv_mass[i] != 0.0:
@@ -244,23 +244,23 @@ def update_pos(
 
 @ti.kernel
 def update_vel(
-    old_pos:ti.types.ndarray(dtype=ti.math.vec3),
-    inv_mass:ti.types.ndarray(dtype=ti.f32),    
-    vel:ti.types.ndarray(dtype=ti.math.vec3),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    old_pos:ti.template(),
+    inv_mass:ti.template(),    
+    vel:ti.template(),
+    pos:ti.template(),
 ):
     for i in range(NV):
         if inv_mass[i] != 0.0:
             vel[i] = (pos[i] - old_pos[i]) / h
 
 @ti.kernel 
-def collision(pos:ti.types.ndarray(dtype=ti.math.vec3)):
+def collision(pos:ti.template()):
     for i in range(NV):
         if pos[i][2] < -2.0:
             pos[i][2] = 0.0
 
 @ti.kernel 
-def reset_accpos(acc_pos:ti.types.ndarray(dtype=ti.math.vec3)):
+def reset_accpos(acc_pos:ti.template()):
     for i in range(NV):
         acc_pos[i] = ti.Vector([0.0, 0.0, 0.0])
 
@@ -268,11 +268,11 @@ def reset_accpos(acc_pos:ti.types.ndarray(dtype=ti.math.vec3)):
 
 @ti.kernel
 def calc_dual_residual(
-    dual_residual: ti.types.ndarray(dtype=float),
-    edge:ti.types.ndarray(dtype=ti.math.vec2),
-    rest_len:ti.types.ndarray(dtype=ti.f32),
-    lagrangian:ti.types.ndarray(dtype=ti.f32),
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
+    dual_residual: ti.template(),
+    edge:ti.template(),
+    rest_len:ti.template(),
+    lagrangian:ti.template(),
+    pos:ti.template(),
 ):
     for i in range(NE):
         idx0, idx1 = edge[i]
@@ -335,7 +335,7 @@ def compute_R_and_P_kmeans():
 
     # ----------------------------------- kmans ---------------------------------- #
     print("kmeans start")
-    input = edge_center
+    input = edge_center.to_numpy()
 
     M = NE
     global new_M
@@ -375,11 +375,11 @@ def compute_R_and_P_kmeans():
 # ---------------------------------------------------------------------------- #
 @ti.kernel
 def compute_C_and_gradC_kernel(
-    pos:ti.types.ndarray(dtype=ti.math.vec3),
-    gradC: ti.types.ndarray(dtype=ti.math.vec3),
-    edge:ti.types.ndarray(dtype=ti.math.vec2),
-    constraints:ti.types.ndarray(dtype=ti.f32),
-    rest_len:ti.types.ndarray(dtype=ti.f32),
+    pos:ti.template(),
+    gradC: ti.template(),
+    edge:ti.template(),
+    constraints:ti.template(),
+    rest_len:ti.template(),
 ):
     for i in range(NE):
         idx0, idx1 = edge[i]
@@ -396,9 +396,9 @@ def compute_C_and_gradC_kernel(
 def fill_gradC_triplets_kernel(
     ii:ti.types.ndarray(dtype=ti.i32),
     jj:ti.types.ndarray(dtype=ti.i32),
-    vv:ti.types.ndarray(dtype=ti.f32),
-    gradC: ti.types.ndarray(dtype=ti.math.vec3),
-    edge: ti.types.ndarray(dtype=ti.math.vec2),
+    vv:ti.types.ndarray(dtype=ti.i32),
+    gradC: ti.template(),
+    edge: ti.template(),
 ):
     cnt=0
     ti.loop_config(serialize=True)
@@ -415,8 +415,8 @@ def fill_gradC_triplets_kernel(
 @ti.kernel
 def fill_gradC_np_kernel(
     G: ti.types.ndarray(),
-    gradC: ti.types.ndarray(dtype=ti.math.vec3),
-    edge: ti.types.ndarray(dtype=ti.math.vec2),
+    gradC: ti.template(),
+    edge: ti.template(),
 ):
     for j in edge:
         ind = edge[j]
@@ -427,7 +427,7 @@ def fill_gradC_np_kernel(
 
 
 @ti.kernel
-def reset_lagrangian(lagrangian: ti.types.ndarray(dtype=ti.f32)):
+def reset_lagrangian(lagrangian: ti.template()):
     for i in range(NE):
         lagrangian[i] = 0.0
 
@@ -450,9 +450,9 @@ def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_s
             x[i] = (b[i] - rsum) / diag
 
 
-def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(dtype=int),
-                                 Aj: ti.types.ndarray(dtype=int),
-                                 Ax: ti.types.ndarray(dtype=float),
+def amg_core_gauss_seidel_kernel(Ap: ti.template(),
+                                 Aj: ti.template(),
+                                 Ax: ti.template(),
                                  x: ti.types.ndarray(),
                                  b: ti.types.ndarray(),
                                  row_start: int,
@@ -542,7 +542,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
     # fill M_inv and ALPHA
     t4 = time.perf_counter()
-    inv_mass_np = np.repeat(inv_mass, 3, axis=0)
+    inv_mass_np = np.repeat(inv_mass.to_numpy(), 3, axis=0)
     M_inv = scipy.sparse.diags(inv_mass_np)
     alpha_tilde_np = np.array([alpha] * M)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
@@ -555,14 +555,14 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         print("Assemble matrix")
 
         # copy pos to pos_mid
-        pos_mid= pos.copy()
+        pos_mid = pos
 
         # C and gradC and fill G
         t3 = time.perf_counter()
         G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
         fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
-        G = scipy.sparse.coo_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
+        G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
         print(f"Time C and gradC and fill G: {(time.perf_counter() - t3):.2g}s")
 
         # assemble A and b
@@ -570,7 +570,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         # print("Assemble A")
         A = G @ M_inv @ G.transpose() + ALPHA
         A = scipy.sparse.csr_matrix(A)
-        b = -constraints - alpha_tilde_np * lagrangian
+        b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
         print("Assemble matrix done")
         print("A:", A.shape, " b:", b.shape)
         print(f"Time assemble A and b: {(time.perf_counter() - t5):.2g}s")
@@ -605,16 +605,18 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         # ------------------------- transfer data back to pos ------------------------ #
         t7 = time.perf_counter()
-        dLambda = x.copy()
-        lagrangian += dLambda
-        dpos = M_inv @ G.transpose() @ dLambda
+        dLambda_ = x.copy()
+        # lagrangian += dLambda_
+        lagrangian.from_numpy(lagrangian.to_numpy() + dLambda_)
+        dpos = M_inv @ G.transpose() @ dLambda_
         dpos = dpos.reshape(-1, 3)
-        pos = pos_mid + dpos
+        # pos = pos_mid + dpos
+        pos.from_numpy(pos_mid.to_numpy() + dpos)
         print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
 
         # calc dual residual
         calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-        dual_r = np.linalg.norm(dual_residual).astype(np.float32)
+        dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(np.float32)
         print(f"dual r: {dual_r:.2g}" )
         # with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
         #     f.write(f"{dual_r}\n")
@@ -695,8 +697,8 @@ while window.running:
     scene.set_camera(camera)
     scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
 
-    pos_ti.from_numpy(pos)
-    scene.mesh(pos_ti, tri, color=(1.0,0,0), two_sided=True)
+    # pos_ti.from_numpy(pos)
+    scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
     # scene.particles(pos, radius=0.01, color=(0.6,0.0,0.0))
     canvas.scene(scene)
 

@@ -60,6 +60,20 @@ def write_tet(filename, points, tet_indices):
     return mesh
 
 
+def write_obj(filename, pos, tri):
+    """
+    example: write_obj(out_dir + "cloth.obj", pos.to_numpy(), tri.to_numpy())
+    """
+    cells = [
+        ("triangle", tri.reshape(-1, 3)),
+    ]
+    mesh = meshio.Mesh(
+        pos,
+        cells,
+    )
+    mesh.write(filename)
+    return mesh
+
 def tetgen_to_ply(mesh_path):
     print("Using meshio to read: ", mesh_path + ".node")
     mesh = meshio.read(mesh_path + ".node", file_format="tetgen")

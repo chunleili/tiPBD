@@ -6,6 +6,8 @@ from pathlib import Path
 import os
 from matplotlib import pyplot as plt
 import shutil, glob
+import meshio
+
 
 ti.init(arch=ti.cpu, debug=True)
 
@@ -646,6 +648,19 @@ def copy_field(dst: ti.template(), src: ti.template()):
     for i in src:
         dst[i] = src[i]
 
+
+def write_obj(filename, pos, tri):
+    cells = [
+        ("triangle", tri.reshape(-1, 3)),
+    ]
+    mesh = meshio.Mesh(
+        pos,
+        cells,
+    )
+    mesh.write(filename)
+    return mesh
+
+
 frame_num = 0
 end_frame = 1000
 out_dir = f"./result/cloth3d_assemble_256_50_amg/"
@@ -654,10 +669,11 @@ delete_txt_files(out_dir)
 save_image = True
 max_iter = 50
 paused = False
-save_P, load_P = False, True
+save_P, load_P = True, False
 
 init_pos(inv_mass,pos)
 init_tri(tri)
+# write_obj(out_dir + "cloth.obj", pos.to_numpy(), tri.to_numpy())
 init_edge(edge, rest_len, pos)
 init_edge_center(edge_center, edge, pos)
 

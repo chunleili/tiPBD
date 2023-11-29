@@ -449,7 +449,7 @@ def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_s
         if diag != 0.0:
             x[i] = (b[i] - rsum) / diag
 
-
+# @ti.kernel
 def amg_core_gauss_seidel_kernel(Ap: ti.template(),
                                  Aj: ti.template(),
                                  Ax: ti.template(),
@@ -514,7 +514,7 @@ def solve_amg_my(A, b, x0, R, P):
         x += P @ coarse_x  # coarse grid correction
 
         # gauss_seidel(A, x, b, iterations=1)  # postsmoother
-        amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+        # amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
 
         it += 1
 
@@ -551,11 +551,11 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     for ite in range(max_iter):
         t2 = time.perf_counter()
         # ----------------------------- prepare matrices ----------------------------- #
-        print(f"\n----iter {ite}----")
-        print("Assemble matrix")
+        print(f"\n----frame{frame_num} iter {ite}----")
+        # print("Assemble matrix")
 
         # copy pos to pos_mid
-        pos_mid = pos
+        copy_field(pos_mid, pos)
 
         # C and gradC and fill G
         t3 = time.perf_counter()
@@ -571,7 +571,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         A = G @ M_inv @ G.transpose() + ALPHA
         A = scipy.sparse.csr_matrix(A)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
-        print("Assemble matrix done")
+        # print("Assemble matrix done")
         print("A:", A.shape, " b:", b.shape)
         print(f"Time assemble A and b: {(time.perf_counter() - t5):.2g}s")
         # scipy.io.mmwrite("A.mtx", A)
@@ -600,8 +600,9 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         r_norm = np.linalg.norm(A @ x - b)
         print(f"r: {r_norm:.2g}" )
-        # with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
-        #     f.write(f"{r_norm}\n")
+        
+        with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
+            f.write(f"{r_norm}\n")
 
         # ------------------------- transfer data back to pos ------------------------ #
         t7 = time.perf_counter()
@@ -618,8 +619,8 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
         dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(np.float32)
         print(f"dual r: {dual_r:.2g}" )
-        # with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
-        #     f.write(f"{dual_r}\n")
+        with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
+            f.write(f"{dual_r}\n")
 
         print(f"Time this iter: {(time.perf_counter() - t2):.2g}s")
 
@@ -640,6 +641,11 @@ def delete_txt_files(folder_path):
         os.remove(file_path)
 
 
+@ti.kernel
+def copy_field(dst: ti.template(), src: ti.template()):
+    for i in src:
+        dst[i] = src[i]
+
 frame_num = 0
 end_frame = 1000
 out_dir = f"./result/cloth3d_assemble_256_50_amg/"
@@ -648,7 +654,7 @@ delete_txt_files(out_dir)
 save_image = True
 max_iter = 50
 paused = False
-save_P, load_P = True, False
+save_P, load_P = False, True
 
 init_pos(inv_mass,pos)
 init_tri(tri)
@@ -705,9 +711,9 @@ while window.running:
     # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
     window.show()
 
-    # if save_image and frame_num % 10 == 0:
-    file_path = out_dir + f"{frame_num:04d}.png"
-    window.save_image(file_path)  # export and show in GUI
+    if save_image:
+        file_path = out_dir + f"{frame_num:04d}.png"
+        window.save_image(file_path)  # export and show in GUI
 
     if frame_num == end_frame:
         break

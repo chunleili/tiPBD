@@ -516,7 +516,7 @@ def solve_amg_my(A, b, x0, R, P):
         x += P @ coarse_x  # coarse grid correction
 
         # gauss_seidel(A, x, b, iterations=1)  # postsmoother
-        # amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+        amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
 
         it += 1
 
@@ -663,7 +663,7 @@ def write_obj(filename, pos, tri):
 
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d_256_50_gs/"
+out_dir = f"./result/cloth3d_256_50_amg/"
 mkdir_if_not_exist(out_dir)
 delete_txt_files(out_dir)
 save_image = True
@@ -711,8 +711,8 @@ while window.running:
 
     if not paused:
         # step_xpbd(max_iter)
-        substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
-        # substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
+        # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
+        substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
 
     # print("cam",camera.curr_position,camera.curr_lookat)
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)

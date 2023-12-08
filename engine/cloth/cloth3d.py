@@ -291,7 +291,7 @@ def step_xpbd(max_iter):
 
     residual = np.zeros((max_iter+1),float)
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-    residual[0] = np.linalg.norm(dual_residual)
+    residual[0] = np.linalg.norm(dual_residual.to_numpy())
 
     for i in range(max_iter):
         reset_accpos(acc_pos)
@@ -300,7 +300,7 @@ def step_xpbd(max_iter):
         update_pos(inv_mass, acc_pos, pos)
         collision(pos)
 
-        residual[i+1] = np.linalg.norm(dual_residual)
+        residual[i+1] = np.linalg.norm(dual_residual.to_numpy())
     np.savetxt(out_dir + f"residual_{frame_num}.txt",residual)
 
     update_vel(old_pos, inv_mass, vel, pos)
@@ -663,13 +663,13 @@ def write_obj(filename, pos, tri):
 
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d_256_50_amg/"
+out_dir = f"./result/cloth3d_256_50_xpbd/"
 mkdir_if_not_exist(out_dir)
 delete_txt_files(out_dir)
 save_image = True
 max_iter = 50
 paused = False
-save_P, load_P = True, False
+save_P, load_P = False, False
 
 init_pos(inv_mass,pos)
 init_tri(tri)
@@ -710,9 +710,9 @@ while window.running:
             print("paused:",paused)
 
     if not paused:
-        # step_xpbd(max_iter)
+        step_xpbd(max_iter)
         # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
-        substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
+        # substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
 
     # print("cam",camera.curr_position,camera.curr_lookat)
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)

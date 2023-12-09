@@ -301,7 +301,7 @@ def step_xpbd(max_iter):
         collision(pos)
 
         residual[i+1] = np.linalg.norm(dual_residual.to_numpy())
-    np.savetxt(out_dir + f"residual_{frame_num}.txt",residual)
+    np.savetxt(out_dir + f"dual_residual_{frame_num}.txt",residual)
 
     update_vel(old_pos, inv_mass, vel, pos)
 
@@ -663,13 +663,13 @@ def write_obj(filename, pos, tri):
 
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d_256_50_xpbd/"
+out_dir = f"./result/cloth3d_256_50_amg/"
 mkdir_if_not_exist(out_dir)
 delete_txt_files(out_dir)
 save_image = True
 max_iter = 50
 paused = False
-save_P, load_P = False, False
+save_P, load_P = False, True
 
 init_pos(inv_mass,pos)
 init_tri(tri)
@@ -683,9 +683,9 @@ if save_P:
     scipy.io.mmwrite(out_dir + "P.mtx", P)
     np.savetxt(out_dir + "labels.txt", labels, fmt="%d")
 if load_P:
-    R = scipy.io.mmread(out_dir + "R.mtx")
-    P = scipy.io.mmread(out_dir + "P.mtx")
-    labels = np.loadtxt(out_dir + "labels.txt", dtype=np.int32)
+    R = scipy.io.mmread( "R.mtx")
+    P = scipy.io.mmread( "P.mtx")
+    labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 window = ti.ui.Window("Display Mesh", (1024, 1024))
 canvas = window.get_canvas()
@@ -710,9 +710,9 @@ while window.running:
             print("paused:",paused)
 
     if not paused:
-        step_xpbd(max_iter)
+        # step_xpbd(max_iter)
         # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
-        # substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
+        substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
 
     # print("cam",camera.curr_position,camera.curr_lookat)
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)

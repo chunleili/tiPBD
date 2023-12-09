@@ -3,8 +3,8 @@ import time
 import os
 import shutil
 
-cases = ["cloth3d_256_50_gs",
-            "cloth3d_256_50_amg",
+cases = ["cloth3d_256_50_amg",
+            "cloth3d_256_50_xpbd",
          ]
 
 for case_i in cases:

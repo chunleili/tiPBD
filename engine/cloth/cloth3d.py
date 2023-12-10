@@ -7,6 +7,7 @@ import os
 from matplotlib import pyplot as plt
 import shutil, glob
 import meshio
+import tqdm
 
 
 ti.init(arch=ti.cpu, debug=True)
@@ -540,7 +541,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     t1 = time.perf_counter()
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
-    print(f"Time semi_euler: {(time.perf_counter() - t1):.2g}s")
+    # print(f"Time semi_euler: {(time.perf_counter() - t1):.2g}s")
 
     # fill M_inv and ALPHA
     t4 = time.perf_counter()
@@ -548,12 +549,12 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     M_inv = scipy.sparse.diags(inv_mass_np)
     alpha_tilde_np = np.array([alpha] * M)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
-    print(f"Time fill M_inv and ALPHA: {(time.perf_counter() - t4):.2g}s")
+    # print(f"Time fill M_inv and ALPHA: {(time.perf_counter() - t4):.2g}s")
 
     for ite in range(max_iter):
         t2 = time.perf_counter()
         # ----------------------------- prepare matrices ----------------------------- #
-        print(f"\n----frame{frame_num} iter {ite}----")
+        # print(f"\n----frame{frame_num} iter {ite}----")
         # print("Assemble matrix")
 
         # copy pos to pos_mid
@@ -565,7 +566,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
         fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
         G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
-        print(f"Time C and gradC and fill G: {(time.perf_counter() - t3):.2g}s")
+        # print(f"Time C and gradC and fill G: {(time.perf_counter() - t3):.2g}s")
 
         # assemble A and b
         t5 = time.perf_counter()
@@ -574,15 +575,15 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         A = scipy.sparse.csr_matrix(A)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
         # print("Assemble matrix done")
-        print("A:", A.shape, " b:", b.shape)
-        print(f"Time assemble A and b: {(time.perf_counter() - t5):.2g}s")
+        # print("A:", A.shape, " b:", b.shape)
+        # print(f"Time assemble A and b: {(time.perf_counter() - t5):.2g}s")
         # scipy.io.mmwrite("A.mtx", A)
         # plt.spy(A, markersize=1)
         # plt.show()
         # exit()
 
         # -------------------------------- solve Ax=b -------------------------------- #
-        print(f"Solve Ax=b by {solver}")
+        # print(f"Solve Ax=b by {solver}")
         t6 = time.perf_counter()
         x0 = np.zeros_like(b)
         
@@ -598,10 +599,10 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         elif solver == "AMG":
             x = solve_amg_my(A, b, x0, R, P)
 
-        print(f"Time Ax=b: {(time.perf_counter() - t6):.2g}s")
+        # print(f"Time Ax=b: {(time.perf_counter() - t6):.2g}s")
 
         r_norm = np.linalg.norm(A @ x - b)
-        print(f"r: {r_norm:.2g}" )
+        # print(f"r: {r_norm:.2g}" )
         
         with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
             f.write(f"{r_norm}\n")
@@ -615,20 +616,20 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         dpos = dpos.reshape(-1, 3)
         # pos = pos_mid + dpos
         pos.from_numpy(pos_mid.to_numpy() + dpos)
-        print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
+        # print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
 
         # calc dual residual
         calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
         dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(np.float32)
-        print(f"dual r: {dual_r:.2g}" )
+        # print(f"dual r: {dual_r:.2g}" )
         with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
             f.write(f"{dual_r}\n")
 
-        print(f"Time this iter: {(time.perf_counter() - t2):.2g}s")
+        # print(f"Time this iter: {(time.perf_counter() - t2):.2g}s")
 
     update_vel(old_pos, inv_mass, vel, pos)
-    print(f"Time this frame: {(time.perf_counter() - t1):.2g}s")
-    print("\n\n\n")
+    # print(f"Time this frame: {(time.perf_counter() - t1):.2g}s")
+    # print("\n\n\n")
 
 
 def mkdir_if_not_exist(path=None):
@@ -660,10 +661,10 @@ def write_obj(filename, pos, tri):
     mesh.write(filename)
     return mesh
 
-
+timer_all = time.perf_counter()
 frame_num = 0
 end_frame = 1000
-out_dir = f"./result/cloth3d_256_50_amg/"
+out_dir = f"./result/test/"
 mkdir_if_not_exist(out_dir)
 delete_txt_files(out_dir)
 save_image = True
@@ -699,9 +700,12 @@ camera.lookat(0.5, 0.5, 0.0)
 camera.fov(90)
 gui = window.get_gui()
 
+pbar = tqdm.tqdm(total=end_frame)
 while window.running:
+    pbar.update(1)
+    time_one_frame = time.perf_counter()
     frame_num += 1
-    print(f"\n\n--------frame_num:{frame_num}----------")
+    # print(f"\n\n--------frame_num:{frame_num}----------")
     for e in window.get_events(ti.ui.PRESS):
         if e.key in [ti.ui.ESCAPE]:
             exit()
@@ -710,9 +714,9 @@ while window.running:
             print("paused:",paused)
 
     if not paused:
-        # step_xpbd(max_iter)
+        step_xpbd(max_iter)
         # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
-        substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
+        # substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
 
     # print("cam",camera.curr_position,camera.curr_lookat)
     camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)
@@ -724,6 +728,8 @@ while window.running:
     # scene.particles(pos, radius=0.01, color=(0.6,0.0,0.0))
     canvas.scene(scene)
 
+    write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
+
     # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
     window.show()
 
@@ -731,5 +737,8 @@ while window.running:
         file_path = out_dir + f"{frame_num:04d}.png"
         window.save_image(file_path)  # export and show in GUI
 
+    print(f"Time frame {frame_num}: {(time.perf_counter() - time_one_frame):.2g}s")
+
     if frame_num == end_frame:
+        print(f"Time all: {(time.perf_counter() - timer_all):.0f}s")
         break

@@ -452,17 +452,17 @@ def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_s
         if diag != 0.0:
             x[i] = (b[i] - rsum) / diag
 
-# @ti.kernel
-def amg_core_gauss_seidel_kernel(Ap: ti.template(),
-                                 Aj: ti.template(),
-                                 Ax: ti.template(),
+@ti.kernel
+def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
+                                 Aj: ti.types.ndarray(),
+                                 Ax: ti.types.ndarray(),
                                  x: ti.types.ndarray(),
                                  b: ti.types.ndarray(),
                                  row_start: int,
                                  row_stop: int,
                                  row_step: int):
-    if row_step < 0:
-        assert "row_step must be positive"
+    # if row_step < 0:
+    #     assert "row_step must be positive"
     for i in range(row_start, row_stop):
         if i%row_step != 0:
             continue
@@ -714,8 +714,8 @@ while window.running:
             print("paused:",paused)
 
     if not paused:
-        step_xpbd(max_iter)
-        # substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
+        # step_xpbd(max_iter)
+        substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
         # substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
 
     # print("cam",camera.curr_position,camera.curr_lookat)

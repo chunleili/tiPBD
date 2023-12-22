@@ -21,6 +21,7 @@ M = NE
 new_M = int(NE / 100)
 compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
 alpha = compliance * (1.0 / h / h)  # timestep related compliance, see XPBD paper
+omega = 0.5
 
 tri = ti.field(ti.i32, shape=3 * NT)
 pos_ti = ti.Vector.field(3, ti.f32, shape=NV)
@@ -243,7 +244,7 @@ def update_pos(
 ):
     for i in range(NV):
         if inv_mass[i] != 0.0:
-            pos[i] += 0.5 * acc_pos[i]
+            pos[i] += omega * acc_pos[i]
 
 @ti.kernel
 def update_vel(
@@ -529,6 +530,45 @@ def solve_amg_my(A, b, x0, R, P):
         if it == maxiter:
             return x
 
+def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid):
+    dLambda_ = x.copy()
+    # lagrangian += dLambda_
+    lagrangian.from_numpy(lagrangian.to_numpy() + dLambda_)
+    dpos = M_inv @ G.transpose() @ dLambda_
+    dpos = dpos.reshape(-1, 3)
+    # pos = pos_mid + dpos
+    pos.from_numpy(pos_mid.to_numpy() + dpos)
+    # print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
+
+
+
+@ti.kernel
+def transfer_back_to_pos_mfree_kernel():
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+
+        delta_lagrangian = dLambda[i]
+        lagrangian[i] += delta_lagrangian
+
+        gradient = gradC[i, 0]
+        
+        if invM0 != 0.0:
+            acc_pos[idx0] += invM0 * delta_lagrangian * gradient
+        if invM1 != 0.0:
+            acc_pos[idx1] -= invM1 * delta_lagrangian * gradient
+
+
+def transfer_back_to_pos_mfree(x):
+    dLambda.from_numpy(x)
+    reset_accpos(acc_pos)
+    transfer_back_to_pos_mfree_kernel()
+    update_pos(inv_mass, acc_pos, pos)
+    collision(pos)
+
+
+
+
 def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
     """
     max_iter: 最大迭代次数\\
@@ -609,14 +649,9 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         # ------------------------- transfer data back to pos ------------------------ #
         t7 = time.perf_counter()
-        dLambda_ = x.copy()
-        # lagrangian += dLambda_
-        lagrangian.from_numpy(lagrangian.to_numpy() + dLambda_)
-        dpos = M_inv @ G.transpose() @ dLambda_
-        dpos = dpos.reshape(-1, 3)
-        # pos = pos_mid + dpos
-        pos.from_numpy(pos_mid.to_numpy() + dpos)
-        # print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
+        # transfer_back_to_pos_matrix(x, M_inv, G, pos_mid)
+        transfer_back_to_pos_mfree(x)
+        # # print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
 
         # calc dual residual
         calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
@@ -624,7 +659,8 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         # print(f"dual r: {dual_r:.2g}" )
         with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
             f.write(f"{dual_r}\n")
-
+        
+        # write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
         # print(f"Time this iter: {(time.perf_counter() - t2):.2g}s")
 
     update_vel(old_pos, inv_mass, vel, pos)
@@ -686,7 +722,7 @@ if save_P:
 if load_P:
     R = scipy.io.mmread( "R.mtx")
     P = scipy.io.mmread( "P.mtx")
-    labels = np.loadtxt( "labels.txt", dtype=np.int32)
+    # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 window = ti.ui.Window("Display Mesh", (1024, 1024))
 canvas = window.get_canvas()

@@ -47,6 +47,7 @@ numerator_lumped    = ti.field(shape=(new_M), dtype = ti.float32)
 denominator_lumped  = ti.field(shape=(new_M), dtype = ti.float32)
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
 adjacent_edge_abc   = ti.field(shape=(NE,42),  dtype = ti.int32)
+adjacent_edge   = ti.field(shape=(NE,14),  dtype = ti.int32)
 
 @ti.kernel
 def init_pos(
@@ -124,15 +125,21 @@ def init_edge_center(
 
 def init_adjacent_edge_abc():
     num_adjacent_edge_np = np.loadtxt(misc_dir_path+"num_adjacent_edge.txt", dtype=np.int32)
-    MAX = max(num_adjacent_edge_np) * 3 # 14*3=42
+    MAX = max(num_adjacent_edge_np) #14
     
     filename = misc_dir_path+"adjacent_edge_abc.txt"
     def pad_list(lst, padding, default=-1):
         return lst + (padding - len(lst))*[default]
     with open(filename,"r") as f:
         all_data=(map(int, x.split()) for x in f)
-        a = np.array([pad_list(list(x), MAX) for x in all_data])
+        a = np.array([pad_list(list(x), MAX*3) for x in all_data])
     adjacent_edge_abc.from_numpy(a)
+
+    filename = misc_dir_path+"adjacent_edge.txt"
+    with open(filename,"r") as f:
+        all_data=(map(int, x.split()) for x in f)
+        b = np.array([pad_list(list(x), MAX) for x in all_data])
+    adjacent_edge.from_numpy(b)
     ...
 
 @ti.kernel

@@ -46,6 +46,7 @@ y_jprime    = ti.field(shape=(new_M),   dtype = ti.float32)
 numerator_lumped    = ti.field(shape=(new_M), dtype = ti.float32)
 denominator_lumped  = ti.field(shape=(new_M), dtype = ti.float32)
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
+adjacent_edge_abc   = ti.field(shape=(NE,42),  dtype = ti.int32)
 
 @ti.kernel
 def init_pos(
@@ -121,6 +122,18 @@ def init_edge_center(
         p1, p2 = pos[idx1], pos[idx2]
         edge_center[i] = (p1 + p2) / 2.0
 
+def init_adjacent_edge_abc():
+    num_adjacent_edge_np = np.loadtxt(misc_dir_path+"num_adjacent_edge.txt", dtype=np.int32)
+    MAX = max(num_adjacent_edge_np) * 3 # 14*3=42
+    
+    filename = misc_dir_path+"adjacent_edge_abc.txt"
+    def pad_list(lst, padding, default=-1):
+        return lst + (padding - len(lst))*[default]
+    with open(filename,"r") as f:
+        all_data=(map(int, x.split()) for x in f)
+        a = np.array([pad_list(list(x), MAX) for x in all_data])
+    adjacent_edge_abc.from_numpy(a)
+    ...
 
 @ti.kernel
 def semi_euler(
@@ -582,7 +595,7 @@ def substep_all_solver(max_iter=1, solver="Direct", R=None, P=None):
             x = solve_amg(A, b, x0, R, P)
         
         transfer_back_to_pos_mfree(x)
-        
+
         if export_residual:
             r_norm = np.linalg.norm(A @ x - b)
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
@@ -634,6 +647,9 @@ def write_obj(filename, pos, tri):
 frame_num = 0
 end_frame = 1000
 out_dir = f"./result/test/"
+proj_dir_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+print("proj_dir_path: ", proj_dir_path)
+misc_dir_path = proj_dir_path + "/data/misc/"
 mkdir_if_not_exist(out_dir)
 clean_result_dir(out_dir)
 save_image = True
@@ -650,15 +666,16 @@ init_pos(inv_mass,pos)
 init_tri(tri)
 init_edge(edge, rest_len, pos)
 init_edge_center(edge_center, edge, pos)
+init_adjacent_edge_abc()
 
 if save_P:
     R, P, labels, new_M = compute_R_and_P_kmeans()
-    scipy.io.mmwrite(out_dir + "R.mtx", R)
-    scipy.io.mmwrite(out_dir + "P.mtx", P)
-    np.savetxt(out_dir + "labels.txt", labels, fmt="%d")
+    scipy.io.mmwrite(misc_dir_path + "R.mtx", R)
+    scipy.io.mmwrite(misc_dir_path + "P.mtx", P)
+    np.savetxt(misc_dir_path + "labels.txt", labels, fmt="%d")
 if load_P:
-    R = scipy.io.mmread( "R.mtx")
-    P = scipy.io.mmread( "P.mtx")
+    R = scipy.io.mmread(misc_dir_path+ "R.mtx")
+    P = scipy.io.mmread(misc_dir_path+ "P.mtx")
     # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 class Viewer:

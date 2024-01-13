@@ -2,6 +2,7 @@ import taichi as ti
 import numpy as np
 import time
 import scipy
+import scipy.sparse as sp
 from pathlib import Path
 import os
 from matplotlib import pyplot as plt
@@ -141,6 +142,25 @@ def init_adjacent_edge_abc():
         b = np.array([pad_list(list(x), MAX) for x in all_data])
     adjacent_edge.from_numpy(b)
     ...
+
+def init_A_pattern_coo_kernel(coo_i_arr:ti.ndarray(), coo_j_arr:ti.ndarray(), coo_v_arr:ti.ndarray()):
+    cnt_nonzero = 0
+    for i in range(NE):
+        diag = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+        coo_i_arr[cnt_nonzero] = i
+        coo_j_arr[cnt_nonzero] = i
+        coo_v_arr[cnt_nonzero] = diag
+        cnt_nonzero += 1
+
+        for j in range(14):
+            ia = adjacent_edge[i,j]
+            if ia == -1:
+                break
+            off_diag = 0.0
+            coo_i_arr[cnt_nonzero] = i
+            coo_j_arr[cnt_nonzero] = ia
+            coo_v_arr[cnt_nonzero] = off_diag
+            cnt_nonzero += 1
 
 @ti.kernel
 def semi_euler(

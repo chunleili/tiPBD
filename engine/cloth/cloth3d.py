@@ -11,7 +11,7 @@ import meshio
 import tqdm
 
 
-ti.init(arch=ti.cpu, debug=True)
+ti.init(arch=ti.cpu)
 
 N = 256
 NV = (N + 1)**2
@@ -143,24 +143,24 @@ def init_adjacent_edge_abc():
     adjacent_edge.from_numpy(b)
     ...
 
-def init_A_pattern_coo_kernel(coo_i_arr:ti.ndarray(), coo_j_arr:ti.ndarray(), coo_v_arr:ti.ndarray()):
-    cnt_nonzero = 0
-    for i in range(NE):
-        diag = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-        coo_i_arr[cnt_nonzero] = i
-        coo_j_arr[cnt_nonzero] = i
-        coo_v_arr[cnt_nonzero] = diag
-        cnt_nonzero += 1
+# def init_A_pattern_coo_kernel(coo_i_arr:ti.ndarray(), coo_j_arr:ti.ndarray(), coo_v_arr:ti.ndarray()):
+#     cnt_nonzero = 0
+#     for i in range(NE):
+#         diag = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+#         coo_i_arr[cnt_nonzero] = i
+#         coo_j_arr[cnt_nonzero] = i
+#         coo_v_arr[cnt_nonzero] = diag
+#         cnt_nonzero += 1
 
-        for j in range(14):
-            ia = adjacent_edge[i,j]
-            if ia == -1:
-                break
-            off_diag = 0.0
-            coo_i_arr[cnt_nonzero] = i
-            coo_j_arr[cnt_nonzero] = ia
-            coo_v_arr[cnt_nonzero] = off_diag
-            cnt_nonzero += 1
+#         for j in range(14):
+#             ia = adjacent_edge[i,j]
+#             if ia == -1:
+#                 break
+#             off_diag = 0.0
+#             coo_i_arr[cnt_nonzero] = i
+#             coo_j_arr[cnt_nonzero] = ia
+#             coo_v_arr[cnt_nonzero] = off_diag
+#             cnt_nonzero += 1
 
 @ti.kernel
 def semi_euler(
@@ -683,7 +683,7 @@ save_image = True
 max_iter = 50
 paused = False
 save_P, load_P = False, True
-use_viewer = True
+use_viewer = False
 export_obj = True
 export_residual = False
 solver_type = "AMG" # "AMG", "GS", "XPBD"

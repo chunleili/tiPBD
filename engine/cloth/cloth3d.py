@@ -484,44 +484,29 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
             x[i] = (b[i] - rsum) / diag
 
 
-def solve_amg_my(A, b, x0, R, P):
+def solve_amg(A, b, x0, R, P):
     tol = 1e-3
     residuals = []
     maxiter = 1
-
     A2 = R @ A @ P
-
     x = x0
-
     normb = np.linalg.norm(b)
     if normb == 0.0:
         normb = 1.0  # set so that we have an absolute tolerance
     normr = np.linalg.norm(b - A @ x)
     if residuals is not None:
         residuals[:] = [normr]  # initial residual
-
     b = np.ravel(b)
     x = np.ravel(x)
-
     it = 0
     while True:  # it <= maxiter and normr >= tol:
-        # gauss_seidel(A, x, b, iterations=1)  # presmoother
-
         residual = b - A @ x
-
         coarse_b = R @ residual  # restriction
-
         coarse_x = np.zeros_like(coarse_b)
-
         coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
-
-        x += P @ coarse_x  # coarse grid correction
-
-        # gauss_seidel(A, x, b, iterations=1)  # postsmoother
+        x += P @ coarse_x 
         amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
-
         it += 1
-
         normr = np.linalg.norm(b - A @ x)
         if residuals is not None:
             residuals.append(normr)
@@ -532,15 +517,10 @@ def solve_amg_my(A, b, x0, R, P):
 
 def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid):
     dLambda_ = x.copy()
-    # lagrangian += dLambda_
     lagrangian.from_numpy(lagrangian.to_numpy() + dLambda_)
     dpos = M_inv @ G.transpose() @ dLambda_
     dpos = dpos.reshape(-1, 3)
-    # pos = pos_mid + dpos
     pos.from_numpy(pos_mid.to_numpy() + dpos)
-    # print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
-
-
 
 @ti.kernel
 def transfer_back_to_pos_mfree_kernel():
@@ -566,106 +546,52 @@ def transfer_back_to_pos_mfree(x):
     update_pos(inv_mass, acc_pos, pos)
     collision(pos)
 
+def spy_A(A,b):
+    print("A:", A.shape, " b:", b.shape)
+    scipy.io.mmwrite("A.mtx", A)
+    plt.spy(A, markersize=1)
+    plt.show()
+    exit()
 
-
-
-def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
-    """
-    max_iter: 最大迭代次数\\
-    solver: 选择的solver, 可选项为: "Jacobi", "Gauss-Seidel", "SOR", "DirectSolver", "AMG"\\
-    P: 粗网格到细网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
-    R: 细网格到粗网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
-    """
+def substep_all_solver(max_iter=1, solver="Direct", R=None, P=None):
     global pos, lagrangian
-
-    t1 = time.perf_counter()
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
-    # print(f"Time semi_euler: {(time.perf_counter() - t1):.2g}s")
-
-    # fill M_inv and ALPHA
-    t4 = time.perf_counter()
     inv_mass_np = np.repeat(inv_mass.to_numpy(), 3, axis=0)
     M_inv = scipy.sparse.diags(inv_mass_np)
     alpha_tilde_np = np.array([alpha] * M)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
-    # print(f"Time fill M_inv and ALPHA: {(time.perf_counter() - t4):.2g}s")
-
     for ite in range(max_iter):
-        t2 = time.perf_counter()
-        # ----------------------------- prepare matrices ----------------------------- #
-        # print(f"\n----frame{frame_num} iter {ite}----")
-        # print("Assemble matrix")
-
-        # copy pos to pos_mid
         copy_field(pos_mid, pos)
-
-        # C and gradC and fill G
-        t3 = time.perf_counter()
         G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
         fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
         G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
-        # print(f"Time C and gradC and fill G: {(time.perf_counter() - t3):.2g}s")
-
-        # assemble A and b
-        t5 = time.perf_counter()
-        # print("Assemble A")
         A = G @ M_inv @ G.transpose() + ALPHA
         A = scipy.sparse.csr_matrix(A)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
-        # print("Assemble matrix done")
-        # print("A:", A.shape, " b:", b.shape)
-        # print(f"Time assemble A and b: {(time.perf_counter() - t5):.2g}s")
-        # scipy.io.mmwrite("A.mtx", A)
-        # plt.spy(A, markersize=1)
-        # plt.show()
-        # exit()
 
-        # -------------------------------- solve Ax=b -------------------------------- #
-        # print(f"Solve Ax=b by {solver}")
-        t6 = time.perf_counter()
         x0 = np.zeros_like(b)
-        
-        if solver == "DirectSolver":
+        if solver == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
-
-        if solver == "GaussSeidel":
+        if solver == "AMG":
             x = np.zeros_like(b)
             for _ in range(1):
-                # amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
-
         elif solver == "AMG":
-            x = solve_amg_my(A, b, x0, R, P)
-
-        # print(f"Time Ax=b: {(time.perf_counter() - t6):.2g}s")
-
-        r_norm = np.linalg.norm(A @ x - b)
-        # print(f"r: {r_norm:.2g}" )
+            x = solve_amg(A, b, x0, R, P)
         
-        with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
-            f.write(f"{r_norm}\n")
-
-        # ------------------------- transfer data back to pos ------------------------ #
-        t7 = time.perf_counter()
-        # transfer_back_to_pos_matrix(x, M_inv, G, pos_mid)
         transfer_back_to_pos_mfree(x)
-        # # print(f"Time transfer data back: {(time.perf_counter() - t7):.2g}s")
-
-        # calc dual residual
-        calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-        dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(np.float32)
-        # print(f"dual r: {dual_r:.2g}" )
-        with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
-            f.write(f"{dual_r}\n")
         
-        # write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
-        # print(f"Time this iter: {(time.perf_counter() - t2):.2g}s")
-
+        if export_residual:
+            r_norm = np.linalg.norm(A @ x - b)
+            calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+            dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(np.float32)
+            with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
+                f.write(f"{r_norm}\n")
+            with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
+                f.write(f"{dual_r}\n")
     update_vel(old_pos, inv_mass, vel, pos)
-    # print(f"Time this frame: {(time.perf_counter() - t1):.2g}s")
-    # print("\n\n\n")
 
 
 def mkdir_if_not_exist(path=None):
@@ -679,6 +605,14 @@ def delete_txt_files(folder_path):
     for file_path in txt_files:
         os.remove(file_path)
 
+def clean_result_dir(folder_path):
+    print(f"clean {folder_path}...")
+    txt_files = glob.glob(os.path.join(folder_path, '*.txt'))
+    obj_files = glob.glob(os.path.join(folder_path, '*.obj'))
+    png_files = glob.glob(os.path.join(folder_path, '*.png'))
+    for file_path in obj_files or png_files or txt_files:
+        os.remove(file_path)
+    print(f"clean {folder_path} done")
 
 @ti.kernel
 def copy_field(dst: ti.template(), src: ti.template()):
@@ -697,20 +631,23 @@ def write_obj(filename, pos, tri):
     mesh.write(filename)
     return mesh
 
-timer_all = time.perf_counter()
 frame_num = 0
 end_frame = 1000
 out_dir = f"./result/test/"
 mkdir_if_not_exist(out_dir)
-delete_txt_files(out_dir)
+clean_result_dir(out_dir)
 save_image = True
 max_iter = 50
 paused = False
 save_P, load_P = False, True
+use_viewer = True
+export_obj = True
+export_residual = False
+solver_type = "AMG" # "AMG", "GS", "XPBD"
 
+timer_all = time.perf_counter()
 init_pos(inv_mass,pos)
 init_tri(tri)
-# write_obj(out_dir + "cloth.obj", pos.to_numpy(), tri.to_numpy())
 init_edge(edge, rest_len, pos)
 init_edge_center(edge_center, edge, pos)
 
@@ -724,57 +661,55 @@ if load_P:
     P = scipy.io.mmread( "P.mtx")
     # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
-window = ti.ui.Window("Display Mesh", (1024, 1024))
-canvas = window.get_canvas()
-canvas.set_background_color((1, 1, 1))
-scene = ti.ui.Scene()
-camera = ti.ui.Camera()
-# camera.position(0.5, 0.4702609, 1.52483202)
-# camera.lookat(0.5, 0.9702609, -0.97516798)
-camera.position(0.5, 0.0, 2.5)
-camera.lookat(0.5, 0.5, 0.0)
-camera.fov(90)
-gui = window.get_gui()
+class Viewer:
+    if use_viewer:
+        window = ti.ui.Window("Display Mesh", (1024, 1024))
+        canvas = window.get_canvas()
+        canvas.set_background_color((1, 1, 1))
+        scene = ti.ui.Scene()
+        camera = ti.ui.Camera()
+        # camera.position(0.5, 0.4702609, 1.52483202)
+        # camera.lookat(0.5, 0.9702609, -0.97516798)
+        camera.position(0.5, 0.0, 2.5)
+        camera.lookat(0.5, 0.5, 0.0)
+        camera.fov(90)
+        gui = window.get_gui()
 
-pbar = tqdm.tqdm(total=end_frame)
-while window.running:
-    pbar.update(1)
+viewer = Viewer()
+
+step_pbar = tqdm.tqdm(total=end_frame)
+while True:
+    step_pbar.update(1)
     time_one_frame = time.perf_counter()
     frame_num += 1
-    # print(f"\n\n--------frame_num:{frame_num}----------")
-    for e in window.get_events(ti.ui.PRESS):
-        if e.key in [ti.ui.ESCAPE]:
-            exit()
-        if e.key == ti.ui.SPACE:
-            paused = not paused
-            print("paused:",paused)
-
+    if use_viewer:
+        for e in viewer.window.get_events(ti.ui.PRESS):
+            if e.key in [ti.ui.ESCAPE]:
+                exit()
+            if e.key == ti.ui.SPACE:
+                paused = not paused
+                print("paused:",paused)
     if not paused:
-        # step_xpbd(max_iter)
-        substep_all_solver(max_iter=max_iter, solver="GaussSeidel")
-        # substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
-
-    # print("cam",camera.curr_position,camera.curr_lookat)
-    camera.track_user_inputs(window, movement_speed=0.003, hold_key=ti.ui.RMB)
-    scene.set_camera(camera)
-    scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
-
-    # pos_ti.from_numpy(pos)
-    scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
-    # scene.particles(pos, radius=0.01, color=(0.6,0.0,0.0))
-    canvas.scene(scene)
-
-    write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
-
-    # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
-    window.show()
-
-    if save_image:
-        file_path = out_dir + f"{frame_num:04d}.png"
-        window.save_image(file_path)  # export and show in GUI
-
-    print(f"Time frame {frame_num}: {(time.perf_counter() - time_one_frame):.2g}s")
-
+        if solver_type == "XPBD":
+            step_xpbd(max_iter)
+        elif solver_type == "GS":
+            substep_all_solver(max_iter=max_iter, solver="AMG")
+        elif solver_type == "AMG":
+            substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
+        if export_obj:
+            write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
+    
     if frame_num == end_frame:
         print(f"Time all: {(time.perf_counter() - timer_all):.0f}s")
-        break
+        exit()
+    if use_viewer:
+        viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
+        viewer.scene.set_camera(viewer.camera)
+        viewer.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
+        viewer.scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
+        viewer.canvas.scene(viewer.scene)
+        # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
+        viewer.window.show()
+        if save_image:
+            file_path = out_dir + f"{frame_num:04d}.png"
+            viewer.window.save_image(file_path)  # export and show in GUI

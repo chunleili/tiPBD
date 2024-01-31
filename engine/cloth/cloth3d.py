@@ -545,7 +545,7 @@ def solve_amg(A, b, x0, R, P):
         coarse_x = np.zeros_like(coarse_b)
         coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
         x += P @ coarse_x 
-        amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+        # amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
         it += 1
         normr = np.linalg.norm(b - A @ x)
         if residuals is not None:
@@ -614,7 +614,7 @@ def substep_all_solver(max_iter=1, solver="Direct", R=None, P=None):
         x0 = np.zeros_like(b)
         if solver == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
-        if solver == "AMG":
+        elif solver == "GS":
             x = np.zeros_like(b)
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)

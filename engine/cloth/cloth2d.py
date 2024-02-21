@@ -426,13 +426,10 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         # copy pos to pos_mid
         pos_mid.from_numpy(pos.to_numpy())
 
-        M = NF
-        N = NV
-
         compute_C_and_gradC_kernel()
 
         # fill G matrix (gradC)
-        G = np.zeros((M, 2 * N))
+        G = np.zeros((NF, 2 * NV))
         fill_gradC_np_kernel(G, gradC, f2v)
         G = scipy.sparse.csr_matrix(G)
 
@@ -441,7 +438,7 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
         inv_mass_np = np.repeat(inv_mass_np, 2, axis=0)
         M_inv = scipy.sparse.diags(inv_mass_np)
 
-        alpha_tilde_np = np.array([alpha] * M)
+        alpha_tilde_np = np.array([alpha] * NF)
         ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
         # assemble A and b
@@ -452,10 +449,11 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         print("Assemble matrix done")
 
-        if output_A_flag:
+        stop = 10
+        if frame_num==stop:
             print("Save matrix to file")
-            scipy.io.mmwrite("A.mtx", A)
-            np.savetxt("b.txt", b)
+            scipy.io.mmwrite(f"A_2d_{stop}_N{N}.mtx", A)
+            np.savetxt(f"b_2d_{stop}_N{N}.txt", b)
             exit()
 
         # -------------------------------- solve Ax=b -------------------------------- #

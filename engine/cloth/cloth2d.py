@@ -12,7 +12,7 @@ import scipy.sparse as sparse
 import os, shutil, sys
 from pathlib import Path
 
-ti.init(arch=ti.gpu, kernel_profiler=True)
+ti.init(arch=ti.cpu)
 
 h = 0.003  # timestep size
 
@@ -235,8 +235,8 @@ def fill_gradC_np_kernel(
 ):
     for j in range(face_indices.shape[0]):
         ind = face_indices[j]
-        for p in range(3):
-            for d in range(2):
+        for p in ti.static(range(3)):
+            for d in ti.static(range(2)):
                 pid = ind[p]
                 A[j, 2 * pid + d] = gradC[j, p][d]
 

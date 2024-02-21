@@ -11,15 +11,26 @@ from collections import namedtuple
 import scipy.sparse as sparse
 import os, shutil, sys
 from pathlib import Path
+import argparse
 
 ti.init(arch=ti.cpu)
+
+prj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
+print("prj_dir", prj_dir)
+misc_dir = prj_dir + "/data/misc/"
+
+stop_frame = 10
+parser = argparse.ArgumentParser()
+parser.add_argument("-N", type=int, default=10)
+N = parser.parse_args().N
+print("N: ", N)
 
 h = 0.003  # timestep size
 
 compliance = 1.0e-3  # Fat Tissuse compliance, for more specific material,please see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
 alpha = compliance * (1.0 / h / h
                       )  # timestep related compliance, see XPBD paper
-N = 10
+# N = 20
 NF = 2 * N**2  # number of faces
 NV = (N + 1)**2  # number of vertices
 pos = ti.Vector.field(2, float, NV)
@@ -449,11 +460,10 @@ def substep_all_solver(max_iter=1, solver="DirectSolver", R=None, P=None):
 
         print("Assemble matrix done")
 
-        stop = 10
-        if frame_num==stop:
+        if frame_num==stop_frame:
             print("Save matrix to file")
-            scipy.io.mmwrite(f"A_2d_{stop}_N{N}.mtx", A)
-            np.savetxt(f"b_2d_{stop}_N{N}.txt", b)
+            scipy.io.mmwrite(misc_dir+f"A_2d_{stop_frame}_N{N}.mtx", A)
+            np.savetxt(misc_dir+f"b_2d_{stop_frame}_N{N}.txt", b)
             exit()
 
         # -------------------------------- solve Ax=b -------------------------------- #

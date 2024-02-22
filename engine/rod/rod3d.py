@@ -539,6 +539,7 @@ init_scale()
 mkdir_if_not_exist(out_dir)
 clean_result_dir(out_dir)
 
+write_points_ply(prj_dir+"/result/test/0.ply", pos.to_numpy())
 
 viewer = Viewer()
 
@@ -562,7 +563,7 @@ while True:
         elif solver_type == "AMG":
             substep_all_solver(max_iter=max_iter, solver_type="AMG", R=R, P=P)
         if export_results:
-            write_points_ply(out_dir + f"{frame_num:04d}.ply", pos.to_numpy())
+            write_points_ply(out_dir + f"{frame_num:d}.ply", pos.to_numpy())
     
     if frame_num == end_frame:
         print(f"Time all: {(time.perf_counter() - timer_all):.0f}s")

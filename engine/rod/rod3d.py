@@ -36,19 +36,18 @@ misc_dir_path = proj_dir_path + "/data/misc/"
 save_image = True
 max_iter = 50
 paused = False
-save_P, load_P = False, True
+save_P, load_P = False, False
 use_viewer = False
-export_obj = True
+export_results = True
 export_residual = False
 solver_type = "GS" # "AMG", "GS", "XPBD"
 
 
 ti.init(arch=ti.cpu)
 
-N = 64
-NV = (N + 1)**2
-NT = 2 * N**2
-NE = 2 * N * (N + 1) + N**2
+N = 2
+NV = N + 1
+NE = N
 h = 0.01
 M = NE
 new_M = int(NE / 100)
@@ -56,7 +55,6 @@ compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-s
 alpha = compliance * (1.0 / h / h)  # timestep related compliance, see XPBD paper
 omega = 0.5
 
-tri = ti.field(ti.i32, shape=3 * NT)
 pos_ti = ti.Vector.field(3, ti.f32, shape=NV)
 
 
@@ -75,46 +73,23 @@ numerator   = ti.field(dtype=float, shape=(NE))
 denominator = ti.field(dtype=float, shape=(NE))
 gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
 edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
-y_jprime    = ti.field(shape=(new_M),   dtype = ti.float32)
-numerator_lumped    = ti.field(shape=(new_M), dtype = ti.float32)
-denominator_lumped  = ti.field(shape=(new_M), dtype = ti.float32)
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
 adjacent_edge_abc   = ti.field(shape=(NE,42),  dtype = ti.int32)
 adjacent_edge   = ti.field(shape=(NE,14),  dtype = ti.int32)
+
 
 @ti.kernel
 def init_pos(
     inv_mass:ti.template(),
     pos:ti.template(),
 ):
-    for i, j in ti.ndrange(N + 1, N + 1):
-        idx = i * (N + 1) + j
-        # pos[idx] = ti.Vector([i / N,  j / N, 0.5])  # vertical hang
-        pos[idx] = ti.Vector([i / N, 0.5, j / N]) # horizontal hang
-        inv_mass[idx] = 1.0
-    inv_mass[N] = 0.0
-    inv_mass[NV-1] = 0.0
+    for i in range(N+1):
+        pos[i] = ti.Vector([i/N, 0, 0],ti.f32)
+    for i in inv_mass:
+        inv_mass[i] = 1.0
+    # inv_mass[N] = 0.0
+    # inv_mass[NV-1] = 0.0
 
-
-@ti.kernel
-def init_tri(tri:ti.template()):
-    for i, j in ti.ndrange(N, N):
-        tri_idx = 6 * (i * N + j)
-        pos_idx = i * (N + 1) + j
-        if (i + j) % 2 == 0:
-            tri[tri_idx + 0] = pos_idx
-            tri[tri_idx + 1] = pos_idx + N + 2
-            tri[tri_idx + 2] = pos_idx + 1
-            tri[tri_idx + 3] = pos_idx
-            tri[tri_idx + 4] = pos_idx + N + 1
-            tri[tri_idx + 5] = pos_idx + N + 2
-        else:
-            tri[tri_idx + 0] = pos_idx
-            tri[tri_idx + 1] = pos_idx + N + 1
-            tri[tri_idx + 2] = pos_idx + 1
-            tri[tri_idx + 3] = pos_idx + 1
-            tri[tri_idx + 4] = pos_idx + N + 1
-            tri[tri_idx + 5] = pos_idx + N + 2
 
 
 @ti.kernel
@@ -123,76 +98,16 @@ def init_edge(
     rest_len:ti.template(),
     pos:ti.template(),
 ):
-    for i, j in ti.ndrange(N + 1, N):
-        edge_idx = i * N + j
-        pos_idx = i * (N + 1) + j
-        edge[edge_idx] = ti.Vector([pos_idx, pos_idx + 1])
-    start = N * (N + 1)
-    for i, j in ti.ndrange(N, N + 1):
-        edge_idx = start + j * N + i
-        pos_idx = i * (N + 1) + j
-        edge[edge_idx] = ti.Vector([pos_idx, pos_idx + N + 1])
-    start = 2 * N * (N + 1)
-    for i, j in ti.ndrange(N, N):
-        edge_idx = start + i * N + j
-        pos_idx = i * (N + 1) + j
-        if (i + j) % 2 == 0:
-            edge[edge_idx] = ti.Vector([pos_idx, pos_idx + N + 2])
-        else:
-            edge[edge_idx] = ti.Vector([pos_idx + 1, pos_idx + N + 1])
-    for i in range(NE):
-        idx1, idx2 = edge[i]
-        p1, p2 = pos[idx1], pos[idx2]
-        rest_len[i] = (p1 - p2).norm()
-
-@ti.kernel
-def init_edge_center(
-    edge_center:ti.template(),
-    edge:ti.template(),
-    pos:ti.template(),
-):
-    for i in range(NE):
-        idx1, idx2 = edge[i]
-        p1, p2 = pos[idx1], pos[idx2]
-        edge_center[i] = (p1 + p2) / 2.0
-
-def init_adjacent_edge_abc():
-    num_adjacent_edge_np = np.loadtxt(misc_dir_path+"num_adjacent_edge.txt", dtype=np.int32)
-    MAX = max(num_adjacent_edge_np) #14
+    for i in range(N):
+        edge[i] = ti.Vector([i, i + 1], ti.i32)
     
-    filename = misc_dir_path+"adjacent_edge_abc.txt"
-    def pad_list(lst, padding, default=-1):
-        return lst + (padding - len(lst))*[default]
-    with open(filename,"r") as f:
-        all_data=(map(int, x.split()) for x in f)
-        a = np.array([pad_list(list(x), MAX*3) for x in all_data])
-    adjacent_edge_abc.from_numpy(a)
-
-    filename = misc_dir_path+"adjacent_edge.txt"
-    with open(filename,"r") as f:
-        all_data=(map(int, x.split()) for x in f)
-        b = np.array([pad_list(list(x), MAX) for x in all_data])
-    adjacent_edge.from_numpy(b)
-    ...
-
-# def init_A_pattern_coo_kernel(coo_i_arr:ti.ndarray(), coo_j_arr:ti.ndarray(), coo_v_arr:ti.ndarray()):
-#     cnt_nonzero = 0
-#     for i in range(NE):
-#         diag = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-#         coo_i_arr[cnt_nonzero] = i
-#         coo_j_arr[cnt_nonzero] = i
-#         coo_v_arr[cnt_nonzero] = diag
-#         cnt_nonzero += 1
-
-#         for j in range(14):
-#             ia = adjacent_edge[i,j]
-#             if ia == -1:
-#                 break
-#             off_diag = 0.0
-#             coo_i_arr[cnt_nonzero] = i
-#             coo_j_arr[cnt_nonzero] = ia
-#             coo_v_arr[cnt_nonzero] = off_diag
-#             cnt_nonzero += 1
+    for i  in range(NE):
+        rest_len[i] = (pos[i] -  pos[i+1]).norm()
+        
+def init_scale():
+    pos_ = pos.to_numpy()
+    pos_ *= 1.5
+    pos.from_numpy(pos_)
 
 @ti.kernel
 def semi_euler(
@@ -201,7 +116,7 @@ def semi_euler(
     vel:ti.template(),
     pos:ti.template(),
 ):
-    gravity = ti.Vector([0.0, -0.1, 0.0])
+    gravity = ti.Vector([0.0, 0.0, 0.0])
     for i in range(NV):
         if inv_mass[i] != 0.0:
             vel[i] += h * gravity
@@ -229,56 +144,6 @@ def solve_constraints(
         if invM1 != 0.0:
             acc_pos[idx1] -= invM1 * l * gradient
 
-
-@ti.kernel
-def solve_subspace_constraints_xpbd(
-    labels: ti.template(),
-    numerator: ti.template(),
-    denominator: ti.template(),
-    numerator_lumped: ti.template(),
-    denominator_lumped: ti.template(),
-    y_jprime: ti.template(),
-    dLambda: ti.template(),
-    inv_mass:ti.template(),
-    edge:ti.template(),
-    rest_len:ti.template(),
-    lagrangian:ti.template(),
-    acc_pos:ti.template(),
-    pos:ti.template(),
-):
-    #subspace solving
-    # ti.loop_config(serialize=True)
-    for i in range(NE):
-        idx0, idx1 = edge[i]
-        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
-        dis = pos[idx0] - pos[idx1]
-        constraint = dis.norm() - rest_len[i]
-        numerator[i] = -(constraint + lagrangian[i] * alpha)
-        denominator[i] = invM0 + invM1 + alpha
-
-    for i in range(new_M):
-        numerator_lumped[i] = 0.0
-        denominator_lumped[i] = 0.0
-    for i in range(NE):
-        jp = labels[i]
-        numerator_lumped[jp] += numerator[i]
-        denominator_lumped[jp] += denominator[i]
-    for jp in range(new_M):
-        y_jprime[jp] = numerator_lumped[jp] / denominator_lumped[jp]
-    
-    # prolongation
-    for i in range(NE):
-        jp = labels[i]
-        dLambda[i] =  y_jprime[jp]
-        lagrangian[i] += dLambda[i]
-        idx0, idx1 = edge[i]
-        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
-        dis = pos[idx0] - pos[idx1]
-        gradient = dis.normalized()
-        if invM0 != 0.0:
-            acc_pos[idx0] += invM0 * dLambda[i] * gradient
-        if invM1 != 0.0:
-            acc_pos[idx1] -= invM1 * dLambda[i] * gradient
 
 @ti.kernel
 def solve_constraints_xpbd(
@@ -380,71 +245,6 @@ def step_xpbd(max_iter):
     update_vel(old_pos, inv_mass, vel, pos)
 
 
-
-# ---------------------------------------------------------------------------- #
-#                                build hierarchy                               #
-# ---------------------------------------------------------------------------- #
-@ti.kernel
-def compute_R_based_on_kmeans_label_triplets(
-    labels: ti.types.ndarray(dtype=int),
-    ii: ti.types.ndarray(dtype=int),
-    jj: ti.types.ndarray(dtype=int),
-    vv: ti.types.ndarray(dtype=int),
-    new_M: ti.i32,
-    M: ti.i32
-):
-    cnt=0
-    ti.loop_config(serialize=True)
-    for i in range(new_M):
-        for j in range(M):
-            if labels[j] == i:
-                ii[cnt],jj[cnt],vv[cnt] = i,j,1
-                cnt+=1
-
-
-
-def compute_R_and_P_kmeans():
-    print(">>Computing P and R...")
-    t = time.perf_counter()
-
-    from scipy.cluster.vq import vq, kmeans, whiten
-
-    # ----------------------------------- kmans ---------------------------------- #
-    print("kmeans start")
-    input = edge_center.to_numpy()
-
-    M = NE
-    global new_M
-    print("M: ", M, "  new_M: ", new_M)
-
-    # run kmeans
-    input = whiten(input)
-    print("whiten done")
-
-    print("computing kmeans...")
-    kmeans_centroids, distortion = kmeans(obs=input, k_or_guess=new_M, iter=5)
-    labels, _ = vq(input, kmeans_centroids)
-
-    print("distortion: ", distortion)
-    print("kmeans done")
-
-    # ----------------------------------- R and P --------------------------------- #
-    # 将labels转换为R
-    i_arr = np.zeros((M), dtype=np.int32)
-    j_arr = np.zeros((M), dtype=np.int32)
-    v_arr = np.zeros((M), dtype=np.int32)
-    compute_R_based_on_kmeans_label_triplets(labels, i_arr, j_arr, v_arr, new_M, M)
-
-    R = scipy.sparse.coo_array((v_arr, (i_arr, j_arr)), shape=(new_M, M)).tocsr()
-    P = R.transpose()
-    print(f"Computing P and R done, time = {time.perf_counter() - t}")
-
-    # print(f"writing P and R...")
-    # scipy.io.mmwrite("R.mtx", R)
-    # scipy.io.mmwrite("P.mtx", P)
-    # print(f"writing P and R done")
-
-    return R, P, labels, new_M
 
 # ---------------------------------------------------------------------------- #
 #                                   for ours                                   #
@@ -679,10 +479,17 @@ def delete_txt_files(folder_path):
 
 def clean_result_dir(folder_path):
     print(f"clean {folder_path}...")
-    txt_files = glob.glob(os.path.join(folder_path, '*.txt'))
-    obj_files = glob.glob(os.path.join(folder_path, '*.obj'))
-    png_files = glob.glob(os.path.join(folder_path, '*.png'))
-    for file_path in obj_files or png_files or txt_files:
+    to_remove = []
+    for name in [
+        '*.txt',
+        '*.obj',
+        '*.png',
+        '*.ply'
+    ]:
+        files = glob.glob(os.path.join(folder_path, name))
+        to_remove += (files)
+    print(f"removing {len(to_remove)} files")
+    for file_path in to_remove:
         os.remove(file_path)
     print(f"clean {folder_path} done")
 
@@ -703,6 +510,12 @@ def write_obj(filename, pos, tri):
     mesh.write(filename)
     return mesh
 
+def write_points_ply(filename, pos):
+    cells = []
+    mesh = meshio.Mesh(pos,cells)
+    mesh.write(filename,file_format="ply",binary=False)
+
+
 class Viewer:
     if use_viewer:
         window = ti.ui.Window("Display Mesh", (1024, 1024))
@@ -720,23 +533,11 @@ class Viewer:
 
 timer_all = time.perf_counter()
 init_pos(inv_mass,pos)
-init_tri(tri)
 init_edge(edge, rest_len, pos)
-init_edge_center(edge_center, edge, pos)
-# init_adjacent_edge_abc()
+init_scale()
 
 mkdir_if_not_exist(out_dir)
 clean_result_dir(out_dir)
-
-if save_P:
-    R, P, labels, new_M = compute_R_and_P_kmeans()
-    scipy.io.mmwrite(misc_dir_path + "R.mtx", R)
-    scipy.io.mmwrite(misc_dir_path + "P.mtx", P)
-    np.savetxt(misc_dir_path + "labels.txt", labels, fmt="%d")
-if load_P:
-    R = scipy.io.mmread(misc_dir_path+ "R.mtx")
-    P = scipy.io.mmread(misc_dir_path+ "P.mtx")
-    # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 
 viewer = Viewer()
@@ -760,8 +561,8 @@ while True:
             substep_all_solver(max_iter=max_iter, solver_type="GS")
         elif solver_type == "AMG":
             substep_all_solver(max_iter=max_iter, solver_type="AMG", R=R, P=P)
-        if export_obj:
-            write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
+        if export_results:
+            write_points_ply(out_dir + f"{frame_num:04d}.ply", pos.to_numpy())
     
     if frame_num == end_frame:
         print(f"Time all: {(time.perf_counter() - timer_all):.0f}s")

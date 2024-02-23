@@ -20,9 +20,8 @@ prj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file
 print("prj_dir", prj_dir)
 misc_dir = prj_dir + "/data/misc/"
 
-stop_frame = 10
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=10)
+parser.add_argument("-N", type=int, default=100)
 N = parser.parse_args().N
 print("N: ", N)
 
@@ -41,11 +40,12 @@ use_viewer = False
 export_results = True
 export_residual = False
 solver_type = "GS" # "AMG", "GS", "XPBD"
-
+export_matrix = True
+stop_frame = 100
 
 ti.init(arch=ti.cpu)
 
-N = 2
+# N = 2
 NV = N + 1
 NE = N
 h = 0.01
@@ -103,11 +103,16 @@ def init_edge(
     
     for i  in range(NE):
         rest_len[i] = (pos[i] -  pos[i+1]).norm()
-        
+
 def init_scale():
     pos_ = pos.to_numpy()
     pos_ *= 1.5
     pos.from_numpy(pos_)
+
+def init_random_vel():
+    vel_ = vel.to_numpy()
+    vel_ += np.random.rand(NV,3) * 0.1
+    vel.from_numpy(vel_)
 
 @ti.kernel
 def semi_euler(
@@ -443,6 +448,11 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
         A = scipy.sparse.csr_matrix(A)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
+        if frame_num == stop_frame and export_matrix:
+            scipy.io.mmwrite(out_dir + f"A_f{frame_num}.mtx", A)
+            np.savetxt(out_dir + f"b_f{frame_num}.txt", b)
+            exit()
+
         x0 = np.zeros_like(b)
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
@@ -532,14 +542,13 @@ class Viewer:
 
 
 timer_all = time.perf_counter()
-init_pos(inv_mass,pos)
-init_edge(edge, rest_len, pos)
-init_scale()
-
 mkdir_if_not_exist(out_dir)
 clean_result_dir(out_dir)
-
+init_pos(inv_mass,pos)
+init_edge(edge, rest_len, pos)
 write_points_ply(prj_dir+"/result/test/0.ply", pos.to_numpy())
+init_scale()
+init_random_vel()
 
 viewer = Viewer()
 

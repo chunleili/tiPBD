@@ -19,12 +19,13 @@ sys.path.append(os.getcwd())
 
 prj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
-misc_dir = prj_dir + "/data/misc/"
+to_read_dir = prj_dir + "result/test/"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=10)
+parser.add_argument("-N", type=int, default=100)
 N = parser.parse_args().N
-
+plot_title = f"rod3d N={N}"
+save_fig_instad_of_show = False
 
 def test_amg(mat_size = 10):
     # ------------------------------- prepare data ------------------------------- #
@@ -35,9 +36,9 @@ def test_amg(mat_size = 10):
         A, b = generate_A_b_pyamg(n=mat_size)
     else:
         print("loading data...")
-        A = scipy.io.mmread(misc_dir+f"/A_2d_10_N{N}.mtx")
+        A = scipy.io.mmread(to_read_dir+f"A_f100.mtx")
         A = A.tocsr()
-        b = np.loadtxt(misc_dir+f"/b_2d_10_N{N}.txt", dtype=np.float32)
+        b = np.loadtxt(to_read_dir+f"b_f100.txt", dtype=np.float32)
 
     # generate R by pyamg
     ml = pyamg.ruge_stuben_solver(A, max_levels=2)
@@ -68,13 +69,15 @@ def test_amg(mat_size = 10):
     print_residuals(r_norms_simplest, "simplest")
     
     fig, axs = plt.subplots(2, 1, figsize=(8, 8))
-    plot_r_norms(r_norms_pyamg, axs[0], title=f"N={N}",linestyle="-",label="pyamg")
+    plot_r_norms(r_norms_pyamg, axs[0], title=plot_title,linestyle="-",label="pyamg")
     plot_r_norms(r_norms_pyamg, axs[1], title="repr",linestyle="-",label="pyamg")
     plot_r_norms(r_norms_rep, axs[1], title="repr", linestyle="--",label="rep")
     plot_r_norms(r_norms_simplest, axs[1], title="repr", linestyle="-.",label="simplest")
     plt.tight_layout()
-    # plt.show()
-    plt.savefig(f"residuals_N{N}.png")
+    if save_fig_instad_of_show:
+        plt.savefig(f"residuals_{plot_title}.png")
+    else:
+        plt.show()
 
 
 def timer_wrapper(func, *args, **kwargs):

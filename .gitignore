@@ -25,3 +25,4 @@ profile*
 *.txt
 *.mtx
 *.png
+.DS_Store

@@ -13,7 +13,7 @@ import tqdm
 
 ti.init(arch=ti.cpu)
 
-N = 256
+N = 30
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
@@ -593,7 +593,7 @@ def spy_A(A,b):
     plt.show()
     exit()
 
-def substep_all_solver(max_iter=1, solver="Direct", R=None, P=None):
+def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     global pos, lagrangian
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
@@ -611,14 +611,19 @@ def substep_all_solver(max_iter=1, solver="Direct", R=None, P=None):
         A = scipy.sparse.csr_matrix(A)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
+        if frame_num == stop_frame and export_matrix:
+            scipy.io.mmwrite(out_dir + f"A_f{frame_num}.mtx", A)
+            np.savetxt(out_dir + f"b_f{frame_num}.txt", b)
+            exit()
+        
         x0 = np.zeros_like(b)
-        if solver == "Direct":
+        if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
-        elif solver == "GS":
+        elif solver_type == "GS":
             x = np.zeros_like(b)
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
-        elif solver == "AMG":
+        elif solver_type == "AMG":
             x = solve_amg(A, b, x0, R, P)
         
         transfer_back_to_pos_mfree(x)
@@ -686,24 +691,27 @@ save_P, load_P = False, True
 use_viewer = False
 export_obj = True
 export_residual = False
-solver_type = "AMG" # "AMG", "GS", "XPBD"
+solver_type = "GS" # "AMG", "GS", "XPBD"
+export_matrix = True
+stop_frame = 100
 
 timer_all = time.perf_counter()
 init_pos(inv_mass,pos)
 init_tri(tri)
 init_edge(edge, rest_len, pos)
-init_edge_center(edge_center, edge, pos)
-init_adjacent_edge_abc()
+if solver_type=="AMG":
+    init_edge_center(edge_center, edge, pos)
+    init_adjacent_edge_abc()
 
-if save_P:
-    R, P, labels, new_M = compute_R_and_P_kmeans()
-    scipy.io.mmwrite(misc_dir_path + "R.mtx", R)
-    scipy.io.mmwrite(misc_dir_path + "P.mtx", P)
-    np.savetxt(misc_dir_path + "labels.txt", labels, fmt="%d")
-if load_P:
-    R = scipy.io.mmread(misc_dir_path+ "R.mtx")
-    P = scipy.io.mmread(misc_dir_path+ "P.mtx")
-    # labels = np.loadtxt( "labels.txt", dtype=np.int32)
+    if save_P:
+        R, P, labels, new_M = compute_R_and_P_kmeans()
+        scipy.io.mmwrite(misc_dir_path + "R.mtx", R)
+        scipy.io.mmwrite(misc_dir_path + "P.mtx", P)
+        np.savetxt(misc_dir_path + "labels.txt", labels, fmt="%d")
+    if load_P:
+        R = scipy.io.mmread(misc_dir_path+ "R.mtx")
+        P = scipy.io.mmread(misc_dir_path+ "P.mtx")
+        # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 class Viewer:
     if use_viewer:
@@ -737,9 +745,9 @@ while True:
         if solver_type == "XPBD":
             step_xpbd(max_iter)
         elif solver_type == "GS":
-            substep_all_solver(max_iter=max_iter, solver="AMG")
+            substep_all_solver(max_iter=max_iter, solver_type="GS")
         elif solver_type == "AMG":
-            substep_all_solver(max_iter=max_iter, solver="AMG", R=R, P=P)
+            substep_all_solver(max_iter=max_iter, solver_type="AMG", R=R, P=P)
         if export_obj:
             write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
     

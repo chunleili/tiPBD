@@ -7,8 +7,11 @@ csr: the column indices for row i are stored in indices[indptr[i]:indptr[i+1]] a
 see https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
 
 A.indptr #first element is 0, last element is nnz   
-A.indices
+A.indices 
 A.data
+
+sildes: 【金山文档】 2023-10-25 关于spmv CSR和Matrix-free
+https://kdocs.cn/l/clW7ztNAdwaz
 '''
 
 import numpy as np

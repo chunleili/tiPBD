@@ -67,16 +67,31 @@ def test_amg(mat_size = 10):
     r_norms_repAnorm = []
     x_rep = timer_wrapper(solve_rep_Anorm, A, b, x0, R, P, r_norms_repAnorm)
 
+    print("Solving by direct solver...")
+    r_norms_direct = []
+    r_norms_direct.append(np.linalg.norm(b))
+    x_direct = scipy.sparse.linalg.spsolve(A, b)
+    r_norms_direct.append(np.linalg.norm(b - A @ x_direct))
+
+    print("Solving by GS")
+    r_norms_GS = []
+    r_norms_GS.append(np.linalg.norm(b))
+    x_GS = gauss_seidel(A, x0, b, iterations=1)
+    r_norms_GS.append(np.linalg.norm(b - A @ x_GS))
+
     # ------------------------------- print results ------------------------------- #
     print_residuals(r_norms_pyamg, "pyamg")
     print_residuals(r_norms_rep, "rep")
     # print_residuals(r_norms_simplest, "simplest")
     print_residuals(r_norms_repAnorm, "rep_Anorm")
+    print_residuals(r_norms_direct, "direct")
+    print_residuals(r_norms_GS, "GS")
     
     fig, axs = plt.subplots(2, 1, figsize=(8, 8))
     plot_r_norms(r_norms_pyamg, axs[0], title=plot_title,linestyle="-",label="pyamg")
-    # plot_r_norms(r_norms_pyamg, axs[1], title="repr",linestyle="-",label="pyamg")
-    # plot_r_norms(r_norms_rep, axs[1], title="repr", linestyle="--",label="rep")
+    # plot_r_norms(r_norms_direct, axs[0], linestyle="-.",label="direct")
+    plot_r_norms(r_norms_rep, axs[0], linestyle="--",label="reprodced pyamg")
+    plot_r_norms(r_norms_GS, axs[0], linestyle=":",label="GS")
     # plot_r_norms(r_norms_simplest, axs[1], title="repr", linestyle="-.",label="simplest")
     plot_r_norms(r_norms_repAnorm, axs[1], linestyle="-.",label="repr_Anorm")
     plt.tight_layout()

@@ -13,7 +13,7 @@ import tqdm
 
 ti.init(arch=ti.cpu)
 
-N = 30
+N = 64
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2

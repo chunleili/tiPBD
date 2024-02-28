@@ -652,10 +652,17 @@ def delete_txt_files(folder_path):
 
 def clean_result_dir(folder_path):
     print(f"clean {folder_path}...")
-    txt_files = glob.glob(os.path.join(folder_path, '*.txt'))
-    obj_files = glob.glob(os.path.join(folder_path, '*.obj'))
-    png_files = glob.glob(os.path.join(folder_path, '*.png'))
-    for file_path in obj_files or png_files or txt_files:
+    to_remove = []
+    for name in [
+        '*.txt',
+        '*.obj',
+        '*.png',
+        '*.ply'
+    ]:
+        files = glob.glob(os.path.join(folder_path, name))
+        to_remove += (files)
+    print(f"removing {len(to_remove)} files")
+    for file_path in to_remove:
         os.remove(file_path)
     print(f"clean {folder_path} done")
 

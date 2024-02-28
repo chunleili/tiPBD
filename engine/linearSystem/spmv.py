@@ -16,8 +16,10 @@ https://kdocs.cn/l/clW7ztNAdwaz
 
 import numpy as np
 import scipy.sparse as sp
+import taichi as ti
+import time
 
-
+ti.init(arch=ti.cpu)
 
 def spmv_csr(dat, ind, ptr, v):
     res = np.zeros((len(ptr)-1), dtype=np.float64)
@@ -33,6 +35,44 @@ def spmv_csr(dat, ind, ptr, v):
             res[k] += dv[j]
     return res
 
+@ti.kernel
+def spmv_csr_kernel(dat: ti.template(),
+                    ind: ti.template(),
+                    ptr: ti.template(),
+                    v  : ti.template(),
+                    res: ti.template(),
+                    dv : ti.template()):
+    for i in range(ind.shape[0]):
+        idx = ind[i]
+        dv[i] = v[idx] * dat[i]
+    for k in range(ptr.shape[0]-1):
+        for j in range(ptr[k], ptr[k+1]):
+            res[k] += dv[j]
+
+
+def spmv_csr_ti(dat, ind, ptr, v):
+    t_start = time.time()
+    res_ti = ti.field(shape=(len(ptr)-1), dtype=ti.f64)
+    dv_ti = ti.field(shape=(len(ind)), dtype=ti.f64) 
+
+    dat_ti = ti.field(shape=(len(ind)), dtype=ti.f64)
+    ind_ti = ti.field(shape=(len(ind)), dtype=ti.i32)
+    ptr_ti = ti.field(shape=(len(ptr)), dtype=ti.i32)
+    v_ti = ti.field(shape=(len(v)), dtype=ti.f64)
+
+    dat_ti.from_numpy(dat)
+    ind_ti.from_numpy(ind)
+    ptr_ti.from_numpy(ptr)
+    v_ti.from_numpy(v)
+
+    print(f"field: {time.time()-t_start:.2g}s")
+    t_before_kernel = time.time()
+    spmv_csr_kernel(dat_ti, ind_ti, ptr_ti, v_ti, res_ti, dv_ti)
+    t_after_kernel = time.time()
+    print(f"kernel: {t_after_kernel-t_before_kernel:.2g}s")
+    ret = res_ti.to_numpy()
+    print(f"to_numpy: {time.time()-t_after_kernel:.2g}s")
+    return ret
 
 def test_small_case():
     # small case for tutorial
@@ -62,7 +102,6 @@ def test_large_case(N=1000):
     v = np.random.rand(N).astype(np.float64)
     # print("generated large case")
 
-    import time
     t0 = time.time()
     res0 = A@v
     t1 = time.time()
@@ -71,6 +110,15 @@ def test_large_case(N=1000):
 
     # print("first 10 elements of scipy: ", res0[:10])
     # print("first 10 elements of spmv: ", res1[:10])
+
+    t_scipy = t1 - t0
+    t_my = t2 - t1
+    print(f"scipy: {t_scipy:.2g}s, my: {t_my:.2g}s")
+    speed_up = t_scipy / t_my
+    if t_my > t_scipy:
+        print(f"my is slower x{speed_up:.2g}")
+    else:
+        print(f"my is faster x{speed_up:.2g}")
 
     # print(f"\ntime of scipy:  {t1-t0:.2g}s")
     # print(f"time of my: {t2-t1:.2g}s\n")
@@ -101,13 +149,49 @@ def test_large_case(N=1000):
         return False
     
 
+def test_large_case_with_taichi(N=1000):
+    A = sp.random(N, N, density=0.01, format='csr')
+    dat = A.data
+    ind = A.indices
+    ptr = A.indptr
+    v = np.random.rand(N).astype(np.float64)
 
-if __name__ == "__main__":
-    # test_small_case()
-    for _ in range(30):
-        N = np.random.randint(1000, 10000)
-        print(f"case:{_}\tN: {N}")
-        suc = test_large_case(N)
+    import time
+    t0 = time.time()
+    res_scipy = A@v
+    t1 = time.time()
+    res_mynp = spmv_csr(dat, ind, ptr, v)
+    t2 = time.time()
+    res_myti = spmv_csr_ti(dat, ind, ptr, v)
+    t3 = time.time()
+
+    t_scipy = t1 - t0
+    t_mynp = t2 - t1
+    t_myti = t3 - t2
+    print(f"scipy: {t_scipy:.2g}s, mynp: {t_mynp:.2g}s, myti: {t_myti:.2g}s")
+    speed_up = t_scipy / t_myti
+
+    if np.allclose(res_scipy, res_myti, atol=1e-6, rtol=1e-3):
+        print("result is the same")
+        return True
+    else:       
+        print("result is different")
+        res_scipy = A@v
+        res = spmv_csr_ti(dat, ind, ptr, v)
+        return False
+
+
+def random_test_different_N(func = test_large_case_with_taichi):
+    for _ in range(10):
+        N = np.random.randint(10000, 20000)
+        print(f"\ncase:{_}\tN: {N}")
+        # suc = test_large_case(N)
+        suc = func(N)
         if not suc:
             exit()
             break
+
+if __name__ == "__main__":
+    # test_small_case()
+    random_test_different_N()
+    # test_large_case_with_taichi()

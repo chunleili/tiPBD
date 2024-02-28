@@ -17,7 +17,7 @@ import argparse
 
 sys.path.append(os.getcwd())
 
-prj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
+prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
 to_read_dir = prj_dir + "result/test/"
 

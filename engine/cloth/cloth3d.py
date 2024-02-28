@@ -9,11 +9,16 @@ from matplotlib import pyplot as plt
 import shutil, glob
 import meshio
 import tqdm
-
+import argparse
 
 ti.init(arch=ti.cpu)
 
-N = 64
+parser = argparse.ArgumentParser()
+parser.add_argument("-N", type=int, default=64)
+
+N = parser.parse_args().N
+print("N: ", N)
+
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
@@ -43,9 +48,9 @@ numerator   = ti.field(dtype=float, shape=(NE))
 denominator = ti.field(dtype=float, shape=(NE))
 gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
 edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
-y_jprime    = ti.field(shape=(new_M),   dtype = ti.float32)
-numerator_lumped    = ti.field(shape=(new_M), dtype = ti.float32)
-denominator_lumped  = ti.field(shape=(new_M), dtype = ti.float32)
+# y_jprime    = ti.field(shape=(new_M),   dtype = ti.float32)
+# numerator_lumped    = ti.field(shape=(new_M), dtype = ti.float32)
+# denominator_lumped  = ti.field(shape=(new_M), dtype = ti.float32)
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
 adjacent_edge_abc   = ti.field(shape=(NE,42),  dtype = ti.int32)
 adjacent_edge   = ti.field(shape=(NE,14),  dtype = ti.int32)

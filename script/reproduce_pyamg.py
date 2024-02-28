@@ -24,8 +24,10 @@ to_read_dir = prj_dir + "result/test/"
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=100)
 N = parser.parse_args().N
-plot_title = f"rod3d N={N}"
-save_fig_instad_of_show = False
+print(f"N={N}")
+parser.add_argument("-title", type=str, default=f"N={N}")
+plot_title = parser.parse_args().title
+save_fig_instad_of_show = True
 
 def test_amg(mat_size = 10):
     # ------------------------------- prepare data ------------------------------- #
@@ -90,13 +92,15 @@ def test_amg(mat_size = 10):
     fig, axs = plt.subplots(2, 1, figsize=(8, 8))
     plot_r_norms(r_norms_pyamg, axs[0], title=plot_title,linestyle="-",label="pyamg")
     # plot_r_norms(r_norms_direct, axs[0], linestyle="-.",label="direct")
-    plot_r_norms(r_norms_rep, axs[0], linestyle="--",label="reprodced pyamg")
-    plot_r_norms(r_norms_GS, axs[0], linestyle=":",label="GS")
+    plot_r_norms(r_norms_rep, axs[0], title=plot_title, linestyle="--",label="reprodced pyamg")
+    plot_r_norms(r_norms_GS, axs[0], title=plot_title, linestyle=":",label="GS")
     # plot_r_norms(r_norms_simplest, axs[1], title="repr", linestyle="-.",label="simplest")
-    plot_r_norms(r_norms_repAnorm, axs[1], linestyle="-.",label="repr_Anorm")
+    plot_r_norms(r_norms_repAnorm, axs[1], title=plot_title, linestyle="-.",label="repr_Anorm")
+
+    fig.canvas.manager.set_window_title(plot_title)
     plt.tight_layout()
     if save_fig_instad_of_show:
-        plt.savefig(f"residuals_{plot_title}.png")
+        plt.savefig(f"result/residuals_{plot_title}.png")
     else:
         plt.show()
 

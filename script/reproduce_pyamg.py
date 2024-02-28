@@ -25,8 +25,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=100)
 N = parser.parse_args().N
 print(f"N={N}")
-parser.add_argument("-title", type=str, default=f"N={N}")
+parser.add_argument("-title", type=str, default=f"")
 plot_title = parser.parse_args().title
+parser.add_argument("-f", type=int, default=10)
+frame = parser.parse_args().f
 save_fig_instad_of_show = True
 
 def test_amg(mat_size = 10):
@@ -38,9 +40,9 @@ def test_amg(mat_size = 10):
         A, b = generate_A_b_pyamg(n=mat_size)
     else:
         print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A_f100.mtx")
+        A = scipy.io.mmread(to_read_dir+f"A_f{frame}.mtx")
         A = A.tocsr()
-        b = np.loadtxt(to_read_dir+f"b_f100.txt", dtype=np.float32)
+        b = np.loadtxt(to_read_dir+f"b_f{frame}.txt", dtype=np.float32)
 
     # generate R by pyamg
     ml = pyamg.ruge_stuben_solver(A, max_levels=2)

@@ -29,13 +29,19 @@ parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument(
     "--solver", type=str, default="Jacobi", choices=["Jacobi", "GaussSeidel", "DirectSolver", "SOR", "AMG", "HPBD"]
 )
-# parser.add_argument("--coarse_model_path", type=str, default="data/model/cube/coarse.node")
-# parser.add_argument("--fine_model_path", type=str, default="data/model/cube/fine.node")
-parser.add_argument("--coarse_model_path", type=str, default="data/model/bunny1k2k/coarse.node")
-parser.add_argument("--fine_model_path", type=str, default="data/model/bunny1k2k/fine.node")
-# parser.add_argument("--coarse_model_path", type=str, default="data/model/toy/toy.node")
-# parser.add_argument("--fine_model_path", type=str, default="data/model/toy/toy.node")
+
+# default_model = "bunny1k2k" # "cube" "bunny1k2k" "toy"
+# parser.add_argument("--coarse_model_path", type=str, default=f"data/model/{default_model}/coarse.node")
+# parser.add_argument("--fine_model_path", type=str, default=f"data/model/{default_model}/fine.node")
+parser.add_argument("--model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
+
+export_obj = True
+proj_dir_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+out_dir = proj_dir_path + "/result/test/"
+stop_frame = 10
+export_matrix = True
+
 
 ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
 
@@ -70,6 +76,35 @@ class Meta:
 
 meta = Meta()
 
+
+
+def clean_result_dir(folder_path):
+    import glob
+    print(f"clean {folder_path}...")
+    to_remove = []
+    for name in [
+        '*.txt',
+        '*.obj',
+        '*.png',
+        '*.ply'
+    ]:
+        files = glob.glob(os.path.join(folder_path, name))
+        to_remove += (files)
+    print(f"removing {len(to_remove)} files")
+    for file_path in to_remove:
+        os.remove(file_path)
+    print(f"clean {folder_path} done")
+
+def write_obj(filename, pos, tri):
+    cells = [
+        ("triangle", tri.reshape(-1, 3)),
+    ]
+    mesh = meshio.Mesh(
+        pos,
+        cells,
+    )
+    mesh.write(filename)
+    return mesh
 
 def read_tetgen(filename):
     """
@@ -972,9 +1007,9 @@ def substep_directsolver_ti(ist, max_iter=1):
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
         M = ist.NT
-        N = ist.NV
-        gradC_builder = ti.linalg.SparseMatrixBuilder(M, 3 * N, max_num_triplets=12 * M)
-        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * N, 3 * N, max_num_triplets=3 * N)
+        NV = ist.NV
+        gradC_builder = ti.linalg.SparseMatrixBuilder(M, 3 * NV, max_num_triplets=12 * M)
+        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * NV, 3 * NV, max_num_triplets=3 * NV)
         alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(M, M, max_num_triplets=12 * M)
         A = ti.linalg.SparseMatrix(M, M)
 
@@ -1020,15 +1055,7 @@ def substep_directsolver_ti(ist, max_iter=1):
 #                        All solvers refactored into one                       #
 # ---------------------------------------------------------------------------- #
 def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
-    """
-    ist: 要输入的instance: coarse or fine mesh\\
-    max_iter: 最大迭代次数\\
-    solver: 选择的solver, 可选项为: "Jacobi", "Gauss-Seidel", "SOR", "DirectSolver", "AMG"\\
-    P: 粗网格到细网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
-    R: 细网格到粗网格的投影矩阵, 用于AMG, 默认为None, 除了AMG外都不需要\\
-    """
     # ist is instance of fine or coarse
-
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
 
@@ -1036,39 +1063,18 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
         t = time()
 
         # ----------------------------- prepare matrices ----------------------------- #
-        print(f"----iter {ite}----")
-
-        print("Assembling matrix")
-        # copy pos to pos_mid
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
         M = ist.NT
-        N = ist.NV
 
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-        # fill G matrix (gradC) by kernel
-        # t = time()
-        # G = np.zeros((M, 3 * N))
-        # fill_gradC_np_kernel(G, ist.gradC, ist.tet_indices)
-        # G = scipy.sparse.csr_array(G)
-        # print(f"fill G matrix time: {time() - t}")
-
-        # fill G matrix (gradC) by dok
-        # t=time()
-        # G1 = scipy.sparse.dok_array((M, 3 * N), dtype=np.float32)
-        # fill_gradC_dok(G1, ist.gradC, ist.tet_indices)
-        # G1 = G1.tocsr()
-        # print(f"fill G1 matrix time: {time() - t}")
-
 
         # fill G matrix (gradC) by triplets
         t = time()
         ii, jj, vv = np.zeros(M*12, dtype=np.int32), np.zeros(M*12, dtype=np.int32), np.zeros(M*12, dtype=np.float32)
         fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
         G = scipy.sparse.coo_array((vv, (ii, jj)))
-        print(f"fill G matrix time: {time() - t}")
-
+        # print(f"fill G matrix time: {time() - t}")
 
         # fill M_inv and ALPHA
         inv_mass_np = ist.inv_mass.to_numpy()
@@ -1079,21 +1085,16 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
         ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
         # assemble A and b
-        print("Assemble A")
         A = G @ M_inv @ G.transpose() + ALPHA
         A = scipy.sparse.csr_matrix(A)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
-        print("Assemble matrix done")
-
-        # print("Save matrix to file")
-        # scipy.io.mmwrite("A.mtx", A)
-        # np.savetxt("b.txt", b)
-        # exit()
+        if meta.frame == stop_frame and export_matrix:
+            scipy.io.mmwrite(out_dir + f"A_f{meta.frame}.mtx", A)
+            np.savetxt(out_dir + f"b_f{meta.frame}.txt", b)
+            exit()
 
         # -------------------------------- solve Ax=b -------------------------------- #
-        print("solve Ax=b")
-        print(f"Solving by {solver}")
 
         dense = False
         if dense == True:
@@ -1105,14 +1106,14 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
         if solver == "Jacobi":
             # x, r = solve_jacobi_ti(A, b, x0, 100, 1e-6) # for dense A
             x, r = solve_jacobi_sparse(A, b, x0, 100, 1e-6)
-        if solver == "GaussSeidel":
-            print("GaussSeidel")
+        elif solver == "GaussSeidel":
+            # print("GaussSeidel")
             x = np.zeros_like(b)
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 r_norm = np.linalg.norm(A @ x - b)
                 # r_norm_list.append(r_norm)
-                print(f"{_} r:{r_norm:.2g}")
+                print(f"{ite} r:{r_norm:.2g}")
 
         elif solver == "SOR":
             # x,r = solve_sor(A, b, x0, 1.5, 100, 1e-6) # for dense A
@@ -1123,10 +1124,10 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
         elif solver == "AMG":
             x = solve_pyamg_my2(A, b, x0, R, P)
 
-        print(f"solver time of solve: {time() - t}")
+        # print(f"solver time of solve: {time() - t}")
 
         # ------------------------- transfer data back to PBD ------------------------ #
-        print("transfer data back to PBD")
+        # print("transfer data back to PBD")
         dlambda = x
 
         # lam += dlambda
@@ -1449,14 +1450,19 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    fine = ArapMultigrid(meta.args.fine_model_path)
-    coarse = ArapMultigrid(meta.args.coarse_model_path)
+    if meta.args.solver == "AMG":
+        fine = ArapMultigrid(meta.args.fine_model_path)
+        coarse = ArapMultigrid(meta.args.coarse_model_path)
+        fine.initialize()
+        coarse.initialize()
+        # R, P = compute_R_and_P(coarse, fine)
+        # R, P = compute_R_and_P_kmeans(fine)
+        ist = fine
+    else:
+        ist = ArapMultigrid(meta.args.model_path)
+        ist.initialize()
 
-    fine.initialize()
-    coarse.initialize()
-
-    # R, P = compute_R_and_P(coarse, fine)
-    # R, P = compute_R_and_P_kmeans(fine)
+    clean_result_dir(out_dir)
 
     window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
     canvas = window.get_canvas()
@@ -1468,8 +1474,6 @@ def main():
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
     gui = window.get_gui()
     wire_frame = True
-    show_coarse_mesh = False
-    show_fine_mesh = True
 
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
@@ -1487,31 +1491,26 @@ def main():
         gui.text("frame {}".format(meta.frame))
         meta.pause = gui.checkbox("pause", meta.pause)
         wire_frame = gui.checkbox("wireframe", wire_frame)
-        show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
-        show_fine_mesh = gui.checkbox("show fine mesh", show_fine_mesh)
-
+        
         if not meta.pause:
             info("\n\n----------------------")
             info(f"frame {meta.frame}")
             t = time()
 
-            # substep_directsolver_ti(coarse, 1)
-            # substep_all_solver(coarse, 1, "Jacobi")
-            # substep_all_solver(coarse, 1, "SOR")
-            substep_all_solver(coarse, 10, "GaussSeidel")
-            # substep_all_solver(coarse, 1, "DirectSolver")
-            # substep_all_solver(fine, 1, "AMG", P, R)
+            substep_all_solver(ist, 30, "GaussSeidel")
 
+            if export_obj:
+                write_obj(out_dir + f"{meta.frame:04d}.obj", ist.pos.to_numpy(), ist.model_tri)
+            
             meta.frame += 1
-            info(f"step time: {time() - t}")
+            info(f"step time: {time() - t:.2g} s")
+            
 
         if meta.frame == meta.max_frame:
             window.running = False
 
-        if show_fine_mesh:
-            scene.mesh(fine.pos, fine.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
-        if show_coarse_mesh:
-            scene.mesh(coarse.pos, coarse.display_indices, color=(0.0, 0.5, 1.0), show_wireframe=wire_frame)
+
+        scene.mesh(ist.pos, ist.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
 
         canvas.scene(scene)
         window.show()

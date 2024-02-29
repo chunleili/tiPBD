@@ -29,9 +29,9 @@ import time
 ti.init(arch=ti.cpu)
 
 def spmv(dat, ind, ptr, v):
-    res = np.zeros((len(ptr)-1), dtype=np.float64)
-    dv = np.ones_like(ind, dtype=np.float64) #dat * v    
-    v_ = np.zeros_like(ind, dtype=np.float64) #v[ind]
+    res = np.zeros((len(ptr)-1), dtype=np.float32)
+    dv = np.ones_like(ind, dtype=np.float32) #dat * v    
+    v_ = np.zeros_like(ind, dtype=np.float32) #v[ind]
 
     for i in range(len(ind)):
         idx = ind[i]
@@ -60,13 +60,13 @@ def spmv_kernel(    dat: ti.template(),
 
 def spmv_ti(dat, ind, ptr, v):
     # t_start = time.time()
-    res_ti = ti.field(shape=(len(ptr)-1), dtype=ti.f64)
-    dv_ti = ti.field(shape=(len(ind)), dtype=ti.f64) 
+    res_ti = ti.field(shape=(len(ptr)-1), dtype=ti.f32)
+    dv_ti = ti.field(shape=(len(ind)), dtype=ti.f32) 
 
-    dat_ti = ti.field(shape=(len(ind)), dtype=ti.f64)
+    dat_ti = ti.field(shape=(len(ind)), dtype=ti.f32)
     ind_ti = ti.field(shape=(len(ind)), dtype=ti.i32)
     ptr_ti = ti.field(shape=(len(ptr)), dtype=ti.i32)
-    v_ti = ti.field(shape=(len(v)), dtype=ti.f64)
+    v_ti = ti.field(shape=(len(v)), dtype=ti.f32)
 
     dat_ti.from_numpy(dat)
     ind_ti.from_numpy(ind)
@@ -101,14 +101,15 @@ def test_small_case():
 
 
 def test_large_case(N=1000):
-    A = sp.random(N, N, density=0.01, format='csr')
+    A = sp.random(N, N, density=0.01, format='csr',dtype=np.float32)
     dat = A.data
     ind = A.indices
     ptr = A.indptr
-    v = np.random.rand(N).astype(np.float64)
+    v = np.random.rand(N).astype(np.float32)
 
     t0 = time.time()
-    res_scipy = A@v
+    A1 = sp.csr_matrix((dat, ind, ptr),dtype=np.float32)
+    res_scipy = A1@v
     t1 = time.time()
     res_mynp = spmv(dat, ind, ptr, v)
     t2 = time.time()

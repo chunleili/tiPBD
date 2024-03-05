@@ -43,10 +43,7 @@ stop_frame = 10
 export_matrix = True
 
 
-ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
-
-# r_norm_list = []
-
+ti.init(arch=ti.cpu)
 
 class Meta:
     def __init__(self) -> None:
@@ -1059,30 +1056,22 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
 
+    # fill M_inv and ALPHA
+    inv_mass_np = ist.inv_mass.to_numpy()
+    inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+    M_inv = scipy.sparse.diags(inv_mass_np)
+
+    alpha_tilde_np = ist.alpha_tilde.to_numpy()
+    ALPHA = scipy.sparse.diags(alpha_tilde_np)
+
     for ite in range(max_iter):
-        t = time()
-
-        # ----------------------------- prepare matrices ----------------------------- #
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
-
         M = ist.NT
 
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-        # fill G matrix (gradC) by triplets
-        t = time()
         ii, jj, vv = np.zeros(M*12, dtype=np.int32), np.zeros(M*12, dtype=np.int32), np.zeros(M*12, dtype=np.float32)
         fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
         G = scipy.sparse.coo_array((vv, (ii, jj)))
-        # print(f"fill G matrix time: {time() - t}")
-
-        # fill M_inv and ALPHA
-        inv_mass_np = ist.inv_mass.to_numpy()
-        inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-        M_inv = scipy.sparse.diags(inv_mass_np)
-
-        alpha_tilde_np = ist.alpha_tilde.to_numpy()
-        ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
         # assemble A and b
         A = G @ M_inv @ G.transpose() + ALPHA
@@ -1097,46 +1086,28 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
 
         # -------------------------------- solve Ax=b -------------------------------- #
 
-        dense = False
-        if dense == True:
-            A = np.asarray(A.todense())
-
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
 
         if solver == "Jacobi":
-            # x, r = solve_jacobi_ti(A, b, x0, 100, 1e-6) # for dense A
             x, r = solve_jacobi_sparse(A, b, x0, 100, 1e-6)
         elif solver == "GaussSeidel":
-            # print("GaussSeidel")
             x = np.zeros_like(b)
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 r_norm = np.linalg.norm(A @ x - b)
-                # r_norm_list.append(r_norm)
                 print(f"{ite} r:{r_norm:.2g}")
-
         elif solver == "SOR":
-            # x,r = solve_sor(A, b, x0, 1.5, 100, 1e-6) # for dense A
             x, r = solve_sor_sparse(A, b, x0, 1.5, 100, 1e-6)
         elif solver == "DirectSolver":
-            # x = scipy.linalg.solve(A, b)# for dense A
             x = scipy.sparse.linalg.spsolve(A, b)
         elif solver == "AMG":
             x = solve_pyamg_my2(A, b, x0, R, P)
 
-        # print(f"solver time of solve: {time() - t}")
-
         # ------------------------- transfer data back to PBD ------------------------ #
-        # print("transfer data back to PBD")
         dlambda = x
-
-        # lam += dlambda
         ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-
-        # dpos = M_inv @ G^T @ dlambda
         dpos = M_inv @ G.transpose() @ dlambda
-        # pos+=dpos
         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
     collsion_response(ist.pos)
@@ -1447,6 +1418,18 @@ def compute_R_and_P_kmeans(ist):
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
+class Viewer:
+    def __init__(self):
+        self.window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
+        self.canvas = self.window.get_canvas()
+        self.scene = ti.ui.Scene()
+        self.camera = ti.ui.Camera()
+        self.camera.position(0, 5, 10)
+        self.camera.lookat(0, 0, 0)
+        self.camera.fov(45)
+        self.scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
+        self.gui = self.window.get_gui()
+
 def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -1465,60 +1448,41 @@ def main():
 
     clean_result_dir(out_dir)
 
-    window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
-    canvas = window.get_canvas()
-    scene = ti.ui.Scene()
-    camera = ti.ui.Camera()
-    camera.position(0, 5, 10)
-    camera.lookat(0, 0, 0)
-    camera.fov(45)
-    scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
-    gui = window.get_gui()
-    wire_frame = True
+    use_viewer = False
+    if use_viewer:
+        viewer = Viewer()
 
-    while window.running:
-        scene.ambient_light((0.8, 0.8, 0.8))
-        camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
-        scene.set_camera(camera)
-
-        if window.is_pressed(ti.ui.ESCAPE):
-            window.running = False
-
-        if meta.frame == meta.pause_at:
-            meta.pause = True
-        if window.is_pressed(ti.ui.SPACE):
-            meta.pause = not meta.pause
-
-        gui.text("frame {}".format(meta.frame))
-        meta.pause = gui.checkbox("pause", meta.pause)
-        wire_frame = gui.checkbox("wireframe", wire_frame)
+    while True:
+        if use_viewer:
+            viewer.scene.ambient_light((0.8, 0.8, 0.8))
+            viewer.camera.track_user_inputs(viewer.window, movement_speed=0.03, hold_key=ti.ui.RMB)
+            viewer.scene.set_camera(viewer.camera)
+            if viewer.window.is_pressed(ti.ui.ESCAPE):
+                viewer.window.running = False
+            if meta.frame == meta.pause_at:
+                meta.pause = True
+            if viewer.window.is_pressed(ti.ui.SPACE):
+                meta.pause = not meta.pause
+            viewer.gui.text("frame {}".format(meta.frame))
+            meta.pause = viewer.gui.checkbox("pause", meta.pause)
         
         if not meta.pause:
             info("\n\n----------------------")
             info(f"frame {meta.frame}")
             t = time()
-
             substep_all_solver(ist, 30, "GaussSeidel")
-
             if export_obj:
                 write_obj(out_dir + f"{meta.frame:04d}.obj", ist.pos.to_numpy(), ist.model_tri)
-            
             meta.frame += 1
             info(f"step time: {time() - t:.2g} s")
-            
 
         if meta.frame == meta.max_frame:
-            window.running = False
+            exit()
 
-
-        scene.mesh(ist.pos, ist.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
-
-        canvas.scene(scene)
-        window.show()
-
-        # np.savetxt(f"result/r_norm_list_gs_{meta.frame}.txt", r_norm_list)
-        # r_norm_list.clear()
-
+        if use_viewer:
+            viewer.scene.mesh(ist.pos, ist.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=True)
+            viewer.canvas.scene(viewer.scene)
+            viewer.window.show()
 
 if __name__ == "__main__":
     main()

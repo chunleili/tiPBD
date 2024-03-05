@@ -29,7 +29,7 @@ parser.add_argument("-title", type=str, default=f"")
 plot_title = parser.parse_args().title
 parser.add_argument("-f", type=int, default=10)
 frame = parser.parse_args().f
-save_fig_instad_of_show = True
+save_fig_instad_of_show = False
 
 def test_amg(mat_size = 10):
     # ------------------------------- prepare data ------------------------------- #
@@ -40,9 +40,9 @@ def test_amg(mat_size = 10):
         A, b = generate_A_b_pyamg(n=mat_size)
     else:
         print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A_f{frame}.mtx")
+        A = scipy.io.mmread(to_read_dir+f"A.mtx")
         A = A.tocsr()
-        b = np.loadtxt(to_read_dir+f"b_f{frame}.txt", dtype=np.float32)
+        b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
 
     # generate R by pyamg
     ml = pyamg.ruge_stuben_solver(A, max_levels=2)
@@ -63,41 +63,52 @@ def test_amg(mat_size = 10):
     r_norms_rep = []
     x_rep = timer_wrapper(solve_rep, A, b, x0, R, P, r_norms_rep)
 
-    # print("Solving simplest...")
-    # r_norms_simplest = []
-    # x_simplest = timer_wrapper(solve_simplest, A, b, R, P, r_norms_simplest)
+    print("Solving simplest...")
+    r_norms_simplest = []
+    x_simplest = timer_wrapper(solve_simplest, A, b, R, P, r_norms_simplest)
 
     print("Solving rep_Anorm...")
     r_norms_repAnorm = []
     x_rep = timer_wrapper(solve_rep_Anorm, A, b, x0, R, P, r_norms_repAnorm)
 
-    print("Solving by direct solver...")
-    r_norms_direct = []
-    r_norms_direct.append(np.linalg.norm(b))
-    x_direct = scipy.sparse.linalg.spsolve(A, b)
-    r_norms_direct.append(np.linalg.norm(b - A @ x_direct))
+    print("Solving rep_noSmoother...")
+    r_norms_noSmoother = []
+    x_rep = timer_wrapper(solve_rep_noSmoother, A, b, x0, R, P, r_norms_noSmoother)
 
-    print("Solving by GS")
-    r_norms_GS = []
-    r_norms_GS.append(np.linalg.norm(b))
-    x_GS = gauss_seidel(A, x0, b, iterations=1)
-    r_norms_GS.append(np.linalg.norm(b - A @ x_GS))
+    # print("Solving by direct solver...")
+    # r_norms_direct = []
+    # r_norms_direct.append(np.linalg.norm(b))
+    # x_direct = scipy.sparse.linalg.spsolve(A, b)
+    # r_norms_direct.append(np.linalg.norm(b - A @ x_direct))
+
+    # print("Solving by GS")
+    # r_norms_GS = []
+    # r_norms_GS.append(np.linalg.norm(b))
+    # x_GS = gauss_seidel(A, x0, b, iterations=1)
+    # r_norms_GS.append(np.linalg.norm(b - A @ x_GS))
+
+    diff = x_simplest - x_pyamg
+    print(f"max simplest diff:{np.max(diff)}, in {np.argmax(diff)}")
+    diff2 = x_rep - x_pyamg
+    print(f"max rep diff:{np.max(diff2)}, in {np.argmax(diff2)}")
 
     # ------------------------------- print results ------------------------------- #
     print_residuals(r_norms_pyamg, "pyamg")
     print_residuals(r_norms_rep, "rep")
-    # print_residuals(r_norms_simplest, "simplest")
+    print_residuals(r_norms_simplest, "simplest")
     print_residuals(r_norms_repAnorm, "rep_Anorm")
-    print_residuals(r_norms_direct, "direct")
-    print_residuals(r_norms_GS, "GS")
+    print_residuals(r_norms_noSmoother, "rep_noSmoother")
+    # print_residuals(r_norms_direct, "direct")
+    # print_residuals(r_norms_GS, "GS")
     
     fig, axs = plt.subplots(2, 1, figsize=(8, 8))
     plot_r_norms(r_norms_pyamg, axs[0], title=plot_title,linestyle="-",label="pyamg")
     # plot_r_norms(r_norms_direct, axs[0], linestyle="-.",label="direct")
     plot_r_norms(r_norms_rep, axs[0], title=plot_title, linestyle="--",label="reprodced pyamg")
-    plot_r_norms(r_norms_GS, axs[0], title=plot_title, linestyle=":",label="GS")
-    # plot_r_norms(r_norms_simplest, axs[1], title="repr", linestyle="-.",label="simplest")
-    plot_r_norms(r_norms_repAnorm, axs[1], title=plot_title, linestyle="-.",label="repr_Anorm")
+    plot_r_norms(r_norms_noSmoother, axs[1], title=plot_title, linestyle="--",label="no smoother A norm")
+    # plot_r_norms(r_norms_GS, axs[0], title=plot_title, linestyle=":",label="GS")
+    # plot_r_norms(r_norms_simplest, axs[0], title=plot_title, linestyle="-.",label="simplest")
+    # plot_r_norms(r_norms_repAnorm, axs[1], title=plot_title, linestyle="-.",label="repr_Anorm")
 
     fig.canvas.manager.set_window_title(plot_title)
     plt.tight_layout()
@@ -135,6 +146,55 @@ def print_residuals(residuals, name="residuals"):
 def solve_pyamg(ml, b, r_norms=[]):
     x = ml.solve(b, tol=1e-3, residuals=r_norms, maxiter=1)
     return x
+
+
+def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
+    tol = 1e-3
+    maxiter = 1
+
+    A2 = R @ A @ P
+
+    x = x0
+
+    # normb = np.linalg.norm(b)
+    normb = A_norm(A,b)
+    if normb == 0.0:
+        normb = 1.0  # set so that we have an absolute tolerance
+    # normr = np.linalg.norm(b - A @ x)
+    normr = A_norm(A, b-A@x)
+        
+    if residuals is not None:
+        residuals[:] = [normr]  # initial residual
+
+    b = np.ravel(b)
+    x = np.ravel(x)
+
+    it = 0
+    while True:  # it <= maxiter and normr >= tol:
+        # gauss_seidel(A, x, b, iterations=1)  # presmoother
+
+        residual = b - A @ x
+
+        coarse_b = R @ residual  # restriction
+
+        coarse_x = np.zeros_like(coarse_b)
+
+        coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
+
+        x += P @ coarse_x  # coarse grid correction
+
+        # gauss_seidel(A, x, b, iterations=1)  # postsmoother
+
+        it += 1
+
+        # normr = np.linalg.norm(b - A @ x)
+        normr = A_norm(A, b-A@x)
+        if residuals is not None:
+            residuals.append(normr)
+        if normr < tol * normb:
+            return x
+        if it == maxiter:
+            return x
 
 
 def solve_rep(A, b, x0, R, P, residuals=[]):
@@ -288,11 +348,13 @@ def solve_simplest(A, b, R, P, residuals):
     it = 0
     while True:  # it <= maxiter and normr >= tol:
         residual = b - A @ x
+        gauss_seidel(A,x,b) # pre smoother
         coarse_b = R @ residual  # restriction
         coarse_x = np.zeros_like(coarse_b)
         coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
         x += P @ coarse_x 
-        amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+        # amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+        gauss_seidel(A, x, b) # post smoother
         it += 1
         normr = np.linalg.norm(b - A @ x)
         if residuals is not None:

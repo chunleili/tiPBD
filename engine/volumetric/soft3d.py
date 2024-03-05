@@ -43,9 +43,7 @@ stop_frame = 10
 export_matrix = True
 
 
-ti.init(arch=ti.cpu, debug=True, kernel_profiler=True)
-
-# r_norm_list = []
+ti.init(arch=ti.cpu)
 
 
 class Meta:
@@ -75,7 +73,6 @@ class Meta:
 
 
 meta = Meta()
-
 
 
 def clean_result_dir(folder_path):
@@ -169,7 +166,6 @@ def build_face_indices(tet_indices):
 
 class ArapMultigrid:
     def __init__(self, path):
-        # self.model_pos, self.model_tet, self.model_tri = read_tetgen(path)
         self.model_pos, self.model_tet, self.model_tri = read_tet(path, build_face_flag=True)
         self.NV = len(self.model_pos)
         self.NT = len(self.model_tet)
@@ -255,10 +251,6 @@ class ArapMultigrid:
             self.max_iter = meta.args.fine_iterations
         info(f"{self.name} max_iter:{self.max_iter}")
 
-        # assemble inv_mass_mat and alpha_tilde_mat
-        self.inv_mass_mat = assemble_inv_mass_mat(self.inv_mass)
-        self.alpha_tilde_mat = assemble_alpha_tilde_mat(self.alpha_tilde)
-
     def solve_constraints(self):
         solve_constraints_kernel(
             self.pos_mid,
@@ -274,113 +266,11 @@ class ArapMultigrid:
             self.dlambda,
         )
 
-    def assemble_gradC(self):
-        gradC_builder = ti.linalg.SparseMatrixBuilder(self.M, 3 * self.N, max_num_triplets=12 * self.M)
-        fill_gradC_kernel(gradC_builder, self.gradC, self.tet_indices)
-        gradC_mat = gradC_builder.build()
-        return gradC_mat
-
-    def assemble_inv_mass(self):
-        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * self.N, 3 * self.N, max_num_triplets=3 * self.N)
-        fill_invmass(inv_mass_builder, self.inv_mass)
-        inv_mass_mat = inv_mass_builder.build()
-        return inv_mass_mat
-
-    def assemble_alpha_tilde(self):
-        M = self.alpha_tilde.shape[0]
-        alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(M, M, max_num_triplets=12 * M)
-        fill_diag(alpha_tilde_builder, self.alpha_tilde)
-        alpha_tilde_mat = alpha_tilde_builder.build()
-        return alpha_tilde_mat
-
 
 # ---------------------------------------------------------------------------- #
 #                                    kernels                                   #
 # ---------------------------------------------------------------------------- #
-def assemble_inv_mass_mat(inv_mass):
-    N = inv_mass.shape[0]
-    inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * N, 3 * N, max_num_triplets=3 * N)
-    fill_invmass(inv_mass_builder, inv_mass)
-    inv_mass_mat = inv_mass_builder.build()
-    return inv_mass_mat
 
-
-def assemble_alpha_tilde_mat(alpha_tilde):
-    M = alpha_tilde.shape[0]
-    alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(M, M, max_num_triplets=12 * M)
-    fill_diag(alpha_tilde_builder, alpha_tilde)
-    alpha_tilde_mat = alpha_tilde_builder.build()
-    return alpha_tilde_mat
-
-
-# compute schur complement as A
-def assemble_A(gradC_mat, inv_mass_mat, alpha_tilde_mat):
-    A = gradC_mat @ inv_mass_mat @ gradC_mat.transpose() + alpha_tilde_mat
-    return A
-
-
-@ti.kernel
-def fill_diag(A: ti.types.sparse_matrix_builder(), val: ti.template()):
-    for i in range(val.shape[0]):
-        A[i, i] += val[i]
-
-
-# fill gradC
-@ti.kernel
-def fill_gradC_kernel(
-    A: ti.types.sparse_matrix_builder(),
-    gradC: ti.template(),
-    tet_indices: ti.template(),
-):
-    for j in range(tet_indices.shape[0]):
-        ind = tet_indices[j]
-        for p in range(4):
-            for d in range(3):
-                pid = ind[p]
-                A[j, 3 * pid + d] += gradC[j, p][d]
-
-
-# fill gradC
-@ti.kernel
-def fill_gradC_np_kernel(
-    A: ti.types.ndarray(),
-    gradC: ti.template(),
-    tet_indices: ti.template(),
-):
-    for j in range(tet_indices.shape[0]):
-        ind = tet_indices[j]
-        for p in range(4):
-            for d in range(3):
-                pid = ind[p]
-                A[j, 3 * pid + d] = gradC[j, p][d]
-
-
-def fill_gradC_dok(
-    A,
-    gradC,
-    tet_indices,
-):
-    for j in range(tet_indices.shape[0]):
-        ind = tet_indices[j]
-        for p in range(4):
-            for d in range(3):
-                pid = ind[p]
-                A[j, 3 * pid + d] += gradC[j, p][d]
-
-
-def fill_gradC_triplets(
-    ii,jj,vv,
-    gradC,
-    tet_indices,
-):
-    cnt=0
-    for j in range(tet_indices.shape[0]):
-        ind = tet_indices[j]
-        for p in range(4):
-            for d in range(3):
-                pid = ind[p]
-                ii[cnt],jj[cnt],vv[cnt] = j, 3 * pid + d, gradC[j, p][d]
-                cnt+=1
 
 @ti.kernel
 def fill_gradC_triplets_kernel(
@@ -399,13 +289,6 @@ def fill_gradC_triplets_kernel(
                 pid = ind[p]
                 ii[cnt],jj[cnt],vv[cnt] = j, 3 * pid + d, gradC[j, p][d]
                 cnt+=1
-
-@ti.kernel
-def fill_invmass(A: ti.types.sparse_matrix_builder(), val: ti.template()):
-    for i in range(val.shape[0]):
-        A[3 * i, 3 * i] += val[i]
-        A[3 * i + 1, 3 * i + 1] += val[i]
-        A[3 * i + 2, 3 * i + 2] += val[i]
 
 
 @ti.kernel
@@ -630,42 +513,15 @@ def compute_negative_C_minus_alpha_lambda(constraint, alpha_tilde, lagrangian, n
 
 
 @ti.kernel
-def compute_negative_C_minus_alpha_lambda_kernel(
+def compute_dual_residual(
     constraint: ti.template(),
     alpha_tilde: ti.template(),
     lagrangian: ti.template(),
-    negative_C_minus_alpha_lambda: ti.template(),
+    dual_residual:ti.template()
 ):
-    for t in range(negative_C_minus_alpha_lambda.shape[0]):
-        negative_C_minus_alpha_lambda[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+    for t in range(dual_residual.shape[0]):
+        dual_residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
 
-
-@ti.kernel
-def compute_gradC_kernel(
-    pos_mid: ti.template(),
-    tet_indices: ti.template(),
-    B: ti.template(),
-    gradC: ti.template(),
-    gradC_mat: ti.types.sparse_matrix_builder(),
-):
-    for t in range(tet_indices.shape[0]):
-        p0 = tet_indices[t][0]
-        p1 = tet_indices[t][1]
-        p2 = tet_indices[t][2]
-        p3 = tet_indices[t][3]
-
-        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
-
-        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
-        F = D_s @ B[t]
-        U, S, V = ti.svd(F)
-        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
-
-        ind = tet_indices[t]
-        for p in range(4):
-            for d in range(3):
-                pid = ind[p]
-                gradC_mat[t, 3 * pid + d] += gradC[t, p][d]
 
 
 @ti.kernel
@@ -734,355 +590,36 @@ def collsion_response(pos: ti.template()):
             pos[i][1] = -1.3
 
 
-@ti.kernel
-def fill_gradC(
-    A: ti.types.sparse_matrix_builder(),
-    gradC: ti.template(),
-    tet_indices: ti.template(),
-):
-    for j in range(tet_indices.shape[0]):
-        ind = tet_indices[j]
-        for p in range(4):
-            for d in range(3):
-                pid = ind[p]
-                A[j, 3 * pid + d] += gradC[j, p][d]
 
+def transfer_back_to_pos_mfree(x,dLambda,acc_pos,pos):
+    dLambda.from_numpy(x)
+    reset_accpos(acc_pos)
+    transfer_back_to_pos_mfree_kernel()
+    update_pos(inv_mass, acc_pos, pos)
+    collision(pos)
 
-# ---------------------------------------------------------------------------- #
-#                              Ax=b Solvers                                    #
-# ---------------------------------------------------------------------------- #
-def solve_jacobi_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
-    print("Solving Ax=b using Jacobi, taichi implementation...")
-    n = A.shape[0]
-    x = x0.copy()
 
-    r = b - (A @ x)
-    r_norm = np.linalg.norm(r)
-    print(f"initial residual: {r_norm:.2e}")
-
-    for iter in range(max_iterations):
-        x_new = x.copy()
-        jacobi_iter_once_kernel(A, b, x, x_new)
-        x = x_new.copy()
-
-        # 计算残差并检查收敛
-        r = A @ x - b
-        r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
-        if r_norm < tolerance:
-            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
-            return x, r
-
-    print("Did not converge within the maximum number of iterations.")
-    print(f"Final residual: {r_norm:.2e}")
-    return x, r
-
-
-@ti.kernel
-def jacobi_iter_once_kernel(
-    A: ti.types.ndarray(), b: ti.types.ndarray(), x: ti.types.ndarray(), x_new: ti.types.ndarray()
-):
-    n = b.shape[0]
-    for i in range(n):
-        r = b[i]
-        for j in range(n):
-            if i != j:
-                r -= A[i, j] * x[j]
-        x_new[i] = r / A[i, i]
-
-
-def solve_jacobi_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
-    n = len(b)
-    x = x0.copy()  # 初始解向量
-    x_new = x0.copy()  # 存储更新后的解向量
-    L = scipy.sparse.tril(A, k=-1)
-    U = scipy.sparse.triu(A, k=1)
-    D = A.diagonal()
-    D_inv = 1.0 / D[:]
-    D_inv = scipy.sparse.diags(D_inv)
-
-    r = b - (A @ x_new)
-    r_norm = np.linalg.norm(r)
-    print(f"initial residual: {r_norm:.2e}")
-
-    for iter in range(max_iterations):
-        x_new = D_inv @ (b - (L + U) @ x)
-
-        x = x_new.copy()
-
-        # 计算残差并检查收敛
-        r = A @ x - b
-        r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
-        if r_norm < tolerance:
-            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
-            return x, r
-
-    print("Did not converge within the maximum number of iterations.")
-    print(f"Final residual: {r_norm:.2e}")
-    return x, r
-
-
-def solve_sor_sparse(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
-    n = A.shape[0]
-    x = x0.copy()
-    for iter in range(max_iterations):
-        new_x = np.copy(x)
-        for i in range(A.shape[0]):
-            start_idx = A.indptr[i]
-            end_idx = A.indptr[i + 1]
-            row_sum = A.data[start_idx:end_idx] @ new_x[A.indices[start_idx:end_idx]]
-            x[i] = new_x[i] + omega * (b[i] - row_sum) / A.data[start_idx:end_idx].sum()
-
-        # 计算残差并检查收敛
-        r = A @ x - b
-        r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
-        if r_norm < tolerance:
-            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
-            return x, r
-
-    print("Did not converge within the maximum number of iterations.")
-    print(f"Final residual: {r_norm:.2e}")
-    return x, r
-
-
-def solve_sor(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
-    n = A.shape[0]
-    x = x0.copy()
-
-    # D = np.diag(A)
-    # L = np.tril(A, k=-1)
-    # U = np.triu(A, k=1)
-    # Lw = np.linalg.inv(D + omega * L) @ (- omega * U + (1 - omega) * D )
-    # spectral_radius_Lw = max(abs(np.linalg.eigvals(Lw)))
-    # print(f"spectral radius of Lw: {spectral_radius_Lw:.2f}")
-
-    for iter in range(max_iterations):
-        x_new = x.copy()
-
-        for i in range(n):
-            x_new[i] = (1 - omega) * x[i] + (omega / A[i, i]) * (
-                b[i] - np.dot(A[i, :i], x_new[:i]) - np.dot(A[i, i + 1 :], x[i + 1 :])
-            )
-
-        x = x_new.copy()
-
-        # 计算残差并检查收敛
-        r = A @ x - b
-        r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
-        if r_norm < tolerance:
-            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
-            return x, r
-
-    print("Did not converge within the maximum number of iterations.")
-    print(f"Final residual: {r_norm:.2e}")
-    return x, r
-
-
-def solve_sor_sparse_new(A, b, x0, omega=1.5, max_iterations=100, tolerance=1e-6):
-    n = A.shape[0]
-    x = x0.copy()
-
-    for iter in range(max_iterations):
-        x_new = x.copy()
-
-        for i in range(n):
-            Ax_new = A[i, :i].dot(x_new[:i])
-            Ax_old = A[i, i + 1 :].dot(x[i + 1 :])
-            x_new[i] = (1 - omega) * x[i] + (omega / A[i, i]) * (b[i] - Ax_new - Ax_old)
-
-        x = x_new.copy()
-
-        # 计算残差并检查收敛
-        r = A @ x - b
-        r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
-        if r_norm < tolerance:
-            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
-            return x, r
-
-    print("Did not converge within the maximum number of iterations.")
-    print(f"Final residual: {r_norm:.2e}")
-    return x, r
-
-
-def solve_direct_solver(A, b):
-    t = time()
-    solver = ti.linalg.SparseSolver(solver_type="LLT")
-    solver.analyze_pattern(A)
-    solver.factorize(A)
-    x = solver.solve(b)
-    print(f"time: {time() - t}")
-    print(f"shape of A: {A.shape}")
-    print(f"solve success: {solver.info()}")
-    return x
-
-
-@ti.kernel
-def gauss_seidel_kernel(A: ti.types.ndarray(), b: ti.types.ndarray(), x: ti.types.ndarray(), xOld: ti.types.ndarray()):
-    N = b.shape[0]
-    for i in range(N):
-        entry = b[i]
-        diagonal = A[i, i]
-        if ti.abs(diagonal) < 1e-10:
-            print("Diagonal element is too small")
-
-        for j in range(i):
-            entry -= A[i, j] * x[j]
-        for j in range(i + 1, N):
-            entry -= A[i, j] * xOld[j]
-        x[i] = entry / diagonal
-
-
-def solve_gauss_seidel_ti(A, b, x0, max_iterations=100, tolerance=1e-6):
-    x = x0.copy()
-    for iter in range(max_iterations):
-        xOld = x.copy()
-        gauss_seidel_kernel(A, b, x, xOld)
-
-        # 计算残差并检查收敛
-        r = A @ x - b
-        r_norm = np.linalg.norm(r)
-        print(f"iter {iter}, r={r_norm:.2e}")
-        if r_norm < tolerance:
-            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
-            return x, r
-
-    print("Did not converge within the maximum number of iterations.")
-    print(f"Final residual: {r_norm:.2e}")
-    return x, r
-
-
-def solve_gauss_seidel_sparse(A, b, x0, max_iterations=100, tolerance=1e-6):
-    # gauss seidel is just omega = 1 in SOR
-    n = A.shape[0]
-    x = x0.copy()
-
-    for iter in range(max_iterations):
-        x_new = x.copy()
-
-        for i in range(n):
-            Ax_new = A[i, :i].dot(x_new[:i])
-            Ax_old = A[i, i + 1 :].dot(x[i + 1 :])
-            x_new[i] = (1.0 / A[i, i]) * (b[i] - Ax_new - Ax_old)
-
-        x = x_new.copy()
-
-        # 计算残差并检查收敛
-        r = A @ x - b
-        r_norm = np.linalg.norm(r)
-
-        # r_norm_list.append(r_norm)
-
-        print(f"iter {iter}, r={r_norm:.2e}")
-        if r_norm < tolerance:
-            print(f"Converged after {iter + 1} iterations. Final residual: {r_norm:.2e}")
-            return x, r
-
-    print("Did not converge within the maximum number of iterations.")
-    print(f"Final residual: {r_norm:.2e}")
-    return x, r
-
-
-# ---------------------------------------------------------------------------- #
-#                               substep functions                              #
-# ---------------------------------------------------------------------------- #
-
-
-# direct solver taichi
-def substep_directsolver_ti(ist, max_iter=1):
-    # ist is instance of fine or coarse
-
-    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
-    reset_lagrangian(ist.lagrangian)
-
-    for ite in range(max_iter):
-        t = time()
-
-        # ----------------------------- prepare matrices ----------------------------- #
-        print("prepare matrices")
-        # copy pos to pos_mid
-        ist.pos_mid.from_numpy(ist.pos.to_numpy())
-
-        M = ist.NT
-        NV = ist.NV
-        gradC_builder = ti.linalg.SparseMatrixBuilder(M, 3 * NV, max_num_triplets=12 * M)
-        inv_mass_builder = ti.linalg.SparseMatrixBuilder(3 * NV, 3 * NV, max_num_triplets=3 * NV)
-        alpha_tilde_builder = ti.linalg.SparseMatrixBuilder(M, M, max_num_triplets=12 * M)
-        A = ti.linalg.SparseMatrix(M, M)
-
-        compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-        # fill G matrix (gradC)
-        fill_gradC(gradC_builder, ist.gradC, ist.tet_indices)
-        G = gradC_builder.build()
-
-        # fill M_inv and ALPHA
-        fill_invmass(inv_mass_builder, ist.inv_mass)
-        fill_diag(alpha_tilde_builder, ist.alpha_tilde)
-        M_inv = inv_mass_builder.build()
-        ALPHA = alpha_tilde_builder.build()
-
-        # assemble A and b
-        A = G @ M_inv @ G.transpose() + ALPHA
-        b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
-
-        # -------------------------------- solve Ax=b -------------------------------- #
-        solver = ti.linalg.SparseSolver(solver_type="LLT")
-        solver.analyze_pattern(A)
-        solver.factorize(A)
-        x = solver.solve(b)
-        print(f"direct solver time of solve: {time() - t}")
-
-        # ------------------------- transfer data back to PBD ------------------------ #
-        ist.dlambda = x
-
-        # lam += dlambda
-        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + ist.dlambda)
-
-        # dpos = M_inv @ G^T @ dlambda
-        dpos = M_inv @ G.transpose() @ ist.dlambda
-        # pos+=dpos
-        ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-
-    collsion_response(ist.pos)
-    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
-
-
-# ---------------------------------------------------------------------------- #
-#                        All solvers refactored into one                       #
-# ---------------------------------------------------------------------------- #
-def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
+def substep_all_solver(ist, max_iter=1, solver="GaussSeidel", P=None, R=None):
     # ist is instance of fine or coarse
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
 
-    for ite in range(max_iter):
-        t = time()
+    # fill M_inv and ALPHA
+    inv_mass_np = ist.inv_mass.to_numpy()
+    inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+    M_inv = scipy.sparse.diags(inv_mass_np)
 
+    alpha_tilde_np = ist.alpha_tilde.to_numpy()
+    ALPHA = scipy.sparse.diags(alpha_tilde_np)
+
+    for ite in range(max_iter):
         # ----------------------------- prepare matrices ----------------------------- #
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
-        M = ist.NT
-
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-        # fill G matrix (gradC) by triplets
-        t = time()
-        ii, jj, vv = np.zeros(M*12, dtype=np.int32), np.zeros(M*12, dtype=np.int32), np.zeros(M*12, dtype=np.float32)
+        ii, jj, vv = np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.float32)
         fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
         G = scipy.sparse.coo_array((vv, (ii, jj)))
-        # print(f"fill G matrix time: {time() - t}")
-
-        # fill M_inv and ALPHA
-        inv_mass_np = ist.inv_mass.to_numpy()
-        inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-        M_inv = scipy.sparse.diags(inv_mass_np)
-
-        alpha_tilde_np = ist.alpha_tilde.to_numpy()
-        ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
         # assemble A and b
         A = G @ M_inv @ G.transpose() + ALPHA
@@ -1094,49 +631,24 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
             scipy.io.mmwrite(out_dir + f"A.mtx", A)
             np.savetxt(out_dir + f"b.txt", b)
             exit()
-
         # -------------------------------- solve Ax=b -------------------------------- #
-
-        dense = False
-        if dense == True:
-            A = np.asarray(A.todense())
-
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
 
-        if solver == "Jacobi":
-            # x, r = solve_jacobi_ti(A, b, x0, 100, 1e-6) # for dense A
-            x, r = solve_jacobi_sparse(A, b, x0, 100, 1e-6)
-        elif solver == "GaussSeidel":
-            # print("GaussSeidel")
+        if solver == "GaussSeidel":
             x = np.zeros_like(b)
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 r_norm = np.linalg.norm(A @ x - b)
-                # r_norm_list.append(r_norm)
                 print(f"{ite} r:{r_norm:.2g}")
-
-        elif solver == "SOR":
-            # x,r = solve_sor(A, b, x0, 1.5, 100, 1e-6) # for dense A
-            x, r = solve_sor_sparse(A, b, x0, 1.5, 100, 1e-6)
         elif solver == "DirectSolver":
-            # x = scipy.linalg.solve(A, b)# for dense A
             x = scipy.sparse.linalg.spsolve(A, b)
         elif solver == "AMG":
             x = solve_pyamg_my2(A, b, x0, R, P)
 
-        # print(f"solver time of solve: {time() - t}")
-
-        # ------------------------- transfer data back to PBD ------------------------ #
-        # print("transfer data back to PBD")
         dlambda = x
-
-        # lam += dlambda
         ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-
-        # dpos = M_inv @ G^T @ dlambda
         dpos = M_inv @ G.transpose() @ dlambda
-        # pos+=dpos
         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
     collsion_response(ist.pos)
@@ -1312,28 +824,6 @@ def compute_R_kernel_new(
             print("Warning: fine tet centroid {i} not in any coarse tet")
 
 
-# def compute_R_and_P_ti(coarse, fine):
-#     # 计算所有四面体的质心
-#     print(">>Computing all tet centroid...")
-#     compute_all_centroid(fine.pos, fine.tet_indices, fine.tet_centroid)
-#     compute_all_centroid(coarse.pos, coarse.tet_indices, coarse.tet_centroid)
-
-#     # 计算R 和 P
-#     print(">>Computing P and R...")
-#     t = time()
-#     M, N = coarse.tet_indices.shape[0], fine.tet_indices.shape[0]
-#     R_builder = ti.linalg.SparseMatrixBuilder(M, N, max_num_triplets=40 * N)
-#     compute_R_kernel_new(
-#         fine.pos, fine.tet_indices, fine.tet_centroid, coarse.pos, coarse.tet_indices, coarse.tet_centroid, R_builder
-#     )
-#     R = R_builder.build()
-#     P = R.transpose()
-#     print(f"Computing P and R done, time = {time() - t}")
-#     # print(f"writing P and R...")
-#     # R.mmwrite("R.mtx")
-#     # P.mmwrite("P.mtx")
-#     return R, P
-
 
 @ti.kernel
 def compute_R_kernel_np(
@@ -1456,8 +946,6 @@ def main():
         coarse = ArapMultigrid(meta.args.coarse_model_path)
         fine.initialize()
         coarse.initialize()
-        # R, P = compute_R_and_P(coarse, fine)
-        # R, P = compute_R_and_P_kmeans(fine)
         ist = fine
     else:
         ist = ArapMultigrid(meta.args.model_path)
@@ -1465,60 +953,21 @@ def main():
 
     clean_result_dir(out_dir)
 
-    window = ti.ui.Window("XPBD", (1300, 900), vsync=True)
-    canvas = window.get_canvas()
-    scene = ti.ui.Scene()
-    camera = ti.ui.Camera()
-    camera.position(0, 5, 10)
-    camera.lookat(0, 0, 0)
-    camera.fov(45)
-    scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
-    gui = window.get_gui()
-    wire_frame = True
+    while True:
+        info("\n\n----------------------")
+        info(f"frame {meta.frame}")
+        t = time()
 
-    while window.running:
-        scene.ambient_light((0.8, 0.8, 0.8))
-        camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
-        scene.set_camera(camera)
+        substep_all_solver(ist, 30, "GaussSeidel")
 
-        if window.is_pressed(ti.ui.ESCAPE):
-            window.running = False
-
-        if meta.frame == meta.pause_at:
-            meta.pause = True
-        if window.is_pressed(ti.ui.SPACE):
-            meta.pause = not meta.pause
-
-        gui.text("frame {}".format(meta.frame))
-        meta.pause = gui.checkbox("pause", meta.pause)
-        wire_frame = gui.checkbox("wireframe", wire_frame)
+        if export_obj:
+            write_obj(out_dir + f"{meta.frame:04d}.obj", ist.pos.to_numpy(), ist.model_tri)
         
-        if not meta.pause:
-            info("\n\n----------------------")
-            info(f"frame {meta.frame}")
-            t = time()
-
-            substep_all_solver(ist, 30, "GaussSeidel")
-
-            if export_obj:
-                write_obj(out_dir + f"{meta.frame:04d}.obj", ist.pos.to_numpy(), ist.model_tri)
+        meta.frame += 1
+        info(f"step time: {time() - t:.2g} s")
             
-            meta.frame += 1
-            info(f"step time: {time() - t:.2g} s")
-            
-
         if meta.frame == meta.max_frame:
-            window.running = False
-
-
-        scene.mesh(ist.pos, ist.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
-
-        canvas.scene(scene)
-        window.show()
-
-        # np.savetxt(f"result/r_norm_list_gs_{meta.frame}.txt", r_norm_list)
-        # r_norm_list.clear()
-
+            exit()
 
 if __name__ == "__main__":
     main()

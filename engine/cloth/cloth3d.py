@@ -148,25 +148,6 @@ def init_adjacent_edge_abc():
     adjacent_edge.from_numpy(b)
     ...
 
-# def init_A_pattern_coo_kernel(coo_i_arr:ti.ndarray(), coo_j_arr:ti.ndarray(), coo_v_arr:ti.ndarray()):
-#     cnt_nonzero = 0
-#     for i in range(NE):
-#         diag = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-#         coo_i_arr[cnt_nonzero] = i
-#         coo_j_arr[cnt_nonzero] = i
-#         coo_v_arr[cnt_nonzero] = diag
-#         cnt_nonzero += 1
-
-#         for j in range(14):
-#             ia = adjacent_edge[i,j]
-#             if ia == -1:
-#                 break
-#             off_diag = 0.0
-#             coo_i_arr[cnt_nonzero] = i
-#             coo_j_arr[cnt_nonzero] = ia
-#             coo_v_arr[cnt_nonzero] = off_diag
-#             cnt_nonzero += 1
-
 @ti.kernel
 def semi_euler(
     old_pos:ti.template(),
@@ -617,8 +598,9 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
         if frame_num == stop_frame and export_matrix:
-            scipy.io.mmwrite(out_dir + f"A_f{frame_num}.mtx", A)
-            np.savetxt(out_dir + f"b_f{frame_num}.txt", b)
+            print(f"writting A and b to {out_dir}")
+            scipy.io.mmwrite(out_dir + f"A.mtx", A)
+            np.savetxt(out_dir + f"b.txt", b)
             exit()
         
         x0 = np.zeros_like(b)
@@ -705,7 +687,7 @@ export_obj = True
 export_residual = False
 solver_type = "GS" # "AMG", "GS", "XPBD"
 export_matrix = True
-stop_frame = 100
+stop_frame = 10
 
 timer_all = time.perf_counter()
 init_pos(inv_mass,pos)

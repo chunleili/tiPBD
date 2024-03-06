@@ -26,7 +26,6 @@ python main.py
   - config # 命令行参数配置文件，使用这些参数相当于命令行参数
 - engine # 引擎
   - solver # 求解器, 用于实例化具体的pbd solver，以及ggui
-  - metadata # 元数据: 几乎是所有数据的中转中心，你可以从这里获取一切参数，包括场景、模型、网格、材料参数等。
   - fem # 基于有限元的PBD。
     - arap: # as rigid as possible 本构模型
     - neohooken: # neo-hooken模型
@@ -36,9 +35,6 @@ python main.py
   - mesh_io # 读写网格文件 以及相关工具，主要使用trimesh
   - sdf # 生成有符号距离场
 - ui # 用户界面
-  - parse_cli: # 解析命令行参数, 使用configargparse
-  - config_builder # 用于从json场景文件构建配置文件，传给metadata
-  - filedialog # 打开文件对话框以选择json场景文件
   - dearpygui(optional) # 基于dearpygui的gui, 独立进程运行
   - webui(optional) # 基于gradio的gui, 独立进程运行
 - resutl # 结果
@@ -56,7 +52,7 @@ python main.py
 因此，所有的功能模块尽量以搭积木的方式使用。例如要实现一个新的软体模拟NewSoftBody，本程序提供的积木为：
 1. GGUI可视化。需要更改solver_main.py。在solver_main函数开头的if语句中增加import new_softbody, 然后pbd_solver = NewSoftBody()。NewSoftBody实例至少要实现substep方法，并且至少要有pos_show属性，代表粒子的位置。如果要显示三角面，还可以定义indices_show属性，代表三角面的顶点索引。
 
-2. 从json解析参数。json文件必须要有common和materials两个顶层的key。分别代表通用的参数和某个物体特有的参数。其中materials是个list。在new_softbody需要使用到参数的时候，from engine.metadata import meta。 然后使用meta.get_common("key名")和meta.get_materials("key名")获取参数。json文件请放在data/scene目录下。
+2. 从json解析参数。json文件必须要有common和materials两个顶层的key。分别代表通用的参数和某个物体特有的参数。其中materials是个list。 使用meta.get_common("key名")和meta.get_materials("key名")获取参数。json文件请放在data/scene目录下。
 
 3. 网格读入。参见engine/mesh_io中的网格解析器。支持tetgen/obj/ply等格式。
 

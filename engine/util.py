@@ -1,5 +1,165 @@
 import taichi as ti
 import numpy as np    
+import logging
+import json
+import os
+
+
+def filedialog():
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.filename = filedialog.askopenfilename(initialdir="data/scene", title="Select a File")
+    filename = root.filename
+    root.destroy()  # close the window
+    print("Open scene file: ", filename)
+    return filename
+
+
+
+def singleton(cls):
+    _instance = {}
+
+    def inner():
+        if cls not in _instance:
+            _instance[cls] = cls()
+        return _instance[cls]
+
+    return inner
+
+
+class SimConfig:
+    def __init__(self, scene_file_path) -> None:
+        self.config = None
+        with open(scene_file_path, "r") as f:
+            self.config = json.load(f)
+        print(json.dumps(self.config, indent=2))
+
+    # def get_common(self, key, default=None):
+    #     if key in self.config['common']:
+    #         return self.config['common'][key]
+    #     else:
+    #         return default
+
+    # def get_materials(self, key, default=None):
+    #     if key in self.config["materials"]:
+    #         return self.config["materials"][key]
+    #     else:
+    #         return default
+
+
+
+@singleton
+@ti.data_oriented
+class MetaData:
+    def __init__(self):
+        import os
+        from engine.util import parse_cli
+
+        self.root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+        self.result_path = os.path.join(self.root_path, "result")
+        print("root_path:", self.root_path)
+
+        self.args = parse_cli()
+        # print("args:", self.args)
+
+        self.common = {}
+        self.materials = [{}]
+
+        if self.args.no_json == True:
+            return
+
+        if self.args.scene_file == "":
+
+            self.scene_path = filedialog()
+        else:
+            self.scene_path = self.args.scene_file
+        self.scene_name = self.scene_path.split("/")[-1].split(".")[0]
+
+
+        self.config_instance = SimConfig(scene_file_path=self.scene_path)
+        self.common = self.config_instance.config["common"]
+        self.materials = self.config_instance.config["materials"]
+        if "sdf_meshes" in self.config_instance.config:
+            self.sdf_meshes = self.config_instance.config["sdf_meshes"]
+
+        # #为缺失的参数设置默认值
+        # if "num_substeps" not in self.common:
+        #     self.num_substeps = 1
+
+    def get_common(self, key, default=None, no_warning=False):
+        if key in self.common:
+            return self.common[key]
+        else:
+            if not no_warning:
+                logging.warning("key {} not found in common, use default value {}".format(key, default))
+            return default
+
+    def get_materials(self, key, default=None, id_=0, no_warning=False):
+        if key in self.materials[id_]:
+            return self.materials[id_][key]
+        else:
+            if not no_warning:
+                logging.warning("key {} not found in materials, use default value {}".format(key, default))
+            return default
+
+    def get_sdf_meshes(self, key, default=None, id_=0, no_warning=False):
+        if not hasattr(self, "sdf_meshes"):
+            if not no_warning:
+                logging.warning("sdf_meshes not found in config file, return None".format(None))
+            return None
+        if key in self.sdf_meshes[id_]:
+            return self.sdf_meshes[id_][key]
+        else:
+            if not no_warning:
+                logging.warning("key {} not found in sdf_meshes, use default value {}".format(key, default))
+            return default
+
+
+meta = MetaData()
+
+############################################
+# parse cli
+
+def parse_cli(): # old version, use built-in argparse
+    '''
+    Read command line arguments
+    '''
+    import argparse
+    import taichi as ti
+    import os
+    parser = argparse.ArgumentParser(description='taichi PBD')
+    parser.add_argument('--scene_file', type=str, default="",
+                        help='manually specify scene file, if not specified, use gui to select')
+    parser.add_argument('--no_gui', action='store_true', default=False,
+                        help='no gui mode')
+    parser.add_argument("--arch", type=str, default="cuda",
+                        help="backend(arch) of taichi)")
+    parser.add_argument("--debug", action='store_true', default=False,
+                    help="debug mode")
+    parser.add_argument("--device_memory_fraction", type=float, default=0.5,
+                    help="device memory fraction")
+    parser.add_argument("--kernel_profiler", action='store_true', default=False,
+                        help="enable kernel profiler")
+    parser.add_argument("--use_dearpygui", action='store_true', default=False,
+                        help="use dearpygui as gui")
+    args = parser.parse_args()
+
+    # root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    # args.scene_file =  root_path+"/data/scene/bunny_fluid.json"
+
+    if args.arch == "cuda":
+        args.arch = ti.cuda
+    elif args.arch == "cpu":
+        args.arch = ti.cpu
+    else:
+        args.arch = None
+
+    # 把init_args打包， ti.init(**args.init_args)
+    args.init_args = {"arch": args.arch, "device_memory_fraction": args.device_memory_fraction, "kernel_profiler": args.kernel_profiler, "debug": args.debug}
+    return args
+
 
 @ti.kernel
 def init_tet_indices(mesh: ti.template(), indices: ti.template()):
@@ -287,7 +447,7 @@ def grad_at_ij(val: ti.template(), dx: ti.f32, dy: ti.f32, i: ti.i32, j: ti.i32)
 
 
 @ti.func
-def grad_at_ijk(val: ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f32, i: ti.i32, j: ti.i32, k: ti.i32) -> vec3:
+def grad_at_ijk(val: ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f32, i: ti.i32, j: ti.i32, k: ti.i32) -> ti.math.vec3:
     """
     Using central difference to compute the gradient of a 3D scalar field at a given point
 
@@ -421,7 +581,6 @@ class SDF:
         print("SDF shape = ", self.shape)
         print("SDF initilizing...")
 
-        from engine.metadata import meta
 
         meta.use_sparse = meta.get_sdf_meshes("use_sparse", False)
         meta.narrow_band = meta.get_sdf_meshes("narrow_band", 0)
@@ -505,7 +664,6 @@ def mesh_to_voxels(
 ):
     from mesh_to_sdf import get_surface_point_cloud
     from engine.mesh_io import scale_to_unit_cube
-    from engine.metadata import meta
 
     mesh = scale_to_unit_cube(mesh)
     s = meta.get_sdf_meshes("scale")

@@ -4,9 +4,9 @@ import numpy as np
 import logging
 
 from data.model.mass_spring_volumetric_meshdata import bunnyMesh
-from engine.metadata import meta
+from engine.util import meta
 
-# ti.init()
+ti.init()
 
 if meta.get_common("force_serialize") and meta.args.arch != "cpu":
     logging.warning("force to use cpu mode")
@@ -52,7 +52,7 @@ def transform():
 transform()
 
 # if meta.get_materials("use_sdf"):
-from engine.sdf import SDF
+from engine.util import SDF
 
 meta.sdf_mesh_path = meta.get_sdf_meshes("geometry_file")
 sdf = SDF(meta.sdf_mesh_path, resolution=64, use_cache=meta.get_sdf_meshes("use_cache"))

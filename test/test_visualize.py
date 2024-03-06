@@ -6,8 +6,8 @@ sys.path.append(os.getcwd())
 
 def test_vis_sdf():
     from engine.visualize import vis_sdf
-    from engine.sdf import SDF
-    from engine.metadata import meta
+    from engine.util import SDF
+    from engine.util import meta
 
     ti.init(arch=ti.cuda)
     meta.sdf_mesh_path = meta.get_common("sdf_mesh_path")

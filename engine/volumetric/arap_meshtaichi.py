@@ -2,7 +2,7 @@ import taichi as ti
 import meshtaichi_patcher as patcher
 import numpy as np
 import taichi.math as tm
-from engine.metadata import meta
+from engine.util import meta
 import logging
 
 meta.dt = meta.common["dt"]

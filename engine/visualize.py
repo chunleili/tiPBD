@@ -3,7 +3,7 @@ import taichi as ti
 
 class GGUI:
     def __init__(self) -> None:
-        from engine.metadata import meta
+        from engine.util import meta
 
         self.vsync = meta.get_common("sync", default=False, no_warning=True)
         self.window = ti.ui.Window("pbd", (1024, 1024), vsync=self.vsync)
@@ -51,7 +51,7 @@ class GGUI:
         self.scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
         self.scene.ambient_light((0.5, 0.5, 0.5))
 
-        from engine.metadata import meta
+        from engine.util import meta
 
         if meta.show_widget:
             with self.gui.sub_window("Options", 0, 0, 0.3, 0.5) as w:

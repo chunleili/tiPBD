@@ -60,7 +60,7 @@ pos_ti = ti.Vector.field(3, ti.f32, shape=NV)
 
 edge        = ti.Vector.field(2, dtype=int, shape=(NE))
 pos         = ti.Vector.field(3, dtype=float, shape=(NV))
-acc_pos     = ti.Vector.field(3, dtype=float, shape=(NV))
+dpos     = ti.Vector.field(3, dtype=float, shape=(NV))
 old_pos     = ti.Vector.field(3, dtype=float, shape=(NV))
 vel         = ti.Vector.field(3, dtype=float, shape=(NV))
 pos_mid     = ti.Vector.field(3, dtype=float, shape=(NV))
@@ -134,7 +134,7 @@ def solve_constraints(
     inv_mass:ti.template(),
     edge:ti.template(),
     rest_len:ti.template(),
-    acc_pos:ti.template(),
+    dpos:ti.template(),
     pos:ti.template(),
 ):
     for i in range(NE):
@@ -145,9 +145,9 @@ def solve_constraints(
         gradient = dis.normalized()
         l = -constraint / (invM0 + invM1)
         if invM0 != 0.0:
-            acc_pos[idx0] += invM0 * l * gradient
+            dpos[idx0] += invM0 * l * gradient
         if invM1 != 0.0:
-            acc_pos[idx1] -= invM1 * l * gradient
+            dpos[idx1] -= invM1 * l * gradient
 
 
 @ti.kernel
@@ -157,7 +157,7 @@ def solve_constraints_xpbd(
     edge:ti.template(),
     rest_len:ti.template(),
     lagrangian:ti.template(),
-    acc_pos:ti.template(),
+    dpos:ti.template(),
     pos:ti.template(),
 ):
     for i in range(NE):
@@ -174,19 +174,19 @@ def solve_constraints_xpbd(
         dual_residual[i] = -(constraint + alpha * lagrangian[i])
         
         if invM0 != 0.0:
-            acc_pos[idx0] += invM0 * delta_lagrangian * gradient
+            dpos[idx0] += invM0 * delta_lagrangian * gradient
         if invM1 != 0.0:
-            acc_pos[idx1] -= invM1 * delta_lagrangian * gradient
+            dpos[idx1] -= invM1 * delta_lagrangian * gradient
 
 @ti.kernel
 def update_pos(
     inv_mass:ti.template(),
-    acc_pos:ti.template(),
+    dpos:ti.template(),
     pos:ti.template(),
 ):
     for i in range(NV):
         if inv_mass[i] != 0.0:
-            pos[i] += omega * acc_pos[i]
+            pos[i] += omega * dpos[i]
 
 @ti.kernel
 def update_vel(
@@ -206,9 +206,9 @@ def collision(pos:ti.template()):
             pos[i][2] = 0.0
 
 @ti.kernel 
-def reset_accpos(acc_pos:ti.template()):
+def reset_dpos(dpos:ti.template()):
     for i in range(NV):
-        acc_pos[i] = ti.Vector([0.0, 0.0, 0.0])
+        dpos[i] = ti.Vector([0.0, 0.0, 0.0])
 
 
 
@@ -238,10 +238,10 @@ def step_xpbd(max_iter):
     residual[0] = np.linalg.norm(dual_residual.to_numpy())
 
     for i in range(max_iter):
-        reset_accpos(acc_pos)
-        # solve_subspace_constraints_xpbd(labels, numerator, denominator, numerator_lumped, denominator_lumped, y_jprime, dLambda, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
-        solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, acc_pos, pos)
-        update_pos(inv_mass, acc_pos, pos)
+        reset_dpos(dpos)
+        # solve_subspace_constraints_xpbd(labels, numerator, denominator, numerator_lumped, denominator_lumped, y_jprime, dLambda, inv_mass, edge, rest_len, lagrangian, dpos, pos)
+        solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
+        update_pos(inv_mass, dpos, pos)
         collision(pos)
 
         residual[i+1] = np.linalg.norm(dual_residual.to_numpy())
@@ -411,16 +411,16 @@ def transfer_back_to_pos_mfree_kernel():
         gradient = gradC[i, 0]
         
         if invM0 != 0.0:
-            acc_pos[idx0] += invM0 * delta_lagrangian * gradient
+            dpos[idx0] += invM0 * delta_lagrangian * gradient
         if invM1 != 0.0:
-            acc_pos[idx1] -= invM1 * delta_lagrangian * gradient
+            dpos[idx1] -= invM1 * delta_lagrangian * gradient
 
 
 def transfer_back_to_pos_mfree(x):
     dLambda.from_numpy(x)
-    reset_accpos(acc_pos)
+    reset_dpos(dpos)
     transfer_back_to_pos_mfree_kernel()
-    update_pos(inv_mass, acc_pos, pos)
+    update_pos(inv_mass, dpos, pos)
     collision(pos)
 
 def spy_A(A,b):

@@ -4,6 +4,7 @@ import taichi as ti
 
 # TODO: 注意！当前的参数是hard-code进去的，实际上并没使用json，后面会改掉。
 
+ti.init()
 
 class Parm:
     pass

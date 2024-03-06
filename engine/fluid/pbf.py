@@ -3,12 +3,10 @@
 # Modified by Chunlei Li, change to 3D, 2022/7/4
 
 import math
-
 import numpy as np
-
 import taichi as ti
 
-# ti.init()
+ti.init()
 
 screen_res = (800, 800)
 screen_to_world_ratio = 20.0

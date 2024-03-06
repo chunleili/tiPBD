@@ -591,11 +591,11 @@ def collsion_response(pos: ti.template()):
 
 
 
-def transfer_back_to_pos_mfree(x,dLambda,acc_pos,pos):
+def transfer_back_to_pos_mfree(x,dLambda,dpos,pos):
     dLambda.from_numpy(x)
-    reset_accpos(acc_pos)
+    reset_dpos(dpos)
     transfer_back_to_pos_mfree_kernel()
-    update_pos(inv_mass, acc_pos, pos)
+    update_pos(inv_mass, dpos, pos)
     collision(pos)
 
 

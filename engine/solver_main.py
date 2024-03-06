@@ -37,7 +37,7 @@ def solver_main():
         meta.is_standalone = True
         standalone_solver.main()
     elif meta.get_common("simulation_method") == "shape_matching_rigidbody":
-        import engine.shape_matching.rigidbody as standalone_solver
+        import engine.rigid.rigidbody as standalone_solver
 
         meta.is_standalone = True
         standalone_solver.main()

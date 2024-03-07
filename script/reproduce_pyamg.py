@@ -65,7 +65,7 @@ def test_amg(mat_size = 10):
 
     print("Solving rep_noSmoother...")
     r_norms_noSmoother = []
-    x_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R, P, r_norms_noSmoother)
+    x_noSmoother, coarse_residuals = timer_wrapper(solve_rep_noSmoother, A, b, x0, R, P, r_norms_noSmoother)
 
 
 
@@ -103,7 +103,9 @@ def test_amg(mat_size = 10):
     print_residuals(r_norms_noSmoother, "rep_noSmoother")
     # print_residuals(r_norms_direct, "direct")
     # print_residuals(r_norms_GS, "GS")
-    
+
+    print_residuals(coarse_residuals, "coarse_residuals")
+
     fig, axs = plt.subplots(2, 1, figsize=(8, 8))
     plot_r_norms(r_norms_pyamg, axs[0], title=plot_title,linestyle="-",label="pyamg")
     # plot_r_norms(r_norms_direct, axs[0], linestyle="-.",label="direct")
@@ -112,6 +114,7 @@ def test_amg(mat_size = 10):
     # plot_r_norms(r_norms_GS, axs[0], title=plot_title, linestyle=":",label="GS")
     # plot_r_norms(r_norms_simplest, axs[0], title=plot_title, linestyle="-.",label="simplest")
     # plot_r_norms(r_norms_repAnorm, axs[1], title=plot_title, linestyle="-.",label="repr_Anorm")
+    plot_r_norms(coarse_residuals, axs[1], title=plot_title, linestyle="-.",label="coarse_residuals")
 
     fig.canvas.manager.set_window_title(plot_title)
     plt.tight_layout()
@@ -157,7 +160,9 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
 
     A2 = R @ A @ P
 
-    
+    # out_dir = f"./result/test/"
+    # print(f"writting A2 to {out_dir}")
+    # scipy.io.mmwrite(out_dir + f"A2.mtx", A2)
 
     x = x0.copy()
 
@@ -172,6 +177,8 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
     x = np.ravel(x)
 
     it = 0
+
+    coarse_residuals = []
     while True:  # it <= maxiter and normr >= tol:
         # gauss_seidel(A, x, b, iterations=1)  # presmoother
 
@@ -181,7 +188,14 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
 
         coarse_x = np.zeros_like(coarse_b)
 
+        coarse_normr = np.linalg.norm(coarse_b)
+        coarse_residuals.append(coarse_normr)
+
         coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
+
+        coarse_normr = np.linalg.norm(np.linalg.norm(coarse_b - A2 @ coarse_x))
+        coarse_residuals.append(coarse_normr)
+
 
         x += P @ coarse_x  # coarse grid correction
 
@@ -193,9 +207,9 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
         if residuals is not None:
             residuals.append(normr)
         if normr < tol * normb:
-            return x
+            return x, coarse_residuals
         if it == maxiter:
-            return x
+            return x, coarse_residuals
 
 def solve_rep(A, b, x0, R, P, residuals=[]):
     tol = 1e-3

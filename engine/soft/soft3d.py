@@ -12,14 +12,8 @@ import meshio
 from collections import namedtuple
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-l", "--load_at", type=int, default=-1)
-parser.add_argument("-s", "--save_at", type=int, default=-1)
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
-parser.add_argument("-e", "--log_energy_range", nargs=2, type=int, default=(-1, -1))
-parser.add_argument("-r", "--log_residual_range", nargs=2, type=int, default=(-1, -1))
-parser.add_argument("-p", "--pause_at", type=int, default=-1)
-parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
-parser.add_argument("-f", "--fine_iterations", type=int, default=5)
+parser.add_argument("--max_iter", type=int, default=30)
 parser.add_argument("--omega", type=float, default=0.1)
 parser.add_argument("--mu", type=float, default=1e6)
 parser.add_argument("--dt", type=float, default=3e-3)
@@ -27,12 +21,12 @@ parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument(
-    "--solver", type=str, default="Jacobi", choices=["Jacobi", "GaussSeidel", "DirectSolver", "SOR", "AMG", "HPBD"]
+    "--solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"]
 )
 
-# default_model = "bunny1k2k" # "cube" "bunny1k2k" "toy"
-# parser.add_argument("--coarse_model_path", type=str, default=f"data/model/{default_model}/coarse.node")
-# parser.add_argument("--fine_model_path", type=str, default=f"data/model/{default_model}/fine.node")
+default_model = "bunny1k2k" # "cube" "bunny1k2k" "toy"
+parser.add_argument("--coarse_model_path", type=str, default=f"data/model/{default_model}/coarse.node")
+parser.add_argument("--fine_model_path", type=str, default=f"data/model/{default_model}/fine.node")
 parser.add_argument("--model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
 
@@ -51,14 +45,6 @@ class Meta:
         # control parameters
         self.args = parser.parse_args()
         self.frame = 0
-        self.max_frame = self.args.max_frame
-        self.log_energy_range = range(*self.args.log_energy_range)
-        self.log_residual_range = range(*self.args.log_residual_range)
-        self.frame_to_save = self.args.save_at
-        self.load_at = self.args.load_at
-        self.pause = False
-        self.pause_at = self.args.pause_at
-        self.use_multigrid = True
 
         # physical parameters
         self.omega = self.args.omega  # SOR factor, default 0.1
@@ -164,7 +150,7 @@ def build_face_indices(tet_indices):
     return face_indices
 
 
-class ArapMultigrid:
+class SoftBody:
     def __init__(self, path):
         self.model_pos, self.model_tet, self.model_tri = read_tet(path, build_face_flag=True)
         self.NV = len(self.model_pos)
@@ -217,6 +203,8 @@ class ArapMultigrid:
         info(f"Initializing {self.name} mesh")
 
         # read models
+        self.model_pos = self.model_pos.astype(np.float32)
+        self.model_tet = self.model_tet.astype(np.int32)
         self.pos.from_numpy(self.model_pos)
         self.tet_indices.from_numpy(self.model_tet)
 
@@ -244,12 +232,12 @@ class ArapMultigrid:
             # init by enlarge 1.5x
             self.pos.from_numpy(self.model_pos * 1.5)
 
-        # set max_iter
-        if self.name == "coarse":
-            self.max_iter = meta.args.coarse_iterations
-        elif self.name == "fine":
-            self.max_iter = meta.args.fine_iterations
-        info(f"{self.name} max_iter:{self.max_iter}")
+        # # set max_iter
+        # if self.name == "coarse":
+        #     self.max_iter = meta.args.coarse_iterations
+        # elif self.name == "fine":
+        #     self.max_iter = meta.args.fine_iterations
+        # info(f"{self.name} max_iter:{self.max_iter}")
 
     def solve_constraints(self):
         solve_constraints_kernel(
@@ -336,18 +324,18 @@ def init_physics(
         inv_mass[i] = 1.0 / mass[i]
 
     # init alpha_tilde
-    avg_alpha_tilde = 0.0
-    max_alpha_tilde = 0.0
-    min_alpha_tilde = 1e10
+    # avg_alpha_tilde = 0.0
+    # max_alpha_tilde = 0.0
+    # min_alpha_tilde = 1e10
     for i in alpha_tilde:
         alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V[i]
-        avg_alpha_tilde += alpha_tilde[i]
-        max_alpha_tilde = ti.math.max(max_alpha_tilde, alpha_tilde[i])
-        min_alpha_tilde = ti.math.min(min_alpha_tilde, alpha_tilde[i])
-    avg_alpha_tilde /= alpha_tilde.shape[0]
-    print("avg_alpha_tilde: ", avg_alpha_tilde)
-    print("max_alpha_tilde: ", max_alpha_tilde)
-    print("min_alpha_tilde: ", min_alpha_tilde)
+        # avg_alpha_tilde += alpha_tilde[i]
+        # max_alpha_tilde = ti.math.max(max_alpha_tilde, alpha_tilde[i])
+        # min_alpha_tilde = ti.math.min(min_alpha_tilde, alpha_tilde[i])
+    # avg_alpha_tilde /= alpha_tilde.shape[0]
+    # print("avg_alpha_tilde: ", avg_alpha_tilde)
+    # print("max_alpha_tilde: ", max_alpha_tilde)
+    # print("min_alpha_tilde: ", min_alpha_tilde)
 
     # init par_2_tet
     for i in tet_indices:
@@ -599,7 +587,7 @@ def transfer_back_to_pos_mfree(x,dLambda,dpos,pos):
     collision(pos)
 
 
-def substep_all_solver(ist, max_iter=1, solver="GaussSeidel", P=None, R=None):
+def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=None):
     # ist is instance of fine or coarse
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
@@ -635,15 +623,15 @@ def substep_all_solver(ist, max_iter=1, solver="GaussSeidel", P=None, R=None):
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
 
-        if solver == "GaussSeidel":
+        if solver_type == "GaussSeidel":
             x = np.zeros_like(b)
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 r_norm = np.linalg.norm(A @ x - b)
                 print(f"{ite} r:{r_norm:.2g}")
-        elif solver == "DirectSolver":
+        elif solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
-        elif solver == "AMG":
+        elif solver_type == "AMG":
             x = solve_pyamg_my2(A, b, x0, R, P)
 
         dlambda = x
@@ -941,14 +929,15 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    if meta.args.solver == "AMG":
-        fine = ArapMultigrid(meta.args.fine_model_path)
-        coarse = ArapMultigrid(meta.args.coarse_model_path)
+    if meta.args.solver_type == "AMG":
+        fine = SoftBody(meta.args.fine_model_path)
+        coarse = SoftBody(meta.args.coarse_model_path)
         fine.initialize()
         coarse.initialize()
+        R,P = compute_R_and_P(fine) 
         ist = fine
     else:
-        ist = ArapMultigrid(meta.args.model_path)
+        ist = SoftBody(meta.args.model_path)
         ist.initialize()
 
     clean_result_dir(out_dir)
@@ -958,7 +947,7 @@ def main():
         info(f"frame {meta.frame}")
         t = time()
 
-        substep_all_solver(ist, 30, "GaussSeidel")
+        substep_all_solver(ist, meta.args.max_iter, meta.args.solver_type)
 
         if export_obj:
             write_obj(out_dir + f"{meta.frame:04d}.obj", ist.pos.to_numpy(), ist.model_tri)
@@ -966,7 +955,7 @@ def main():
         meta.frame += 1
         info(f"step time: {time() - t:.2g} s")
             
-        if meta.frame == meta.max_frame:
+        if meta.frame == meta.args.max_frame:
             exit()
 
 if __name__ == "__main__":

@@ -63,17 +63,20 @@ def test_amg(mat_size = 10):
     r_norms_rep = []
     x_rep = timer_wrapper(solve_rep, A, b, x0, R, P, r_norms_rep)
 
-    print("Solving simplest...")
-    r_norms_simplest = []
-    x_simplest = timer_wrapper(solve_simplest, A, b, R, P, r_norms_simplest)
-
-    print("Solving rep_Anorm...")
-    r_norms_repAnorm = []
-    x_rep = timer_wrapper(solve_rep_Anorm, A, b, x0, R, P, r_norms_repAnorm)
-
     print("Solving rep_noSmoother...")
     r_norms_noSmoother = []
-    x_rep = timer_wrapper(solve_rep_noSmoother, A, b, x0, R, P, r_norms_noSmoother)
+    x_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R, P, r_norms_noSmoother)
+
+
+
+    # print("Solving simplest...")
+    # r_norms_simplest = []
+    # x_simplest = timer_wrapper(solve_simplest, A, b, R, P, r_norms_simplest)
+
+    # print("Solving rep_Anorm...")
+    # r_norms_repAnorm = []
+    # x_rep = timer_wrapper(solve_rep_Anorm, A, b, x0, R, P, r_norms_repAnorm)
+
 
     # print("Solving by direct solver...")
     # r_norms_direct = []
@@ -87,16 +90,16 @@ def test_amg(mat_size = 10):
     # x_GS = gauss_seidel(A, x0, b, iterations=1)
     # r_norms_GS.append(np.linalg.norm(b - A @ x_GS))
 
-    diff = x_simplest - x_pyamg
-    print(f"max simplest diff:{np.max(diff)}, in {np.argmax(diff)}")
+    diff = x_noSmoother - x_pyamg
+    print(f"max x_noSmoother diff:{np.max(diff)}, in {np.argmax(diff)}")
     diff2 = x_rep - x_pyamg
     print(f"max rep diff:{np.max(diff2)}, in {np.argmax(diff2)}")
 
     # ------------------------------- print results ------------------------------- #
     print_residuals(r_norms_pyamg, "pyamg")
     print_residuals(r_norms_rep, "rep")
-    print_residuals(r_norms_simplest, "simplest")
-    print_residuals(r_norms_repAnorm, "rep_Anorm")
+    # print_residuals(r_norms_simplest, "simplest")
+    # print_residuals(r_norms_repAnorm, "rep_Anorm")
     print_residuals(r_norms_noSmoother, "rep_noSmoother")
     # print_residuals(r_norms_direct, "direct")
     # print_residuals(r_norms_GS, "GS")
@@ -105,7 +108,7 @@ def test_amg(mat_size = 10):
     plot_r_norms(r_norms_pyamg, axs[0], title=plot_title,linestyle="-",label="pyamg")
     # plot_r_norms(r_norms_direct, axs[0], linestyle="-.",label="direct")
     plot_r_norms(r_norms_rep, axs[0], title=plot_title, linestyle="--",label="reprodced pyamg")
-    plot_r_norms(r_norms_noSmoother, axs[1], title=plot_title, linestyle="--",label="no smoother A norm")
+    plot_r_norms(r_norms_noSmoother, axs[0], title=plot_title, linestyle="--",label="no smoother")
     # plot_r_norms(r_norms_GS, axs[0], title=plot_title, linestyle=":",label="GS")
     # plot_r_norms(r_norms_simplest, axs[0], title=plot_title, linestyle="-.",label="simplest")
     # plot_r_norms(r_norms_repAnorm, axs[1], title=plot_title, linestyle="-.",label="repr_Anorm")
@@ -154,15 +157,14 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
 
     A2 = R @ A @ P
 
-    x = x0
+    
 
-    # normb = np.linalg.norm(b)
-    normb = A_norm(A,b)
+    x = x0.copy()
+
+    normb = np.linalg.norm(b)
     if normb == 0.0:
         normb = 1.0  # set so that we have an absolute tolerance
-    # normr = np.linalg.norm(b - A @ x)
-    normr = A_norm(A, b-A@x)
-        
+    normr = np.linalg.norm(b - A @ x)
     if residuals is not None:
         residuals[:] = [normr]  # initial residual
 
@@ -187,8 +189,7 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
 
         it += 1
 
-        # normr = np.linalg.norm(b - A @ x)
-        normr = A_norm(A, b-A@x)
+        normr = np.linalg.norm(b - A @ x)
         if residuals is not None:
             residuals.append(normr)
         if normr < tol * normb:
@@ -196,14 +197,13 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
         if it == maxiter:
             return x
 
-
 def solve_rep(A, b, x0, R, P, residuals=[]):
     tol = 1e-3
     maxiter = 1
 
     A2 = R @ A @ P
 
-    x = x0
+    x = x0.copy()
 
     normb = np.linalg.norm(b)
     if normb == 0.0:
@@ -248,7 +248,7 @@ def solve_rep_Anorm(A, b, x0, R, P, residuals=[]):
 
     A2 = R @ A @ P
 
-    x = x0
+    x = x0.copy()
 
     normb = A_norm(A, b)
     if normb == 0.0:
@@ -336,7 +336,7 @@ def solve_simplest(A, b, R, P, residuals):
     maxiter = 1
     A2 = R @ A @ P
     x0 = np.zeros_like(b) # initial guess x0
-    x = x0
+    x = x0.copy()
     normb = np.linalg.norm(b)
     if normb == 0.0:
         normb = 1.0  # set so that we have an absolute tolerance

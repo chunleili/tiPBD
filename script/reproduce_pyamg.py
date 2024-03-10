@@ -53,7 +53,8 @@ def test_amg(mat_size = 10):
     # P = mmread("P.mtx")
     print(f"R: {R.shape}, P: {P.shape}")
 
-    spec_radius_two_grid_operator(A, R, P)
+    # spec_radius_two_grid_operator(A, R, P)
+
     # ------------------------------- test solvers ------------------------------- #
     x0 = np.zeros_like(b)
 

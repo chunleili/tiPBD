@@ -53,6 +53,7 @@ def test_amg(mat_size = 10):
     # P = mmread("P.mtx")
     print(f"R: {R.shape}, P: {P.shape}")
 
+    spec_radius_two_grid_operator(A, R, P)
     # ------------------------------- test solvers ------------------------------- #
     x0 = np.zeros_like(b)
 
@@ -144,6 +145,23 @@ def generate_A_b_pyamg(n=10):
         np.savetxt("b.txt", b)
     return A, b
 
+def spec_radius_two_grid_operator(A, R, P):
+    # find spectral radius of I-S
+    A2 = R @ A @ P
+    A2_inv = scipy.sparse.linalg.inv(A2)
+    S = P @ A2_inv @ R @ A
+
+    I_S = np.identity(S.shape[0]) - S
+    eigens = scipy.sparse.linalg.eigs(I_S)
+    spec_radius = max(abs(eigens[0]))
+    print("eigens:", eigens[0])
+    print("spec_radius:", spec_radius)
+    
+    # eigens_S = scipy.sparse.linalg.eigs(S)
+    # spec_radius_S = max(abs(eigens_S[0]))
+    # print("eigens S:", eigens_S[0])
+    # print("spec_radius S:", spec_radius_S)
+    return spec_radius
 
 # judge if A is positive definite
 # https://stackoverflow.com/a/44287862/19253199

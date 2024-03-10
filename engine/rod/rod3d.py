@@ -277,7 +277,7 @@ def compute_C_and_gradC_kernel(
 def fill_gradC_triplets_kernel(
     ii:ti.types.ndarray(dtype=ti.i32),
     jj:ti.types.ndarray(dtype=ti.i32),
-    vv:ti.types.ndarray(dtype=ti.i32),
+    vv:ti.types.ndarray(dtype=ti.f32),
     gradC: ti.template(),
     edge: ti.template(),
 ):

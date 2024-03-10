@@ -30,10 +30,10 @@ plot_title = parser.parse_args().title
 parser.add_argument("-f", type=int, default=10)
 frame = parser.parse_args().f
 save_fig_instad_of_show = False
+generate_data = False
 
 def test_amg(mat_size = 10):
     # ------------------------------- prepare data ------------------------------- #
-    generate_data = True
     if(generate_data):
         print("generating data...")
         # A, b = generate_A_b_pyamg(n=mat_size)
@@ -45,6 +45,7 @@ def test_amg(mat_size = 10):
         b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
 
     # generate R by pyamg
+    print("generating R and P by pyamg...")
     ml = pyamg.ruge_stuben_solver(A, max_levels=2)
     P = ml.levels[0].P
     R = ml.levels[0].R
@@ -61,7 +62,7 @@ def test_amg(mat_size = 10):
 
     print("Solving rep...")
     r_norms_rep = []
-    x_rep = timer_wrapper(solve_rep, A, b, x0, R, P, r_norms_rep)
+    # x_rep = timer_wrapper(solve_rep, A, b, x0, R, P, r_norms_rep)
 
     print("Solving rep_noSmoother...")
     r_norms_noSmoother = []
@@ -92,8 +93,8 @@ def test_amg(mat_size = 10):
 
     diff = x_noSmoother - x_pyamg
     print(f"max x_noSmoother diff:{np.max(diff)}, in {np.argmax(diff)}")
-    diff2 = x_rep - x_pyamg
-    print(f"max rep diff:{np.max(diff2)}, in {np.argmax(diff2)}")
+    # diff2 = x_rep - x_pyamg
+    # print(f"max rep diff:{np.max(diff2)}, in {np.argmax(diff2)}")
 
     # ------------------------------- print results ------------------------------- #
     print_residuals(r_norms_pyamg, "pyamg")
@@ -119,7 +120,7 @@ def test_amg(mat_size = 10):
     fig.canvas.manager.set_window_title(plot_title)
     plt.tight_layout()
     if save_fig_instad_of_show:
-        plt.savefig(f"result/residuals_{plot_title}.png")
+        plt.savefig(f"result/test/residuals_{plot_title}.png")
     else:
         plt.show()
 
@@ -417,6 +418,16 @@ def plot_r_norms(data, ax, *args, **kwargs):
     ax.set_xlabel("iteration")
     ax.set_ylabel("residual")
     ax.legend(loc="upper right")
+
+
+
+def test_different_N():
+    global plot_title
+    for case_num in range(100):
+        N = np.random.randint(1000, 20000)
+        plot_title = f"case_{case_num}_A_size_{N}"
+        print(f"\ncase:{case_num}\tN: {N}")
+        test_amg(N)
 
 if __name__ == "__main__":
     test_amg(1000)

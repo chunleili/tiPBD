@@ -54,6 +54,8 @@ def test_amg(mat_size = 10):
     print(f"R: {R.shape}, P: {P.shape}")
 
     # spec_radius_two_grid_operator(A, R, P)
+    # codition_number_of_A = np.linalg.cond(A.toarray())
+    # print(f"condition number of A: {codition_number_of_A}")
 
     # ------------------------------- test solvers ------------------------------- #
     x0 = np.zeros_like(b)

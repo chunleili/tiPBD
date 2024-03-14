@@ -14,7 +14,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=64)
+parser.add_argument("-N", type=int, default=3)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -616,13 +616,14 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
         transfer_back_to_pos_mfree(x)
 
         if export_residual:
-            r_norm = np.linalg.norm(A @ x - b)
+            linsys_r = np.linalg.norm(A @ x - b)
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-            dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(np.float32)
-            with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
-                f.write(f"{r_norm}\n")
-            with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
-                f.write(f"{dual_r}\n")
+            dual_r = np.linalg.norm(dual_residual.to_numpy())
+            print(f"iter {ite} r: {linsys_r:.2e}, dual_r: {dual_r:.2e}")
+            # with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
+            #     f.write(f"{linsys_r}\n")
+            # with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
+            #     f.write(f"{dual_r}\n")
     update_vel(old_pos, inv_mass, vel, pos)
 
 

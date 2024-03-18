@@ -52,8 +52,10 @@ edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
 # numerator_lumped    = ti.field(shape=(new_M), dtype = ti.float32)
 # denominator_lumped  = ti.field(shape=(new_M), dtype = ti.float32)
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
-adjacent_edge_abc   = ti.field(shape=(NE,42),  dtype = ti.int32)
-adjacent_edge   = ti.field(shape=(NE,14),  dtype = ti.int32)
+adjacent_edge = ti.field(dtype=int, shape=(NE, 20))
+num_adjacent_edge = ti.field(dtype=int, shape=(NE))
+# adjacent_edge = (-1)*np.ones((NE, 20), dtype=np.int32)
+# num_adjacent_edge = np.zeros((NE), dtype=np.int32)
 
 @ti.kernel
 def init_pos(
@@ -129,7 +131,7 @@ def init_edge_center(
         p1, p2 = pos[idx1], pos[idx2]
         edge_center[i] = (p1 + p2) / 2.0
 
-def init_adjacent_edge_abc():
+def init_load_adjacent():
     num_adjacent_edge_np = np.loadtxt(misc_dir_path+"num_adjacent_edge.txt", dtype=np.int32)
     MAX = max(num_adjacent_edge_np) #14
     
@@ -147,6 +149,45 @@ def init_adjacent_edge_abc():
         b = np.array([pad_list(list(x), MAX) for x in all_data])
     adjacent_edge.from_numpy(b)
     ...
+
+
+@ti.kernel
+def init_adjacent_edge_kernel(adjacent_edge:ti.template(), num_adjacent_edge:ti.template(), edge:ti.template()):
+    # adjacent_edge.fill(-1)
+    for i in range(NE):
+        for j in range(adjacent_edge.shape[1]):
+            adjacent_edge[i,j] = -1
+
+    for i in range(NE):
+        a=edge[i][0]
+        b=edge[i][1]
+        for j in range(i+1, NE):
+            if j==i:
+                continue
+            a1=edge[j][0]
+            b1=edge[j][1]
+            if a==a1 or a==b1 or b==a1 or b==b1:
+                numi = num_adjacent_edge[i]
+                numj = num_adjacent_edge[j]
+                adjacent_edge[i,numi]=j
+                adjacent_edge[j,numj]=i
+                num_adjacent_edge[i]+=1
+                num_adjacent_edge[j]+=1 
+
+def init_adjacent_edge(adjacent_edge, num_adjacent_edge, edge):
+    for i in range(NE):
+        a=edge[i][0]
+        b=edge[i][1]
+        for j in range(i+1, NE):
+            if j==i:
+                continue
+            a1=edge[j][0]
+            b1=edge[j][1]
+            if a==a1 or a==b1 or b==a1 or b==b1:
+                adjacent_edge[i][num_adjacent_edge[i]]=j
+                adjacent_edge[j][num_adjacent_edge[j]]=i
+                num_adjacent_edge[i]+=1
+                num_adjacent_edge[j]+=1
 
 @ti.kernel
 def semi_euler(
@@ -742,7 +783,10 @@ init_tri(tri)
 init_edge(edge, rest_len, pos)
 if solver_type=="AMG":
     init_edge_center(edge_center, edge, pos)
-    init_adjacent_edge_abc()
+
+    tic = time.time()
+    init_adjacent_edge_kernel(adjacent_edge, num_adjacent_edge, edge)
+    print(f"init_adjacent_edge time: {time.time()-tic:.3f}s")
 
     if save_P:
         R, P, labels, new_M = compute_R_and_P_kmeans()

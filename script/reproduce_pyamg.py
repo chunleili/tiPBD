@@ -66,7 +66,7 @@ def test_amg(mat_size = 10):
 
     print("Solving rep...")
     r_norms_rep = []
-    # x_rep = timer_wrapper(solve_rep, A, b, x0, R, P, r_norms_rep)
+    x_rep = timer_wrapper(solve_rep, A, b, x0, R, P, r_norms_rep)
 
     print("Solving rep_noSmoother...")
     r_norms_noSmoother = []

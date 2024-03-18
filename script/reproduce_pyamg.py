@@ -74,7 +74,13 @@ def test_amg(mat_size = 10):
     r_norms_noSmoother = []
     x_noSmoother, coarse_residuals = timer_wrapper(solve_rep_noSmoother, A, b, x0, R, P, r_norms_noSmoother)
 
+    print("Solving FAS...")
+    r_norms_FAS = []
+    x_FAS = timer_wrapper(solve_FAS, A, b, x0, R, P, r_norms_FAS)
 
+    print("Solving AMG...")
+    r_norms_AMG = []
+    x_AMG = timer_wrapper(solve_amg, A, b, x0, R, P, r_norms_AMG)
 
     # print("Solving simplest...")
     # r_norms_simplest = []
@@ -110,18 +116,19 @@ def test_amg(mat_size = 10):
     print_residuals(r_norms_noSmoother, "rep_noSmoother")
     # print_residuals(r_norms_direct, "direct")
     # print_residuals(r_norms_GS, "GS")
-
-    print_residuals(coarse_residuals, "coarse_residuals")
+    # print_residuals(r_norms_FAS, "FAS")
+    print_residuals(r_norms_AMG, "AMG")
 
     fig, axs = plt.subplots(2, 1, figsize=(8, 8))
     plot_r_norms(r_norms_pyamg, axs[0], title=plot_title,linestyle="-",label="pyamg")
     # plot_r_norms(r_norms_direct, axs[0], linestyle="-.",label="direct")
     plot_r_norms(r_norms_rep, axs[0], title=plot_title, linestyle="--",label="reprodced pyamg")
     plot_r_norms(r_norms_noSmoother, axs[0], title=plot_title, linestyle="--",label="no smoother")
+    plot_r_norms(r_norms_AMG, axs[0], title=plot_title, linestyle="--",label="AMG")
     # plot_r_norms(r_norms_GS, axs[0], title=plot_title, linestyle=":",label="GS")
     # plot_r_norms(r_norms_simplest, axs[0], title=plot_title, linestyle="-.",label="simplest")
     # plot_r_norms(r_norms_repAnorm, axs[1], title=plot_title, linestyle="-.",label="repr_Anorm")
-    plot_r_norms(coarse_residuals, axs[1], title=plot_title, linestyle="-.",label="coarse_residuals")
+    # plot_r_norms(r_norms_FAS, axs[1], title=plot_title, linestyle="-.",label="FAS")
 
     fig.canvas.manager.set_window_title(plot_title)
     plt.tight_layout()
@@ -205,6 +212,43 @@ def solve_pyamg(ml, b, r_norms=[]):
     x = ml.solve(b, tol=1e-3, residuals=r_norms, maxiter=1)
     return x
 
+def solve_FAS(A, b, x0, R, P, residuals=[]):
+    tol = 1e-3
+    maxiter = 1
+
+    A2 = R @ A @ P
+
+    x = x0.copy()
+
+    normb = np.linalg.norm(b)
+    if normb == 0.0:
+        normb = 1.0  # set so that we have an absolute tolerance
+    normr = np.linalg.norm(b - A @ x)
+    if residuals is not None:
+        residuals[:] = [normr]  # initial residual
+
+    b = np.ravel(b)
+    x = np.ravel(x)
+
+    it = 0
+
+    while True:  # it <= maxiter and normr >= tol:
+        # gauss_seidel(A, x, b, iterations=1)  # presmoother
+        residual = b - A @ x
+        v_c = R@x
+        coarse_b = R @ residual + A2@v_c  # restriction
+        coarse_x = scipy.sparse.linalg.spsolve(A2, coarse_b)
+        x += P @ coarse_x  # coarse grid correction
+        # gauss_seidel(A, x, b, iterations=1)  # postsmoother
+        it += 1
+        normr = np.linalg.norm(b - A @ x)
+        if residuals is not None:
+            residuals.append(normr)
+        if normr < tol * normb:
+            return x
+        if it == maxiter:
+            return x
+        
 
 def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
     tol = 1e-3
@@ -307,6 +351,36 @@ def solve_rep(A, b, x0, R, P, residuals=[]):
         if it == maxiter:
             return x
 
+def solve_amg(A, b, x0, R, P, residuals=[]):
+    tol = 1e-3
+    maxiter = 1
+    A2 = R @ A @ P
+    x = x0
+    normb = np.linalg.norm(b)
+    if normb == 0.0:
+        normb = 1.0  # set so that we have an absolute tolerance
+    normr = np.linalg.norm(b - A @ x)
+    if residuals is not None:
+        residuals[:] = [normr]  # initial residual
+    b = np.ravel(b)
+    x = np.ravel(x)
+    it = 0
+    while True:  # it <= maxiter and normr >= tol:
+        gauss_seidel(A, x, b, iterations=1)  # presmoother
+        residual = b - A @ x
+        coarse_b = R @ residual  # restriction
+        coarse_x = np.zeros_like(coarse_b)
+        coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
+        x += P @ coarse_x 
+        gauss_seidel(A, x, b, iterations=1)
+        it += 1
+        normr = np.linalg.norm(b - A @ x)
+        if residuals is not None:
+            residuals.append(normr)
+        if normr < tol * normb:
+            return x
+        if it == maxiter:
+            return x
 
 def solve_rep_Anorm(A, b, x0, R, P, residuals=[]):
     tol = 1e-3

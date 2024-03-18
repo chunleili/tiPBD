@@ -14,7 +14,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=3)
+parser.add_argument("-N", type=int, default=32)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -629,6 +629,12 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
         elif solver_type == "AMG":
+            import pyamg
+            # print("generating R and P by pyamg...")
+            ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+            P = ml.levels[0].P
+            R = ml.levels[0].R
+            # print(f"R: {R.shape}, P: {P.shape}")
             x = solve_amg(A, b, x0, R, P, residuals=[])
         
         transfer_back_to_pos_mfree(x)
@@ -714,8 +720,7 @@ init_tri(tri)
 init_edge(edge, rest_len, pos)
 if solver_type=="AMG":
     init_edge_center(edge_center, edge, pos)
-    init_adjacent_edge_abc()
-
+    # init_adjacent_edge_abc()
     if save_P:
         R, P, labels, new_M = compute_R_and_P_kmeans()
         scipy.io.mmwrite(misc_dir_path + "R.mtx", R)

@@ -65,8 +65,9 @@ def init_pos(
         # pos[idx] = ti.Vector([i / N,  j / N, 0.5])  # vertical hang
         pos[idx] = ti.Vector([i / N, 0.5, j / N]) # horizontal hang
         inv_mass[idx] = 1.0
-    inv_mass[N] = 0.0
-    inv_mass[NV-1] = 0.0
+    if not scale_instead_of_attach:
+        inv_mass[N] = 0.0
+        inv_mass[NV-1] = 0.0
 
 
 @ti.kernel
@@ -285,9 +286,10 @@ def update_vel(
 
 @ti.kernel 
 def collision(pos:ti.template()):
-    for i in range(NV):
-        if pos[i][2] < -2.0:
-            pos[i][2] = 0.0
+    ...
+    # for i in range(NV):
+    #     if pos[i][2] < -2.0:
+    #         pos[i][2] = 0.0
 
 @ti.kernel 
 def reset_dpos(dpos:ti.template()):
@@ -671,6 +673,12 @@ def write_obj(filename, pos, tri):
     mesh.write(filename)
     return mesh
 
+@ti.kernel
+def init_scale():
+    scale = 1.5
+    for i in range(NV):
+        pos[i] *= scale
+
 frame_num = 0
 end_frame = 1000
 out_dir = f"./result/test/"
@@ -685,15 +693,19 @@ paused = False
 save_P, load_P = False, True
 use_viewer = False
 export_obj = True
-export_residual = False
+export_residual = True
 solver_type = "GS" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 10
+scale_instead_of_attach = True
 
 timer_all = time.perf_counter()
 init_pos(inv_mass,pos)
 init_tri(tri)
 init_edge(edge, rest_len, pos)
+if scale_instead_of_attach:
+    init_scale()
+
 if solver_type=="AMG":
     init_edge_center(edge_center, edge, pos)
     init_adjacent_edge_abc()

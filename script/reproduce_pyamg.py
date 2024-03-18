@@ -56,6 +56,8 @@ def test_amg(mat_size = 10):
     # spec_radius_two_grid_operator(A, R, P)
     # codition_number_of_A = np.linalg.cond(A.toarray())
     # print(f"condition number of A: {codition_number_of_A}")
+    # judege symmetric:
+    print("A is symmetric:", np.array_equal(A.toarray(), A.toarray().T))
 
     # ------------------------------- test solvers ------------------------------- #
     x0 = np.zeros_like(b)

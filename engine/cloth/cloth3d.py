@@ -510,9 +510,26 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
             x[i] = (b[i] - rsum) / diag
 
 
-def solve_amg(A, b, x0, R, P):
+def gauss_seidel(A, x, b, iterations=1):
+    if not scipy.sparse.isspmatrix_csr(A):
+        raise ValueError("A must be csr matrix!")
+
+    for _iter in range(iterations):
+        # forward sweep
+        # print("forward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+
+        # backward sweep
+        # print("backward sweeping")
+        for _ in range(iterations):
+            amg_core_gauss_seidel(
+                A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
+            )
+    return x
+
+def solve_amg(A, b, x0, R, P, residuals=[]):
     tol = 1e-3
-    residuals = []
     maxiter = 1
     A2 = R @ A @ P
     x = x0
@@ -526,12 +543,13 @@ def solve_amg(A, b, x0, R, P):
     x = np.ravel(x)
     it = 0
     while True:  # it <= maxiter and normr >= tol:
+        gauss_seidel(A, x, b, iterations=1)  # presmoother
         residual = b - A @ x
         coarse_b = R @ residual  # restriction
         coarse_x = np.zeros_like(coarse_b)
         coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
         x += P @ coarse_x 
-        # amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+        gauss_seidel(A, x, b, iterations=1)
         it += 1
         normr = np.linalg.norm(b - A @ x)
         if residuals is not None:
@@ -611,7 +629,7 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
         elif solver_type == "AMG":
-            x = solve_amg(A, b, x0, R, P)
+            x = solve_amg(A, b, x0, R, P, residuals=[])
         
         transfer_back_to_pos_mfree(x)
 
@@ -686,7 +704,7 @@ save_P, load_P = False, True
 use_viewer = False
 export_obj = True
 export_residual = False
-solver_type = "GS" # "AMG", "GS", "XPBD"
+solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 10
 

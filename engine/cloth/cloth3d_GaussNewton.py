@@ -14,7 +14,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=64)
+parser.add_argument("-N", type=int, default=2)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -593,17 +593,19 @@ def substep_GaussNewton():
         fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
         G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
         H = G.transpose() @ ALPHA_INV @ G + h2_inv * MASS
-        H_inv = scipy.sparse.diags(1.0/H.diagonal())
+        # H_inv = scipy.sparse.diags(1.0/H.diagonal())
 
         delta_x = (pos.to_numpy() - x_tilde).flatten()
         gradF = G.transpose() @ ALPHA_INV @ constraints.to_numpy() + h2_inv * MASS @ delta_x
-        dpos = - H_inv @ gradF  #3nx3n x 3nx1 = 3n x 1
-        pos_np = pos_mid.to_numpy().flatten() + dpos
+        
+        dpos_np = scipy.sparse.linalg.spsolve(H, gradF)
+
+        pos_np = pos_mid.to_numpy().flatten() + dpos_np.astype(np.float32)
         pos.from_numpy(pos_np.reshape(-1, 3))
 
-        err = np.linalg.norm(dpos)
-        print(f"iter {ite}, err: {err:.6f}")
-        if err < 1e-6:
+        err = np.linalg.norm(dpos_np)
+        print(f"iter {ite}, err: {err:.1e}")
+        if 1e-15 < err < 1e-6 and ite>1:
             break
     update_vel(old_pos, inv_mass, vel, pos)
 

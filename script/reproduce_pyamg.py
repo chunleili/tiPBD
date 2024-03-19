@@ -31,6 +31,7 @@ parser.add_argument("-f", type=int, default=10)
 frame = parser.parse_args().f
 save_fig_instad_of_show = False
 generate_data = False
+show_plot = True
 
 def test_amg(mat_size = 10):
     # ------------------------------- prepare data ------------------------------- #
@@ -46,97 +47,82 @@ def test_amg(mat_size = 10):
 
     # generate R by pyamg
     print("generating R and P by pyamg...")
-    ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+
+    # ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+    ml = pyamg.smoothed_aggregation_solver(A, max_levels=2)
     P = ml.levels[0].P
     R = ml.levels[0].R
-    # R = mmread("R.mtx")
-    # P = mmread("P.mtx")
     print(f"R: {R.shape}, P: {P.shape}")
 
     # spec_radius_two_grid_operator(A, R, P)
     # codition_number_of_A = np.linalg.cond(A.toarray())
     # print(f"condition number of A: {codition_number_of_A}")
     # judege symmetric:
-    print("A is symmetric:", np.array_equal(A.toarray(), A.toarray().T))
+    # print("A is symmetric:", np.array_equal(A.toarray(), A.toarray().T))
 
     # ------------------------------- test solvers ------------------------------- #
     x0 = np.zeros_like(b)
 
-    print("Solving pyamg...")
-    r_norms_pyamg = []
-    x_pyamg = timer_wrapper(solve_pyamg, ml, b, r_norms_pyamg)
+    # print("Solving pyamg...")
+    # residuals_pyamg = []
+    # _,residuals_pyamg = timer_wrapper(solve_pyamg, ml, b)
 
-    print("Solving rep...")
-    r_norms_rep = []
-    x_rep = timer_wrapper(solve_rep, A, b, x0, R, P, r_norms_rep)
+    # print("Solving rep...")
+    #  = []
+    # x0 = np.zeros_like(b)
+    # _,residuals_rep = timer_wrapper(solve_rep, A, b, x0, R, P)
 
     print("Solving rep_noSmoother...")
-    r_norms_noSmoother = []
-    x_noSmoother, coarse_residuals = timer_wrapper(solve_rep_noSmoother, A, b, x0, R, P, r_norms_noSmoother)
+    residuals_noSmoother = []
+    x0 = np.zeros_like(b)
+    _,residuals_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R, P)
 
-    print("Solving FAS...")
-    r_norms_FAS = []
-    x_FAS = timer_wrapper(solve_FAS, A, b, x0, R, P, r_norms_FAS)
+    print("generating R and P by selecting row...")
+    R2 = scipy.sparse.csr_matrix((2,A.shape[0]), dtype=np.int32)
+    R2[0,0] = 1
+    R2[1,9] = 1
+    P2 = R2.T
+    x0 = np.zeros_like(b)
+    _,residuals_selectRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R2, P2)
 
-    print("Solving AMG...")
-    r_norms_AMG = []
-    x_AMG = timer_wrapper(solve_amg, A, b, x0, R, P, r_norms_AMG)
+    print("generating R and P by removing rows...")
+    R3 = scipy.sparse.identity(A.shape[0], dtype=np.int32)
+    R3=R3.tocsr()
+    R3 = delete_rows_csr(R3, range(0, A.shape[0] - 1, 2))
+    P3 = R3.T
+    print(f"##########R: {R3.shape}, P: {P3.shape}")
+    x0 = np.zeros_like(b)
+    _,residuals_removeRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R3, P3)
 
-    # print("Solving simplest...")
-    # r_norms_simplest = []
-    # x_simplest = timer_wrapper(solve_simplest, A, b, R, P, r_norms_simplest)
+    # ------------------------------- print results ---------------------------- #
+    print_residuals(residuals_noSmoother, "rep_noSmoother")
+    print_residuals(residuals_selectRows, "selectRows")
+    print_residuals(residuals_removeRows, "removeRows")
 
-    # print("Solving rep_Anorm...")
-    # r_norms_repAnorm = []
-    # x_rep = timer_wrapper(solve_rep_Anorm, A, b, x0, R, P, r_norms_repAnorm)
+    if show_plot:
+        fig, axs = plt.subplots(2, 1, figsize=(8, 8))
+        plot_residuals(residuals_noSmoother, axs[0], title=plot_title, linestyle="--",label="pyamg noSmoother")
+        plot_residuals(residuals_selectRows, axs[0], title=plot_title, linestyle="--",label="SelectRow")
+        plot_residuals(residuals_removeRows, axs[0], title=plot_title, linestyle="--",label="removeRows")
+
+        fig.canvas.manager.set_window_title(plot_title)
+        plt.tight_layout()
+        if save_fig_instad_of_show:
+            plt.savefig(f"result/test/residuals_{plot_title}.png")
+        else:
+            plt.show()
 
 
-    # print("Solving by direct solver...")
-    # r_norms_direct = []
-    # r_norms_direct.append(np.linalg.norm(b))
-    # x_direct = scipy.sparse.linalg.spsolve(A, b)
-    # r_norms_direct.append(np.linalg.norm(b - A @ x_direct))
-
-    # print("Solving by GS")
-    # r_norms_GS = []
-    # r_norms_GS.append(np.linalg.norm(b))
-    # x_GS = gauss_seidel(A, x0, b, iterations=1)
-    # r_norms_GS.append(np.linalg.norm(b - A @ x_GS))
-
-    diff = x_noSmoother - x_pyamg
-    print(f"max x_noSmoother diff:{np.max(diff)}, in {np.argmax(diff)}")
-    # diff2 = x_rep - x_pyamg
-    # print(f"max rep diff:{np.max(diff2)}, in {np.argmax(diff2)}")
-
-    # ------------------------------- print results ------------------------------- #
-    print_residuals(r_norms_pyamg, "pyamg")
-    print_residuals(r_norms_rep, "rep")
-    # print_residuals(r_norms_simplest, "simplest")
-    # print_residuals(r_norms_repAnorm, "rep_Anorm")
-    print_residuals(r_norms_noSmoother, "rep_noSmoother")
-    # print_residuals(r_norms_direct, "direct")
-    # print_residuals(r_norms_GS, "GS")
-    # print_residuals(r_norms_FAS, "FAS")
-    print_residuals(r_norms_AMG, "AMG")
-
-    fig, axs = plt.subplots(2, 1, figsize=(8, 8))
-    plot_r_norms(r_norms_pyamg, axs[0], title=plot_title,linestyle="-",label="pyamg")
-    # plot_r_norms(r_norms_direct, axs[0], linestyle="-.",label="direct")
-    plot_r_norms(r_norms_rep, axs[0], title=plot_title, linestyle="--",label="reprodced pyamg")
-    plot_r_norms(r_norms_noSmoother, axs[0], title=plot_title, linestyle="--",label="no smoother")
-    plot_r_norms(r_norms_AMG, axs[0], title=plot_title, linestyle="--",label="AMG")
-    # plot_r_norms(r_norms_GS, axs[0], title=plot_title, linestyle=":",label="GS")
-    # plot_r_norms(r_norms_simplest, axs[0], title=plot_title, linestyle="-.",label="simplest")
-    # plot_r_norms(r_norms_repAnorm, axs[1], title=plot_title, linestyle="-.",label="repr_Anorm")
-    # plot_r_norms(r_norms_FAS, axs[1], title=plot_title, linestyle="-.",label="FAS")
-
-    fig.canvas.manager.set_window_title(plot_title)
-    plt.tight_layout()
-    if save_fig_instad_of_show:
-        plt.savefig(f"result/test/residuals_{plot_title}.png")
-    else:
-        plt.show()
-
+def delete_rows_csr(mat, indices):
+    """
+    Remove the rows denoted by ``indices`` form the CSR sparse matrix ``mat``.
+    """
+    if not isinstance(mat, scipy.sparse.csr_matrix):
+        raise ValueError("works only for CSR format -- use .tocsr() first")
+    indices = list(indices)
+    mask = np.ones(mat.shape[0], dtype=bool)
+    mask[indices] = False
+    return mat[mask]
 
 def timer_wrapper(func, *args, **kwargs):
     t = perf_counter()
@@ -204,13 +190,14 @@ def generate_A_b_psd(n=1000):
 
 def print_residuals(residuals, name="residuals"):
     for i, r in enumerate(residuals):
-        print(f"{name}[{i}] = {r:.3e}")
+        print(f"{name}[{i}] = {r:.8e}")
 
 
 
-def solve_pyamg(ml, b, r_norms=[]):
-    x = ml.solve(b, tol=1e-3, residuals=r_norms, maxiter=1)
-    return x
+def solve_pyamg(ml, b):
+    residuals = []
+    x = ml.solve(b, tol=1e-3, residuals=residuals, maxiter=1)
+    return x, residuals
 
 def solve_FAS(A, b, x0, R, P, residuals=[]):
     tol = 1e-3
@@ -250,15 +237,13 @@ def solve_FAS(A, b, x0, R, P, residuals=[]):
             return x
         
 
-def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
+def solve_rep_noSmoother(A, b, x0, R, P):
+    residuals=[]
     tol = 1e-3
     maxiter = 1
+    x0 = np.zeros_like(b) # FIXME in the future, x0 should be a parameter
 
     A2 = R @ A @ P
-
-    # out_dir = f"./result/test/"
-    # print(f"writting A2 to {out_dir}")
-    # scipy.io.mmwrite(out_dir + f"A2.mtx", A2)
 
     x = x0.copy()
 
@@ -273,8 +258,6 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
     x = np.ravel(x)
 
     it = 0
-
-    coarse_residuals = []
     while True:  # it <= maxiter and normr >= tol:
         # gauss_seidel(A, x, b, iterations=1)  # presmoother
 
@@ -284,14 +267,7 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
 
         coarse_x = np.zeros_like(coarse_b)
 
-        coarse_normr = np.linalg.norm(coarse_b)
-        coarse_residuals.append(coarse_normr)
-
         coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
-
-        coarse_normr = np.linalg.norm(np.linalg.norm(coarse_b - A2 @ coarse_x))
-        coarse_residuals.append(coarse_normr)
-
 
         x += P @ coarse_x  # coarse grid correction
 
@@ -303,9 +279,10 @@ def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
         if residuals is not None:
             residuals.append(normr)
         if normr < tol * normb:
-            return x, coarse_residuals
+            return x, residuals
         if it == maxiter:
-            return x, coarse_residuals
+            return x, residuals
+
 
 def solve_rep(A, b, x0, R, P, residuals=[]):
     tol = 1e-3
@@ -504,7 +481,7 @@ def solve_simplest(A, b, R, P, residuals):
         if it == maxiter:
             return x
 
-def plot_r_norms(data, ax, *args, **kwargs):
+def plot_residuals(data, ax, *args, **kwargs):
     title = kwargs.pop("title", "")
     linestyle = kwargs.pop("linestyle", "-")
     label = kwargs.pop("label", "")

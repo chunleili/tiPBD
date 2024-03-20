@@ -14,7 +14,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=10)
+parser.add_argument("-N", type=int, default=2)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -140,7 +140,7 @@ def init_load_adjacent():
     with open(filename,"r") as f:
         all_data=(map(int, x.split()) for x in f)
         a = np.array([pad_list(list(x), MAX*3) for x in all_data])
-    adjacent_edge_abc.from_numpy(a)
+    # adjacent_edge_abc.from_numpy(a)
 
     filename = misc_dir_path+"adjacent_edge.txt"
     with open(filename,"r") as f:
@@ -704,20 +704,28 @@ def delete_txt_files(folder_path):
         os.remove(file_path)
 
 def clean_result_dir(folder_path):
+    from pathlib import Path
+    pwd = os.getcwd()
+    os.chdir(folder_path)
     print(f"clean {folder_path}...")
+    except_files = ["b0.txt"]
     to_remove = []
-    for name in [
+    for wildcard_name in [
         '*.txt',
         '*.obj',
         '*.png',
         '*.ply'
     ]:
-        files = glob.glob(os.path.join(folder_path, name))
+        files = glob.glob(wildcard_name)
         to_remove += (files)
+        for f in files:
+            if f in except_files:
+                to_remove.remove(f)
     print(f"removing {len(to_remove)} files")
     for file_path in to_remove:
         os.remove(file_path)
     print(f"clean {folder_path} done")
+    os.chdir(pwd)
 
 @ti.kernel
 def copy_field(dst: ti.template(), src: ti.template()):

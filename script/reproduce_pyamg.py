@@ -55,8 +55,8 @@ def test_amg(mat_size = 10):
     print(f"R: {R.shape}, P: {P.shape}")
 
     # spec_radius_two_grid_operator(A, R, P)
-    # codition_number_of_A = np.linalg.cond(A.toarray())
-    # print(f"condition number of A: {codition_number_of_A}")
+    codition_number_of_A = np.linalg.cond(A.toarray())
+    print(f"condition number of A: {codition_number_of_A}")
     # judege symmetric:
     # print("A is symmetric:", np.array_equal(A.toarray(), A.toarray().T))
 
@@ -100,10 +100,10 @@ def test_amg(mat_size = 10):
     print_residuals(residuals_removeRows, "removeRows")
 
     if show_plot:
-        fig, axs = plt.subplots(2, 1, figsize=(8, 8))
-        plot_residuals(residuals_noSmoother, axs[0], title=plot_title, linestyle="--",label="pyamg noSmoother")
-        plot_residuals(residuals_selectRows, axs[0], title=plot_title, linestyle="--",label="SelectRow")
-        plot_residuals(residuals_removeRows, axs[0], title=plot_title, linestyle="--",label="removeRows")
+        fig, axs = plt.subplots(1, 1, figsize=(8, 6))
+        plot_residuals(residuals_noSmoother, axs, title=plot_title, linestyle="--",label="pyamg noSmoother")
+        plot_residuals(residuals_selectRows, axs, title=plot_title, linestyle="--",label="SelectRow")
+        plot_residuals(residuals_removeRows, axs, title=plot_title, linestyle="--",label="removeRows")
 
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()

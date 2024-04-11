@@ -48,9 +48,6 @@ numerator   = ti.field(dtype=float, shape=(NE))
 denominator = ti.field(dtype=float, shape=(NE))
 gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
 edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
-# y_jprime    = ti.field(shape=(new_M),   dtype = ti.float32)
-# numerator_lumped    = ti.field(shape=(new_M), dtype = ti.float32)
-# denominator_lumped  = ti.field(shape=(new_M), dtype = ti.float32)
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
 adjacent_edge = ti.field(dtype=int, shape=(NE, 20))
 num_adjacent_edge = ti.field(dtype=int, shape=(NE))
@@ -130,29 +127,9 @@ def init_edge_center(
         p1, p2 = pos[idx1], pos[idx2]
         edge_center[i] = (p1 + p2) / 2.0
 
-def init_load_adjacent():
-    num_adjacent_edge_np = np.loadtxt(misc_dir_path+"num_adjacent_edge.txt", dtype=np.int32)
-    MAX = max(num_adjacent_edge_np) #14
-    
-    filename = misc_dir_path+"adjacent_edge_abc.txt"
-    def pad_list(lst, padding, default=-1):
-        return lst + (padding - len(lst))*[default]
-    with open(filename,"r") as f:
-        all_data=(map(int, x.split()) for x in f)
-        a = np.array([pad_list(list(x), MAX*3) for x in all_data])
-    # adjacent_edge_abc.from_numpy(a)
-
-    filename = misc_dir_path+"adjacent_edge.txt"
-    with open(filename,"r") as f:
-        all_data=(map(int, x.split()) for x in f)
-        b = np.array([pad_list(list(x), MAX) for x in all_data])
-    adjacent_edge.from_numpy(b)
-    ...
-
 
 @ti.kernel
 def init_adjacent_edge_kernel(adjacent_edge:ti.template(), num_adjacent_edge:ti.template(), edge:ti.template()):
-    # adjacent_edge.fill(-1)
     for i in range(NE):
         for j in range(adjacent_edge.shape[1]):
             adjacent_edge[i,j] = -1
@@ -224,55 +201,6 @@ def solve_constraints(
             dpos[idx1] -= invM1 * l * gradient
 
 
-@ti.kernel
-def solve_subspace_constraints_xpbd(
-    labels: ti.template(),
-    numerator: ti.template(),
-    denominator: ti.template(),
-    numerator_lumped: ti.template(),
-    denominator_lumped: ti.template(),
-    y_jprime: ti.template(),
-    dLambda: ti.template(),
-    inv_mass:ti.template(),
-    edge:ti.template(),
-    rest_len:ti.template(),
-    lagrangian:ti.template(),
-    dpos:ti.template(),
-    pos:ti.template(),
-):
-    #subspace solving
-    # ti.loop_config(serialize=True)
-    for i in range(NE):
-        idx0, idx1 = edge[i]
-        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
-        dis = pos[idx0] - pos[idx1]
-        constraint = dis.norm() - rest_len[i]
-        numerator[i] = -(constraint + lagrangian[i] * alpha)
-        denominator[i] = invM0 + invM1 + alpha
-
-    for i in range(new_M):
-        numerator_lumped[i] = 0.0
-        denominator_lumped[i] = 0.0
-    for i in range(NE):
-        jp = labels[i]
-        numerator_lumped[jp] += numerator[i]
-        denominator_lumped[jp] += denominator[i]
-    for jp in range(new_M):
-        y_jprime[jp] = numerator_lumped[jp] / denominator_lumped[jp]
-    
-    # prolongation
-    for i in range(NE):
-        jp = labels[i]
-        dLambda[i] =  y_jprime[jp]
-        lagrangian[i] += dLambda[i]
-        idx0, idx1 = edge[i]
-        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
-        dis = pos[idx0] - pos[idx1]
-        gradient = dis.normalized()
-        if invM0 != 0.0:
-            dpos[idx0] += invM0 * dLambda[i] * gradient
-        if invM1 != 0.0:
-            dpos[idx1] -= invM1 * dLambda[i] * gradient
 
 @ti.kernel
 def solve_constraints_xpbd(
@@ -323,12 +251,6 @@ def update_vel(
         if inv_mass[i] != 0.0:
             vel[i] = (pos[i] - old_pos[i]) / h
 
-@ti.kernel 
-def collision(pos:ti.template()):
-    ...
-    # for i in range(NV):
-    #     if pos[i][2] < -2.0:
-    #         pos[i][2] = 0.0
 
 @ti.kernel 
 def reset_dpos(dpos:ti.template()):
@@ -364,10 +286,8 @@ def step_xpbd(max_iter):
 
     for i in range(max_iter):
         reset_dpos(dpos)
-        # solve_subspace_constraints_xpbd(labels, numerator, denominator, numerator_lumped, denominator_lumped, y_jprime, dLambda, inv_mass, edge, rest_len, lagrangian, dpos, pos)
         solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
         update_pos(inv_mass, dpos, pos)
-        collision(pos)
 
         residual[i+1] = np.linalg.norm(dual_residual.to_numpy())
     np.savetxt(out_dir + f"dual_residual_{frame_num}.txt",residual)
@@ -629,7 +549,6 @@ def transfer_back_to_pos_mfree(x):
     reset_dpos(dpos)
     transfer_back_to_pos_mfree_kernel()
     update_pos(inv_mass, dpos, pos)
-    collision(pos)
 
 def spy_A(A,b):
     print("A:", A.shape, " b:", b.shape)

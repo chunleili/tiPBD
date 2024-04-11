@@ -43,7 +43,8 @@ def test_amg(mat_size = 10):
         print("loading data...")
         A = scipy.io.mmread(to_read_dir+f"A.mtx")
         A = A.tocsr()
-        b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
+        # b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
+        b= np.ones(A.shape[0])
 
     # generate R by pyamg
     print("generating R and P by pyamg...")
@@ -55,10 +56,18 @@ def test_amg(mat_size = 10):
     print(f"R: {R.shape}, P: {P.shape}")
 
     # spec_radius_two_grid_operator(A, R, P)
-    # codition_number_of_A = np.linalg.cond(A.toarray())
-    # print(f"condition number of A: {codition_number_of_A}")
+    norm_TG = norm_two_grid_operator(A, R, P)
+    print("A norm of TG:", norm_TG)
+    codition_number_of_A = np.linalg.cond(A.toarray())
+    print(f"condition number of A: {codition_number_of_A}")
     # judege symmetric:
     # print("A is symmetric:", np.array_equal(A.toarray(), A.toarray().T))
+    # print("singular values of P:", np.linalg.svd(P.toarray())[1])
+    rank_P = np.linalg.matrix_rank(P.toarray())
+    print("rank of P:", rank_P)
+    eigenvalues_A = np.linalg.eigvals(A.toarray())
+    print("eigenvalues of A:", eigenvalues_A)
+    # print("R@P is:", R@P)
 
     # ------------------------------- test solvers ------------------------------- #
     x0 = np.zeros_like(b)
@@ -68,7 +77,6 @@ def test_amg(mat_size = 10):
     # _,residuals_pyamg = timer_wrapper(solve_pyamg, ml, b)
 
     # print("Solving rep...")
-    #  = []
     # x0 = np.zeros_like(b)
     # _,residuals_rep = timer_wrapper(solve_rep, A, b, x0, R, P)
 
@@ -92,6 +100,7 @@ def test_amg(mat_size = 10):
     P3 = R3.T
     print(f"##########R: {R3.shape}, P: {P3.shape}")
     x0 = np.zeros_like(b)
+    print("rank of P3:", np.linalg.matrix_rank(P3.toarray()))
     _,residuals_removeRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R3, P3)
 
     # ------------------------------- print results ---------------------------- #
@@ -143,6 +152,19 @@ def generate_A_b_pyamg(n=10):
         np.savetxt("b.txt", b)
     return A, b
 
+def norm_two_grid_operator(A, R, P):
+    # find spectral radius of I-S
+    A2 = R @ A @ P
+    A2_inv = scipy.sparse.linalg.inv(A2)
+    S = P @ A2_inv @ R @ A
+    I_S = np.identity(S.shape[0]) - S
+    
+    # norm of I_S
+    # norm = A_norm(A, I_S)
+    norm = np.linalg.norm(I_S)
+    print("norm of two grid operator:", norm)
+    return  norm
+
 def spec_radius_two_grid_operator(A, R, P):
     # find spectral radius of I-S
     A2 = R @ A @ P
@@ -154,11 +176,6 @@ def spec_radius_two_grid_operator(A, R, P):
     spec_radius = max(abs(eigens[0]))
     print("eigens:", eigens[0])
     print("spec_radius:", spec_radius)
-    
-    # eigens_S = scipy.sparse.linalg.eigs(S)
-    # spec_radius_S = max(abs(eigens_S[0]))
-    # print("eigens S:", eigens_S[0])
-    # print("spec_radius S:", spec_radius_S)
     return spec_radius
 
 # judge if A is positive definite
@@ -247,10 +264,12 @@ def solve_rep_noSmoother(A, b, x0, R, P):
 
     x = x0.copy()
 
-    normb = np.linalg.norm(b)
+    # normb = np.linalg.norm(b)
+    normb = A_norm(A, b)
     if normb == 0.0:
         normb = 1.0  # set so that we have an absolute tolerance
-    normr = np.linalg.norm(b - A @ x)
+    # normr = np.linalg.norm(b - A @ x)
+    normr = A_norm(A, b - A @ x)
     if residuals is not None:
         residuals[:] = [normr]  # initial residual
 
@@ -275,7 +294,8 @@ def solve_rep_noSmoother(A, b, x0, R, P):
 
         it += 1
 
-        normr = np.linalg.norm(b - A @ x)
+        # normr = np.linalg.norm(b - A @ x)
+        normr = A_norm(A, b - A @ x)
         if residuals is not None:
             residuals.append(normr)
         if normr < tol * normb:
@@ -410,6 +430,11 @@ def A_norm(A,x):
     A-norm = x^T A x
     '''
     return x.T @ A @ x
+
+def A_norm2(A,x):
+    norm = (x.T @ A @ x)
+    res = 
+    return  
 
 def gauss_seidel(A, x, b, iterations=1):
     if not sparse.isspmatrix_csr(A):

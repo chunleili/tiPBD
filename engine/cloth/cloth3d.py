@@ -14,7 +14,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=3)
+parser.add_argument("-N", type=int, default=64)
 
 N = parser.parse_args().N
 print("N: ", N)

@@ -29,16 +29,18 @@ parser.add_argument("-title", type=str, default=f"")
 plot_title = parser.parse_args().title
 parser.add_argument("-f", type=int, default=10)
 frame = parser.parse_args().f
-save_fig_instad_of_show = False
-generate_data = False
+save_fig_instad_of_show = True
+generate_data = True
 show_plot = True
 
-def test_amg(mat_size = 10):
+def test_amg(mat_size = 10, case_num = 0):
     # ------------------------------- prepare data ------------------------------- #
     if(generate_data):
         print("generating data...")
         # A, b = generate_A_b_pyamg(n=mat_size)
         A, b = generate_A_b_psd(n=mat_size)
+        scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
+        np.savetxt(to_read_dir + f"b{case_num}.txt", b)
     else:
         print("loading data...")
         A = scipy.io.mmread(to_read_dir+f"A.mtx")
@@ -55,6 +57,7 @@ def test_amg(mat_size = 10):
     R1,P1 = generate_R_P(A1)
     R2,P2 = generate_R_P(A2)
     R3,P3 = generate_R_P(A3)
+    scipy.io.mmwrite(to_read_dir + f"R{case_num}.mtx", R1)
 
     # analyse_A(A,R,P)
 
@@ -65,11 +68,11 @@ def test_amg(mat_size = 10):
     # _,residuals_pyamg = timer_wrapper(solve_pyamg, ml, b)
 
     x0 = np.zeros_like(b)
-    _,residuals_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
-    _,residuals_onlySmoother = timer_wrapper(solve_onlySmoother, A, b, x0, R1, P1)
-    _,residuals_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R1, P1)
-    _,residuals_remove_offdiag = timer_wrapper(solve_rep_noSmoother, A2, b, x0, R2, P2)
-    _,residuals_reduce_offdiag = timer_wrapper(solve_rep_noSmoother, A3, b, x0, R3, P3)
+    x_rep,residuals_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
+    x_onlySmoother,residuals_onlySmoother = timer_wrapper(solve_onlySmoother, A, b, x0, R1, P1)
+    x_noSmoother,residuals_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R1, P1)
+    x_remove_offdiag,residuals_remove_offdiag = timer_wrapper(solve_rep, A2, b, x0, R2, P2)
+    x_reduce_offdiag,residuals_reduce_offdiag = timer_wrapper(solve_rep, A3, b, x0, R3, P3)
 
     # print("generating R and P by selecting row...")
     # R2 = scipy.sparse.csr_matrix((2,A.shape[0]), dtype=np.int32)
@@ -90,6 +93,14 @@ def test_amg(mat_size = 10):
     # _,residuals_removeRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R3, P3)
 
     # ------------------------------- print results ---------------------------- #
+    print("x_rep:", x_rep)
+    x_rep_max = np.max(np.abs(x_rep))
+    print("x_onlySmoother:", np.max(np.abs(x_rep-x_onlySmoother)/x_rep_max))
+    print("x_noSmoother:", np.max(np.abs(x_rep-x_noSmoother)/x_rep_max))
+    print("x_remove_offdiag:", np.max(np.abs(x_rep-x_remove_offdiag)/x_rep_max))
+    print("x_reduce_offdiag:", np.max(np.abs(x_rep-x_reduce_offdiag)/x_rep_max))
+
+
     print_residuals(residuals_rep, "rep")
     print_residuals(residuals_onlySmoother, "onlySmoother")
     print_residuals(residuals_noSmoother, "noSmoother")
@@ -100,9 +111,9 @@ def test_amg(mat_size = 10):
         fig, axs = plt.subplots(2, 1, figsize=(8, 6))
         plot_residuals(residuals_rep, axs[0], label="rep")
         plot_residuals(residuals_onlySmoother, axs[0], label="onlySmoother")
-        plot_residuals(residuals_noSmoother, axs[1], title="noSmoother", label="original")
-        plot_residuals(residuals_remove_offdiag, axs[1], title="noSmoother", label="remove_offdiag")
-        plot_residuals(residuals_reduce_offdiag, axs[1], title="noSmoother", label="reduce_offdiag")
+        plot_residuals(residuals_remove_offdiag, axs[0],  label="remove_offdiag")
+        plot_residuals(residuals_reduce_offdiag, axs[0],  label="reduce_offdiag")
+        plot_residuals(residuals_noSmoother, axs[1],  label="noSmoother")
 
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
@@ -601,12 +612,14 @@ def plot_residuals(data, ax, *args, **kwargs):
 
 
 def test_different_N():
-    global plot_title
+    global plot_title, generate_data
+    generate_data = True
     for case_num in range(100):
-        N = np.random.randint(1000, 20000)
+        N = np.random.randint(100, 5000)
         plot_title = f"case_{case_num}_A_size_{N}"
         print(f"\ncase:{case_num}\tN: {N}")
-        test_amg(N)
+        test_amg(N, case_num)
 
 if __name__ == "__main__":
-    test_amg()
+    # test_amg()
+    test_different_N()

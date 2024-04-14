@@ -29,8 +29,8 @@ parser.add_argument("-title", type=str, default=f"")
 plot_title = parser.parse_args().title
 parser.add_argument("-f", type=int, default=10)
 frame = parser.parse_args().f
-save_fig_instad_of_show = True
-generate_data = True
+save_fig_instad_of_show = False
+generate_data = False
 show_plot = True
 
 def test_amg(mat_size = 10, case_num = 0):
@@ -68,11 +68,11 @@ def test_amg(mat_size = 10, case_num = 0):
     # _,residuals_pyamg = timer_wrapper(solve_pyamg, ml, b)
 
     x0 = np.zeros_like(b)
-    x_rep,residuals_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
+    x_rep,residuals_rep, full_residual_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
     x_onlySmoother,residuals_onlySmoother = timer_wrapper(solve_onlySmoother, A, b, x0, R1, P1)
     x_noSmoother,residuals_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R1, P1)
-    x_remove_offdiag,residuals_remove_offdiag = timer_wrapper(solve_rep, A2, b, x0, R2, P2)
-    x_reduce_offdiag,residuals_reduce_offdiag = timer_wrapper(solve_rep, A3, b, x0, R3, P3)
+    x_remove_offdiag,residuals_remove_offdiag,_ = timer_wrapper(solve_rep, A2, b, x0, R2, P2)
+    x_reduce_offdiag,residuals_reduce_offdiag,_ = timer_wrapper(solve_rep, A3, b, x0, R3, P3)
 
     # print("generating R and P by selecting row...")
     # R2 = scipy.sparse.csr_matrix((2,A.shape[0]), dtype=np.int32)
@@ -108,19 +108,46 @@ def test_amg(mat_size = 10, case_num = 0):
     print_residuals(residuals_reduce_offdiag, "reduce_offdiag")
 
     if show_plot:
-        fig, axs = plt.subplots(2, 1, figsize=(8, 6))
-        plot_residuals(residuals_rep, axs[0], label="rep")
-        plot_residuals(residuals_onlySmoother, axs[0], label="onlySmoother")
-        plot_residuals(residuals_remove_offdiag, axs[0],  label="remove_offdiag")
-        plot_residuals(residuals_reduce_offdiag, axs[0],  label="reduce_offdiag")
-        plot_residuals(residuals_noSmoother, axs[1],  label="noSmoother")
+        # fig, axs = plt.subplots(2, 1, figsize=(8, 9))
+        # plot_residuals(residuals_rep, axs[0], label="rep")
+        # plot_residuals(residuals_onlySmoother, axs[0], label="onlySmoother")
+        # plot_residuals(residuals_remove_offdiag, axs[0],  label="remove_offdiag")
+        # plot_residuals(residuals_reduce_offdiag, axs[0],  label="reduce_offdiag")
+        # plot_residuals(residuals_noSmoother, axs[1],  label="noSmoother")
 
-        fig.canvas.manager.set_window_title(plot_title)
+        plot_full_residual(full_residual_rep[0], "residual0")
+        plot_full_residual(full_residual_rep[1], "residual1")
+        plot_full_residual(full_residual_rep[2], "residual2")
+        plot_full_residual(full_residual_rep[3], "residual3")
+
+        # fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
         if save_fig_instad_of_show:
             plt.savefig(f"result/test/residuals_{plot_title}.png")
         else:
             plt.show()
+
+def plot_full_residual(data, title=""):
+    from matplotlib import cm
+    from matplotlib.ticker import LinearLocator
+
+    N = np.sqrt(len(data)).astype(int)
+
+    A = np.linspace(1, N, N)
+    B = np.linspace(1, N, N)
+
+    X, Y = np.meshgrid(A, B)
+    d0 = data[:N*N].reshape((N, N))
+
+    # Plot the surface.
+    fig, ax = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
+    surf0 = ax.plot_surface(X, Y, d0, cmap=cm.coolwarm, label="residual0")
+    ax.set_zlim(-.03, .03)
+    fig.text(0.5, 0.9, title, ha='center')
+    fig.canvas.manager.set_window_title(title)
+    # ax.zaxis.set_major_locator(LinearLocator(10))
+    # ax.zaxis.set_major_formatter('{x:.02f}')
+    fig.colorbar(surf0, shrink=0.5, aspect=5)
 
 def improve_A(A):
     A = A + 1 * sparse.eye(A.shape[0])
@@ -350,6 +377,7 @@ def solve_rep(A, b, x0, R, P):
     tol = 1e-3
     maxiter = 1
     residuals = []
+    full_residual = [[],[],[],[]]
 
     A2 = R @ A @ P
     x0 = np.zeros_like(b) # initial guess x0
@@ -361,6 +389,7 @@ def solve_rep(A, b, x0, R, P):
     normr = np.linalg.norm(b - A @ x)
     if residuals is not None:
         residuals[:] = [normr]  # initial residual
+    full_residual[0] = (b - A @ x)
 
     b = np.ravel(b)
     x = np.ravel(x)
@@ -370,6 +399,7 @@ def solve_rep(A, b, x0, R, P):
         gauss_seidel(A, x, b, iterations=1)  # presmoother
 
         residual = b - A @ x
+        full_residual[1] = residual
 
         coarse_b = R @ residual  # restriction
 
@@ -380,17 +410,20 @@ def solve_rep(A, b, x0, R, P):
         dx = P @ coarse_x  # coarse grid correction
         x += dx  # coarse grid correction
 
+        full_residual[2] = b - A @ x
+
         gauss_seidel(A, x, b, iterations=1)  # postsmoother
 
         it += 1
 
+        full_residual[3] = (b - A @ x)
         normr = np.linalg.norm(b - A @ x)
         if residuals is not None:
             residuals.append(normr)
         if normr < tol * normb:
-            return x, residuals
+            return x, residuals, full_residual
         if it == maxiter:
-            return x, residuals
+            return x, residuals, full_residual
 
 
 
@@ -621,5 +654,5 @@ def test_different_N():
         test_amg(N, case_num)
 
 if __name__ == "__main__":
-    # test_amg()
-    test_different_N()
+    test_amg()
+    # test_different_N()

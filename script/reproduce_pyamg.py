@@ -43,20 +43,26 @@ def test_amg(mat_size = 10, case_num = 0):
         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
     else:
         print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A.mtx")
+        A = scipy.io.mmread(to_read_dir+f"A80.mtx")
         A = A.tocsr()
-        b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
-        # b= np.ones(A.shape[0])
+        # b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
+        b= np.random.random(A.shape[0])
+        # b = np.ones(A.shape[0])
 
     A1 = A.copy()
     A2 = improve_A_by_remove_offdiag(A)
     A3 = improve_A_by_reduce_offdiag(A)
+    t = perf_counter()
+    print("to make M matrix...")
+    A4 = improve_A_make_M_matrix(A)
+    print(f"make M matrix took {perf_counter() - t:.3e} s")
     print(f"A: {A.shape}")
 
     # generate R by pyamg
     R1,P1 = generate_R_P(A1)
     R2,P2 = generate_R_P(A2)
     R3,P3 = generate_R_P(A3)
+    R4,P4 = generate_R_P(A4)
     scipy.io.mmwrite(to_read_dir + f"R{case_num}.mtx", R1)
 
     # analyse_A(A,R,P)
@@ -73,6 +79,7 @@ def test_amg(mat_size = 10, case_num = 0):
     x_noSmoother,residuals_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R1, P1)
     x_remove_offdiag,residuals_remove_offdiag,_ = timer_wrapper(solve_rep, A2, b, x0, R2, P2)
     x_reduce_offdiag,residuals_reduce_offdiag,_ = timer_wrapper(solve_rep, A3, b, x0, R3, P3)
+    x_M_matrix,residuals_M_matrix,_ = timer_wrapper(solve_rep, A4, b, x0, R4, P4)
 
     # print("generating R and P by selecting row...")
     # R2 = scipy.sparse.csr_matrix((2,A.shape[0]), dtype=np.int32)
@@ -93,12 +100,13 @@ def test_amg(mat_size = 10, case_num = 0):
     # _,residuals_removeRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R3, P3)
 
     # ------------------------------- print results ---------------------------- #
-    print("x_rep:", x_rep)
+    # print("x_rep:", x_rep)
     x_rep_max = np.max(np.abs(x_rep))
     print("x_onlySmoother:", np.max(np.abs(x_rep-x_onlySmoother)/x_rep_max))
     print("x_noSmoother:", np.max(np.abs(x_rep-x_noSmoother)/x_rep_max))
     print("x_remove_offdiag:", np.max(np.abs(x_rep-x_remove_offdiag)/x_rep_max))
     print("x_reduce_offdiag:", np.max(np.abs(x_rep-x_reduce_offdiag)/x_rep_max))
+    print("x_M_matrix:", np.max(np.abs(x_rep-x_M_matrix)/x_rep_max))
 
 
     print_residuals(residuals_rep, "rep")
@@ -106,19 +114,21 @@ def test_amg(mat_size = 10, case_num = 0):
     print_residuals(residuals_noSmoother, "noSmoother")
     print_residuals(residuals_remove_offdiag, "remove_offdiag")
     print_residuals(residuals_reduce_offdiag, "reduce_offdiag")
+    print_residuals(residuals_M_matrix, "M_matrix")
 
     if show_plot:
-        # fig, axs = plt.subplots(2, 1, figsize=(8, 9))
-        # plot_residuals(residuals_rep, axs[0], label="rep")
-        # plot_residuals(residuals_onlySmoother, axs[0], label="onlySmoother")
-        # plot_residuals(residuals_remove_offdiag, axs[0],  label="remove_offdiag")
-        # plot_residuals(residuals_reduce_offdiag, axs[0],  label="reduce_offdiag")
-        # plot_residuals(residuals_noSmoother, axs[1],  label="noSmoother")
+        fig, axs = plt.subplots(2, 1, figsize=(8, 9))
+        plot_residuals(residuals_rep, axs[0], label="rep")
+        plot_residuals(residuals_onlySmoother, axs[0], label="onlySmoother")
+        plot_residuals(residuals_remove_offdiag, axs[0],  label="remove_offdiag")
+        plot_residuals(residuals_reduce_offdiag, axs[0],  label="reduce_offdiag")
+        plot_residuals(residuals_M_matrix, axs[0],  label="M_matrix")
+        plot_residuals(residuals_noSmoother, axs[1],  label="noSmoother")
 
-        plot_full_residual(full_residual_rep[0], "residual0")
-        plot_full_residual(full_residual_rep[1], "residual1")
-        plot_full_residual(full_residual_rep[2], "residual2")
-        plot_full_residual(full_residual_rep[3], "residual3")
+        # plot_full_residual(full_residual_rep[0], "residual0")
+        # plot_full_residual(full_residual_rep[1], "residual1")
+        # plot_full_residual(full_residual_rep[2], "residual2")
+        # plot_full_residual(full_residual_rep[3], "residual3")
 
         # fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
@@ -142,7 +152,7 @@ def plot_full_residual(data, title=""):
     # Plot the surface.
     fig, ax = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
     surf0 = ax.plot_surface(X, Y, d0, cmap=cm.coolwarm, label="residual0")
-    ax.set_zlim(-.03, .03)
+    # ax.set_zlim(-.03, .03)
     fig.text(0.5, 0.9, title, ha='center')
     fig.canvas.manager.set_window_title(title)
     # ax.zaxis.set_major_locator(LinearLocator(10))
@@ -153,6 +163,16 @@ def improve_A(A):
     A = A + 1 * sparse.eye(A.shape[0])
     A = A.tocsr()
     return A
+
+def improve_A_make_M_matrix(A):
+    Anew = A.copy()
+    for i in range(Anew.shape[0]):
+        for j in range(Anew.shape[1]):
+            if i==j:
+                continue
+            if Anew[i,j] > 0:
+                Anew[i,j] = 0
+    return Anew
 
 def improve_A_by_remove_offdiag(A):
     A_downdiag = A.diagonal(-1)

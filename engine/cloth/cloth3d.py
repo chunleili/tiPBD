@@ -14,7 +14,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=64)
+parser.add_argument("-N", type=int, default=3)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -630,10 +630,10 @@ def clean_result_dir(folder_path):
     except_files = ["b0.txt"]
     to_remove = []
     for wildcard_name in [
-        '*.txt',
         '*.obj',
         '*.png',
-        '*.ply'
+        '*.ply',
+        # '*.txt',
     ]:
         files = glob.glob(wildcard_name)
         to_remove += (files)

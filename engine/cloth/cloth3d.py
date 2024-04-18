@@ -51,6 +51,8 @@ edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
 adjacent_edge = ti.field(dtype=int, shape=(NE, 20))
 num_adjacent_edge = ti.field(dtype=int, shape=(NE))
+adjacent_edge_abc = ti.field(dtype=int, shape=(NE, 100))
+
 
 @ti.kernel
 def init_pos(
@@ -127,6 +129,77 @@ def init_edge_center(
         p1, p2 = pos[idx1], pos[idx2]
         edge_center[i] = (p1 + p2) / 2.0
 
+# for debug, please do not use in real simulation. Use init_adjacent_edge_kernel instead
+def init_adjacent_edge_abc():
+    adjacent_edge_abc = []
+    for i in range(NE):
+        ii0 = edge[i][0]
+        ii1 = edge[i][1]
+
+        adj = adjacent_edge.to_numpy()[i]
+        num_adj = num_adjacent_edge.to_numpy()[i]
+        abc = []
+        for j in range(num_adj):
+            ia = adj[j]
+            if ia == i:
+                continue
+            jj0 = edge[ia][0]
+            jj1 = edge[ia][1]
+
+            a, b, c = -1, -1, -1
+            if ii0 == jj0:
+                a, b, c = ii0, ii1, jj1
+            elif ii0 == jj1:
+                a, b, c = ii0, ii1, jj0
+            elif ii1 == jj0:
+                a, b, c = ii1, ii0, jj1
+            elif ii1 == jj1:
+                a, b, c = ii1, ii0, jj0
+            abc.append(a)
+            abc.append(b)
+            abc.append(c)
+        adjacent_edge_abc.append(abc)
+    return adjacent_edge_abc
+
+@ti.kernel
+def init_adjacent_edge_abc_kernel():
+    for i in range(NE):
+        ii0 = edge[i][0]
+        ii1 = edge[i][1]
+
+        num_adj = num_adjacent_edge[i]
+        for j in range(num_adj):
+            ia = adjacent_edge[i,j]
+            if ia == i:
+                continue
+            jj0,jj1 = edge[ia]
+            a, b, c = -1, -1, -1
+            if ii0 == jj0:
+                a, b, c = ii0, ii1, jj1
+            elif ii0 == jj1:
+                a, b, c = ii0, ii1, jj0
+            elif ii1 == jj0:
+                a, b, c = ii1, ii0, jj1
+            elif ii1 == jj1:
+                a, b, c = ii1, ii0, jj0
+            adjacent_edge_abc[i, j*3] = a
+            adjacent_edge_abc[i, j*3+1] = b
+            adjacent_edge_abc[i, j*3+2] = c
+
+def fill_A(ii,jj,vv):
+    for i in range(NE):
+        adj = adjacent_edge[i]
+        for j in range(num_adjacent_edge[i]):
+            ia = adj[j]
+            a = adjacent_edge_abc[i][j * 3]
+            b = adjacent_edge_abc[i][j * 3 + 1]
+            c = adjacent_edge_abc[i][j * 3 + 2]
+            g_ab = (pos[a] - pos[b]).normalized()
+            g_ac = (pos[a] - pos[c]).normalized()
+            off_diag = inv_mass[a] * g_ab.dot(g_ab)
+            ii[i] = i
+            jj[i] = ia
+            vv[i] = off_diag
 
 @ti.kernel
 def init_adjacent_edge_kernel(adjacent_edge:ti.template(), num_adjacent_edge:ti.template(), edge:ti.template()):
@@ -702,6 +775,10 @@ if solver_type=="AMG":
     tic = time.time()
     init_adjacent_edge_kernel(adjacent_edge, num_adjacent_edge, edge)
     print(f"init_adjacent_edge time: {time.time()-tic:.3f}s")
+
+    # adjacent_edge_abc = init_adjacent_edge_abc()
+    adjacent_edge_abc.fill(-1)
+    init_adjacent_edge_abc_kernel()
 
     if save_P:
         R, P, labels, new_M = compute_R_and_P_kmeans()

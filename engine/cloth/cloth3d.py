@@ -668,9 +668,9 @@ def fill_A_ti():
     A_diag = scipy.sparse.diags(diags)
     A_diag = A_diag.tocsr()
 
-    np.savetxt(out_dir + f"adjacent_edge.txt", adjacent_edge.to_numpy(), fmt="%d")
-    np.savetxt(out_dir + f"anum_adjacent_edge.txt", num_adjacent_edge.to_numpy(), fmt="%d")
-    np.savetxt(out_dir + f"adjacent_edge_abc.txt", adjacent_edge_abc.to_numpy(), fmt="%d")
+    # np.savetxt(out_dir + f"adjacent_edge.txt", adjacent_edge.to_numpy(), fmt="%d")
+    # np.savetxt(out_dir + f"anum_adjacent_edge.txt", num_adjacent_edge.to_numpy(), fmt="%d")
+    # np.savetxt(out_dir + f"adjacent_edge_abc.txt", adjacent_edge_abc.to_numpy(), fmt="%d")
 
 
     # fill off-diagonal
@@ -696,8 +696,8 @@ def fill_A_off_diag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarra
     for i in range(NE):
         for j in range(num_adjacent_edge[i]):
             ia = adjacent_edge[i,j]
-            if ia<0:
-                print("ia<0!@i,j",i,j, num_adjacent_edge[i])
+            # if ia<0:
+            #     print("ia<0!@i,j",i,j, num_adjacent_edge[i])
             a = adjacent_edge_abc[i, j * 3]
             b = adjacent_edge_abc[i, j * 3 + 1]
             c = adjacent_edge_abc[i, j * 3 + 2]
@@ -727,8 +727,8 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
         A = fill_A_ti()
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
         
-        scipy.io.mmwrite(out_dir + f"A_ti.mtx", A)
-        exit()
+        # scipy.io.mmwrite(out_dir + f"A_ti.mtx", A)
+        # exit()
 
         if frame_num == stop_frame and export_matrix:
             print(f"writting A and b to {out_dir}")

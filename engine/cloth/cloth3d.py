@@ -626,17 +626,6 @@ def fill_A_by_spmm(M_inv, ALPHA):
     A = scipy.sparse.csr_matrix(A)
     return A
 
-# def init_A_pattern():
-#     A = sp.lil_matrix((NE, NE))
-#     for i in range(NE):
-#         adj = adjacent_edge[i]
-#         diag = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-#         A[i,i] = diag
-#         if use_off_diag:
-#             for j in range(len(adj)):
-#                 ia = adj[j]
-#                 off_diag = 0.0
-#                 A[i,ia] = off_diag
 
 # fill A by directly assign value
 def fill_A():
@@ -648,7 +637,7 @@ def fill_A():
     # A_diag = A_diag.todense()
 
     # fill off-diagonal
-    ii, jj, vv = np.zeros(NE*NE), np.zeros(NE*NE), np.zeros(NE*NE)
+    ii, jj, vv = np.zeros(NE*NE,int), np.zeros(NE*NE,int), np.zeros(NE*NE)
     cnt_nonz = 0
     for i in range(NE):
         for j in range(num_adjacent_edge[i]):
@@ -671,6 +660,50 @@ def fill_A():
     A = A.tocsr()
     return A
 
+def fill_A_ti():
+    # fill diagonal
+    diags = np.zeros(NE, np.float32)
+    fill_A_diag_kernel(diags)
+    A_diag = scipy.sparse.diags(diags)
+    A_diag = A_diag.tocsr()
+
+    # fill off-diagonal
+    ii, jj, vv = np.zeros(NE*NE, int), np.zeros(NE*NE, int), np.zeros(NE*NE, np.float32)
+    fill_A_off_diag_kernel(ii, jj, vv)
+    A_off_diag = scipy.sparse.csr_matrix((vv, (ii, jj)), shape=(NE, NE))
+    
+    A = A_diag + A_off_diag
+    A = A.tocsr()
+    return A
+
+
+@ti.kernel
+def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32)):
+    for i in range(NE):
+        diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+
+
+@ti.kernel
+def fill_A_off_diag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32)):
+    cnt_nonz = 0
+    ti.loop_config(serialize=True)
+    for i in range(NE):
+        for j in range(num_adjacent_edge[i]):
+            ia = adjacent_edge[i,j]
+            a = adjacent_edge_abc[i, j * 3]
+            b = adjacent_edge_abc[i, j * 3 + 1]
+            c = adjacent_edge_abc[i, j * 3 + 2]
+            g_ab = (pos[a] - pos[b]).normalized()
+            g_ac = (pos[a] - pos[c]).normalized()
+            off_diag = inv_mass[a] * g_ab.dot(g_ac)
+            if off_diag == 0:
+                continue
+            ii[cnt_nonz] = i
+            jj[cnt_nonz] = ia
+            vv[cnt_nonz] = off_diag
+            cnt_nonz += 1
+
+
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     global pos, lagrangian
     semi_euler(old_pos, inv_mass, vel, pos)
@@ -681,12 +714,13 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
-        A = fill_A_by_spmm(M_inv, ALPHA)
+        # A = fill_A_by_spmm(M_inv, ALPHA)
         # A = fill_A()
+        A = fill_A_ti()
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
         
-        scipy.io.mmwrite(out_dir + f"A_spmm.mtx", A)
-        exit()
+        # scipy.io.mmwrite(out_dir + f"A_ti.mtx", A)
+        # exit()
 
         if frame_num == stop_frame and export_matrix:
             print(f"writting A and b to {out_dir}")

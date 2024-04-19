@@ -186,20 +186,6 @@ def init_adjacent_edge_abc_kernel():
             adjacent_edge_abc[i, j*3+1] = b
             adjacent_edge_abc[i, j*3+2] = c
 
-def fill_A(ii,jj,vv):
-    for i in range(NE):
-        adj = adjacent_edge[i]
-        for j in range(num_adjacent_edge[i]):
-            ia = adj[j]
-            a = adjacent_edge_abc[i][j * 3]
-            b = adjacent_edge_abc[i][j * 3 + 1]
-            c = adjacent_edge_abc[i][j * 3 + 2]
-            g_ab = (pos[a] - pos[b]).normalized()
-            g_ac = (pos[a] - pos[c]).normalized()
-            off_diag = inv_mass[a] * g_ab.dot(g_ab)
-            ii[i] = i
-            jj[i] = ia
-            vv[i] = off_diag
 
 @ti.kernel
 def init_adjacent_edge_kernel(adjacent_edge:ti.template(), num_adjacent_edge:ti.template(), edge:ti.template()):
@@ -630,6 +616,61 @@ def spy_A(A,b):
     plt.show()
     exit()
 
+# legacy
+def fill_A_by_spmm(M_inv, ALPHA):
+    G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
+    compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
+    fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
+    G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
+    A = G @ M_inv @ G.transpose() + ALPHA
+    A = scipy.sparse.csr_matrix(A)
+    return A
+
+# def init_A_pattern():
+#     A = sp.lil_matrix((NE, NE))
+#     for i in range(NE):
+#         adj = adjacent_edge[i]
+#         diag = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+#         A[i,i] = diag
+#         if use_off_diag:
+#             for j in range(len(adj)):
+#                 ia = adj[j]
+#                 off_diag = 0.0
+#                 A[i,ia] = off_diag
+
+# fill A by directly assign value
+def fill_A():
+    # fill diagonal
+    diags = np.zeros(NE)
+    for i in range(NE):
+        diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+    A_diag = scipy.sparse.diags(diags)
+    # A_diag = A_diag.todense()
+
+    # fill off-diagonal
+    ii, jj, vv = np.zeros(NE*NE), np.zeros(NE*NE), np.zeros(NE*NE)
+    cnt_nonz = 0
+    for i in range(NE):
+        for j in range(num_adjacent_edge[i]):
+            ia = adjacent_edge[i,j]
+            a = adjacent_edge_abc[i, j * 3]
+            b = adjacent_edge_abc[i, j * 3 + 1]
+            c = adjacent_edge_abc[i, j * 3 + 2]
+            g_ab = (pos[a] - pos[b]).normalized()
+            g_ac = (pos[a] - pos[c]).normalized()
+            off_diag = inv_mass[a] * g_ab.dot(g_ac)
+            if off_diag == 0:
+                continue
+            ii[cnt_nonz] = i
+            jj[cnt_nonz] = ia
+            vv[cnt_nonz] = off_diag
+            cnt_nonz += 1
+    A_off_diag = scipy.sparse.csr_matrix((vv, (ii, jj)), shape=(NE, NE))
+    # A_off_diag = A_off_diag.todense()
+    A = A_diag + A_off_diag
+    A = A.tocsr()
+    return A
+
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     global pos, lagrangian
     semi_euler(old_pos, inv_mass, vel, pos)
@@ -640,13 +681,12 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
-        G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
-        compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
-        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
-        G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
-        A = G @ M_inv @ G.transpose() + ALPHA
-        A = scipy.sparse.csr_matrix(A)
+        A = fill_A_by_spmm(M_inv, ALPHA)
+        # A = fill_A()
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
+        
+        scipy.io.mmwrite(out_dir + f"A_spmm.mtx", A)
+        exit()
 
         if frame_num == stop_frame and export_matrix:
             print(f"writting A and b to {out_dir}")
@@ -761,11 +801,13 @@ solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 10
 scale_instead_of_attach = True
+use_off_diag = True
 
 timer_all = time.perf_counter()
 init_pos(inv_mass,pos)
 init_tri(tri)
 init_edge(edge, rest_len, pos)
+write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
 if scale_instead_of_attach:
     init_scale()
 

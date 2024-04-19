@@ -14,7 +14,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=3)
+parser.add_argument("-N", type=int, default=64)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -193,6 +193,7 @@ def init_adjacent_edge_kernel(adjacent_edge:ti.template(), num_adjacent_edge:ti.
         for j in range(adjacent_edge.shape[1]):
             adjacent_edge[i,j] = -1
 
+    ti.loop_config(serialize=True)
     for i in range(NE):
         a=edge[i][0]
         b=edge[i][1]
@@ -667,6 +668,11 @@ def fill_A_ti():
     A_diag = scipy.sparse.diags(diags)
     A_diag = A_diag.tocsr()
 
+    np.savetxt(out_dir + f"adjacent_edge.txt", adjacent_edge.to_numpy(), fmt="%d")
+    np.savetxt(out_dir + f"anum_adjacent_edge.txt", num_adjacent_edge.to_numpy(), fmt="%d")
+    np.savetxt(out_dir + f"adjacent_edge_abc.txt", adjacent_edge_abc.to_numpy(), fmt="%d")
+
+
     # fill off-diagonal
     ii, jj, vv = np.zeros(NE*NE, int), np.zeros(NE*NE, int), np.zeros(NE*NE, np.float32)
     fill_A_off_diag_kernel(ii, jj, vv)
@@ -690,6 +696,8 @@ def fill_A_off_diag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarra
     for i in range(NE):
         for j in range(num_adjacent_edge[i]):
             ia = adjacent_edge[i,j]
+            if ia<0:
+                print("ia<0!@i,j",i,j, num_adjacent_edge[i])
             a = adjacent_edge_abc[i, j * 3]
             b = adjacent_edge_abc[i, j * 3 + 1]
             c = adjacent_edge_abc[i, j * 3 + 2]
@@ -719,8 +727,8 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
         A = fill_A_ti()
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
         
-        # scipy.io.mmwrite(out_dir + f"A_ti.mtx", A)
-        # exit()
+        scipy.io.mmwrite(out_dir + f"A_ti.mtx", A)
+        exit()
 
         if frame_num == stop_frame and export_matrix:
             print(f"writting A and b to {out_dir}")
@@ -852,7 +860,6 @@ if solver_type=="AMG":
     init_adjacent_edge_kernel(adjacent_edge, num_adjacent_edge, edge)
     print(f"init_adjacent_edge time: {time.time()-tic:.3f}s")
 
-    # adjacent_edge_abc = init_adjacent_edge_abc()
     adjacent_edge_abc.fill(-1)
     init_adjacent_edge_abc_kernel()
 
@@ -865,6 +872,8 @@ if solver_type=="AMG":
         R = scipy.io.mmread(misc_dir_path+ "R.mtx")
         P = scipy.io.mmread(misc_dir_path+ "P.mtx")
         # labels = np.loadtxt( "labels.txt", dtype=np.int32)
+
+print("Initialization done. Cost time: ", time.perf_counter() - timer_all, "s")
 
 class Viewer:
     if use_viewer:

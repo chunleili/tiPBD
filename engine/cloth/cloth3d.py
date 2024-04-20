@@ -14,7 +14,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=64)
+parser.add_argument("-N", type=int, default=3)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -662,8 +662,51 @@ def fill_A():
     return A
 
 
-def fill_A_CSR():
-    ...
+def init_A_CSR_pattern():
+    num_adj = num_adjacent_edge.to_numpy()
+    adj = adjacent_edge.to_numpy()
+    nonz = np.sum(num_adj)+NE
+    indptr = np.zeros(NE+1, dtype=np.int32)
+    indices = np.zeros(nonz, dtype=np.int32)
+    data = np.zeros(nonz, dtype=np.float32)
+
+    indptr[0] = 0
+    for i in range(0,NE):
+        num_adj_i = num_adj[i]
+        indptr[i+1]=indptr[i] + num_adj_i + 1
+        indices[indptr[i]:indptr[i+1]-1]= adj[i][:num_adj_i]
+        indices[indptr[i+1]-1]=i
+
+    assert indptr[-1] == nonz
+
+    return data, indices, indptr
+
+
+def csr_index_to_coo_index(indptr, indices):
+    ii, jj = np.zeros_like(indices), np.zeros_like(indices)
+    for i in range(NE):
+        ii[indptr[i]:indptr[i+1]]=i
+        jj[indptr[i]:indptr[i+1]]=indices[indptr[i]:indptr[i+1]]
+    return ii, jj
+
+# TODO:not tested
+def update_offdiag_CSR(data, indices, indptr):
+    cnt_nonz = 0
+    for i in range(NE):
+        for j in range(num_adjacent_edge[i]):
+            ia = adjacent_edge[i,j]
+            a = adjacent_edge_abc[i, j * 3]
+            b = adjacent_edge_abc[i, j * 3 + 1]
+            c = adjacent_edge_abc[i, j * 3 + 2]
+            g_ab = (pos[a] - pos[b]).normalized()
+            g_ac = (pos[a] - pos[c]).normalized()
+            off_diag = inv_mass[a] * g_ab.dot(g_ac)
+            indices[cnt_nonz] = ia
+            data[cnt_nonz] = off_diag
+            cnt_nonz += 1
+    print(f"nonz: {cnt_nonz}, expected: {sum(num_adjacent_edge)+NE}")
+    assert cnt_nonz == sum(num_adjacent_edge)+NE
+
 
 
 def fill_A_ti():
@@ -792,6 +835,12 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     M_inv = scipy.sparse.diags(inv_mass_np)
     alpha_tilde_np = np.array([alpha] * M)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
+
+    # TODO: tested: init_A_CSR_pattern, csr_index_to_coo_index,
+    # not tested: update_offdiag_CSR
+    data, indices, indptr = init_A_CSR_pattern()
+    ii, jj = csr_index_to_coo_index(indptr, indices)
+
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
         tic = time.time()

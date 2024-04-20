@@ -628,75 +628,67 @@ def fill_A_by_spmm(M_inv, ALPHA):
     return A
 
 
-# fill A by directly assign value， for debug
-# def fill_A():
-#     # fill diagonal
-#     diags = np.zeros(NE)
-#     for i in range(NE):
-#         diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-#     A_diag = scipy.sparse.diags(diags)
-#     # A_diag = A_diag.todense()
+fill A by directly assign value， for debug
+def fill_A():
+    # fill diagonal
+    diags = np.zeros(NE)
+    for i in range(NE):
+        diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+    A_diag = scipy.sparse.diags(diags)
+    # A_diag = A_diag.todense()
 
-#     # fill off-diagonal
-#     ii, jj, vv = np.zeros(NE*NE,int), np.zeros(NE*NE,int), np.zeros(NE*NE)
-#     cnt_nonz = 0
-#     for i in range(NE):
-#         for j in range(num_adjacent_edge[i]):
-#             ia = adjacent_edge[i,j]
-#             a = adjacent_edge_abc[i, j * 3]
-#             b = adjacent_edge_abc[i, j * 3 + 1]
-#             c = adjacent_edge_abc[i, j * 3 + 2]
-#             g_ab = (pos[a] - pos[b]).normalized()
-#             g_ac = (pos[a] - pos[c]).normalized()
-#             off_diag = inv_mass[a] * g_ab.dot(g_ac)
-#             if off_diag == 0:
-#                 continue
-#             ii[cnt_nonz] = i
-#             jj[cnt_nonz] = ia
-#             vv[cnt_nonz] = off_diag
-#             cnt_nonz += 1
-#     A_off_diag = scipy.sparse.csr_matrix((vv, (ii, jj)), shape=(NE, NE))
-#     # A_off_diag = A_off_diag.todense()
-#     A = A_diag + A_off_diag
-#     A = A.tocsr()
-#     return A
+    # fill off-diagonal
+    ii, jj, vv = np.zeros(NE*NE,int), np.zeros(NE*NE,int), np.zeros(NE*NE)
+    cnt_nonz = 0
+    for i in range(NE):
+        for j in range(num_adjacent_edge[i]):
+            ia = adjacent_edge[i,j]
+            a = adjacent_edge_abc[i, j * 3]
+            b = adjacent_edge_abc[i, j * 3 + 1]
+            c = adjacent_edge_abc[i, j * 3 + 2]
+            g_ab = (pos[a] - pos[b]).normalized()
+            g_ac = (pos[a] - pos[c]).normalized()
+            off_diag = inv_mass[a] * g_ab.dot(g_ac)
+            if off_diag == 0:
+                continue
+            ii[cnt_nonz] = i
+            jj[cnt_nonz] = ia
+            vv[cnt_nonz] = off_diag
+            cnt_nonz += 1
+    A_off_diag = scipy.sparse.csr_matrix((vv, (ii, jj)), shape=(NE, NE))
+    # A_off_diag = A_off_diag.todense()
+    A = A_diag + A_off_diag
+    A = A.tocsr()
+    return A
+
+
+def fill_A_CSR():
+    ...
 
 
 def fill_A_ti():
-    # # fill diagonal
-    # tic = time.time()
-    # diags = np.zeros(NE, np.float32)
-    # fill_A_diag_kernel(diags)
-    # A_diag = scipy.sparse.diags(diags)
-    # A_diag = A_diag.tocsr()
-    # print(f"fill_A_diag time: {time.time()-tic:.3f}s")
-
-    # # fill off-diagonal
-    # tic = time.time()
-    # OFF_ii, OFF_jj, OFF_vv = np.zeros(NE*NE, int), np.zeros(NE*NE, int), np.zeros(NE*NE, np.float32)
-    # fill_A_off_diag_kernel(OFF_ii, OFF_jj, OFF_vv)
-    # print(f"fill_A_off_diag time: {time.time()-tic:.3f}s")
-    # tic = time.time()
-    # A_off_diag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
-    # print(f"fill_A_off_diag to csr time: {time.time()-tic:.3f}s")
-
+    # fill diagonal
     tic = time.time()
-    ii, jj, vv = np.zeros(NE*NE, int), np.zeros(NE*NE, int), np.zeros(NE*NE, np.float32)
-    fill_A_diag_and_off_diag_kernel(ii, jj, vv)
-    print(f"fill_A_diag_and_off_diag time: {time.time()-tic:.3f}s")
+    diags = np.zeros(NE, np.float32)
+    fill_A_diag_kernel(diags)
+    A_diag = scipy.sparse.diags(diags)
+    A_diag = A_diag.tocsr()
+    print(f"fill_A_diag time: {time.time()-tic:.3f}s")
+
+    # fill off-diagonal
+    tic = time.time()
+    OFF_ii, OFF_jj, OFF_vv = np.zeros(NE*NE, int), np.zeros(NE*NE, int), np.zeros(NE*NE, np.float32)
+    fill_A_off_diag_kernel(OFF_ii, OFF_jj, OFF_vv)
+    print(f"fill_A_off_diag time: {time.time()-tic:.3f}s")
+    tic = time.time()
+    A_off_diag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
+    print(f"fill_A_off_diag to csr time: {time.time()-tic:.3f}s")
 
     tic = time.time()
-    A = scipy.sparse.csr_array((vv, (ii, jj)), shape=(NE, NE), )
-    print("construct A time: ", time.time()-tic)
-    tic = time.time()
+    A_off_diag = A_off_diag.tocsr()
+    A = A_diag + A_off_diag
     A = A.tocsr()
-    print(f"fill_A to csr time: {time.time()-tic:.3f}s")
-
-    # tic = time.time()
-    # A_off_diag = A_off_diag.tocsr()
-    # A = A_diag + A_off_diag
-    # A = A.tocsr()
-    # print(f"fill_A plus time: {time.time()-tic:.3f}s")
+    print(f"fill_A plus time: {time.time()-tic:.3f}s")
     return A
 
 

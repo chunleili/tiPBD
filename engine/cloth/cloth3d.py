@@ -14,7 +14,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=3)
+parser.add_argument("-N", type=int, default=64)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -52,7 +52,7 @@ dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha *
 adjacent_edge = ti.field(dtype=int, shape=(NE, 20))
 num_adjacent_edge = ti.field(dtype=int, shape=(NE))
 adjacent_edge_abc = ti.field(dtype=int, shape=(NE, 100))
-
+num_nonz = 0
 
 @ti.kernel
 def init_pos(
@@ -662,6 +662,13 @@ def fill_A():
     return A
 
 
+def calc_num_nonz():
+    global num_nonz
+    num_adj = num_adjacent_edge.to_numpy()
+    num_nonz = np.sum(num_adj)+NE
+    return num_nonz
+
+
 def init_A_CSR_pattern():
     num_adj = num_adjacent_edge.to_numpy()
     adj = adjacent_edge.to_numpy()
@@ -690,7 +697,7 @@ def csr_index_to_coo_index(indptr, indices):
     return ii, jj
 
 # TODO:not tested
-def update_offdiag_CSR(data, indices, indptr):
+def fill_A_offdiag_CSR(data, indices, indptr):
     cnt_nonz = 0
     for i in range(NE):
         for j in range(num_adjacent_edge[i]):
@@ -711,27 +718,25 @@ def update_offdiag_CSR(data, indices, indptr):
 
 def fill_A_ti():
     # fill diagonal
-    tic = time.time()
+    # tic = time.time()
     diags = np.zeros(NE, np.float32)
     fill_A_diag_kernel(diags)
     A_diag = scipy.sparse.diags(diags)
     A_diag = A_diag.tocsr()
-    print(f"fill_A_diag time: {time.time()-tic:.3f}s")
+    # print(f"fill_A_diag time: {time.time()-tic:.3f}s")
 
     # fill off-diagonal
-    tic = time.time()
-    OFF_ii, OFF_jj, OFF_vv = np.zeros(NE*NE, int), np.zeros(NE*NE, int), np.zeros(NE*NE, np.float32)
-    fill_A_off_diag_kernel(OFF_ii, OFF_jj, OFF_vv)
-    print(f"fill_A_off_diag time: {time.time()-tic:.3f}s")
-    tic = time.time()
+    # tic = time.time()
+    OFF_ii, OFF_jj, OFF_vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
+    fill_A_offdiag_ijv_kernel(OFF_ii, OFF_jj, OFF_vv)
     A_off_diag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
-    print(f"fill_A_off_diag to csr time: {time.time()-tic:.3f}s")
+    # print(f"fill_A_off_diag to csr time: {time.time()-tic:.3f}s")
 
-    tic = time.time()
+    # tic = time.time()
     A_off_diag = A_off_diag.tocsr()
     A = A_diag + A_off_diag
     A = A.tocsr()
-    print(f"fill_A plus time: {time.time()-tic:.3f}s")
+    # print(f"fill_A plus time: {time.time()-tic:.3f}s")
     return A
 
 
@@ -742,14 +747,12 @@ def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32)):
 
 
 @ti.kernel
-def fill_A_off_diag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32)):
+def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32)):
     cnt_nonz = 0
     ti.loop_config(serialize=True)
     for i in range(NE):
         for j in range(num_adjacent_edge[i]):
             ia = adjacent_edge[i,j]
-            # if ia<0:
-            #     print("ia<0!@i,j",i,j, num_adjacent_edge[i])
             a = adjacent_edge_abc[i, j * 3]
             b = adjacent_edge_abc[i, j * 3 + 1]
             c = adjacent_edge_abc[i, j * 3 + 2]
@@ -793,38 +796,19 @@ def fill_A_diag_and_off_diag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.typ
             cnt_nonz += 1
 
 
+# # #  with bug
+# def set_positive_offdiag_to_zero(A):
+#     A = A.tocsr()
+#     data = A.data
+#     data[data > 0] = 0 # set positive value to zero, but diag is included
+#     A = sp.csr_matrix((data, A.indices, A.indptr), shape=A.shape)
 
-
-
-# @ti.kernel
-# def fill_A_diag_and_off_diag_csr_kernel(indices:ti.types.ndarray(dtype=ti.i32), indptr:ti.types.ndarray(dtype=ti.i32), data:ti.types.ndarray(dtype=ti.f32)):
-#     cnt_nonz = 0
-
-#     for i in range(NE):
-#         vv[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-#         ii[cnt_nonz] = i
-#         jj[cnt_nonz] = i
-#         cnt_nonz += 1
-
-#     ti.loop_config(serialize=True)
-#     for i in range(NE):
-#         nonz_i = num_adjacent_edge[i] # number of non_zero off-diag in row i
-#         for j in range(nonz_i):
-#             indices = adjacent_edge[i,j]
-
-#             ia = adjacent_edge[i,j]
-#             a = adjacent_edge_abc[i, j * 3]
-#             b = adjacent_edge_abc[i, j * 3 + 1]
-#             c = adjacent_edge_abc[i, j * 3 + 2]
-#             g_ab = (pos[a] - pos[b]).normalized()
-#             g_ac = (pos[a] - pos[c]).normalized()
-#             off_diag = inv_mass[a] * g_ab.dot(g_ac)
-#             if off_diag == 0:
-#                 continue
-#             ii[cnt_nonz] = i
-#             jj[cnt_nonz] = ia
-#             vv[cnt_nonz] = off_diag
-#             cnt_nonz += 1
+#     diags = np.zeros(NE, np.float32)
+#     fill_A_diag_kernel(diags)
+#     A_diag = scipy.sparse.diags(diags)
+#     A_diag = A_diag.tocsr()
+#     A = A + A_diag # add diag back
+#     return A
 
 
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
@@ -838,15 +822,20 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
 
     # TODO: tested: init_A_CSR_pattern, csr_index_to_coo_index,
     # not tested: update_offdiag_CSR
-    data, indices, indptr = init_A_CSR_pattern()
-    ii, jj = csr_index_to_coo_index(indptr, indices)
+    # data, indices, indptr = init_A_CSR_pattern()
+    # ii, jj = csr_index_to_coo_index(indptr, indices)
 
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
         tic = time.time()
-        # A = fill_A_by_spmm(M_inv, ALPHA)
+        A1 = fill_A_by_spmm(M_inv, ALPHA)
         A = fill_A_ti()
         print(f"fill_A time: {time.time()-tic:.3f}s")
+
+        maxdiff = np.max(np.abs(A1.toarray()-A.toarray()))
+        assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
+        print(f"maxdiff: {maxdiff}")
+
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
         if frame_num == stop_frame and export_matrix:
@@ -958,7 +947,7 @@ save_P, load_P = False, True
 use_viewer = False
 export_obj = True
 export_residual = False
-solver_type = "AMG" # "AMG", "GS", "XPBD"
+solver_type = "GS" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 10
 scale_instead_of_attach = True
@@ -972,16 +961,23 @@ write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
 if scale_instead_of_attach:
     init_scale()
 
+#init adjacent edge
+tic = time.time()
+init_adjacent_edge_kernel(adjacent_edge, num_adjacent_edge, edge)
+adjacent_edge_abc.fill(-1)
+init_adjacent_edge_abc_kernel()
+print(f"init_adjacent_edge and abc time: {time.time()-tic:.3f}s")
+
+#calculate number of nonzeros by counting number of adjacent edges
+num_nonz = calc_num_nonz() 
+
+# init csr pattern. In the future we will replace all ijv pattern with csr
+data, indices, indptr = init_A_CSR_pattern()
+ii, jj = csr_index_to_coo_index(indptr, indices)
+
+
 if solver_type=="AMG":
     init_edge_center(edge_center, edge, pos)
-
-    tic = time.time()
-    init_adjacent_edge_kernel(adjacent_edge, num_adjacent_edge, edge)
-    print(f"init_adjacent_edge time: {time.time()-tic:.3f}s")
-
-    adjacent_edge_abc.fill(-1)
-    init_adjacent_edge_abc_kernel()
-
     if save_P:
         R, P, labels, new_M = compute_R_and_P_kmeans()
         scipy.io.mmwrite(misc_dir_path + "R.mtx", R)

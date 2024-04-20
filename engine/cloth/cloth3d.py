@@ -628,7 +628,7 @@ def fill_A_by_spmm(M_inv, ALPHA):
     return A
 
 
-# fill A by directly assign value
+# fill A by directly assign value， for debug
 def fill_A():
     # fill diagonal
     diags = np.zeros(NE)
@@ -661,25 +661,34 @@ def fill_A():
     A = A.tocsr()
     return A
 
+
+def fill_A_CSR():
+    ...
+
+
 def fill_A_ti():
     # fill diagonal
+    tic = time.time()
     diags = np.zeros(NE, np.float32)
     fill_A_diag_kernel(diags)
     A_diag = scipy.sparse.diags(diags)
     A_diag = A_diag.tocsr()
-
-    # np.savetxt(out_dir + f"adjacent_edge.txt", adjacent_edge.to_numpy(), fmt="%d")
-    # np.savetxt(out_dir + f"anum_adjacent_edge.txt", num_adjacent_edge.to_numpy(), fmt="%d")
-    # np.savetxt(out_dir + f"adjacent_edge_abc.txt", adjacent_edge_abc.to_numpy(), fmt="%d")
-
+    print(f"fill_A_diag time: {time.time()-tic:.3f}s")
 
     # fill off-diagonal
-    ii, jj, vv = np.zeros(NE*NE, int), np.zeros(NE*NE, int), np.zeros(NE*NE, np.float32)
-    fill_A_off_diag_kernel(ii, jj, vv)
-    A_off_diag = scipy.sparse.csr_matrix((vv, (ii, jj)), shape=(NE, NE))
-    
+    tic = time.time()
+    OFF_ii, OFF_jj, OFF_vv = np.zeros(NE*NE, int), np.zeros(NE*NE, int), np.zeros(NE*NE, np.float32)
+    fill_A_off_diag_kernel(OFF_ii, OFF_jj, OFF_vv)
+    print(f"fill_A_off_diag time: {time.time()-tic:.3f}s")
+    tic = time.time()
+    A_off_diag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
+    print(f"fill_A_off_diag to csr time: {time.time()-tic:.3f}s")
+
+    tic = time.time()
+    A_off_diag = A_off_diag.tocsr()
     A = A_diag + A_off_diag
     A = A.tocsr()
+    print(f"fill_A plus time: {time.time()-tic:.3f}s")
     return A
 
 
@@ -712,6 +721,69 @@ def fill_A_off_diag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarra
             cnt_nonz += 1
 
 
+
+@ti.kernel
+def fill_A_diag_and_off_diag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32)):
+    cnt_nonz = 0
+
+    for i in range(NE):
+        vv[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+        ii[cnt_nonz] = i
+        jj[cnt_nonz] = i
+        cnt_nonz += 1
+
+    ti.loop_config(serialize=True)
+    for i in range(NE):
+        for j in range(num_adjacent_edge[i]):
+            ia = adjacent_edge[i,j]
+            a = adjacent_edge_abc[i, j * 3]
+            b = adjacent_edge_abc[i, j * 3 + 1]
+            c = adjacent_edge_abc[i, j * 3 + 2]
+            g_ab = (pos[a] - pos[b]).normalized()
+            g_ac = (pos[a] - pos[c]).normalized()
+            off_diag = inv_mass[a] * g_ab.dot(g_ac)
+            if off_diag == 0:
+                continue
+            ii[cnt_nonz] = i
+            jj[cnt_nonz] = ia
+            vv[cnt_nonz] = off_diag
+            cnt_nonz += 1
+
+
+
+
+
+# @ti.kernel
+# def fill_A_diag_and_off_diag_csr_kernel(indices:ti.types.ndarray(dtype=ti.i32), indptr:ti.types.ndarray(dtype=ti.i32), data:ti.types.ndarray(dtype=ti.f32)):
+#     cnt_nonz = 0
+
+#     for i in range(NE):
+#         vv[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+#         ii[cnt_nonz] = i
+#         jj[cnt_nonz] = i
+#         cnt_nonz += 1
+
+#     ti.loop_config(serialize=True)
+#     for i in range(NE):
+#         nonz_i = num_adjacent_edge[i] # number of non_zero off-diag in row i
+#         for j in range(nonz_i):
+#             indices = adjacent_edge[i,j]
+
+#             ia = adjacent_edge[i,j]
+#             a = adjacent_edge_abc[i, j * 3]
+#             b = adjacent_edge_abc[i, j * 3 + 1]
+#             c = adjacent_edge_abc[i, j * 3 + 2]
+#             g_ab = (pos[a] - pos[b]).normalized()
+#             g_ac = (pos[a] - pos[c]).normalized()
+#             off_diag = inv_mass[a] * g_ab.dot(g_ac)
+#             if off_diag == 0:
+#                 continue
+#             ii[cnt_nonz] = i
+#             jj[cnt_nonz] = ia
+#             vv[cnt_nonz] = off_diag
+#             cnt_nonz += 1
+
+
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     global pos, lagrangian
     semi_euler(old_pos, inv_mass, vel, pos)
@@ -722,13 +794,11 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
+        tic = time.time()
         # A = fill_A_by_spmm(M_inv, ALPHA)
-        # A = fill_A()
         A = fill_A_ti()
+        print(f"fill_A time: {time.time()-tic:.3f}s")
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
-        
-        # scipy.io.mmwrite(out_dir + f"A_ti.mtx", A)
-        # exit()
 
         if frame_num == stop_frame and export_matrix:
             print(f"writting A and b to {out_dir}")

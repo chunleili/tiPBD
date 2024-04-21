@@ -697,23 +697,92 @@ def csr_index_to_coo_index(indptr, indices):
     return ii, jj
 
 # TODO:not tested
-def fill_A_offdiag_CSR(data, indices, indptr):
-    cnt_nonz = 0
+# for cnt version
+def fill_A_offdiag_CSR(data, indptr, ii,jj):
+    for cnt in range(num_nonz):
+        i = ii[cnt] # row index
+        j = jj[cnt] # col index
+        k = cnt - indptr[i] #k-th non-zero element of i-th row. 
+        # Because the diag is the final element of each row, 
+        # it is also the k-th adjacent edge of i-th edge.
+        if i == j: # diag
+            continue
+        a = adjacent_edge_abc[i, k * 3]
+        b = adjacent_edge_abc[i, k * 3 + 1]
+        c = adjacent_edge_abc[i, k * 3 + 2]
+        g_ab = (pos[a] - pos[b]).normalized()
+        g_ac = (pos[a] - pos[c]).normalized()
+        off_diag = inv_mass[a] * g_ab.dot(g_ac)
+        data[cnt] = off_diag
+
+# for cnt version
+@ti.kernel
+def fill_A_offdiag_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
+                              indptr:ti.types.ndarray(dtype=ti.i32), 
+                              ii:ti.types.ndarray(dtype=ti.i32), 
+                              jj:ti.types.ndarray(dtype=ti.i32),):
+    for cnt in range(num_nonz):
+        i = ii[cnt] # row index
+        j = jj[cnt] # col index
+        k = cnt - indptr[i] #k-th non-zero element of i-th row. 
+        # Because the diag is the final element of each row, 
+        # it is also the k-th adjacent edge of i-th edge.
+        if i == j: # diag
+            continue
+        a = adjacent_edge_abc[i, k * 3]
+        b = adjacent_edge_abc[i, k * 3 + 1]
+        c = adjacent_edge_abc[i, k * 3 + 2]
+        g_ab = (pos[a] - pos[b]).normalized()
+        g_ac = (pos[a] - pos[c]).normalized()
+        off_diag = inv_mass[a] * g_ab.dot(g_ac)
+        data[cnt] = off_diag
+
+
+# For i and for k version
+# Input is already in CSR format. We only update the data.
+def fill_A_offdiag_CSR_2(data):
+    cnt = 0
     for i in range(NE):
-        for j in range(num_adjacent_edge[i]):
-            ia = adjacent_edge[i,j]
-            a = adjacent_edge_abc[i, j * 3]
-            b = adjacent_edge_abc[i, j * 3 + 1]
-            c = adjacent_edge_abc[i, j * 3 + 2]
+        for k in range(num_adjacent_edge[i]):
+            a = adjacent_edge_abc[i, k * 3]
+            b = adjacent_edge_abc[i, k * 3 + 1]
+            c = adjacent_edge_abc[i, k * 3 + 2]
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
             off_diag = inv_mass[a] * g_ab.dot(g_ac)
-            indices[cnt_nonz] = ia
-            data[cnt_nonz] = off_diag
-            cnt_nonz += 1
-    print(f"nonz: {cnt_nonz}, expected: {sum(num_adjacent_edge)+NE}")
-    assert cnt_nonz == sum(num_adjacent_edge)+NE
+            data[cnt] = off_diag
+            cnt += 1
+        cnt += 1 # diag
 
+
+# For i and for k version
+# Input is already in CSR format. We only update the data.
+@ti.kernel
+def fill_A_offdiag_CSR_2_kernel(data:ti.types.ndarray(dtype=ti.f32)):
+    cnt = 0
+    ti.loop_config(serialize=True)
+    for i in range(NE):
+        for k in range(num_adjacent_edge[i]):
+            a = adjacent_edge_abc[i, k * 3]
+            b = adjacent_edge_abc[i, k * 3 + 1]
+            c = adjacent_edge_abc[i, k * 3 + 2]
+            g_ab = (pos[a] - pos[b]).normalized()
+            g_ac = (pos[a] - pos[c]).normalized()
+            off_diag = inv_mass[a] * g_ab.dot(g_ac)
+            data[cnt] = off_diag
+            cnt += 1
+        cnt += 1 # diag
+
+
+# give two edge number, return the shared vertex.
+def get_shared_vertex(edge1:int, edge2:int):
+    a, b = edge[edge1]
+    c, d = edge[edge2]
+    if a == c or a == d:
+        return a
+    if b == c or b == d:
+        return b
+    return -1 # no shared vertex
 
 
 def fill_A_ti():
@@ -726,11 +795,24 @@ def fill_A_ti():
     # print(f"fill_A_diag time: {time.time()-tic:.3f}s")
 
     # fill off-diagonal
-    # tic = time.time()
+    tic = time.time()
     OFF_ii, OFF_jj, OFF_vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
     fill_A_offdiag_ijv_kernel(OFF_ii, OFF_jj, OFF_vv)
     A_off_diag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
-    # print(f"fill_A_off_diag to csr time: {time.time()-tic:.3f}s")
+    print(f"fill_A_offdiag_ijv_kernel time: {time.time()-tic:.3f}s")
+
+    # # csr version fill_A_offdiag. 
+    # # It is suprise that csr version is slower than ijv version.
+    # # (N=64, ijv:0.074s, csr1:0.183s, csr2:0.173s)
+    # # I dont know why. But let us keep the csr version for future use.
+    # tic = time.time()
+    # # fill_A_offdiag_CSR_kernel(data, indptr, coo_ii, coo_jj)
+    # fill_A_offdiag_CSR_2_kernel(data)
+    # A_offdiag_csr = scipy.sparse.csr_matrix((data, indices, indptr), shape=(NE, NE))
+    # print(f"fill_A_offdiag_CSR  time: {time.time()-tic:.3f}s")
+    # diff = A_off_diag.tocsr() - A_offdiag_csr
+    # maxdiff = np.max(np.abs(diff.toarray()))
+    # assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
 
     # tic = time.time()
     A_off_diag = A_off_diag.tocsr()
@@ -828,13 +910,13 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
         tic = time.time()
-        A1 = fill_A_by_spmm(M_inv, ALPHA)
+        # A1 = fill_A_by_spmm(M_inv, ALPHA)
         A = fill_A_ti()
         print(f"fill_A time: {time.time()-tic:.3f}s")
 
-        maxdiff = np.max(np.abs(A1.toarray()-A.toarray()))
-        assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
-        print(f"maxdiff: {maxdiff}")
+        # maxdiff = np.max(np.abs(A1.toarray()-A.toarray()))
+        # assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
+        # print(f"maxdiff: {maxdiff}")
 
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
@@ -973,7 +1055,7 @@ num_nonz = calc_num_nonz()
 
 # init csr pattern. In the future we will replace all ijv pattern with csr
 data, indices, indptr = init_A_CSR_pattern()
-ii, jj = csr_index_to_coo_index(indptr, indices)
+coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
 
 
 if solver_type=="AMG":

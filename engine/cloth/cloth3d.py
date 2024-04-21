@@ -648,16 +648,16 @@ def fill_A():
             c = adjacent_edge_abc[i, j * 3 + 2]
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
-            off_diag = inv_mass[a] * g_ab.dot(g_ac)
-            if off_diag == 0:
+            offdiag = inv_mass[a] * g_ab.dot(g_ac)
+            if offdiag == 0:
                 continue
             ii[cnt_nonz] = i
             jj[cnt_nonz] = ia
-            vv[cnt_nonz] = off_diag
+            vv[cnt_nonz] = offdiag
             cnt_nonz += 1
-    A_off_diag = scipy.sparse.csr_matrix((vv, (ii, jj)), shape=(NE, NE))
-    # A_off_diag = A_off_diag.todense()
-    A = A_diag + A_off_diag
+    A_offdiag = scipy.sparse.csr_matrix((vv, (ii, jj)), shape=(NE, NE))
+    # A_offdiag = A_offdiag.todense()
+    A = A_diag + A_offdiag
     A = A.tocsr()
     return A
 
@@ -712,8 +712,8 @@ def fill_A_offdiag_CSR(data, indptr, ii,jj):
         c = adjacent_edge_abc[i, k * 3 + 2]
         g_ab = (pos[a] - pos[b]).normalized()
         g_ac = (pos[a] - pos[c]).normalized()
-        off_diag = inv_mass[a] * g_ab.dot(g_ac)
-        data[cnt] = off_diag
+        offdiag = inv_mass[a] * g_ab.dot(g_ac)
+        data[cnt] = offdiag
 
 # for cnt version
 @ti.kernel
@@ -734,8 +734,8 @@ def fill_A_offdiag_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
         c = adjacent_edge_abc[i, k * 3 + 2]
         g_ab = (pos[a] - pos[b]).normalized()
         g_ac = (pos[a] - pos[c]).normalized()
-        off_diag = inv_mass[a] * g_ab.dot(g_ac)
-        data[cnt] = off_diag
+        offdiag = inv_mass[a] * g_ab.dot(g_ac)
+        data[cnt] = offdiag
 
 
 # For i and for k version
@@ -749,8 +749,8 @@ def fill_A_offdiag_CSR_2(data):
             c = adjacent_edge_abc[i, k * 3 + 2]
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
-            off_diag = inv_mass[a] * g_ab.dot(g_ac)
-            data[cnt] = off_diag
+            offdiag = inv_mass[a] * g_ab.dot(g_ac)
+            data[cnt] = offdiag
             cnt += 1
         cnt += 1 # diag
 
@@ -768,8 +768,8 @@ def fill_A_offdiag_CSR_2_kernel(data:ti.types.ndarray(dtype=ti.f32)):
             c = adjacent_edge_abc[i, k * 3 + 2]
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
-            off_diag = inv_mass[a] * g_ab.dot(g_ac)
-            data[cnt] = off_diag
+            offdiag = inv_mass[a] * g_ab.dot(g_ac)
+            data[cnt] = offdiag
             cnt += 1
         cnt += 1 # diag
 
@@ -798,7 +798,7 @@ def fill_A_ti():
     tic = time.time()
     OFF_ii, OFF_jj, OFF_vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
     fill_A_offdiag_ijv_kernel(OFF_ii, OFF_jj, OFF_vv)
-    A_off_diag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
+    A_offdiag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
     print(f"fill_A_offdiag_ijv_kernel time: {time.time()-tic:.3f}s")
 
     # # csr version fill_A_offdiag. 
@@ -810,13 +810,13 @@ def fill_A_ti():
     # fill_A_offdiag_CSR_2_kernel(data)
     # A_offdiag_csr = scipy.sparse.csr_matrix((data, indices, indptr), shape=(NE, NE))
     # print(f"fill_A_offdiag_CSR  time: {time.time()-tic:.3f}s")
-    # diff = A_off_diag.tocsr() - A_offdiag_csr
+    # diff = A_offdiag.tocsr() - A_offdiag_csr
     # maxdiff = np.max(np.abs(diff.toarray()))
     # assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
 
     # tic = time.time()
-    A_off_diag = A_off_diag.tocsr()
-    A = A_diag + A_off_diag
+    A_offdiag = A_offdiag.tocsr()
+    A = A_diag + A_offdiag
     A = A.tocsr()
     # print(f"fill_A plus time: {time.time()-tic:.3f}s")
     return A
@@ -840,18 +840,18 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
             c = adjacent_edge_abc[i, j * 3 + 2]
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
-            off_diag = inv_mass[a] * g_ab.dot(g_ac)
-            if off_diag == 0:
+            offdiag = inv_mass[a] * g_ab.dot(g_ac)
+            if offdiag == 0:
                 continue
             ii[cnt_nonz] = i
             jj[cnt_nonz] = ia
-            vv[cnt_nonz] = off_diag
+            vv[cnt_nonz] = offdiag
             cnt_nonz += 1
 
 
 
 @ti.kernel
-def fill_A_diag_and_off_diag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32)):
+def fill_A_diag_and_offdiag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32)):
     cnt_nonz = 0
 
     for i in range(NE):
@@ -869,12 +869,12 @@ def fill_A_diag_and_off_diag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.typ
             c = adjacent_edge_abc[i, j * 3 + 2]
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
-            off_diag = inv_mass[a] * g_ab.dot(g_ac)
-            if off_diag == 0:
+            offdiag = inv_mass[a] * g_ab.dot(g_ac)
+            if offdiag == 0:
                 continue
             ii[cnt_nonz] = i
             jj[cnt_nonz] = ia
-            vv[cnt_nonz] = off_diag
+            vv[cnt_nonz] = offdiag
             cnt_nonz += 1
 
 
@@ -1033,7 +1033,7 @@ solver_type = "GS" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 10
 scale_instead_of_attach = True
-use_off_diag = True
+use_offdiag = True
 
 timer_all = time.perf_counter()
 init_pos(inv_mass,pos)

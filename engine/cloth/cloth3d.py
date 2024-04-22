@@ -3,6 +3,7 @@ import numpy as np
 import time
 import scipy
 import scipy.sparse as sp
+from scipy.io import mmwrite, mmread
 from pathlib import Path
 import os
 from matplotlib import pyplot as plt
@@ -53,6 +54,7 @@ adjacent_edge = ti.field(dtype=int, shape=(NE, 20))
 num_adjacent_edge = ti.field(dtype=int, shape=(NE))
 adjacent_edge_abc = ti.field(dtype=int, shape=(NE, 100))
 num_nonz = 0
+nnz_each_row = np.zeros(NE, dtype=int)
 
 @ti.kernel
 def init_pos(
@@ -668,6 +670,11 @@ def calc_num_nonz():
     num_nonz = np.sum(num_adj)+NE
     return num_nonz
 
+def calc_nnz_each_row():
+    global nnz_each_row
+    num_adj = num_adjacent_edge.to_numpy()
+    nnz_each_row = num_adj[:] + 1
+    return nnz_each_row
 
 def init_A_CSR_pattern():
     num_adj = num_adjacent_edge.to_numpy()
@@ -813,7 +820,19 @@ def fill_A_ti():
     # diff = A_offdiag.tocsr() - A_offdiag_csr
     # maxdiff = np.max(np.abs(diff.toarray()))
     # assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
+    
+    tic = time.time()
+    A_offdiag = set_positive_offdiag_and_symmetry_to_zero_brutal(A_offdiag)
+    print(f"set_positive_offdiag_and_symmetry_to_zero_brutal time: {time.time()-tic:.3f}s")
+    tic = time.time()
+    A_offdiag1 = set_positive_offdiag_and_symmetry_to_zero_ti(A_offdiag)
+    print(f"set_positive_offdiag_and_symmetry_to_zero_ti time: {time.time()-tic:.3f}s")
 
+    maxdiff = np.max(np.abs(A_offdiag.toarray()-A_offdiag1.toarray()))
+    assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
+    print(f"maxdiff: {maxdiff}")
+
+    mmwrite("A_offdiag.mtx", A_offdiag)
     # tic = time.time()
     A_offdiag = A_offdiag.tocsr()
     A = A_diag + A_offdiag
@@ -841,12 +860,13 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
             offdiag = inv_mass[a] * g_ab.dot(g_ac)
-            if offdiag == 0:
-                continue
+            # if offdiag == 0:
+            #     continue
             ii[cnt_nonz] = i
             jj[cnt_nonz] = ia
             vv[cnt_nonz] = offdiag
             cnt_nonz += 1
+        cnt_nonz += 1 # diag placeholder
 
 
 
@@ -877,20 +897,65 @@ def fill_A_diag_and_offdiag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.type
             vv[cnt_nonz] = offdiag
             cnt_nonz += 1
 
+def set_positive_offdiag_and_symmetry_to_zero_brutal(A):
+    A = A.tocsr()
+    for i in range(A.shape[0]):
+        for k in range(A[[i]].nnz):
+            j = A.indices[A.indptr[i]+k]
+            if A[i,j] > 0:
+                A[i,j] = 0
+                A[j,i] = 0
+    return A
+
+
+def set_positive_offdiag_and_symmetry_to_zero_ti(A):
+    A = A.tocsr()
+    nrow = A.shape[0]
+    global nnz_each_row
+    indices = A.indices
+    data = A.data
+    indptr = A.indptr
+    set_positive_offdiag_and_symmetry_to_zero_kernel(nrow, nnz_each_row, indices, indptr,data)
+    return A
+
+@ti.kernel
+def set_positive_offdiag_and_symmetry_to_zero_kernel(
+    nrow:ti.i32,
+    nnz_each_row:ti.types.ndarray(dtype=ti.i32),
+    indices:ti.types.ndarray(dtype=ti.i32),
+    indptr:ti.types.ndarray(dtype=ti.i32),
+    data:ti.types.ndarray(dtype=ti.f32),
+):
+    for i in range(nrow):
+        for k in range(nnz_each_row[i]):
+            j = indices[indptr[i]+k]
+            if data[indptr[i]+k] > 0:
+                data[indptr[i]+k] = 0
+            if data[indptr[j]+k] != 0:
+                data[indptr[j]+k] = 0
 
 # # #  with bug
-# def set_positive_offdiag_to_zero(A):
-#     A = A.tocsr()
-#     data = A.data
-#     data[data > 0] = 0 # set positive value to zero, but diag is included
-#     A = sp.csr_matrix((data, A.indices, A.indptr), shape=A.shape)
+# def set_positive_offdiag_and_symmetry_to_zero(A_offdiag):
+#     data = A_offdiag.data
+#     cnt = np.where(data > 0) # index of positive off-diagonal elements
+#     symmetry=(A_offdiag == A_offdiag.T).toarray().all()
 
-#     diags = np.zeros(NE, np.float32)
-#     fill_A_diag_kernel(diags)
-#     A_diag = scipy.sparse.diags(diags)
-#     A_diag = A_diag.tocsr()
-#     A = A + A_diag # add diag back
-#     return A
+#     A_offdiag = A_offdiag.tocsr()
+#     indptr =  A_offdiag.tocsr().indptr
+
+#     A_offdiag = A_offdiag.tocoo()
+#     ii = A_offdiag.tocoo().row
+#     jj = A_offdiag.tocoo().col
+#     i = ii[cnt] # row index of positive off-diagonal elements
+#     j = jj[cnt] # col index of positive off-diagonal elements
+#     cnt2 = ij_to_cnt(i, j, indptr) # symmetric index of positive off-diagonal elements. BUG: cnt2 may not in the A.
+
+#     data[cnt] *= 1e-3
+#     # data[cnt2] *= 1e-3
+
+#     A_offdiag.data = data
+#     return A_offdiag
+
 
 
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
@@ -901,11 +966,6 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     M_inv = scipy.sparse.diags(inv_mass_np)
     alpha_tilde_np = np.array([alpha] * M)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-    # TODO: tested: init_A_CSR_pattern, csr_index_to_coo_index,
-    # not tested: update_offdiag_CSR
-    # data, indices, indptr = init_A_CSR_pattern()
-    # ii, jj = csr_index_to_coo_index(indptr, indices)
 
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
@@ -1052,11 +1112,15 @@ print(f"init_adjacent_edge and abc time: {time.time()-tic:.3f}s")
 
 #calculate number of nonzeros by counting number of adjacent edges
 num_nonz = calc_num_nonz() 
+nnz_each_row = calc_nnz_each_row()
 
 # init csr pattern. In the future we will replace all ijv pattern with csr
 data, indices, indptr = init_A_CSR_pattern()
 coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
 
+# [row,col] to 1D index for csr or coo format
+def ij_to_cnt(i,j, indptr):
+    return indptr[i]+j
 
 if solver_type=="AMG":
     init_edge_center(edge_center, edge, pos)

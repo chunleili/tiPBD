@@ -43,7 +43,7 @@ def test_amg(mat_size = 10, case_num = 0):
         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
     else:
         print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"AN64_M.mtx")
+        A = scipy.io.mmread(to_read_dir+f"A.mtx")
         A = A.tocsr()
         b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
         # b = np.random.random(A.shape[0])
@@ -164,14 +164,22 @@ def improve_A(A):
     A = A.tocsr()
     return A
 
+# def improve_A_make_M_matrix(A):
+#     Anew = A.copy()
+#     for i in range(Anew.shape[0]):
+#         for j in range(Anew.shape[1]):
+#             if i==j:
+#                 continue
+#             if Anew[i,j] > 0:
+#                 Anew[i,j] = 0
+#     return Anew
+
 def improve_A_make_M_matrix(A):
     Anew = A.copy()
-    for i in range(Anew.shape[0]):
-        for j in range(Anew.shape[1]):
-            if i==j:
-                continue
-            if Anew[i,j] > 0:
-                Anew[i,j] = 0
+    diags = A.diagonal().copy()
+    A.setdiag(np.zeros(A.shape[0]))
+    A.data[A.data >0 ] = 0.0
+    A.setdiag(diags)
     return Anew
 
 def improve_A_by_remove_offdiag(A):

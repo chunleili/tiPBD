@@ -694,11 +694,30 @@ def fill_A_by_spmm(M_inv, ALPHA):
     A = G @ M_inv @ G.transpose() + ALPHA
     A = scipy.sparse.csr_array(A)
 
-    A.setdiag(np.zeros(NE))
-    A.data[A.data >0 ] = 0.0
-    A.setdiag(spMatA.diags)
+    # make M matrix
+    # A.setdiag(np.zeros(NE))
+    # A.data[A.data >0 ] = 0.0
+    # A.setdiag(spMatA.diags)
+
+    # reduce offdiag
+    A = improve_A_by_reduce_offdiag(A)
     return A
 
+def improve_A_make_M_matrix(A):
+    Anew = A.copy()
+    diags = A.diagonal().copy()
+    A.setdiag(np.zeros(A.shape[0]))
+    A.data[A.data >0 ] = 0.0
+    A.setdiag(diags)
+    return Anew
+
+def improve_A_by_reduce_offdiag(A):
+    A_diag = A.diagonal(0)
+    A_diag_mat = sp.diags([A_diag], [0], format="csr")
+    A_offdiag = A - A_diag_mat
+    A_offdiag = A_offdiag * 0.1
+    newA = A_diag_mat + A_offdiag
+    return newA
 
 def calc_num_nonz():
     global num_nonz
@@ -833,7 +852,7 @@ def export_A_b_and_exit(A,b):
     print(f"writting A and b to {out_dir}")
     scipy.io.mmwrite(out_dir + f"A.mtx", A)
     np.savetxt(out_dir + f"b.txt", b)
-    exit()
+    print(f"writting A and b done")
 
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     global pos, lagrangian
@@ -847,8 +866,8 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
         # tic = time.time()
-        # A1 = fill_A_by_spmm(M_inv, ALPHA)
-        A = fill_A_ti()
+        A = fill_A_by_spmm(M_inv, ALPHA)
+        # A = fill_A_ti()
         # print(f"fill_A time: {time.time()-tic:.3e}s")
 
         # maxdiff = np.max(np.abs(A1.toarray()-A.toarray()))
@@ -876,7 +895,7 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             import pyamg
             # print("generating R and P by pyamg...")
             ml = pyamg.ruge_stuben_solver(A, max_levels=2)
-            print(f"build P time: {time.time()-tic:.3e}s")
+            # print(f"build P time: {time.time()-tic:.3e}s")
             P = ml.levels[0].P
             R = ml.levels[0].R
             # print(f"R: {R.shape}, P: {P.shape}")
@@ -884,7 +903,7 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             r = []
             x = solve_amg(A, b, x0, R, P, r)
             print(f"r:{r[0]:.2e}\t{r[-1]:.2e}")
-            print(f"solve_amg time: {time.time()-tic:.3e}s")
+            # print(f"solve_amg time: {time.time()-tic:.3e}s")
         transfer_back_to_pos_mfree(x)
 
         if export_residual:

@@ -692,7 +692,11 @@ def fill_A_by_spmm(M_inv, ALPHA):
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
     A = G @ M_inv @ G.transpose() + ALPHA
-    A = scipy.sparse.csr_matrix(A)
+    A = scipy.sparse.csr_array(A)
+
+    A.setdiag(np.zeros(NE))
+    A.data[A.data >0 ] = 0.0
+    A.setdiag(spMatA.diags)
     return A
 
 
@@ -735,23 +739,6 @@ def csr_index_to_coo_index(indptr, indices):
         jj[indptr[i]:indptr[i+1]]=indices[indptr[i]:indptr[i+1]]
     return ii, jj
 
-# # for cnt version
-# def fill_A_offdiag_CSR(data, indptr, ii,jj):
-#     for cnt in range(num_nonz):
-#         i = ii[cnt] # row index
-#         j = jj[cnt] # col index
-#         k = cnt - indptr[i] #k-th non-zero element of i-th row. 
-#         # Because the diag is the final element of each row, 
-#         # it is also the k-th adjacent edge of i-th edge.
-#         if i == j: # diag
-#             continue
-#         a = adjacent_edge_abc[i, k * 3]
-#         b = adjacent_edge_abc[i, k * 3 + 1]
-#         c = adjacent_edge_abc[i, k * 3 + 2]
-#         g_ab = (pos[a] - pos[b]).normalized()
-#         g_ac = (pos[a] - pos[c]).normalized()
-#         offdiag = inv_mass[a] * g_ab.dot(g_ac)
-#         data[cnt] = offdiag
 
 # for cnt version
 @ti.kernel
@@ -842,33 +829,11 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
         n += 1 # diag placeholder
 
 
-@ti.kernel
-def fill_A_diag_and_offdiag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32)):
-    cnt_nonz = 0
-
-    for i in range(NE):
-        vv[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-        ii[cnt_nonz] = i
-        jj[cnt_nonz] = i
-        cnt_nonz += 1
-
-    ti.loop_config(serialize=True)
-    for i in range(NE):
-        for j in range(num_adjacent_edge[i]):
-            ia = adjacent_edge[i,j]
-            a = adjacent_edge_abc[i, j * 3]
-            b = adjacent_edge_abc[i, j * 3 + 1]
-            c = adjacent_edge_abc[i, j * 3 + 2]
-            g_ab = (pos[a] - pos[b]).normalized()
-            g_ac = (pos[a] - pos[c]).normalized()
-            offdiag = inv_mass[a] * g_ab.dot(g_ac)
-            if offdiag == 0:
-                continue
-            ii[cnt_nonz] = i
-            jj[cnt_nonz] = ia
-            vv[cnt_nonz] = offdiag
-            cnt_nonz += 1
-
+def export_A_b_and_exit(A,b):
+    print(f"writting A and b to {out_dir}")
+    scipy.io.mmwrite(out_dir + f"A.mtx", A)
+    np.savetxt(out_dir + f"b.txt", b)
+    exit()
 
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     global pos, lagrangian

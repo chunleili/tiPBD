@@ -43,10 +43,10 @@ def test_amg(mat_size = 10, case_num = 0):
         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
     else:
         print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A80.mtx")
+        A = scipy.io.mmread(to_read_dir+f"AN64_M.mtx")
         A = A.tocsr()
-        # b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
-        b= np.random.random(A.shape[0])
+        b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
+        # b = np.random.random(A.shape[0])
         # b = np.ones(A.shape[0])
 
     A1 = A.copy()

@@ -15,7 +15,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=64)
+parser.add_argument("-N", type=int, default=3)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -55,6 +55,59 @@ num_adjacent_edge = ti.field(dtype=int, shape=(NE))
 adjacent_edge_abc = ti.field(dtype=int, shape=(NE, 100))
 num_nonz = 0
 nnz_each_row = np.zeros(NE, dtype=int)
+
+class SpMat():
+    def __init__(self, nnz, nrow=NE):
+        self.nrow = nrow #number of rows
+        self.nnz = nnz # number of non-zeros
+
+        # csr format and coo format storage data
+        self.ii = np.zeros(nnz, dtype=np.int32) #coo.row
+        self.jj = np.zeros(nnz, dtype=np.int32) #coo.col or csr.indices
+        self.data = np.zeros(nnz, dtype=np.float32) #coo.data
+        self.indptr = np.zeros(nrow+1, dtype=np.int32) # csr.indptr, start index of each row
+
+        # number of non-zeros in each row
+        self.nnz_row = np.zeros(nrow, dtype=np.int32) 
+
+        # i: row index,
+        # j: col index,
+        # k: non-zero index in i-th row,
+        # n: non-zero index in data
+
+    def _init_pattern(self):
+        ii, jj, indptr, nnz_row, data = self.ii, self.jj, self.indptr, self.nnz_row, self.data
+
+        num_adj = num_adjacent_edge.to_numpy()
+        adj = adjacent_edge.to_numpy()
+        indptr[0] = 0
+        for i in range(self.nrow):
+            nnz_row[i] = num_adj[i] + 1
+            indptr[i+1]= indptr[i] + nnz_row[i]
+            jj[indptr[i]:indptr[i+1]-1]= adj[i][:nnz_row[i]-1] #offdiag
+            jj[indptr[i+1]-1]=i #diag
+            ii[indptr[i]:indptr[i+1]]=i
+
+        # scipy coo to csr transferring may loose zeros,
+        #  so we fill a small value to prevent it.
+        data.fill(1e-9) 
+
+    def ik2n(self, i, k):
+        n = self.indptr[i] + k
+        return n
+    
+    def ik2j(self, i, k):
+        j = self.jj[self.indptr[i] + k]
+        return j
+    
+    # This is slow, because we have to search and compare.
+    # -1 means not found(not in the matrix)
+    def ij2n(self,i,j):
+        for n in range(self.indptr[i], self.indptr[i+1]):
+            if self.jj[n] == j:
+                return n
+        return -1
+
 
 @ti.kernel
 def init_pos(
@@ -1095,6 +1148,9 @@ stop_frame = 10
 scale_instead_of_attach = True
 use_offdiag = True
 
+# ---------------------------------------------------------------------------- #
+#                                initialization                                #
+# ---------------------------------------------------------------------------- #
 timer_all = time.perf_counter()
 init_pos(inv_mass,pos)
 init_tri(tri)
@@ -1118,9 +1174,9 @@ nnz_each_row = calc_nnz_each_row()
 data, indices, indptr = init_A_CSR_pattern()
 coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
 
-# [row,col] to 1D index for csr or coo format
-def ij_to_cnt(i,j, indptr):
-    return indptr[i]+j
+spMatA = SpMat(num_nonz, NE)
+spMatA._init_pattern()
+# n = spMatA.ij2n(1,12)
 
 if solver_type=="AMG":
     init_edge_center(edge_center, edge, pos)
@@ -1135,6 +1191,7 @@ if solver_type=="AMG":
         # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 print("Initialization done. Cost time: ", time.perf_counter() - timer_all, "s")
+
 
 class Viewer:
     if use_viewer:

@@ -15,7 +15,7 @@ import argparse
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=3)
+parser.add_argument("-N", type=int, default=64)
 
 N = parser.parse_args().N
 print("N: ", N)
@@ -70,6 +70,8 @@ class SpMat():
         # number of non-zeros in each row
         self.nnz_row = np.zeros(nrow, dtype=np.int32) 
 
+        self.diags = np.zeros(nrow, dtype=np.float32)
+
         # i: row index,
         # j: col index,
         # k: non-zero index in i-th row,
@@ -90,7 +92,7 @@ class SpMat():
 
         # scipy coo to csr transferring may loose zeros,
         #  so we fill a small value to prevent it.
-        data.fill(1e-9) 
+        data.fill(-1e-9) 
 
     def ik2n(self, i, k):
         n = self.indptr[i] + k
@@ -496,6 +498,17 @@ def compute_C_and_gradC_kernel(
         gradC[i, 0] = g
         gradC[i, 1] = -g
 
+@ti.kernel
+def update_constraints_kernel(
+    pos:ti.template(),
+    edge:ti.template(),
+    rest_len:ti.template(),
+    constraints:ti.template(),
+):
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        dis = pos[idx0] - pos[idx1]
+        constraints[i] = dis.norm() - rest_len[i]
 
 
 @ti.kernel
@@ -587,8 +600,8 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
 
 
 def gauss_seidel(A, x, b, iterations=1):
-    if not scipy.sparse.isspmatrix_csr(A):
-        raise ValueError("A must be csr matrix!")
+    # if not scipy.sparse.isspmatrix_csr(A):
+    #     raise ValueError("A must be csr matrix!")
 
     for _iter in range(iterations):
         # forward sweep
@@ -608,7 +621,7 @@ def solve_amg(A, b, x0, R, P, residuals=[]):
     tol = 1e-3
     maxiter = 1
     A2 = R @ A @ P
-    x = x0
+    x = x0.copy()
     normb = np.linalg.norm(b)
     if normb == 0.0:
         normb = 1.0  # set so that we have an absolute tolerance
@@ -683,40 +696,6 @@ def fill_A_by_spmm(M_inv, ALPHA):
     return A
 
 
-# fill A by directly assign value， for debug
-def fill_A():
-    # fill diagonal
-    diags = np.zeros(NE)
-    for i in range(NE):
-        diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-    A_diag = scipy.sparse.diags(diags)
-    # A_diag = A_diag.todense()
-
-    # fill off-diagonal
-    ii, jj, vv = np.zeros(NE*NE,int), np.zeros(NE*NE,int), np.zeros(NE*NE)
-    cnt_nonz = 0
-    for i in range(NE):
-        for j in range(num_adjacent_edge[i]):
-            ia = adjacent_edge[i,j]
-            a = adjacent_edge_abc[i, j * 3]
-            b = adjacent_edge_abc[i, j * 3 + 1]
-            c = adjacent_edge_abc[i, j * 3 + 2]
-            g_ab = (pos[a] - pos[b]).normalized()
-            g_ac = (pos[a] - pos[c]).normalized()
-            offdiag = inv_mass[a] * g_ab.dot(g_ac)
-            if offdiag == 0:
-                continue
-            ii[cnt_nonz] = i
-            jj[cnt_nonz] = ia
-            vv[cnt_nonz] = offdiag
-            cnt_nonz += 1
-    A_offdiag = scipy.sparse.csr_matrix((vv, (ii, jj)), shape=(NE, NE))
-    # A_offdiag = A_offdiag.todense()
-    A = A_diag + A_offdiag
-    A = A.tocsr()
-    return A
-
-
 def calc_num_nonz():
     global num_nonz
     num_adj = num_adjacent_edge.to_numpy()
@@ -756,24 +735,23 @@ def csr_index_to_coo_index(indptr, indices):
         jj[indptr[i]:indptr[i+1]]=indices[indptr[i]:indptr[i+1]]
     return ii, jj
 
-# TODO:not tested
-# for cnt version
-def fill_A_offdiag_CSR(data, indptr, ii,jj):
-    for cnt in range(num_nonz):
-        i = ii[cnt] # row index
-        j = jj[cnt] # col index
-        k = cnt - indptr[i] #k-th non-zero element of i-th row. 
-        # Because the diag is the final element of each row, 
-        # it is also the k-th adjacent edge of i-th edge.
-        if i == j: # diag
-            continue
-        a = adjacent_edge_abc[i, k * 3]
-        b = adjacent_edge_abc[i, k * 3 + 1]
-        c = adjacent_edge_abc[i, k * 3 + 2]
-        g_ab = (pos[a] - pos[b]).normalized()
-        g_ac = (pos[a] - pos[c]).normalized()
-        offdiag = inv_mass[a] * g_ab.dot(g_ac)
-        data[cnt] = offdiag
+# # for cnt version
+# def fill_A_offdiag_CSR(data, indptr, ii,jj):
+#     for cnt in range(num_nonz):
+#         i = ii[cnt] # row index
+#         j = jj[cnt] # col index
+#         k = cnt - indptr[i] #k-th non-zero element of i-th row. 
+#         # Because the diag is the final element of each row, 
+#         # it is also the k-th adjacent edge of i-th edge.
+#         if i == j: # diag
+#             continue
+#         a = adjacent_edge_abc[i, k * 3]
+#         b = adjacent_edge_abc[i, k * 3 + 1]
+#         c = adjacent_edge_abc[i, k * 3 + 2]
+#         g_ab = (pos[a] - pos[b]).normalized()
+#         g_ac = (pos[a] - pos[c]).normalized()
+#         offdiag = inv_mass[a] * g_ab.dot(g_ac)
+#         data[cnt] = offdiag
 
 # for cnt version
 @ti.kernel
@@ -796,24 +774,6 @@ def fill_A_offdiag_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
         g_ac = (pos[a] - pos[c]).normalized()
         offdiag = inv_mass[a] * g_ab.dot(g_ac)
         data[cnt] = offdiag
-
-
-# For i and for k version
-# Input is already in CSR format. We only update the data.
-def fill_A_offdiag_CSR_2(data):
-    cnt = 0
-    for i in range(NE):
-        for k in range(num_adjacent_edge[i]):
-            a = adjacent_edge_abc[i, k * 3]
-            b = adjacent_edge_abc[i, k * 3 + 1]
-            c = adjacent_edge_abc[i, k * 3 + 2]
-            g_ab = (pos[a] - pos[b]).normalized()
-            g_ac = (pos[a] - pos[c]).normalized()
-            offdiag = inv_mass[a] * g_ab.dot(g_ac)
-            data[cnt] = offdiag
-            cnt += 1
-        cnt += 1 # diag
-
 
 # For i and for k version
 # Input is already in CSR format. We only update the data.
@@ -846,51 +806,11 @@ def get_shared_vertex(edge1:int, edge2:int):
 
 
 def fill_A_ti():
-    # fill diagonal
-    # tic = time.time()
-    diags = np.zeros(NE, np.float32)
-    fill_A_diag_kernel(diags)
-    A_diag = scipy.sparse.diags(diags)
-    A_diag = A_diag.tocsr()
-    # print(f"fill_A_diag time: {time.time()-tic:.3f}s")
+    fill_A_offdiag_ijv_kernel(spMatA.ii, spMatA.jj, spMatA.data)
+    A_offdiag = scipy.sparse.coo_array((spMatA.data, (spMatA.ii, spMatA.jj)), shape=(NE, NE))
 
-    # fill off-diagonal
-    tic = time.time()
-    OFF_ii, OFF_jj, OFF_vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
-    fill_A_offdiag_ijv_kernel(OFF_ii, OFF_jj, OFF_vv)
-    A_offdiag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
-    print(f"fill_A_offdiag_ijv_kernel time: {time.time()-tic:.3f}s")
-
-    # # csr version fill_A_offdiag. 
-    # # It is suprise that csr version is slower than ijv version.
-    # # (N=64, ijv:0.074s, csr1:0.183s, csr2:0.173s)
-    # # I dont know why. But let us keep the csr version for future use.
-    # tic = time.time()
-    # # fill_A_offdiag_CSR_kernel(data, indptr, coo_ii, coo_jj)
-    # fill_A_offdiag_CSR_2_kernel(data)
-    # A_offdiag_csr = scipy.sparse.csr_matrix((data, indices, indptr), shape=(NE, NE))
-    # print(f"fill_A_offdiag_CSR  time: {time.time()-tic:.3f}s")
-    # diff = A_offdiag.tocsr() - A_offdiag_csr
-    # maxdiff = np.max(np.abs(diff.toarray()))
-    # assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
-    
-    tic = time.time()
-    A_offdiag = set_positive_offdiag_and_symmetry_to_zero_brutal(A_offdiag)
-    print(f"set_positive_offdiag_and_symmetry_to_zero_brutal time: {time.time()-tic:.3f}s")
-    tic = time.time()
-    A_offdiag1 = set_positive_offdiag_and_symmetry_to_zero_ti(A_offdiag)
-    print(f"set_positive_offdiag_and_symmetry_to_zero_ti time: {time.time()-tic:.3f}s")
-
-    maxdiff = np.max(np.abs(A_offdiag.toarray()-A_offdiag1.toarray()))
-    assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
-    print(f"maxdiff: {maxdiff}")
-
-    mmwrite("A_offdiag.mtx", A_offdiag)
-    # tic = time.time()
-    A_offdiag = A_offdiag.tocsr()
-    A = A_diag + A_offdiag
-    A = A.tocsr()
-    # print(f"fill_A plus time: {time.time()-tic:.3f}s")
+    A_offdiag.setdiag(spMatA.diags)
+    A = A_offdiag.tocsr()
     return A
 
 
@@ -902,25 +822,24 @@ def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32)):
 
 @ti.kernel
 def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32)):
-    cnt_nonz = 0
+    n = 0
     ti.loop_config(serialize=True)
     for i in range(NE):
-        for j in range(num_adjacent_edge[i]):
-            ia = adjacent_edge[i,j]
-            a = adjacent_edge_abc[i, j * 3]
-            b = adjacent_edge_abc[i, j * 3 + 1]
-            c = adjacent_edge_abc[i, j * 3 + 2]
+        for k in range(num_adjacent_edge[i]):
+            ia = adjacent_edge[i,k]
+            a = adjacent_edge_abc[i, k * 3]
+            b = adjacent_edge_abc[i, k * 3 + 1]
+            c = adjacent_edge_abc[i, k * 3 + 2]
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
             offdiag = inv_mass[a] * g_ab.dot(g_ac)
-            # if offdiag == 0:
-            #     continue
-            ii[cnt_nonz] = i
-            jj[cnt_nonz] = ia
-            vv[cnt_nonz] = offdiag
-            cnt_nonz += 1
-        cnt_nonz += 1 # diag placeholder
-
+            if offdiag > 0:
+                offdiag = 0
+            ii[n] = i
+            jj[n] = ia
+            vv[n] = offdiag
+            n += 1
+        n += 1 # diag placeholder
 
 
 @ti.kernel
@@ -950,66 +869,6 @@ def fill_A_diag_and_offdiag_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.type
             vv[cnt_nonz] = offdiag
             cnt_nonz += 1
 
-def set_positive_offdiag_and_symmetry_to_zero_brutal(A):
-    A = A.tocsr()
-    for i in range(A.shape[0]):
-        for k in range(A[[i]].nnz):
-            j = A.indices[A.indptr[i]+k]
-            if A[i,j] > 0:
-                A[i,j] = 0
-                A[j,i] = 0
-    return A
-
-
-def set_positive_offdiag_and_symmetry_to_zero_ti(A):
-    A = A.tocsr()
-    nrow = A.shape[0]
-    global nnz_each_row
-    indices = A.indices
-    data = A.data
-    indptr = A.indptr
-    set_positive_offdiag_and_symmetry_to_zero_kernel(nrow, nnz_each_row, indices, indptr,data)
-    return A
-
-@ti.kernel
-def set_positive_offdiag_and_symmetry_to_zero_kernel(
-    nrow:ti.i32,
-    nnz_each_row:ti.types.ndarray(dtype=ti.i32),
-    indices:ti.types.ndarray(dtype=ti.i32),
-    indptr:ti.types.ndarray(dtype=ti.i32),
-    data:ti.types.ndarray(dtype=ti.f32),
-):
-    for i in range(nrow):
-        for k in range(nnz_each_row[i]):
-            j = indices[indptr[i]+k]
-            if data[indptr[i]+k] > 0:
-                data[indptr[i]+k] = 0
-            if data[indptr[j]+k] != 0:
-                data[indptr[j]+k] = 0
-
-# # #  with bug
-# def set_positive_offdiag_and_symmetry_to_zero(A_offdiag):
-#     data = A_offdiag.data
-#     cnt = np.where(data > 0) # index of positive off-diagonal elements
-#     symmetry=(A_offdiag == A_offdiag.T).toarray().all()
-
-#     A_offdiag = A_offdiag.tocsr()
-#     indptr =  A_offdiag.tocsr().indptr
-
-#     A_offdiag = A_offdiag.tocoo()
-#     ii = A_offdiag.tocoo().row
-#     jj = A_offdiag.tocoo().col
-#     i = ii[cnt] # row index of positive off-diagonal elements
-#     j = jj[cnt] # col index of positive off-diagonal elements
-#     cnt2 = ij_to_cnt(i, j, indptr) # symmetric index of positive off-diagonal elements. BUG: cnt2 may not in the A.
-
-#     data[cnt] *= 1e-3
-#     # data[cnt2] *= 1e-3
-
-#     A_offdiag.data = data
-#     return A_offdiag
-
-
 
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     global pos, lagrangian
@@ -1022,15 +881,16 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
 
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
-        tic = time.time()
+        # tic = time.time()
         # A1 = fill_A_by_spmm(M_inv, ALPHA)
         A = fill_A_ti()
-        print(f"fill_A time: {time.time()-tic:.3f}s")
+        # print(f"fill_A time: {time.time()-tic:.3e}s")
 
         # maxdiff = np.max(np.abs(A1.toarray()-A.toarray()))
         # assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
         # print(f"maxdiff: {maxdiff}")
 
+        update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
         if frame_num == stop_frame and export_matrix:
@@ -1047,14 +907,19 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
         elif solver_type == "AMG":
+            tic = time.time()
             import pyamg
             # print("generating R and P by pyamg...")
             ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+            print(f"build P time: {time.time()-tic:.3e}s")
             P = ml.levels[0].P
             R = ml.levels[0].R
             # print(f"R: {R.shape}, P: {P.shape}")
-            x = solve_amg(A, b, x0, R, P, residuals=[])
-        
+            tic = time.time()
+            r = []
+            x = solve_amg(A, b, x0, R, P, r)
+            print(f"r:{r[0]:.2e}\t{r[-1]:.2e}")
+            print(f"solve_amg time: {time.time()-tic:.3e}s")
         transfer_back_to_pos_mfree(x)
 
         if export_residual:
@@ -1142,7 +1007,7 @@ save_P, load_P = False, True
 use_viewer = False
 export_obj = True
 export_residual = False
-solver_type = "GS" # "AMG", "GS", "XPBD"
+solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 10
 scale_instead_of_attach = True
@@ -1176,7 +1041,7 @@ coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
 
 spMatA = SpMat(num_nonz, NE)
 spMatA._init_pattern()
-# n = spMatA.ij2n(1,12)
+fill_A_diag_kernel(spMatA.diags)
 
 if solver_type=="AMG":
     init_edge_center(edge_center, edge, pos)

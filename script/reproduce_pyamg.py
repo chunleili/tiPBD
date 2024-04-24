@@ -197,6 +197,12 @@ def improve_A_by_reduce_offdiag(A):
     newA = A_diag_mat + A_offdiag
     return newA
 
+def improve_A_by_add_diag(A):
+    diags = A.diagonal(0)
+    diags += 1
+    A.setdiag(diags)
+    return A
+
 def generate_R_P(A):
     print("generating R and P by pyamg...")
     # ml = pyamg.ruge_stuben_solver(A, max_levels=2)

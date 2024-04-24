@@ -608,12 +608,12 @@ def gauss_seidel(A, x, b, iterations=1):
         # forward sweep
         # print("forward sweeping")
         for _ in range(iterations):
-            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+            amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
 
         # backward sweep
         # print("backward sweeping")
         for _ in range(iterations):
-            amg_core_gauss_seidel(
+            amg_core_gauss_seidel_kernel(
                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
             )
     return x
@@ -691,24 +691,24 @@ def fill_A_by_spmm(M_inv, ALPHA):
     G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
     compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
-    G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
+    G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
     A = G @ M_inv @ G.transpose() + ALPHA
-    A = scipy.sparse.csr_array(A)
+    A = scipy.sparse.csr_matrix(A)
 
-    # make M matrix
-    # A.setdiag(np.zeros(NE))
-    # A.data[A.data >0 ] = 0.0
-    # A.setdiag(spMatA.diags)
+    # A = improve_A_by_reduce_offdiag(A)
+    return A
 
-    # reduce offdiag
-    A = improve_A_by_reduce_offdiag(A)
+def improve_A_by_add_diag(A):
+    diags = A.diagonal(0)
+    diags += 1
+    A.setdiag(diags)
     return A
 
 def improve_A_make_M_matrix(A):
     Anew = A.copy()
     diags = A.diagonal().copy()
     A.setdiag(np.zeros(A.shape[0]))
-    A.data[A.data >0 ] = 0.0
+    A.data[A.data >0 ] *= 0.1
     A.setdiag(diags)
     return Anew
 
@@ -811,13 +811,30 @@ def get_shared_vertex(edge1:int, edge2:int):
         return b
     return -1 # no shared vertex
 
+def is_symmetric(A):
+    AT = A.transpose()
+    diff = A - AT
+    if diff.nnz == 0:
+        return True
+    maxdiff = np.max(np.abs(diff.data))
+    return maxdiff < 1e-6
+
+def csr_is_equal(A, B):
+    if A.shape != B.shape:
+        return False
+    if A.nnz != B.nnz:
+        return False
+    if np.max(np.abs(A.data.sum() - B.data.sum())) > 1e-6:
+        return False
+    return True
 
 def fill_A_ti():
     fill_A_offdiag_ijv_kernel(spMatA.ii, spMatA.jj, spMatA.data)
-    A_offdiag = scipy.sparse.coo_array((spMatA.data, (spMatA.ii, spMatA.jj)), shape=(NE, NE))
+    A_offdiag = scipy.sparse.coo_matrix((spMatA.data, (spMatA.ii, spMatA.jj)), shape=(NE, NE))
 
     A_offdiag.setdiag(spMatA.diags)
     A = A_offdiag.tocsr()
+    # A.eliminate_zeros()
     return A
 
 
@@ -840,8 +857,8 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
             offdiag = inv_mass[a] * g_ab.dot(g_ac)
-            if offdiag > 0:
-                offdiag = 0
+            # if offdiag > 0:
+            #     offdiag = 0
             ii[n] = i
             jj[n] = ia
             vv[n] = offdiag
@@ -871,6 +888,16 @@ def compute_inertial_energy():
             continue
         inertial_energy[None] += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
 
+def build_P(A):
+    import pyamg
+    # print("generating R and P by pyamg...")
+    ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+    # print(f"build P time: {time.time()-tic:.3e}s")
+    P = ml.levels[0].P
+    R = ml.levels[0].R
+    # print(f"R: {R.shape}, P: {P.shape}")
+    return P, R
+
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     global pos, lagrangian
     semi_euler(old_pos, inv_mass, vel, pos)
@@ -880,16 +907,19 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     alpha_tilde_np = np.array([alpha] * M)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
+    A = fill_A_by_spmm(M_inv, ALPHA)
+    # A = fill_A_ti()
+    A = improve_A_by_reduce_offdiag(A)
+    P,R = build_P(A)
+
     for ite in range(max_iter):
         copy_field(pos_mid, pos)
-        # tic = time.time()
-        A = fill_A_by_spmm(M_inv, ALPHA)
-        # A = fill_A_ti()
-        # print(f"fill_A time: {time.time()-tic:.3e}s")
 
-        # maxdiff = np.max(np.abs(A1.toarray()-A.toarray()))
-        # assert maxdiff < 1e-6, f"maxdiff: {maxdiff}"
-        # print(f"maxdiff: {maxdiff}")
+        if ite%10==0:
+            Aori = fill_A_by_spmm(M_inv, ALPHA)
+            # Aori = fill_A_ti()
+            A = improve_A_by_reduce_offdiag(Aori)
+            P,R = build_P(A)
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
@@ -906,26 +936,19 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
         elif solver_type == "AMG":
-            calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-            dual_r0 = np.linalg.norm(dual_residual.to_numpy())
-
             tic = time.time()
-            import pyamg
-            # print("generating R and P by pyamg...")
-            ml = pyamg.ruge_stuben_solver(A, max_levels=2)
-            # print(f"build P time: {time.time()-tic:.3e}s")
-            P = ml.levels[0].P
-            R = ml.levels[0].R
-            # print(f"R: {R.shape}, P: {P.shape}")
+            # P,R = build_P(A)
             r = []
             x = solve_amg(A, b, x0, R, P, r)
+
+            # extra post smoothing for original A
+            gauss_seidel(Aori, x, b, iterations=5)
+
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
             dual_r = np.linalg.norm(dual_residual.to_numpy())
             compute_potential_energy()
             compute_inertial_energy()
-            assert potential_energy[None] < 1e10
-            assert inertial_energy[None] < 1e10
-            print(f"r:{r[0]:.2e}\t{r[-1]:.2e}\tdual_r: {dual_r0:.2e}\tObject: {potential_energy[None]+inertial_energy[None]:.2e}")
+            print(f"{ite}  r:{r[0]:.2e} {r[-1]:.2e}  dual_r:{dual_r:.2e}  object:{potential_energy[None]+inertial_energy[None]:.2e}")
             # print(f"solve_amg time: {time.time()-tic:.3e}s")
             if ite%10==0:
                 export_A_b(A,b,postfix=f"F{frame_num}I{ite}")
@@ -1019,7 +1042,7 @@ export_residual = False
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 100
-scale_instead_of_attach = False
+scale_instead_of_attach = True
 use_offdiag = True
 
 # ---------------------------------------------------------------------------- #

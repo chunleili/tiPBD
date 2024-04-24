@@ -29,7 +29,7 @@ parser.add_argument("-title", type=str, default=f"")
 plot_title = parser.parse_args().title
 parser.add_argument("-f", type=int, default=10)
 frame = parser.parse_args().f
-save_fig_instad_of_show = True
+save_fig_instad_of_show = False
 generate_data = False
 show_plot = True
 
@@ -130,7 +130,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
         # plot_full_residual(full_residual_rep[2], "residual2")
         # plot_full_residual(full_residual_rep[3], "residual3")
 
-        # fig.canvas.manager.set_window_title(plot_title)
+        fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
         if save_fig_instad_of_show:
             plt.savefig(f"result/test/residuals_{plot_title}.png")
@@ -682,10 +682,10 @@ def test_different_N():
         test_amg(N, case_num)
 
 def test_all_A():
-    global plot_title
-    for frame in range(1,10):
-        for ite in range(0,50,10):
+    for frame in range(30,100,10):
+        for ite in range(0,50,30):
             postfix = f"F{frame}I{ite}"
+            global plot_title
             plot_title = postfix
             test_amg(10, 0, postfix)
 

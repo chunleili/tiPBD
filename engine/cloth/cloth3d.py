@@ -31,9 +31,6 @@ alpha = compliance * (1.0 / h / h)  # timestep related compliance, see XPBD pape
 omega = 0.5
 
 tri = ti.field(ti.i32, shape=3 * NT)
-pos_ti = ti.Vector.field(3, ti.f32, shape=NV)
-
-
 edge        = ti.Vector.field(2, dtype=int, shape=(NE))
 pos         = ti.Vector.field(3, dtype=float, shape=(NV))
 dpos     = ti.Vector.field(3, dtype=float, shape=(NV))
@@ -870,6 +867,8 @@ def compute_inertial_energy():
     inertial_energy[None] = 0.0
     inv_h2 = 1.0 / h**2
     for i in range(NV):
+        if inv_mass[i] == 0.0:
+            continue
         inertial_energy[None] += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
 
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
@@ -924,6 +923,8 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             dual_r = np.linalg.norm(dual_residual.to_numpy())
             compute_potential_energy()
             compute_inertial_energy()
+            assert potential_energy[None] < 1e10
+            assert inertial_energy[None] < 1e10
             print(f"r:{r[0]:.2e}\t{r[-1]:.2e}\tdual_r: {dual_r0:.2e}\tObject: {potential_energy[None]+inertial_energy[None]:.2e}")
             # print(f"solve_amg time: {time.time()-tic:.3e}s")
             if ite%10==0:
@@ -1018,7 +1019,7 @@ export_residual = False
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 100
-scale_instead_of_attach = True
+scale_instead_of_attach = False
 use_offdiag = True
 
 # ---------------------------------------------------------------------------- #

@@ -55,6 +55,9 @@ num_adjacent_edge = ti.field(dtype=int, shape=(NE))
 adjacent_edge_abc = ti.field(dtype=int, shape=(NE, 100))
 num_nonz = 0
 nnz_each_row = np.zeros(NE, dtype=int)
+potential_energy = ti.field(dtype=float, shape=())
+inertial_energy = ti.field(dtype=float, shape=())
+predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 
 class SpMat():
     def __init__(self, nnz, nrow=NE):
@@ -295,6 +298,7 @@ def semi_euler(
             vel[i] += h * gravity
             old_pos[i] = pos[i]
             pos[i] += h * vel[i]
+            predict_pos[i] = pos[i]
 
 
 @ti.kernel
@@ -848,11 +852,25 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
         n += 1 # diag placeholder
 
 
-def export_A_b_and_exit(A,b):
-    print(f"writting A and b to {out_dir}")
-    scipy.io.mmwrite(out_dir + f"A.mtx", A)
-    np.savetxt(out_dir + f"b.txt", b)
-    print(f"writting A and b done")
+def export_A_b(A,b,postfix=""):
+    # print(f"writting A and b to {out_dir}")
+    scipy.io.mmwrite(out_dir + f"A_{postfix}.mtx", A)
+    np.savetxt(out_dir + f"b_{postfix}.txt", b)
+    # print(f"writting A and b done")
+
+@ti.kernel
+def compute_potential_energy():
+    potential_energy[None] = 0.0
+    inv_alpha = 1.0/compliance
+    for i in range(NE):
+        potential_energy[None] += 0.5 * inv_alpha * constraints[i]**2
+
+@ti.kernel
+def compute_inertial_energy():
+    inertial_energy[None] = 0.0
+    inv_h2 = 1.0 / h**2
+    for i in range(NV):
+        inertial_energy[None] += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
 
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     global pos, lagrangian
@@ -878,9 +896,7 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
         if frame_num == stop_frame and export_matrix:
-            print(f"writting A and b to {out_dir}")
-            scipy.io.mmwrite(out_dir + f"A.mtx", A)
-            np.savetxt(out_dir + f"b.txt", b)
+            export_A_b(A,b)
             exit()
         
         x0 = np.zeros_like(b)
@@ -891,6 +907,9 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
         elif solver_type == "AMG":
+            calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+            dual_r0 = np.linalg.norm(dual_residual.to_numpy())
+
             tic = time.time()
             import pyamg
             # print("generating R and P by pyamg...")
@@ -899,11 +918,16 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             P = ml.levels[0].P
             R = ml.levels[0].R
             # print(f"R: {R.shape}, P: {P.shape}")
-            tic = time.time()
             r = []
             x = solve_amg(A, b, x0, R, P, r)
-            print(f"r:{r[0]:.2e}\t{r[-1]:.2e}")
+            calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+            dual_r = np.linalg.norm(dual_residual.to_numpy())
+            compute_potential_energy()
+            compute_inertial_energy()
+            print(f"r:{r[0]:.2e}\t{r[-1]:.2e}\tdual_r: {dual_r0:.2e}\tObject: {potential_energy[None]+inertial_energy[None]:.2e}")
             # print(f"solve_amg time: {time.time()-tic:.3e}s")
+            if ite%10==0:
+                export_A_b(A,b,postfix=f"F{frame_num}I{ite}")
         transfer_back_to_pos_mfree(x)
 
         if export_residual:
@@ -993,7 +1017,7 @@ export_obj = True
 export_residual = False
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
-stop_frame = 10
+stop_frame = 100
 scale_instead_of_attach = True
 use_offdiag = True
 

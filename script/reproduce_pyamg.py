@@ -29,11 +29,11 @@ parser.add_argument("-title", type=str, default=f"")
 plot_title = parser.parse_args().title
 parser.add_argument("-f", type=int, default=10)
 frame = parser.parse_args().f
-save_fig_instad_of_show = False
+save_fig_instad_of_show = True
 generate_data = False
 show_plot = True
 
-def test_amg(mat_size = 10, case_num = 0):
+def test_amg(mat_size = 10, case_num = 0, postfix=""):
     # ------------------------------- prepare data ------------------------------- #
     if(generate_data):
         print("generating data...")
@@ -43,9 +43,9 @@ def test_amg(mat_size = 10, case_num = 0):
         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
     else:
         print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A.mtx")
+        A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
         A = A.tocsr()
-        b = np.loadtxt(to_read_dir+f"b.txt", dtype=np.float32)
+        b = np.loadtxt(to_read_dir+f"b_{postfix}.txt", dtype=np.float32)
         # b = np.random.random(A.shape[0])
         # b = np.ones(A.shape[0])
 
@@ -681,6 +681,14 @@ def test_different_N():
         print(f"\ncase:{case_num}\tN: {N}")
         test_amg(N, case_num)
 
+def test_all_A():
+    global plot_title
+    for frame in range(1,10):
+        for ite in range(0,50,10):
+            postfix = f"F{frame}I{ite}"
+            plot_title = postfix
+            test_amg(10, 0, postfix)
+
 if __name__ == "__main__":
-    test_amg()
+    test_all_A()
     # test_different_N()

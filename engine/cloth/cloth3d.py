@@ -891,7 +891,8 @@ def compute_inertial_energy():
 def build_P(A):
     import pyamg
     # print("generating R and P by pyamg...")
-    ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+    # ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+    ml = pyamg.ruge_stuben_solver(A, max_levels=2, strength=('classical', {'theta': 0.5, 'norm': 'min'}))
     # print(f"build P time: {time.time()-tic:.3e}s")
     P = ml.levels[0].P
     R = ml.levels[0].R
@@ -913,11 +914,13 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     P,R = build_P(A)
 
     for ite in range(max_iter):
+        t_iter = time.time()
         copy_field(pos_mid, pos)
 
         if ite%10==0:
             Aori = fill_A_by_spmm(M_inv, ALPHA)
             # Aori = fill_A_ti()
+            A = Aori
             A = improve_A_by_reduce_offdiag(Aori)
             P,R = build_P(A)
 
@@ -944,25 +947,18 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             # extra post smoothing for original A
             gauss_seidel(Aori, x, b, iterations=5)
 
+
+        transfer_back_to_pos_mfree(x)
+
+        export_residual = True
+        if export_residual:
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
             dual_r = np.linalg.norm(dual_residual.to_numpy())
             compute_potential_energy()
             compute_inertial_energy()
-            print(f"{ite}  r:{r[0]:.2e} {r[-1]:.2e}  dual_r:{dual_r:.2e}  object:{potential_energy[None]+inertial_energy[None]:.2e}")
-            # print(f"solve_amg time: {time.time()-tic:.3e}s")
-            if ite%10==0:
-                export_A_b(A,b,postfix=f"F{frame_num}I{ite}")
-        transfer_back_to_pos_mfree(x)
-
-        if export_residual:
-            linsys_r = np.linalg.norm(A @ x - b)
-            calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-            dual_r = np.linalg.norm(dual_residual.to_numpy())
-            print(f"iter {ite} r: {linsys_r:.2e}, dual_r: {dual_r:.2e}")
-            # with open(out_dir+f"r_frame_{frame_num}.txt", 'a+') as f:
-            #     f.write(f"{linsys_r}\n")
-            # with open(out_dir+f"dual_r_frame_{frame_num}.txt", 'a+') as f:
-            #     f.write(f"{dual_r}\n")
+            print(f"{ite}\tr:{r[0]:.2e} {r[-1]:.2e}  dual_r:{dual_r:.2e}  object:{potential_energy[None]+inertial_energy[None]:.2e} t:{time.time()-t_iter:.2f}s")
+            # if ite%10==0:
+            #     export_A_b(A,b,postfix=f"F{frame_num}_{ite}")
     update_vel(old_pos, inv_mass, vel, pos)
 
 

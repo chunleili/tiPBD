@@ -690,7 +690,7 @@ def test_different_N():
 def test_all_A():
     for frame in range(30,100,10):
         for ite in range(0,50,30):
-            postfix = f"F{frame}I{ite}"
+            postfix = f"F{frame}_{ite}"
             global plot_title
             plot_title = postfix
             test_amg(10, 0, postfix)

@@ -20,7 +20,7 @@ def main():
 def test_pyamg():
     A = poisson((4,)).tocsr()
     print(A.toarray())
-    ml = pyamg.ruge_stuben_solver(A, max_levels=2, max_coarse=2, CF=('RS', {'second_pass': False}))
+    ml = pyamg.ruge_stuben_solver(A, max_levels=2, max_coarse=2,strength=('classical', {'theta': 0.5, 'norm': 'min'}))
     P = ml.levels[0].P
     R = ml.levels[0].R
     print(P.toarray())

@@ -892,7 +892,7 @@ def build_P(A):
     import pyamg
     # print("generating R and P by pyamg...")
     # ml = pyamg.ruge_stuben_solver(A, max_levels=2)
-    ml = pyamg.ruge_stuben_solver(A, max_levels=2, strength=('classical', {'theta': 0.5, 'norm': 'min'}))
+    ml = pyamg.ruge_stuben_solver(A, max_levels=2, strength=('classical', {'theta': 0.5, 'norm': 'abs'}))
     # print(f"build P time: {time.time()-tic:.3e}s")
     P = ml.levels[0].P
     R = ml.levels[0].R
@@ -1037,7 +1037,7 @@ export_obj = True
 export_residual = False
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
-stop_frame = 100
+stop_frame = 1000
 scale_instead_of_attach = True
 use_offdiag = True
 

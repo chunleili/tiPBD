@@ -268,7 +268,7 @@ def amg_core_rs_cf_splitting(
         node_to_index[i] = index
         interval_count[lambda_i] += 1
 
-    splitting.fill(2)
+    splitting.fill(2) #Fine node=1, Coarse node=0, Unmarked node=2
 
     # All nodes with no neighbors become F nodes
     for i in range(n_nodes):

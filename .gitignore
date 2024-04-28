@@ -26,3 +26,4 @@ profile*
 *.mtx
 *.png
 .DS_Store
+*.log

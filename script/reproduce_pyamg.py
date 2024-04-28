@@ -71,9 +71,11 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     # print("Solving pyamg...")
     # x0 = np.zeros_like(b)
     # residuals_pyamg = []
-    # _,residuals_pyamg = timer_wrapper(solve_pyamg, ml, b)
+    ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+    _,residuals_pyamg = timer_wrapper(solve_pyamg, ml, b)
 
     x0 = np.zeros_like(b)
+    x_amg = solve_amg(A, b, x0, R1, P1, residuals=[])
     x_rep,residuals_rep, full_residual_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
     x_onlySmoother,residuals_onlySmoother = timer_wrapper(solve_onlySmoother, A, b, x0, R1, P1)
     x_noSmoother,residuals_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R1, P1)
@@ -81,6 +83,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     x_reduce_offdiag,residuals_reduce_offdiag,_ = timer_wrapper(solve_rep, A3, b, x0, R3, P3)
     x_M_matrix,residuals_M_matrix,_ = timer_wrapper(solve_rep, A4, b, x0, R4, P4)
 
+    assert np.allclose(x_rep, x_amg, atol=1e-5)
     # print("generating R and P by selecting row...")
     # R2 = scipy.sparse.csr_matrix((2,A.shape[0]), dtype=np.int32)
     # R2[0,0] = 1
@@ -101,12 +104,12 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
 
     # ------------------------------- print results ---------------------------- #
     # print("x_rep:", x_rep)
-    x_rep_max = np.max(np.abs(x_rep))
-    print("x_onlySmoother:", np.max(np.abs(x_rep-x_onlySmoother)/x_rep_max))
-    print("x_noSmoother:", np.max(np.abs(x_rep-x_noSmoother)/x_rep_max))
-    print("x_remove_offdiag:", np.max(np.abs(x_rep-x_remove_offdiag)/x_rep_max))
-    print("x_reduce_offdiag:", np.max(np.abs(x_rep-x_reduce_offdiag)/x_rep_max))
-    print("x_M_matrix:", np.max(np.abs(x_rep-x_M_matrix)/x_rep_max))
+    # x_rep_max = np.max(np.abs(x_rep))
+    # print("x_onlySmoother:", np.max(np.abs(x_rep-x_onlySmoother)/x_rep_max))
+    # print("x_noSmoother:", np.max(np.abs(x_rep-x_noSmoother)/x_rep_max))
+    # print("x_remove_offdiag:", np.max(np.abs(x_rep-x_remove_offdiag)/x_rep_max))
+    # print("x_reduce_offdiag:", np.max(np.abs(x_rep-x_reduce_offdiag)/x_rep_max))
+    # print("x_M_matrix:", np.max(np.abs(x_rep-x_M_matrix)/x_rep_max))
 
 
     print_residuals(residuals_rep, "rep")
@@ -696,5 +699,6 @@ def test_all_A():
             test_amg(10, 0, postfix)
 
 if __name__ == "__main__":
-    test_all_A()
+    # test_all_A()
+    test_amg()
     # test_different_N()

@@ -633,13 +633,13 @@ def solve_amg(A, b, x0, R, P, residuals=[]):
     x = np.ravel(x)
     it = 0
     while True:  # it <= maxiter and normr >= tol:
-        gauss_seidel(A, x, b, iterations=1)  # presmoother
+        gauss_seidel(A, x, b, iterations=8)  # presmoother
         residual = b - A @ x
         coarse_b = R @ residual  # restriction
         coarse_x = np.zeros_like(coarse_b)
         coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
         x += P @ coarse_x 
-        gauss_seidel(A, x, b, iterations=1)
+        gauss_seidel(A, x, b, iterations=2)
         it += 1
         normr = np.linalg.norm(b - A @ x)
         if residuals is not None:
@@ -890,13 +890,9 @@ def compute_inertial_energy():
 
 def build_P(A):
     import pyamg
-    # print("generating R and P by pyamg...")
-    # ml = pyamg.ruge_stuben_solver(A, max_levels=2)
-    ml = pyamg.ruge_stuben_solver(A, max_levels=2, strength=('classical', {'theta': 0.5, 'norm': 'min'}))
-    # print(f"build P time: {time.time()-tic:.3e}s")
+    ml = pyamg.ruge_stuben_solver(A, max_levels=2, strength=('classical', {'theta': 0.5, 'norm': 'abs'}))
     P = ml.levels[0].P
     R = ml.levels[0].R
-    # print(f"R: {R.shape}, P: {P.shape}")
     return P, R
 
 def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
@@ -913,6 +909,9 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
     A = improve_A_by_reduce_offdiag(A)
     P,R = build_P(A)
 
+    x0 = np.zeros(NE)
+    x_prev = x0.copy()
+    x = x0.copy()
     for ite in range(max_iter):
         t_iter = time.time()
         copy_field(pos_mid, pos)
@@ -920,7 +919,7 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
         if ite%10==0:
             Aori = fill_A_by_spmm(M_inv, ALPHA)
             # Aori = fill_A_ti()
-            A = Aori
+            A = Aori.copy()
             A = improve_A_by_reduce_offdiag(Aori)
             P,R = build_P(A)
 
@@ -931,34 +930,44 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
             export_A_b(A,b)
             exit()
         
-        x0 = np.zeros_like(b)
+        r = [None]*2
+        r[0] = np.linalg.norm(b-A@x)
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
-        elif solver_type == "GS":
-            x = np.zeros_like(b)
-            for _ in range(1):
-                amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
-        elif solver_type == "AMG":
-            tic = time.time()
-            # P,R = build_P(A)
-            r = []
-            x = solve_amg(A, b, x0, R, P, r)
-
+        if solver_type == "GS" or solver_type == "AMG":
+            x_gs = x.copy()
+            r0gs = np.linalg.norm(b-Aori@x_gs)
+            gauss_seidel(Aori, x_gs, b, iterations=15)
+            r1gs = np.linalg.norm(b-Aori@x_gs)
+            print(f"gs  r:{r0gs:.2e} {r1gs:.2e}")
+        if solver_type == "AMG" or solver_type == "GS":
+            x_amg = x.copy()
+            r0amg = np.linalg.norm(b-Aori@x_amg)
+            x_amg = solve_amg(A, b, x_amg, R, P, r)
             # extra post smoothing for original A
-            gauss_seidel(Aori, x, b, iterations=5)
+            gauss_seidel(Aori, x_amg, b, iterations=5)
+            r1amg = np.linalg.norm(b-Aori@x_amg)
+            print(f"amg r:{r0amg:.2e} {r1amg:.2e}")
 
+        x = x_gs.copy()
 
         transfer_back_to_pos_mfree(x)
 
+        r[1] = np.linalg.norm(b-A@x)
         export_residual = True
         if export_residual:
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
             dual_r = np.linalg.norm(dual_residual.to_numpy())
             compute_potential_energy()
             compute_inertial_energy()
-            print(f"{ite}\tr:{r[0]:.2e} {r[-1]:.2e}  dual_r:{dual_r:.2e}  object:{potential_energy[None]+inertial_energy[None]:.2e} t:{time.time()-t_iter:.2f}s")
+            print(f"{frame_num}-{ite} r:{r[0]:.2e} {r[-1]:.2e}  dual_r:{dual_r:.2e}  object:{potential_energy[None]+inertial_energy[None]:.2e} t:{time.time()-t_iter:.2f}s")
+            np.savetxt(out_dir + f"residual_{frame_num}_{ite}.txt", [r[0], r[-1], dual_r, potential_energy[None]+inertial_energy[None]])
             # if ite%10==0:
             #     export_A_b(A,b,postfix=f"F{frame_num}_{ite}")
+
+        if r[0] < 1e-9:
+            break
+        x_prev = x.copy()
     update_vel(old_pos, inv_mass, vel, pos)
 
 
@@ -1035,10 +1044,10 @@ save_P, load_P = False, True
 use_viewer = False
 export_obj = True
 export_residual = False
-solver_type = "AMG" # "AMG", "GS", "XPBD"
+solver_type = "GS" # "AMG", "GS", "XPBD"
 export_matrix = True
-stop_frame = 100
-scale_instead_of_attach = True
+stop_frame = 1000
+scale_instead_of_attach = False
 use_offdiag = True
 
 # ---------------------------------------------------------------------------- #

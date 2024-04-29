@@ -14,6 +14,21 @@ import argparse
 from collections import namedtuple
 import json
 
+frame = 0
+end_frame = 1000
+save_image = True
+max_iter = 10
+paused = False
+save_P, load_P = False, True
+use_viewer = False
+export_obj = True
+export_residual = False
+solver_type = "AMG" # "AMG", "GS", "XPBD"
+export_matrix = True
+stop_frame = 1000
+scale_instead_of_attach = True
+use_offdiag = True
+
 ti.init(arch=ti.cpu)
 
 parser = argparse.ArgumentParser()
@@ -57,6 +72,9 @@ nnz_each_row = np.zeros(NE, dtype=int)
 potential_energy = ti.field(dtype=float, shape=())
 inertial_energy = ti.field(dtype=float, shape=())
 predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
+
+
+
 
 class SpMat():
     def __init__(self, nnz, nrow=NE):
@@ -912,7 +930,8 @@ def substep_all_solver(max_iter=1):
     # A = fill_A_ti()
     Aori = A.copy()
     A = improve_A_by_reduce_offdiag(A)
-    P,R = build_P(A)
+    if solver_type == "AMG":
+        P,R = build_P(A)
 
     x0 = np.zeros(NE)
     x_prev = x0.copy()
@@ -937,10 +956,13 @@ def substep_all_solver(max_iter=1):
             rgs1=(np.linalg.norm(b-A@x))
             gauss_seidel(A, x, b, iterations=15)
             rgs2=(np.linalg.norm(b-A@x))
+            rgs = [rgs1, rgs2]
+            ramg = [None,None]
         if solver_type == "AMG":
             ramg=[]
             gauss_seidel(A, x, b, iterations=5)
             x = solve_amg(A, b, x, R, P, ramg)
+            rgs=[None,None]
 
         rsys2 = np.linalg.norm(b-A@x)
         transfer_back_to_pos_mfree(x)
@@ -955,7 +977,7 @@ def substep_all_solver(max_iter=1):
             robj = (potential_energy[None]+inertial_energy[None])
             print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t:.2f}s")
             # np.savetxt(out_dir +"/r/" + f"{frame}-{ite}.txt", np.array([rsys1, rsys2, dual_r, robj]))
-            r.append(Residual([rsys1,rsys2], dual_r, robj, ramg, [None, None], t))
+            r.append(Residual([rsys1,rsys2], dual_r, robj, ramg, rgs, t))
 
         x_prev = x.copy()
     export_A_b(A,b,postfix=f"F{frame}-{ite}")
@@ -1036,20 +1058,6 @@ clean_result_dir(out_dir)
 clean_result_dir(out_dir + "/r/")
 clean_result_dir(out_dir + "/A/")
 
-frame = 0
-end_frame = 1000
-save_image = True
-max_iter = 50
-paused = False
-save_P, load_P = False, True
-use_viewer = False
-export_obj = True
-export_residual = False
-solver_type = "AMG" # "AMG", "GS", "XPBD"
-export_matrix = True
-stop_frame = 1000
-scale_instead_of_attach = True
-use_offdiag = True
 
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #

@@ -11,6 +11,8 @@ import shutil, glob
 import meshio
 import tqdm
 import argparse
+from collections import namedtuple
+import json
 
 ti.init(arch=ti.cpu)
 
@@ -408,7 +410,7 @@ def step_xpbd(max_iter):
         update_pos(inv_mass, dpos, pos)
 
         residual[i+1] = np.linalg.norm(dual_residual.to_numpy())
-    np.savetxt(out_dir + f"dual_residual_{frame_num}.txt",residual)
+    np.savetxt(out_dir + f"dual_residual_{frame}.txt",residual)
 
     update_vel(old_pos, inv_mass, vel, pos)
 
@@ -868,8 +870,8 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
 
 def export_A_b(A,b,postfix=""):
     # print(f"writting A and b to {out_dir}")
-    scipy.io.mmwrite(out_dir + f"A_{postfix}.mtx", A)
-    np.savetxt(out_dir + f"b_{postfix}.txt", b)
+    scipy.io.mmwrite(out_dir+"/A/" + f"A_{postfix}.mtx", A)
+    np.savetxt(out_dir+"/A/" + f"b_{postfix}.txt", b)
     # print(f"writting A and b done")
 
 @ti.kernel
@@ -895,7 +897,9 @@ def build_P(A):
     R = ml.levels[0].R
     return P, R
 
-def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
+Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'amg', 'gs','t'])
+
+def substep_all_solver(max_iter=1):
     global pos, lagrangian
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
@@ -906,68 +910,60 @@ def substep_all_solver(max_iter=1, solver_type="Direct", R=None, P=None):
 
     A = fill_A_by_spmm(M_inv, ALPHA)
     # A = fill_A_ti()
+    Aori = A.copy()
     A = improve_A_by_reduce_offdiag(A)
     P,R = build_P(A)
 
     x0 = np.zeros(NE)
     x_prev = x0.copy()
     x = x0.copy()
+    r = []
     for ite in range(max_iter):
         t_iter = time.time()
-        copy_field(pos_mid, pos)
-
-        if ite%10==0:
-            Aori = fill_A_by_spmm(M_inv, ALPHA)
-            # Aori = fill_A_ti()
-            A = Aori.copy()
-            A = improve_A_by_reduce_offdiag(Aori)
-            P,R = build_P(A)
+        # copy_field(pos_mid, pos)
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
-        if frame_num == stop_frame and export_matrix:
+        if frame == stop_frame and export_matrix:
             export_A_b(A,b)
             exit()
         
-        r = [None]*2
-        r[0] = np.linalg.norm(b-A@x)
+        rsys1 = (np.linalg.norm(b-A@x))
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
-        if solver_type == "GS" or solver_type == "AMG":
-            x_gs = x.copy()
-            r0gs = np.linalg.norm(b-Aori@x_gs)
-            gauss_seidel(Aori, x_gs, b, iterations=15)
-            r1gs = np.linalg.norm(b-Aori@x_gs)
-            print(f"gs  r:{r0gs:.2e} {r1gs:.2e}")
-        if solver_type == "AMG" or solver_type == "GS":
-            x_amg = x.copy()
-            r0amg = np.linalg.norm(b-Aori@x_amg)
-            x_amg = solve_amg(A, b, x_amg, R, P, r)
-            # extra post smoothing for original A
-            gauss_seidel(Aori, x_amg, b, iterations=5)
-            r1amg = np.linalg.norm(b-Aori@x_amg)
-            print(f"amg r:{r0amg:.2e} {r1amg:.2e}")
+        if solver_type == "GS":
+            x = x.copy()
+            rgs1=(np.linalg.norm(b-A@x))
+            gauss_seidel(A, x, b, iterations=15)
+            rgs2=(np.linalg.norm(b-A@x))
+        if solver_type == "AMG":
+            ramg=[]
+            gauss_seidel(A, x, b, iterations=5)
+            x = solve_amg(A, b, x, R, P, ramg)
 
-        x = x_gs.copy()
-
+        rsys2 = np.linalg.norm(b-A@x)
         transfer_back_to_pos_mfree(x)
 
-        r[1] = np.linalg.norm(b-A@x)
         export_residual = True
         if export_residual:
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-            dual_r = np.linalg.norm(dual_residual.to_numpy())
+            dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
             compute_potential_energy()
             compute_inertial_energy()
-            print(f"{frame_num}-{ite} r:{r[0]:.2e} {r[-1]:.2e}  dual_r:{dual_r:.2e}  object:{potential_energy[None]+inertial_energy[None]:.2e} t:{time.time()-t_iter:.2f}s")
-            np.savetxt(out_dir + f"residual_{frame_num}_{ite}.txt", [r[0], r[-1], dual_r, potential_energy[None]+inertial_energy[None]])
-            # if ite%10==0:
-            #     export_A_b(A,b,postfix=f"F{frame_num}_{ite}")
+            t = time.time()-t_iter
+            robj = (potential_energy[None]+inertial_energy[None])
+            print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t:.2f}s")
+            # np.savetxt(out_dir +"/r/" + f"{frame}-{ite}.txt", np.array([rsys1, rsys2, dual_r, robj]))
+            r.append(Residual([rsys1,rsys2], dual_r, robj, ramg, [None, None], t))
 
-        if r[0] < 1e-9:
-            break
         x_prev = x.copy()
+    export_A_b(A,b,postfix=f"F{frame}-{ite}")
+    serialized_r = [r[i]._asdict() for i in range(len(r))]
+    r_json = json.dumps(serialized_r)
+    with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
+        file.write(r_json)
+
     update_vel(old_pos, inv_mass, vel, pos)
 
 
@@ -1029,14 +1025,19 @@ def init_scale():
     for i in range(NV):
         pos[i] *= scale
 
-frame_num = 0
-end_frame = 1000
+prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 out_dir = f"./result/test/"
-proj_dir_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-print("proj_dir_path: ", proj_dir_path)
-misc_dir_path = proj_dir_path + "/data/misc/"
+print("prj_path: ", prj_path)
+misc_dir_path = prj_path + "/data/misc/"
 mkdir_if_not_exist(out_dir)
+mkdir_if_not_exist(out_dir + "/r/")
+mkdir_if_not_exist(out_dir + "/A/")
 clean_result_dir(out_dir)
+clean_result_dir(out_dir + "/r/")
+clean_result_dir(out_dir + "/A/")
+
+frame = 0
+end_frame = 1000
 save_image = True
 max_iter = 50
 paused = False
@@ -1044,10 +1045,10 @@ save_P, load_P = False, True
 use_viewer = False
 export_obj = True
 export_residual = False
-solver_type = "GS" # "AMG", "GS", "XPBD"
+solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 1000
-scale_instead_of_attach = False
+scale_instead_of_attach = True
 use_offdiag = True
 
 # ---------------------------------------------------------------------------- #
@@ -1057,7 +1058,7 @@ timer_all = time.perf_counter()
 init_pos(inv_mass,pos)
 init_tri(tri)
 init_edge(edge, rest_len, pos)
-write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
+write_obj(out_dir + f"{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
 if scale_instead_of_attach:
     init_scale()
 
@@ -1115,7 +1116,7 @@ step_pbar = tqdm.tqdm(total=end_frame)
 while True:
     step_pbar.update(1)
     time_one_frame = time.perf_counter()
-    frame_num += 1
+    frame += 1
     if use_viewer:
         for e in viewer.window.get_events(ti.ui.PRESS):
             if e.key in [ti.ui.ESCAPE]:
@@ -1126,14 +1127,12 @@ while True:
     if not paused:
         if solver_type == "XPBD":
             step_xpbd(max_iter)
-        elif solver_type == "GS":
-            substep_all_solver(max_iter=max_iter, solver_type="GS")
-        elif solver_type == "AMG":
-            substep_all_solver(max_iter=max_iter, solver_type="AMG", R=R, P=P)
+        else:
+            substep_all_solver(max_iter)
         if export_obj:
-            write_obj(out_dir + f"{frame_num:04d}.obj", pos.to_numpy(), tri.to_numpy())
+            write_obj(out_dir + f"{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
     
-    if frame_num == end_frame:
+    if frame == end_frame:
         print(f"Time all: {(time.perf_counter() - timer_all):.0f}s")
         exit()
     if use_viewer:
@@ -1145,5 +1144,5 @@ while True:
         # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
         viewer.window.show()
         if save_image:
-            file_path = out_dir + f"{frame_num:04d}.png"
+            file_path = out_dir + f"{frame:04d}.png"
             viewer.window.save_image(file_path)  # export and show in GUI

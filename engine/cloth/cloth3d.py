@@ -17,13 +17,13 @@ import json
 frame = 0
 end_frame = 1000
 save_image = True
-max_iter = 10
+max_iter = 50
 paused = False
 save_P, load_P = False, True
 use_viewer = False
 export_obj = True
 export_residual = False
-solver_type = "AMG" # "AMG", "GS", "XPBD"
+solver_type = "GS" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = 1000
 scale_instead_of_attach = True
@@ -941,6 +941,12 @@ def substep_all_solver(max_iter=1):
         t_iter = time.time()
         # copy_field(pos_mid, pos)
 
+        A = fill_A_by_spmm(M_inv, ALPHA)
+        Aori = A.copy()
+        A = improve_A_by_reduce_offdiag(A)
+        if solver_type == "AMG":
+            P,R = build_P(A)
+
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
@@ -954,13 +960,12 @@ def substep_all_solver(max_iter=1):
         if solver_type == "GS":
             x = x.copy()
             rgs1=(np.linalg.norm(b-A@x))
-            gauss_seidel(A, x, b, iterations=15)
+            gauss_seidel(A, x, b, iterations=10)
             rgs2=(np.linalg.norm(b-A@x))
             rgs = [rgs1, rgs2]
             ramg = [None,None]
         if solver_type == "AMG":
             ramg=[]
-            gauss_seidel(A, x, b, iterations=5)
             x = solve_amg(A, b, x, R, P, ramg)
             rgs=[None,None]
 

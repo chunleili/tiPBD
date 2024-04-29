@@ -28,6 +28,8 @@ export_matrix = True
 stop_frame = 1000
 scale_instead_of_attach = True
 use_offdiag = True
+restart = True
+export_state = True
 
 ti.init(arch=ti.cpu)
 
@@ -1016,7 +1018,10 @@ def clean_result_dir(folder_path):
         '*.obj',
         '*.png',
         '*.ply',
-        # '*.txt',
+        '*.txt',
+        '*.json',
+        '*.npz',
+        '*.mtx',
     ]:
         files = glob.glob(wildcard_name)
         to_remove += (files)
@@ -1052,6 +1057,25 @@ def init_scale():
     for i in range(NV):
         pos[i] *= scale
 
+
+def save_state(filename):
+    global frame, pos, vel, old_pos, predict_pos
+    state = [frame, pos, vel, old_pos, predict_pos]
+    for i in range(1, len(state)):
+        state[i] = state[i].to_numpy()
+    np.savez(filename, *state)
+    print(f"saved state to '{filename}', totally saved {len(state)} variables, frame={frame}")
+
+def load_state(filename):
+    global frame, pos, vel, old_pos, predict_pos
+    npzfile = np.load(filename)
+    state = [pos, vel, old_pos, predict_pos]
+    frame = int(npzfile["arr_0"])
+    for i in range(1, len(state)):
+        state[i].from_numpy(npzfile["arr_" + str(i)])
+    print(f"loaded state from '{filename}', totally loaded {len(state)} variables, frame={frame}")
+
+
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 out_dir = f"./result/test/"
 print("prj_path: ", prj_path)
@@ -1059,9 +1083,12 @@ misc_dir_path = prj_path + "/data/misc/"
 mkdir_if_not_exist(out_dir)
 mkdir_if_not_exist(out_dir + "/r/")
 mkdir_if_not_exist(out_dir + "/A/")
-clean_result_dir(out_dir)
-clean_result_dir(out_dir + "/r/")
-clean_result_dir(out_dir + "/A/")
+mkdir_if_not_exist(out_dir + "/state/")
+if not restart:
+    clean_result_dir(out_dir)
+    clean_result_dir(out_dir + "/r/")
+    clean_result_dir(out_dir + "/A/")
+    clean_result_dir(out_dir + "/state/")
 
 
 # ---------------------------------------------------------------------------- #
@@ -1106,6 +1133,12 @@ if solver_type=="AMG":
         P = scipy.io.mmread(misc_dir_path+ "P.mtx")
         # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
+if restart:
+    restart_frame = 10
+    load_state(out_dir+'/state/' + f"{restart_frame:04d}.npz")
+    frame = restart_frame
+    print(f"restart from frame {frame}")
+
 print("Initialization done. Cost time: ", time.perf_counter() - timer_all, "s")
 
 
@@ -1144,6 +1177,8 @@ while True:
             substep_all_solver(max_iter)
         if export_obj:
             write_obj(out_dir + f"{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
+        if export_state:
+            save_state(out_dir+'/state/' + f"{frame:04d}.npz")
     
     if frame == end_frame:
         print(f"Time all: {(time.perf_counter() - timer_all):.0f}s")

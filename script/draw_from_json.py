@@ -9,7 +9,7 @@ out_dir = prj_path+f"./result/test/r/"
 os.chdir(out_dir)
 
 # %%
-frame = 1
+frame = 20
 json_file = f"{frame}.json"
 df = pd.read_json(json_file)
 
@@ -61,7 +61,7 @@ plt.plot(dsys1)
 # 增加图例
 plt.legend(['sys0', 'sys1'])
 # 增加title
-plt.title('同时画出sys列的第一个和第二个元素')
+plt.title('sys0 and sys1')
 # %%
 # 画出obj列
 plt.plot(dobj)

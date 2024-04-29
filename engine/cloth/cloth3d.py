@@ -25,7 +25,7 @@ export_obj = True
 export_residual = False
 solver_type = "GS" # "AMG", "GS", "XPBD"
 export_matrix = True
-stop_frame = 1000
+stop_frame = 1000 #early stop
 scale_instead_of_attach = True
 use_offdiag = True
 restart = True
@@ -955,10 +955,6 @@ def substep_all_solver(max_iter=1):
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
-        if frame == stop_frame and export_matrix:
-            export_A_b(A,b)
-            exit()
-        
         rsys1 = (np.linalg.norm(b-A@x))
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
@@ -990,11 +986,14 @@ def substep_all_solver(max_iter=1):
             r.append(Residual([rsys1,rsys2], dual_r, robj, ramg, rgs, t))
 
         x_prev = x.copy()
-    export_A_b(A,b,postfix=f"F{frame}-{ite}")
-    serialized_r = [r[i]._asdict() for i in range(len(r))]
-    r_json = json.dumps(serialized_r)
-    with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
-        file.write(r_json)
+    
+    if export_matrix:
+        export_A_b(A,b,postfix=f"F{frame}-{ite}")
+    if export_residual:
+        serialized_r = [r[i]._asdict() for i in range(len(r))]
+        r_json = json.dumps(serialized_r)
+        with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
+            file.write(r_json)
 
     update_vel(old_pos, inv_mass, vel, pos)
 

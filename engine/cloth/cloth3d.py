@@ -29,7 +29,10 @@ stop_frame = 1000
 scale_instead_of_attach = True
 use_offdiag = True
 restart = True
+restart_frame = 21
 export_state = True
+prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+out_dir = prj_path+f"./result/test/"
 
 ti.init(arch=ti.cpu)
 
@@ -1076,9 +1079,6 @@ def load_state(filename):
     print(f"loaded state from '{filename}', totally loaded {len(state)} variables, frame={frame}")
 
 
-prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = f"./result/test/"
-print("prj_path: ", prj_path)
 misc_dir_path = prj_path + "/data/misc/"
 mkdir_if_not_exist(out_dir)
 mkdir_if_not_exist(out_dir + "/r/")
@@ -1134,7 +1134,6 @@ if solver_type=="AMG":
         # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 if restart:
-    restart_frame = 10
     load_state(out_dir+'/state/' + f"{restart_frame:04d}.npz")
     frame = restart_frame
     print(f"restart from frame {frame}")

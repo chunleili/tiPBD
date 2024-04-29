@@ -29,7 +29,7 @@ stop_frame = 1000 #early stop
 scale_instead_of_attach = True
 use_offdiag = True
 restart = True
-restart_frame = 21
+restart_frame = 96
 export_state = True
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 out_dir = prj_path+f"./result/test/"
@@ -1156,7 +1156,7 @@ class Viewer:
 
 viewer = Viewer()
 
-step_pbar = tqdm.tqdm(total=end_frame)
+step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
 while True:
     step_pbar.update(1)
     time_one_frame = time.perf_counter()

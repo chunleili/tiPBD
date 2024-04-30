@@ -236,6 +236,12 @@ def amg_core_rs_cf_splitting(
         Tj: np.ndarray,
         influence: np.ndarray,
         splitting: np.ndarray):
+    #Fine node=1, Coarse node=0, Unmarked node=2
+    F_NODE = 0
+    C_NODE = 1
+    U_NODE = 2
+    PRE_F_NODE = 3
+
     lambda_ = np.zeros(n_nodes, dtype='intc')
 
     # Compute initial lambda based on C^T
@@ -268,7 +274,7 @@ def amg_core_rs_cf_splitting(
         node_to_index[i] = index
         interval_count[lambda_i] += 1
 
-    splitting.fill(2) #Fine node=1, Coarse node=0, Unmarked node=2
+    splitting.fill(U_NODE) #Fine node=1, Coarse node=0, Unmarked node=2
 
     # All nodes with no neighbors become F nodes
     for i in range(n_nodes):
@@ -276,8 +282,7 @@ def amg_core_rs_cf_splitting(
             splitting[i] = 0
 
     # Add elements to C and F, in descending order of lambda
-    top_index = n_nodes - 1
-    while top_index > -1:
+    for top_index in range(n_nodes - 1, -1, -1):
         i = index_to_node[top_index]
         lambda_i = lambda_[i]
 
@@ -287,6 +292,55 @@ def amg_core_rs_cf_splitting(
         # If maximum lambda = 0, break out of loop
         if lambda_[i] <= 0:
             break
+
+        # If node is unmarked, set maximum node as C-node and modify
+        # lambda values in neighborhood
+        if splitting[i] == U_NODE:
+            splitting[i] = C_NODE
+
+            # For each j in S^T_i /\ U, mark j as tentative F-point
+            for jj in range(Tp[i], Tp[i+1]):
+                j = Tj[jj]
+                if splitting[j] == U_NODE:
+                    splitting[j] = PRE_F_NODE
+
+            # For each j in S^T_i /\ U marked as tentative F-point, modify lamdba
+            # values for neighborhood of j
+            for jj in range(Tp[i], Tp[i+1]):
+                j = Tj[jj]
+                if splitting[j] == PRE_F_NODE:
+                    splitting[j] = F_NODE
+
+                    # For each k in S_j /\ U, modify lambda value, lambda_k += 1
+                    for kk in range(Sp[j], Sp[j+1]):
+                        k = Sj[kk]
+
+                        if splitting[k] == U_NODE:
+
+                            # Move k to the end of its current interval
+                            if lambda_[k] >= n_nodes - 1:
+                                continue
+
+                            lambda_k = lambda_[k]
+                            old_pos = node_to_index[k]
+                            new_pos = interval_ptr[lambda_k] + interval_count[lambda_k] - 1
+
+                            node_to_index[index_to_node[old_pos]] = new_pos
+                            node_to_index[index_to_node[new_pos]] = old_pos
+                            index_to_node[old_pos], index_to_node[new_pos] = index_to_node[new_pos], index_to_node[old_pos]
+
+                            # Update intervals
+                            interval_count[lambda_k]   -= 1
+                            interval_count[lambda_k+1] += 1
+                            interval_ptr[lambda_k+1]    = new_pos
+                            
+                            # Increment lambda_k
+                            lambda_[k] += 1
+
+    # set any unmarked nodes as F-points
+    for i in range(n_nodes):
+        if splitting[i] == U_NODE:
+            splitting[i] = F_NODE
  
 
 
@@ -386,21 +440,6 @@ def amg_core_rs_cf_splitting(
 
 #         // Remove i from its interval
 #         interval_count[lambda_i]--;
-
-#         // ----------------- Sorting every iteration = O(n^2) complexity ----------------- //
-#         // Search over this interval to make sure we process nodes in descending node order
-#         // I max_node = i;
-#         // I max_index = top_index;
-#         // for (I j = interval_ptr[lambda_i]; j < interval_ptr[lambda_i] + interval_count[lambda_i]; j++) {
-#         //     if (index_to_node[j] > max_node) {
-#         //         max_node = index_to_node[j];
-#         //         max_index = j;
-#         //     }
-#         // }
-#         // node_to_index[index_to_node[top_index]] = max_index;
-#         // node_to_index[index_to_node[max_index]] = top_index;
-#         // std::swap(index_to_node[top_index], index_to_node[max_index]);
-#         // i = index_to_node[top_index];
 
 #         // If maximum lambda = 0, break out of loop
 #         if (lambda[i] <= 0) {
@@ -838,6 +877,6 @@ def amg_core_rs_cf_splitting(
 
 
 if __name__ == '__main__':
-    # main()
-    test_pyamg()
+    main()
+    # test_pyamg()
     # test_classical_strength_of_connection()

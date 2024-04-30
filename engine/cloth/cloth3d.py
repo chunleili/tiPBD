@@ -14,8 +14,11 @@ import argparse
 from collections import namedtuple
 import json
 
+prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+out_dir = prj_path + f"./result/latest/"
 frame = 0
-end_frame = 1000
+end_frame = 51
 save_image = True
 max_iter = 50
 paused = False
@@ -28,11 +31,10 @@ export_matrix = True
 stop_frame = end_frame #early stop
 scale_instead_of_attach = True
 use_offdiag = True
-restart = False
-restart_frame = 30
+restart = True
+restart_frame = 50
+restart_dir = f"./result/latest/state/"
 export_state = True
-prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = prj_path+f"./result/latest/"
 gravity = [0.0, 0.0, 0.0]
 
 ti.init(arch=ti.cpu)
@@ -1134,7 +1136,7 @@ if solver_type=="AMG":
         # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 if restart:
-    load_state(out_dir+'/state/' + f"{restart_frame:04d}.npz")
+    load_state(restart_dir + f"{restart_frame:04d}.npz")
     frame = restart_frame
     print(f"restart from frame {frame}")
 

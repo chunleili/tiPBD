@@ -18,28 +18,33 @@ def main(A):
     R = levels[0].R
     Ac = levels[1].A
     C = levels[0].C
+    splitting = levels[0].splitting
     # print("A\n",A.toarray())
     print("P\n",P.toarray())
     # print("R\n",R.toarray())
     # print("Ac\n",Ac.toarray())
     print("C\n",C.toarray())
-    return P
+    print("splitting\n",splitting.astype(int))
+    return P, splitting
 
 
 def test_pyamg(A):
     # A = poisson((100,)).tocsr()
-    ml = pyamg.ruge_stuben_solver(A, max_levels=2, max_coarse=2,strength=('classical', {'theta': 0.5, 'norm': 'min'}),keep=True)
+    ml = pyamg.ruge_stuben_solver(A, max_levels=2, max_coarse=2,keep=True)
+    # ml = pyamg.ruge_stuben_solver(A, max_levels=2, max_coarse=2, keep=True)
     levels = ml.levels
     P = levels[0].P
     R = levels[0].R
     Ac = levels[1].A
     C = levels[0].C
+    splitting = levels[0].splitting
     # print("A\n",A.toarray())
     print("P\n",P.toarray())
     # print("R\n",R.toarray())
     # print("Ac\n",Ac.toarray())
-    print("C\n",C.toarray())
-    return P
+    # print("C\n",C.toarray())
+    print("splitting\n",splitting.astype(int))
+    return P, splitting
 
 
 def test_classical_strength_of_connection():
@@ -69,7 +74,12 @@ def ruge_stuben_solver_my(A,
     levels[-1].A = A
     while len(levels) < max_levels and levels[-1].A.shape[0] > max_coarse:
         bottom = _extend_hierarchy(levels, strength, CF, interpolation, keep)
+        if len(levels) >= max_levels:
+            print("max_levels reached")
+        if levels[-1].A.shape[0] <= max_coarse:
+            print("max_coarse reached")
         if bottom:
+            print("bottom reached")
             break
     return levels
 
@@ -98,6 +108,7 @@ def _extend_hierarchy(levels, strength, CF, interpolation, keep):
     # Return early, do not add another coarse level
     num_fpts = np.sum(splitting)
     if (num_fpts == len(splitting)) or (num_fpts == 0):
+        print("all points were C-points or all points are F-points, early return")
         return True
 
     # Generate the interpolation matrix that maps from the coarse-grid to the
@@ -156,6 +167,8 @@ def scale_rows_by_largest_entry(S):
     for i in range(S.shape[0]):
         row_start = S.indptr[i]
         row_end = S.indptr[i + 1]
+        if row_start == row_end:
+            continue # empty row
         max_entry = np.max(np.abs(S.data[row_start:row_end]))
         if max_entry > 0:
             S.data[row_start:row_end] /= max_entry
@@ -786,19 +799,50 @@ def amg_core_rs_classical_interpolation_pass2(n_nodes: int,
     return
                 
 
+# judge if A is positive definite
+# https://stackoverflow.com/a/44287862/19253199
+# if A is symmetric and able to be Cholesky decomposed, then A is positive definite
+def is_spd(A):
+    A=A.toarray()
+    if np.array_equal(A, A.T):
+        try:
+            np.linalg.cholesky(A)
+            print("A is positive definite")
+            return True
+        except np.linalg.LinAlgError:
+            print("A is not positive definite")
+            return False
+    else:
+        print("A is not positive definite")
+        return False
 
+def generate_A_b_spd(n=1000):
+    import scipy.sparse as sp
+    A = sp.random(n, n, density=0.01, format="csr")
+    A = A.T @ A
+    b = np.random.rand(A.shape[0])
+    flag = is_spd(A)
+    print(f"is_spd: {flag}")
+    print(f"Generated spd A: {A.shape}, b: {b.shape}")
+    A = sp.csr_matrix(A)
+    return A, b
 
 if __name__ == '__main__':
     # test_classical_strength_of_connection()
 
-    A = poisson((100,100)).tocsr()
+
+    # A = poisson((100,)).tocsr()
+    A,_ = generate_A_b_spd(100)
+
     print("A\n",A.A)
 
     print("my version")
-    P1 = main(A)
+    P1,sp1 = main(A)
+
     print("\n\npyamg version")
-    P2 = test_pyamg(A)
+    P2,sp2 = test_pyamg(A)
     
+    assert np.allclose(sp1, sp2) 
     assert np.allclose(P1.toarray(), P2.toarray())
     print("Same as pyamg")
 

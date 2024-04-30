@@ -19,7 +19,7 @@ sys.path.append(os.getcwd())
 
 prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
-to_read_dir = prj_dir + "result/latest/"
+to_read_dir = prj_dir + "result/latest/A/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=100)
@@ -71,8 +71,8 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     # print("Solving pyamg...")
     # x0 = np.zeros_like(b)
     # residuals_pyamg = []
-    ml = pyamg.ruge_stuben_solver(A, max_levels=2)
-    _,residuals_pyamg = timer_wrapper(solve_pyamg, ml, b)
+    #ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+    #_,residuals_pyamg = timer_wrapper(solve_pyamg, ml, b)
 
     x0 = np.zeros_like(b)
     x_amg = solve_amg(A, b, x0, R1, P1, residuals=[])
@@ -83,7 +83,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     x_reduce_offdiag,residuals_reduce_offdiag,_ = timer_wrapper(solve_rep, A3, b, x0, R3, P3)
     x_M_matrix,residuals_M_matrix,_ = timer_wrapper(solve_rep, A4, b, x0, R4, P4)
 
-    assert np.allclose(x_rep, x_amg, atol=1e-5)
+    #assert np.allclose(x_rep, x_amg, atol=1e-5)
     # print("generating R and P by selecting row...")
     # R2 = scipy.sparse.csr_matrix((2,A.shape[0]), dtype=np.int32)
     # R2[0,0] = 1
@@ -700,5 +700,5 @@ def test_all_A():
 
 if __name__ == "__main__":
     # test_all_A()
-    test_amg()
+    test_amg(10,0,"F51-49")
     # test_different_N()

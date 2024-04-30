@@ -36,6 +36,8 @@ restart_frame = 50
 restart_dir = f"./result/latest/state/"
 export_state = True
 gravity = [0.0, 0.0, 0.0]
+reduce_offdiag = False
+global_vars = globals().copy()
 
 ti.init(arch=ti.cpu)
 
@@ -937,7 +939,8 @@ def substep_all_solver(max_iter=1):
     A = fill_A_by_spmm(M_inv, ALPHA)
     # A = fill_A_ti()
     Aori = A.copy()
-    A = improve_A_by_reduce_offdiag(A)
+    if reduce_offdiag:
+        A = improve_A_by_reduce_offdiag(A)
     if solver_type == "AMG":
         P,R = build_P(A)
 
@@ -951,7 +954,8 @@ def substep_all_solver(max_iter=1):
 
         A = fill_A_by_spmm(M_inv, ALPHA)
         Aori = A.copy()
-        A = improve_A_by_reduce_offdiag(A)
+        if reduce_offdiag:
+            A = improve_A_by_reduce_offdiag(A)
         if solver_type == "AMG":
             P,R = build_P(A)
 
@@ -1080,6 +1084,21 @@ def load_state(filename):
         state[i].from_numpy(npzfile["arr_" + str(i)])
     print(f"loaded state from '{filename}', totally loaded {len(state)} variables, frame={frame}")
 
+
+def print_all_globals(global_vars):
+    print("\n\n### Global Variables ###")
+    import sys
+    module_name = sys.modules[__name__].__name__
+    global_vars = global_vars.copy()
+    keys_to_delete = []
+    for var_name, var_value in global_vars.items():
+        if var_name != module_name and not var_name.startswith('__') and not callable(var_value) and not isinstance(var_value, type(sys)):
+            print(var_name, "=", var_value)
+            keys_to_delete.append(var_name)
+    print("\n\n\n")
+
+
+print_all_globals(global_vars)
 
 misc_dir_path = prj_path + "/data/misc/"
 mkdir_if_not_exist(out_dir)

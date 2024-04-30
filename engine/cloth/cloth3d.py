@@ -25,7 +25,7 @@ export_obj = True
 export_residual = False
 solver_type = "GS" # "AMG", "GS", "XPBD"
 export_matrix = True
-stop_frame = 1000 #early stop
+stop_frame = end_frame #early stop
 scale_instead_of_attach = True
 use_offdiag = True
 restart = True
@@ -1071,7 +1071,7 @@ def save_state(filename):
 def load_state(filename):
     global frame, pos, vel, old_pos, predict_pos
     npzfile = np.load(filename)
-    state = [pos, vel, old_pos, predict_pos]
+    state = [frame, pos, vel, old_pos, predict_pos]
     frame = int(npzfile["arr_0"])
     for i in range(1, len(state)):
         state[i].from_numpy(npzfile["arr_" + str(i)])

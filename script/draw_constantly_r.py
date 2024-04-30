@@ -40,7 +40,7 @@ def mkdir_if_not_exist(path=None):
         os.makedirs(path)
 
 prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = prj_path+f"./result/test/r/"
+out_dir = prj_path+f"./result/latest/r/"
 os.chdir(out_dir)
 mkdir_if_not_exist('./plt')
 
@@ -50,3 +50,5 @@ while True:
     data = read_json_data(f)
     update_plot(data,f)
     f+=1
+    if f>1000:
+        break

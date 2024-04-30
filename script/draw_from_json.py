@@ -5,7 +5,7 @@ import os,sys
 import pandas as pd
 
 prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = prj_path+f"./result/test/r/"
+out_dir = prj_path+f"./result/latest/r/"
 os.chdir(out_dir)
 
 # %%

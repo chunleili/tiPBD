@@ -19,7 +19,7 @@ sys.path.append(os.getcwd())
 
 prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
-to_read_dir = prj_dir + "result/test/"
+to_read_dir = prj_dir + "result/latest/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=100)
@@ -136,7 +136,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
         if save_fig_instad_of_show:
-            plt.savefig(f"result/test/residuals_{plot_title}.png")
+            plt.savefig(f"result/latest/residuals_{plot_title}.png")
         else:
             plt.show()
 

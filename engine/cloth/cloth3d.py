@@ -23,16 +23,17 @@ save_P, load_P = False, True
 use_viewer = False
 export_obj = True
 export_residual = False
-solver_type = "GS" # "AMG", "GS", "XPBD"
+solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = end_frame #early stop
 scale_instead_of_attach = True
 use_offdiag = True
-restart = True
+restart = False
 restart_frame = 30
 export_state = True
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = prj_path+f"./result/test/"
+out_dir = prj_path+f"./result/latest/"
+gravity = [0.0, 0.0, 0.0]
 
 ti.init(arch=ti.cpu)
 
@@ -314,10 +315,10 @@ def semi_euler(
     vel:ti.template(),
     pos:ti.template(),
 ):
-    gravity = ti.Vector([0.0, -0.1, 0.0])
+    g = ti.Vector(gravity)
     for i in range(NV):
         if inv_mass[i] != 0.0:
-            vel[i] += h * gravity
+            vel[i] += h * g
             old_pos[i] = pos[i]
             pos[i] += h * vel[i]
             predict_pos[i] = pos[i]
@@ -1179,7 +1180,7 @@ while True:
             save_state(out_dir+'/state/' + f"{frame:04d}.npz")
     
     if frame == end_frame:
-        print(f"Time all: {(time.perf_counter() - timer_all):.0f}s")
+        print(f"Time all: {(time.time() - timer_all):.0f}s = {(time.time() - timer_all)/60:.1f}min")
         exit()
     if use_viewer:
         viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)

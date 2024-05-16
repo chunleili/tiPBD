@@ -1,10 +1,9 @@
 import numpy as np
-import scipy.sparse as sp
 
 # judge if A is positive definite
 # https://stackoverflow.com/a/44287862/19253199
 # if A is symmetric and able to be Cholesky decomposed, then A is positive definite
-def is_pos_def(A):
+def is_spd(A):
     A=A.toarray()
     if np.array_equal(A, A.T):
         try:
@@ -18,10 +17,16 @@ def is_pos_def(A):
         print("A is not positive definite")
         return False
 
-def generate_A_b_psd(n=1000):
+def generate_A_b_spd(n=1000):
+    import scipy.sparse as sp
     A = sp.random(n, n, density=0.01, format="csr")
     A = A.T @ A
     b = np.random.rand(A.shape[0])
-    print(f"Generated PSD A: {A.shape}, b: {b.shape}")
+    flag = is_spd(A)
+    print(f"is_spd: {flag}")
+    print(f"Generated spd A: {A.shape}, b: {b.shape}")
     A = sp.csr_matrix(A)
     return A, b
+
+if __name__ == "__main__":
+    A, b = generate_A_b_spd(1000)

@@ -33,6 +33,7 @@ save_fig_instad_of_show = False
 generate_data = False
 show_plot = True
 
+
 def test_amg(mat_size = 10, case_num = 0, postfix=""):
     # ------------------------------- prepare data ------------------------------- #
     if(generate_data):
@@ -43,9 +44,65 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
     else:
         print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
+        A = scipy.io.mmread(to_read_dir+f"A_F10-49.mtx")
         A = A.tocsr()
-        b = np.loadtxt(to_read_dir+f"b_{postfix}.txt", dtype=np.float32)
+        A = A.astype(np.float32)
+        b = np.loadtxt(to_read_dir+f"b_F10-49.txt", dtype=np.float32)
+
+    ml = pyamg.ruge_stuben_solver(A)
+    residuals_pyamg = []
+    x_pyamg = ml.solve(b, tol=1e-6, residuals=residuals_pyamg)
+    print(ml)
+    print(len(residuals_pyamg), residuals_pyamg[-1])
+
+    ml2 = pyamg.smoothed_aggregation_solver(A)
+    residuals_pyamg2 = []
+    x_pyamg2 = ml2.solve(b, tol=1e-6, residuals=residuals_pyamg2)
+    # print(ml2)
+    print(len(residuals_pyamg2), residuals_pyamg2[-1])
+
+    # multilevel.py:744
+    ml3 = pyamg.ruge_stuben_solver(A, coarse_solver=None)
+    residuals_pyamg3 = []
+    x_pyamg3 = ml3.solve(b, tol=1e-6, residuals=residuals_pyamg3)
+    # print(ml3)
+    print(len(residuals_pyamg3), residuals_pyamg3[-1])
+
+    x_pyamg4 = np.zeros_like(b)
+    residuals_pyamg4 = []
+    for _ in range(100):
+        residuals_pyamg4.append(np.linalg.norm(b - A @ x_pyamg4))
+        x_pyamg4 = gauss_seidel(A, x_pyamg4, b, iterations=1)
+        x_pyamg4 = gauss_seidel(A, x_pyamg4, b, iterations=1)
+    print(len(residuals_pyamg4), residuals_pyamg4[-1])
+
+    if show_plot:
+        fig, axs = plt.subplots(1, figsize=(8, 9))
+        plot_residuals(residuals_pyamg, axs,  label="Classical AMG", marker="o")
+        plot_residuals(residuals_pyamg2, axs,  label="Smoothed Aggregation", marker="x")
+        plot_residuals(residuals_pyamg3, axs,  label="no coarse solver", marker="v")
+        plot_residuals(residuals_pyamg4, axs,  label="Gauss Seidel", marker="s")
+        fig.canvas.manager.set_window_title(plot_title)
+        plt.tight_layout()
+        if save_fig_instad_of_show:
+            plt.savefig(f"result/latest/residuals_{plot_title}.png")
+        else:
+            plt.show()
+
+
+def test_amg1(mat_size = 10, case_num = 0, postfix=""):
+    # ------------------------------- prepare data ------------------------------- #
+    if(generate_data):
+        print("generating data...")
+        # A, b = generate_A_b_pyamg(n=mat_size)
+        A, b = generate_A_b_psd(n=mat_size)
+        scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
+        np.savetxt(to_read_dir + f"b{case_num}.txt", b)
+    else:
+        print("loading data...")
+        A = scipy.io.mmread(to_read_dir+f"A_F10-49.mtx")
+        A = A.tocsr()
+        b = np.loadtxt(to_read_dir+f"b_F10-49.txt", dtype=np.float32)
         # b = np.random.random(A.shape[0])
         # b = np.ones(A.shape[0])
 
@@ -605,12 +662,12 @@ def gauss_seidel(A, x, b, iterations=1):
         # forward sweep
         # print("forward sweeping")
         for _ in range(iterations):
-            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+            amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
 
         # backward sweep
         # print("backward sweeping")
         for _ in range(iterations):
-            amg_core_gauss_seidel(
+            amg_core_gauss_seidel_kernel(
                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
             )
     return x
@@ -632,6 +689,41 @@ def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_s
 
         if diag != 0.0:
             x[i] = (b[i] - rsum) / diag
+
+
+import taichi as ti
+ti.init()
+
+@ti.kernel
+def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
+                                 Aj: ti.types.ndarray(),
+                                 Ax: ti.types.ndarray(),
+                                 x: ti.types.ndarray(),
+                                 b: ti.types.ndarray(),
+                                 row_start: int,
+                                 row_stop: int,
+                                 row_step: int):
+    # if row_step < 0:
+    #     assert "row_step must be positive"
+    for i in range(row_start, row_stop):
+        if i%row_step != 0:
+            continue
+
+        start = Ap[i]
+        end = Ap[i + 1]
+        rsum = 0.0
+        diag = 0.0
+
+        for jj in range(start, end):
+            j = Aj[jj]
+            if i == j:
+                diag = Ax[jj]
+            else:
+                rsum += Ax[jj] * x[j]
+
+        if diag != 0.0:
+            x[i] = (b[i] - rsum) / diag
+
 
 
 def solve_simplest(A, b, R, P, residuals):

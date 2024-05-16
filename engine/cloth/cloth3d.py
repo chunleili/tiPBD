@@ -18,7 +18,7 @@ prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 out_dir = prj_path + f"./result/latest/"
 frame = 0
-end_frame = 51
+end_frame = 10
 save_image = True
 max_iter = 50
 paused = False
@@ -31,7 +31,7 @@ export_matrix = True
 stop_frame = end_frame #early stop
 scale_instead_of_attach = True
 use_offdiag = True
-restart = True
+restart = False
 restart_frame = 50
 restart_dir = f"./result/latest/state/"
 export_state = True
@@ -1069,7 +1069,7 @@ def init_scale():
 
 def save_state(filename):
     global frame, pos, vel, old_pos, predict_pos
-    state = [frame, pos, vel, old_pos, predict_pos]
+    state = [frame, pos, vel, old_pos, predict_pos, rest_len]
     for i in range(1, len(state)):
         state[i] = state[i].to_numpy()
     np.savez(filename, *state)
@@ -1078,7 +1078,7 @@ def save_state(filename):
 def load_state(filename):
     global frame, pos, vel, old_pos, predict_pos
     npzfile = np.load(filename)
-    state = [frame, pos, vel, old_pos, predict_pos]
+    state = [frame, pos, vel, old_pos, predict_pos, rest_len]
     frame = int(npzfile["arr_0"])
     for i in range(1, len(state)):
         state[i].from_numpy(npzfile["arr_" + str(i)])

@@ -27,3 +27,4 @@ profile*
 *.png
 .DS_Store
 *.log
+*.csv

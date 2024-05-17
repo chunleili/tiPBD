@@ -23,13 +23,13 @@ to_read_dir = prj_dir + "result/latest/A/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=100)
+parser.add_argument("-title", type=str, default=f"")
+parser.add_argument("-f", type=int, default=10)
 N = parser.parse_args().N
 print(f"N={N}")
-parser.add_argument("-title", type=str, default=f"")
 plot_title = parser.parse_args().title
-parser.add_argument("-f", type=int, default=10)
 frame = parser.parse_args().f
-save_fig_instad_of_show = False
+save_fig_instad_of_show = True
 generate_data = False
 show_plot = True
 
@@ -39,49 +39,69 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     if(generate_data):
         print("generating data...")
         # A, b = generate_A_b_pyamg(n=mat_size)
-        A, b = generate_A_b_psd(n=mat_size)
+        A, b = generate_A_b_spd(n=mat_size)
         scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
     else:
         print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A_F10-49.mtx")
+        A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
         A = A.tocsr()
         A = A.astype(np.float32)
-        b = np.loadtxt(to_read_dir+f"b_F10-49.txt", dtype=np.float32)
+        b = np.loadtxt(to_read_dir+f"b_{postfix}.txt", dtype=np.float32)
 
     ml = pyamg.ruge_stuben_solver(A)
-    residuals_pyamg = []
-    x_pyamg = ml.solve(b, tol=1e-6, residuals=residuals_pyamg)
+    res = []
+    x_pyamg = ml.solve(b, tol=1e-10, residuals=res,maxiter=300)
     print(ml)
-    print(len(residuals_pyamg), residuals_pyamg[-1])
+    print(len(res), res[-1])
+    print((res[-1]/res[0])**(1.0/(len(res)-1)))
+
 
     ml2 = pyamg.smoothed_aggregation_solver(A)
-    residuals_pyamg2 = []
-    x_pyamg2 = ml2.solve(b, tol=1e-6, residuals=residuals_pyamg2)
+    res2 = []
+    x_pyamg2 = ml2.solve(b, tol=1e-10, residuals=res2,maxiter=300)
     # print(ml2)
-    print(len(residuals_pyamg2), residuals_pyamg2[-1])
+    print(len(res2), res2[-1])
+    print((res2[-1]/res2[0])**(1.0/(len(res2)-1)))
 
-    # multilevel.py:744
-    ml3 = pyamg.ruge_stuben_solver(A, coarse_solver=None)
-    residuals_pyamg3 = []
-    x_pyamg3 = ml3.solve(b, tol=1e-6, residuals=residuals_pyamg3)
-    # print(ml3)
-    print(len(residuals_pyamg3), residuals_pyamg3[-1])
+    # GS
+    x4 = np.zeros_like(b)
+    res4 = []
+    for _ in range(300):
+        res4.append(np.linalg.norm(b - A @ x4))
+        x4 = gauss_seidel(A, x4, b, iterations=1)
+        x4 = gauss_seidel(A, x4, b, iterations=1)
+    print(len(res4), res4[-1])
+    print((res4[-1]/res4[0])**(1.0/(len(res4)-1)))
 
-    x_pyamg4 = np.zeros_like(b)
-    residuals_pyamg4 = []
-    for _ in range(100):
-        residuals_pyamg4.append(np.linalg.norm(b - A @ x_pyamg4))
-        x_pyamg4 = gauss_seidel(A, x_pyamg4, b, iterations=1)
-        x_pyamg4 = gauss_seidel(A, x_pyamg4, b, iterations=1)
-    print(len(residuals_pyamg4), residuals_pyamg4[-1])
+    # from diagnostic, SA+CG
+    ml5 = pyamg.smoothed_aggregation_solver(A, B=b, BH=b.copy(),
+        strength=('symmetric', {'theta': 0.0}),
+        smooth="jacobi",
+        improve_candidates=None,
+        aggregate="standard",
+        presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        max_levels=15,
+        max_coarse=300,
+        coarse_solver="pinv")
+    x0 = np.zeros_like(b)
+    res5 = []
+    x5 = ml.solve(b, x0=x0, tol=1e-08, residuals=res5, accel="cg", maxiter=300, cycle="W")
+
+    # diagnal preconditioner + CG
+    x6 = np.zeros_like(b)
+    res6 = []
+    res6.append(np.linalg.norm(b - A @ x6))
+    x6 = scipy.sparse.linalg.cg(A, b, x0=x6, tol=1e-10, maxiter=300)
 
     if show_plot:
         fig, axs = plt.subplots(1, figsize=(8, 9))
-        plot_residuals(residuals_pyamg, axs,  label="Classical AMG", marker="o")
-        plot_residuals(residuals_pyamg2, axs,  label="Smoothed Aggregation", marker="x")
-        plot_residuals(residuals_pyamg3, axs,  label="no coarse solver", marker="v")
-        plot_residuals(residuals_pyamg4, axs,  label="Gauss Seidel", marker="s")
+        plot_residuals(res/res[0], axs,  label="Classical AMG", marker="o", color="blue")
+        plot_residuals(res2/res2[0], axs,  label="Smoothed Aggregation", marker="x", color="orange")
+        plot_residuals(res4/res4[0], axs,  label="Gauss Seidel", marker="s", color="red")
+        plot_residuals(res5/res5[0], axs,  label="SA+CG", marker="d", color="purple")
+        plot_title = postfix
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
         if save_fig_instad_of_show:
@@ -95,14 +115,14 @@ def test_amg1(mat_size = 10, case_num = 0, postfix=""):
     if(generate_data):
         print("generating data...")
         # A, b = generate_A_b_pyamg(n=mat_size)
-        A, b = generate_A_b_psd(n=mat_size)
+        A, b = generate_A_b_spd(n=mat_size)
         scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
     else:
         print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A_F10-49.mtx")
+        A = scipy.io.mmread(to_read_dir+f"A_F10-0.mtx")
         A = A.tocsr()
-        b = np.loadtxt(to_read_dir+f"b_F10-49.txt", dtype=np.float32)
+        b = np.loadtxt(to_read_dir+f"b_F10-0.txt", dtype=np.float32)
         # b = np.random.random(A.shape[0])
         # b = np.ones(A.shape[0])
 
@@ -127,9 +147,9 @@ def test_amg1(mat_size = 10, case_num = 0, postfix=""):
     # ------------------------------- test solvers ------------------------------- #
     # print("Solving pyamg...")
     # x0 = np.zeros_like(b)
-    # residuals_pyamg = []
+    # res = []
     #ml = pyamg.ruge_stuben_solver(A, max_levels=2)
-    #_,residuals_pyamg = timer_wrapper(solve_pyamg, ml, b)
+    #_,res = timer_wrapper(solve_pyamg, ml, b)
 
     x0 = np.zeros_like(b)
     x_amg = solve_amg(A, b, x0, R1, P1, residuals=[])
@@ -768,7 +788,7 @@ def plot_residuals(data, ax, *args, **kwargs):
     x = np.arange(len(data))
     ax.plot(x, data, label=label, linestyle=linestyle, *args, **kwargs)
     ax.set_title(title)
-    # ax.set_yscale("log")
+    ax.set_yscale("log")
     ax.set_xlabel("iteration")
     ax.set_ylabel("residual")
     ax.legend(loc="upper right")
@@ -794,5 +814,7 @@ def test_all_A():
 
 if __name__ == "__main__":
     # test_all_A()
-    test_amg(10,0,"F51-49")
+    for i in range(1,30,5):
+        test_amg(10,0,f"F{i}-0")
+    # test_amg(10,0,f"F1-0")
     # test_different_N()

@@ -18,7 +18,7 @@ prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 out_dir = prj_path + f"./result/latest/"
 frame = 0
-end_frame = 10
+end_frame = 50
 save_image = True
 max_iter = 50
 paused = False
@@ -962,6 +962,9 @@ def substep_all_solver(max_iter=1):
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
+        if export_matrix and ite==0:
+            export_A_b(A,b,postfix=f"F{frame}-{ite}")
+
         rsys1 = (np.linalg.norm(b-A@x))
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
@@ -994,8 +997,7 @@ def substep_all_solver(max_iter=1):
 
         x_prev = x.copy()
     
-    if export_matrix:
-        export_A_b(A,b,postfix=f"F{frame}-{ite}")
+
     if export_residual:
         serialized_r = [r[i]._asdict() for i in range(len(r))]
         r_json = json.dumps(serialized_r)

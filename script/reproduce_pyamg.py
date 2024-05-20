@@ -89,11 +89,18 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     res5 = []
     x5 = ml.solve(b, x0=x0, tol=1e-08, residuals=res5, accel="cg", maxiter=300, cycle="W")
 
-    # diagnal preconditioner + CG
+    # CG
     x6 = np.zeros_like(b)
     res6 = []
     res6.append(np.linalg.norm(b - A @ x6))
-    x6 = scipy.sparse.linalg.cg(A, b, x0=x6, tol=1e-10, maxiter=300)
+    x6 = scipy.sparse.linalg.cg(A, b, x0=x6, tol=1e-10, maxiter=300, callback=lambda x: res6.append(np.linalg.norm(b - A @ x)))
+
+    #  diagnal preconditioner + CG
+    M = scipy.sparse.diags(A.diagonal())
+    x7 = np.zeros_like(b)
+    res7 = []
+    res7.append(np.linalg.norm(b - A @ x7))
+    x7 = scipy.sparse.linalg.cg(A, b, x0=x7, tol=1e-10, maxiter=300, callback=lambda x: res7.append(np.linalg.norm(b - A @ x)), M=M)
 
     if show_plot:
         fig, axs = plt.subplots(1, figsize=(8, 9))
@@ -101,6 +108,8 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
         plot_residuals(res2/res2[0], axs,  label="Smoothed Aggregation", marker="x", color="orange")
         plot_residuals(res4/res4[0], axs,  label="Gauss Seidel", marker="s", color="red")
         plot_residuals(res5/res5[0], axs,  label="SA+CG", marker="d", color="purple")
+        plot_residuals(res6/res6[0], axs,  label="CG", marker="^", color="green")
+        plot_residuals(res7/res7[0], axs,  label="diag CG", marker="v", color="black")
         plot_title = postfix
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()

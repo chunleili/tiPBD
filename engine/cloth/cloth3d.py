@@ -1107,11 +1107,13 @@ mkdir_if_not_exist(out_dir)
 mkdir_if_not_exist(out_dir + "/r/")
 mkdir_if_not_exist(out_dir + "/A/")
 mkdir_if_not_exist(out_dir + "/state/")
+mkdir_if_not_exist(out_dir + "/obj/")
 if not restart:
     clean_result_dir(out_dir)
     clean_result_dir(out_dir + "/r/")
     clean_result_dir(out_dir + "/A/")
     clean_result_dir(out_dir + "/state/")
+    clean_result_dir(out_dir + "/obj/")
 
 
 # ---------------------------------------------------------------------------- #
@@ -1121,7 +1123,7 @@ timer_all = time.perf_counter()
 init_pos(inv_mass,pos)
 init_tri(tri)
 init_edge(edge, rest_len, pos)
-write_obj(out_dir + f"{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
+write_obj(out_dir + f"/obj/{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
 if scale_instead_of_attach:
     init_scale()
 
@@ -1198,7 +1200,7 @@ while True:
         else:
             substep_all_solver(max_iter)
         if export_obj:
-            write_obj(out_dir + f"{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
+            write_obj(out_dir + f"/obj/{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
         if export_state:
             save_state(out_dir+'/state/' + f"{frame:04d}.npz")
     

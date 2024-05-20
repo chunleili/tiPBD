@@ -53,7 +53,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     res = []
     x_pyamg = ml.solve(b, tol=1e-10, residuals=res,maxiter=300)
     print(ml)
-    print(len(res), res[-1])
+    print("res1 classical AMG", len(res), res[-1])
     print((res[-1]/res[0])**(1.0/(len(res)-1)))
 
 
@@ -61,7 +61,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     res2 = []
     x_pyamg2 = ml2.solve(b, tol=1e-10, residuals=res2,maxiter=300)
     # print(ml2)
-    print(len(res2), res2[-1])
+    print("res2 SA", len(res2), res2[-1])
     print((res2[-1]/res2[0])**(1.0/(len(res2)-1)))
 
     # GS
@@ -71,7 +71,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
         res4.append(np.linalg.norm(b - A @ x4))
         x4 = gauss_seidel(A, x4, b, iterations=1)
         x4 = gauss_seidel(A, x4, b, iterations=1)
-    print(len(res4), res4[-1])
+    print("res4 GS",len(res4), res4[-1])
     print((res4[-1]/res4[0])**(1.0/(len(res4)-1)))
 
     # from diagnostic, SA+CG
@@ -88,19 +88,26 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     x0 = np.zeros_like(b)
     res5 = []
     x5 = ml.solve(b, x0=x0, tol=1e-08, residuals=res5, accel="cg", maxiter=300, cycle="W")
+    print("res5 SA+CG",len(res5),res5[-1])
+    print((res5[-1]/res5[0])**(1.0/(len(res5)-1)))
 
     # CG
     x6 = np.zeros_like(b)
     res6 = []
     res6.append(np.linalg.norm(b - A @ x6))
     x6 = scipy.sparse.linalg.cg(A, b, x0=x6, tol=1e-10, maxiter=300, callback=lambda x: res6.append(np.linalg.norm(b - A @ x)))
+    print("CG res6",len(res6),res6[-1])
+    print((res6[-1]/res6[0])**(1.0/(len(res6)-1)))
 
     #  diagnal preconditioner + CG
-    M = scipy.sparse.diags(A.diagonal())
+    M = scipy.sparse.diags(1.0/A.diagonal())
     x7 = np.zeros_like(b)
     res7 = []
     res7.append(np.linalg.norm(b - A @ x7))
     x7 = scipy.sparse.linalg.cg(A, b, x0=x7, tol=1e-10, maxiter=300, callback=lambda x: res7.append(np.linalg.norm(b - A @ x)), M=M)
+    print("res7 diag+CG", len(res7),res7[-1])
+    print((res7[-1]/res7[0])**(1.0/(len(res7)-1)))
+
 
     if show_plot:
         fig, axs = plt.subplots(1, figsize=(8, 9))

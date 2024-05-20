@@ -16,7 +16,7 @@ import json
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-out_dir = prj_path + f"./result/latest/"
+out_dir = prj_path + f"/result/latest/"
 frame = 0
 end_frame = 50
 save_image = True
@@ -33,7 +33,7 @@ scale_instead_of_attach = True
 use_offdiag = True
 restart = False
 restart_frame = 50
-restart_dir = f"./result/latest/state/"
+restart_dir = f"/result/latest/state/"
 export_state = True
 gravity = [0.0, 0.0, 0.0]
 reduce_offdiag = False
@@ -1203,7 +1203,7 @@ while True:
             save_state(out_dir+'/state/' + f"{frame:04d}.npz")
     
     if frame == end_frame:
-        print(f"Time all: {(time.time() - timer_all):.0f}s = {(time.time() - timer_all)/60:.1f}min")
+        print(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.1f}min")
         exit()
     if use_viewer:
         viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)

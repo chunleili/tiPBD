@@ -18,25 +18,31 @@ prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 out_dir = prj_path + f"/result/latest/"
 frame = 0
-end_frame = 50
+end_frame = 11
 save_image = True
-max_iter = 50
+max_iter = 100
+max_iter_Axb = 600
 paused = False
-save_P, load_P = False, True
+save_P, load_P = False, False
 use_viewer = False
 export_obj = True
-export_residual = False
+export_residual = True
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = end_frame #early stop
 scale_instead_of_attach = True
 use_offdiag = True
 restart = False
-restart_frame = 50
-restart_dir = f"/result/latest/state/"
+restart_frame = 10
+restart_dir = prj_path+f"/result/amg-primary/state/"
 export_state = True
-gravity = [0.0, 0.0, 0.0]
+gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
+early_stop = True
+use_primary_residual = False
+use_chen2023 = False
+use_chen2023_blended = False
+chen2023_blended_ksi = 0.5
 global_vars = globals().copy()
 
 ti.init(arch=ti.cpu)
@@ -50,7 +56,7 @@ print("N: ", N)
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
-h = 0.01
+h = 0.001
 M = NE
 new_M = int(NE / 100)
 compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
@@ -82,7 +88,7 @@ nnz_each_row = np.zeros(NE, dtype=int)
 potential_energy = ti.field(dtype=float, shape=())
 inertial_energy = ti.field(dtype=float, shape=())
 predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
-
+# primary_residual = np.zeros(dtype=float, shape=(3*NV))
 
 
 
@@ -423,6 +429,10 @@ def calc_dual_residual(
         # residual(lagrangian=0 for first iteration)
         dual_residual[i] = -(constraint + alpha * lagrangian[i])
 
+def calc_primary_residual(G,M_inv):
+    MASS = sp.diags(1.0/M_inv.diagonal(), format="csr")
+    primary_residual = MASS @ (predict_pos.to_numpy().flatten() - pos.to_numpy().flatten()) - G.transpose() @ lagrangian.to_numpy()
+    return primary_residual
 
 def step_xpbd(max_iter):
     semi_euler(old_pos, inv_mass, vel, pos)
@@ -630,23 +640,42 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
             x[i] = (b[i] - rsum) / diag
 
 
-def gauss_seidel(A, x, b, iterations=1):
+def gauss_seidel(A, x, b, iterations=1, residuals = []):
     # if not scipy.sparse.isspmatrix_csr(A):
     #     raise ValueError("A must be csr matrix!")
 
     for _iter in range(iterations):
         # forward sweep
-        # print("forward sweeping")
-        for _ in range(iterations):
+        for _ in range(2):
             amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
 
         # backward sweep
-        # print("backward sweeping")
-        for _ in range(iterations):
+        for _ in range(2):
             amg_core_gauss_seidel_kernel(
                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
             )
+        
+        normr = np.linalg.norm(b - A @ x)
+        residuals.append(normr)
+        if early_stop:
+            if normr < 1e-6:
+                break
     return x
+
+def solve_amg_SA(A,b,x0,residuals=[]):
+    import pyamg
+    ml5 = pyamg.smoothed_aggregation_solver(A, B=b, BH=b.copy(),
+        strength=('symmetric', {'theta': 0.0}),
+        smooth="jacobi",
+        improve_candidates=None,
+        aggregate="standard",
+        presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        max_levels=15,
+        max_coarse=300,
+        coarse_solver="pinv")
+    x5 = ml5.solve(b, x0=x0, tol=1e-6, residuals=residuals, accel="cg", maxiter=max_iter_Axb, cycle="W")
+    return x5
 
 def solve_amg(A, b, x0, R, P, residuals=[]):
     tol = 1e-3
@@ -679,10 +708,26 @@ def solve_amg(A, b, x0, R, P, residuals=[]):
         if it == maxiter:
             return x
 
-def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid):
+# @ti.kernel
+# def calc_chen2023_added_dpos(G, M_inv, Minv_gg, dLambda):
+#     dpos = M_inv @ G.transpose() @ dLambda
+#     dpos -= Minv_gg
+#     return dpos
+
+def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg=None):
     dLambda_ = x.copy()
     lagrangian.from_numpy(lagrangian.to_numpy() + dLambda_)
-    dpos = M_inv @ G.transpose() @ dLambda_
+    dpos = M_inv @ G.transpose() @ dLambda_ 
+    if use_primary_residual:
+        dpos -=  Minv_gg
+    if use_chen2023:
+        chen2023_added = M_inv @ G.transpose() @ lagrangian.to_numpy()
+        dpos += chen2023_added
+    if use_chen2023_blended:
+        chen2023_added = M_inv @ G.transpose() @ lagrangian.to_numpy()
+        dpos2 = dpos + chen2023_added 
+        dpos1 = dpos.copy()
+        dpos = dpos1 * chen2023_blended_ksi + dpos2 * (1.0 - chen2023_blended_ksi)
     dpos = dpos.reshape(-1, 3)
     pos.from_numpy(pos_mid.to_numpy() + dpos)
 
@@ -726,7 +771,7 @@ def fill_A_by_spmm(M_inv, ALPHA):
     A = scipy.sparse.csr_matrix(A)
 
     # A = improve_A_by_reduce_offdiag(A)
-    return A
+    return A, G
 
 def improve_A_by_add_diag(A):
     diags = A.diagonal(0)
@@ -925,7 +970,7 @@ def build_P(A):
     R = ml.levels[0].R
     return P, R
 
-Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'amg', 'gs','t'])
+Residual = namedtuple('residual', ['sys', 'primary', 'dual', 'obj', 'amg', 'gs','t'])
 
 def substep_all_solver(max_iter=1):
     global pos, lagrangian
@@ -936,13 +981,13 @@ def substep_all_solver(max_iter=1):
     alpha_tilde_np = np.array([alpha] * M)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
-    A = fill_A_by_spmm(M_inv, ALPHA)
+    A,G = fill_A_by_spmm(M_inv, ALPHA)
     # A = fill_A_ti()
     Aori = A.copy()
     if reduce_offdiag:
         A = improve_A_by_reduce_offdiag(A)
-    if solver_type == "AMG":
-        P,R = build_P(A)
+    # if solver_type == "AMG":
+    #     P,R = build_P(A)
 
     x0 = np.zeros(NE)
     x_prev = x0.copy()
@@ -950,17 +995,22 @@ def substep_all_solver(max_iter=1):
     r = []
     for ite in range(max_iter):
         t_iter = time.time()
-        # copy_field(pos_mid, pos)
+        copy_field(pos_mid, pos)
 
-        A = fill_A_by_spmm(M_inv, ALPHA)
+        A,G = fill_A_by_spmm(M_inv, ALPHA)
         Aori = A.copy()
         if reduce_offdiag:
             A = improve_A_by_reduce_offdiag(A)
-        if solver_type == "AMG":
-            P,R = build_P(A)
+        # if solver_type == "AMG":
+        #     P,R = build_P(A)
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
+
+        #we calc inverse mass times gg(primary residual), because M may contains infinity for fixed pin points. And gg always appears with inv_mass.
+        if use_primary_residual:
+            Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
+            b += G @ Minv_gg
 
         if export_matrix and ite==0:
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
@@ -970,33 +1020,44 @@ def substep_all_solver(max_iter=1):
             x = scipy.sparse.linalg.spsolve(A, b)
         if solver_type == "GS":
             x = x.copy()
-            rgs1=(np.linalg.norm(b-A@x))
-            gauss_seidel(A, x, b, iterations=10)
-            rgs2=(np.linalg.norm(b-A@x))
-            rgs = [rgs1, rgs2]
+            rgs=[]
+            gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=rgs)
             ramg = [None,None]
         if solver_type == "AMG":
             ramg=[]
-            x = solve_amg(A, b, x, R, P, ramg)
+            # x = solve_amg(A, b, x, R, P, ramg)
+            x = solve_amg_SA(A,b,x_prev,ramg)
             rgs=[None,None]
 
         rsys2 = np.linalg.norm(b-A@x)
-        transfer_back_to_pos_mfree(x)
+        if use_primary_residual:
+            transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg)
+        else:
+            # transfer_back_to_pos_mfree(x) #XPBD
+            transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) #Chen2023 Primal XPBD
 
-        export_residual = True
+
         if export_residual:
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+            # if use_primary_residual:
+            primary_residual = calc_primary_residual(G, M_inv)
+            primary_r = np.linalg.norm(primary_residual).astype(float)
+            # else: primary_r = 0.0
             dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
             compute_potential_energy()
             compute_inertial_energy()
             t = time.time()-t_iter
             robj = (potential_energy[None]+inertial_energy[None])
-            print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t:.2f}s")
-            # np.savetxt(out_dir +"/r/" + f"{frame}-{ite}.txt", np.array([rsys1, rsys2, dual_r, robj]))
-            r.append(Residual([rsys1,rsys2], dual_r, robj, ramg, rgs, t))
+            print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t:.2f}s")
+            r.append(Residual([rsys1,rsys2], primary_r, dual_r, robj, ramg, rgs, t))
 
         x_prev = x.copy()
-    
+        # gradC_prev = gradC.to_numpy().copy()
+
+        if early_stop:
+            if rsys1 < 1e-6:
+                break
+        
 
     if export_residual:
         serialized_r = [r[i]._asdict() for i in range(len(r))]
@@ -1185,6 +1246,7 @@ viewer = Viewer()
 step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
 while True:
     step_pbar.update(1)
+    print("\n")
     time_one_frame = time.perf_counter()
     frame += 1
     if use_viewer:

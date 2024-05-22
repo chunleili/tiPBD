@@ -49,6 +49,18 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
         A = A.astype(np.float32)
         b = np.loadtxt(to_read_dir+f"b_{postfix}.txt", dtype=np.float32)
 
+
+    # # codition_number_of_A = np.linalg.cond(A.toarray())
+    # # print(f"condition number of A: {codition_number_of_A}")
+
+    # eigenvalues_A_largest = scipy.sparse.linalg.eigsh(A,return_eigenvectors=False, which="LM", k=1)
+    # print("largest eigenvalues of A:", eigenvalues_A_largest)
+    # eigenvalues_A_smallest = scipy.sparse.linalg.eigsh(A,return_eigenvectors=False, which="SM", k=1)
+    # print("smallest eigenvalues of A:", eigenvalues_A_smallest)
+    # print("largest/smallest:", eigenvalues_A_largest/eigenvalues_A_smallest)
+
+    # exit(0)
+
     ml = pyamg.ruge_stuben_solver(A)
     res = []
     x_pyamg = ml.solve(b, tol=1e-10, residuals=res,maxiter=300)
@@ -87,7 +99,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
         coarse_solver="pinv")
     x0 = np.zeros_like(b)
     res5 = []
-    x5 = ml.solve(b, x0=x0, tol=1e-08, residuals=res5, accel="cg", maxiter=300, cycle="W")
+    x5 = ml5.solve(b, x0=x0, tol=1e-08, residuals=res5, accel="cg", maxiter=300, cycle="W")
     print("res5 SA+CG",len(res5),res5[-1])
     print((res5[-1]/res5[0])**(1.0/(len(res5)-1)))
 
@@ -410,7 +422,7 @@ def analyse_A(A,R,P):
     print("rank of P:", rank_P)
     eigenvalues_A = np.linalg.eigvals(A.toarray())
     print("eigenvalues of A:", eigenvalues_A)
-    # print("R@P is:", R@P)
+    print("R@P is:", R@P)
 
 def solve_pyamg(ml, b):
     residuals = []

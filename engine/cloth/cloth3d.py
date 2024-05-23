@@ -18,7 +18,7 @@ prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 out_dir = prj_path + f"/result/latest/"
 frame = 0
-end_frame = 11
+end_frame = 30
 save_image = True
 max_iter = 100
 max_iter_Axb = 600
@@ -30,7 +30,7 @@ export_residual = True
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = end_frame #early stop
-scale_instead_of_attach = True
+scale_instead_of_attach = False
 use_offdiag = True
 restart = False
 restart_frame = 10
@@ -43,6 +43,7 @@ use_primary_residual = False
 use_chen2023 = False
 use_chen2023_blended = False
 chen2023_blended_ksi = 0.5
+dont_clean_results = False
 global_vars = globals().copy()
 
 ti.init(arch=ti.cpu)
@@ -430,7 +431,7 @@ def calc_dual_residual(
         dual_residual[i] = -(constraint + alpha * lagrangian[i])
 
 def calc_primary_residual(G,M_inv):
-    MASS = sp.diags(1.0/M_inv.diagonal(), format="csr")
+    MASS = sp.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
     primary_residual = MASS @ (predict_pos.to_numpy().flatten() - pos.to_numpy().flatten()) - G.transpose() @ lagrangian.to_numpy()
     return primary_residual
 
@@ -677,9 +678,7 @@ def solve_amg_SA(A,b,x0,residuals=[]):
     x5 = ml5.solve(b, x0=x0, tol=1e-6, residuals=residuals, accel="cg", maxiter=max_iter_Axb, cycle="W")
     return x5
 
-def solve_amg(A, b, x0, R, P, residuals=[]):
-    tol = 1e-3
-    maxiter = 1
+def solve_amg(A, b, x0, R, P, residuals=[], maxiter = 1, tol = 1e-6):
     A2 = R @ A @ P
     x = x0.copy()
     normb = np.linalg.norm(b)
@@ -1169,7 +1168,7 @@ mkdir_if_not_exist(out_dir + "/r/")
 mkdir_if_not_exist(out_dir + "/A/")
 mkdir_if_not_exist(out_dir + "/state/")
 mkdir_if_not_exist(out_dir + "/obj/")
-if not restart:
+if not restart and not dont_clean_results:
     clean_result_dir(out_dir)
     clean_result_dir(out_dir + "/r/")
     clean_result_dir(out_dir + "/A/")

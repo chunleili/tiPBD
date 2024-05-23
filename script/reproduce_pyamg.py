@@ -22,48 +22,20 @@ print("prj_dir", prj_dir)
 to_read_dir = prj_dir + "result/latest/A/"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=100)
 parser.add_argument("-title", type=str, default=f"")
 parser.add_argument("-f", type=int, default=10)
-N = parser.parse_args().N
-print(f"N={N}")
 plot_title = parser.parse_args().title
 frame = parser.parse_args().f
-save_fig_instad_of_show = True
+save_fig_instad_of_show = False
 generate_data = False
 show_plot = True
+maxiter = 2
 
+def test_amg(A, b, postfix=""):
 
-def test_amg(mat_size = 10, case_num = 0, postfix=""):
-    # ------------------------------- prepare data ------------------------------- #
-    if(generate_data):
-        print("generating data...")
-        # A, b = generate_A_b_pyamg(n=mat_size)
-        A, b = generate_A_b_spd(n=mat_size)
-        scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
-        np.savetxt(to_read_dir + f"b{case_num}.txt", b)
-    else:
-        print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
-        A = A.tocsr()
-        A = A.astype(np.float32)
-        b = np.loadtxt(to_read_dir+f"b_{postfix}.txt", dtype=np.float32)
-
-
-    # # codition_number_of_A = np.linalg.cond(A.toarray())
-    # # print(f"condition number of A: {codition_number_of_A}")
-
-    # eigenvalues_A_largest = scipy.sparse.linalg.eigsh(A,return_eigenvectors=False, which="LM", k=1)
-    # print("largest eigenvalues of A:", eigenvalues_A_largest)
-    # eigenvalues_A_smallest = scipy.sparse.linalg.eigsh(A,return_eigenvectors=False, which="SM", k=1)
-    # print("smallest eigenvalues of A:", eigenvalues_A_smallest)
-    # print("largest/smallest:", eigenvalues_A_largest/eigenvalues_A_smallest)
-
-    # exit(0)
-
-    ml = pyamg.ruge_stuben_solver(A)
+    ml = pyamg.ruge_stuben_solver(A, max_levels=2)
     res = []
-    x_pyamg = ml.solve(b, tol=1e-10, residuals=res,maxiter=300)
+    x_pyamg = ml.solve(b, tol=1e-10, residuals=res,maxiter=maxiter)
     print(ml)
     print("res1 classical AMG", len(res), res[-1])
     print((res[-1]/res[0])**(1.0/(len(res)-1)))
@@ -71,7 +43,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
 
     ml2 = pyamg.smoothed_aggregation_solver(A)
     res2 = []
-    x_pyamg2 = ml2.solve(b, tol=1e-10, residuals=res2,maxiter=300)
+    x_pyamg2 = ml2.solve(b, tol=1e-10, residuals=res2,maxiter=maxiter)
     # print(ml2)
     print("res2 SA", len(res2), res2[-1])
     print((res2[-1]/res2[0])**(1.0/(len(res2)-1)))
@@ -79,7 +51,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     # GS
     x4 = np.zeros_like(b)
     res4 = []
-    for _ in range(300):
+    for _ in range(maxiter+1):
         res4.append(np.linalg.norm(b - A @ x4))
         x4 = gauss_seidel(A, x4, b, iterations=1)
         x4 = gauss_seidel(A, x4, b, iterations=1)
@@ -87,27 +59,29 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     print((res4[-1]/res4[0])**(1.0/(len(res4)-1)))
 
     # from diagnostic, SA+CG
-    ml5 = pyamg.smoothed_aggregation_solver(A, B=b, BH=b.copy(),
-        strength=('symmetric', {'theta': 0.0}),
-        smooth="jacobi",
-        improve_candidates=None,
-        aggregate="standard",
-        presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-        postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-        max_levels=15,
-        max_coarse=300,
-        coarse_solver="pinv")
-    x0 = np.zeros_like(b)
     res5 = []
-    x5 = ml5.solve(b, x0=x0, tol=1e-08, residuals=res5, accel="cg", maxiter=300, cycle="W")
-    print("res5 SA+CG",len(res5),res5[-1])
-    print((res5[-1]/res5[0])**(1.0/(len(res5)-1)))
+    SA_from_diagnostic(A, b, res5)
+    # ml5 = pyamg.smoothed_aggregation_solver(A, B=b, BH=b.copy(),
+    #     strength=('symmetric', {'theta': 0.0}),
+    #     smooth="jacobi",
+    #     improve_candidates=None,
+    #     aggregate="standard",
+    #     presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+    #     postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+    #     max_levels=15,
+    #     max_coarse=300,
+    #     coarse_solver="pinv")
+    # x0 = np.zeros_like(b)
+    # res5 = []
+    # x5 = ml5.solve(b, x0=x0, tol=1e-08, residuals=res5, accel="cg", maxiter=maxiter , cycle="F")
+    # print("res5 SA+CG",len(res5),res5[-1])
+    # print((res5[-1]/res5[0])**(1.0/(len(res5)-1)))
 
     # CG
     x6 = np.zeros_like(b)
     res6 = []
     res6.append(np.linalg.norm(b - A @ x6))
-    x6 = scipy.sparse.linalg.cg(A, b, x0=x6, tol=1e-10, maxiter=300, callback=lambda x: res6.append(np.linalg.norm(b - A @ x)))
+    x6 = scipy.sparse.linalg.cg(A, b, x0=x6, tol=1e-10, maxiter=maxiter, callback=lambda x: res6.append(np.linalg.norm(b - A @ x)))
     print("CG res6",len(res6),res6[-1])
     print((res6[-1]/res6[0])**(1.0/(len(res6)-1)))
 
@@ -116,7 +90,7 @@ def test_amg(mat_size = 10, case_num = 0, postfix=""):
     x7 = np.zeros_like(b)
     res7 = []
     res7.append(np.linalg.norm(b - A @ x7))
-    x7 = scipy.sparse.linalg.cg(A, b, x0=x7, tol=1e-10, maxiter=300, callback=lambda x: res7.append(np.linalg.norm(b - A @ x)), M=M)
+    x7 = scipy.sparse.linalg.cg(A, b, x0=x7, tol=1e-10, maxiter=maxiter, callback=lambda x: res7.append(np.linalg.norm(b - A @ x)), M=M)
     print("res7 diag+CG", len(res7),res7[-1])
     print((res7[-1]/res7[0])**(1.0/(len(res7)-1)))
 
@@ -245,6 +219,33 @@ def test_amg1(mat_size = 10, case_num = 0, postfix=""):
         else:
             plt.show()
 
+
+def test_amg2(A, b, postfix=''):
+    R1, P1 = generate_R_P(A)
+    x0 = np.zeros_like(b)
+    res_amg = []
+    x_amg = solve_amg(A, b, x0, R1, P1, residuals=res_amg)
+    x_rep,residuals_rep, full_residual_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
+
+    print_residuals(res_amg, "amg")
+    print_residuals(residuals_rep, "rep")
+
+
+    if show_plot:
+        fig, axs = plt.subplots(2, 1, figsize=(8, 9))
+        plot_residuals(res_amg, axs[0], label="amg")
+        plot_residuals(residuals_rep, axs[0], label="rep")
+
+        fig.canvas.manager.set_window_title(plot_title)
+        plt.tight_layout()
+        if save_fig_instad_of_show:
+            plt.savefig(f"result/latest/residuals_{plot_title}.png")
+        else:
+            plt.show()
+
+
+
+
 def plot_full_residual(data, title=""):
     from matplotlib import cm
     from matplotlib.ticker import LinearLocator
@@ -266,6 +267,86 @@ def plot_full_residual(data, title=""):
     # ax.zaxis.set_major_locator(LinearLocator(10))
     # ax.zaxis.set_major_formatter('{x:.02f}')
     fig.colorbar(surf0, shrink=0.5, aspect=5)
+
+def SA_from_diagnostic(A, b, res):
+    ##
+    # Generate B
+    B = np.ones((A.shape[0],1), dtype=A.dtype); BH = B.copy()
+
+    ##
+    # Random initial guess, zero right-hand side
+    np.random.seed(0)
+    # b = zeros((A.shape[0],1))
+    x0 = np.random.rand(A.shape[0],1)
+
+    ##
+    # Create solver
+    ml = pyamg.smoothed_aggregation_solver(A, B=B, BH=BH,
+        strength=('symmetric', {'theta': 0.0}),
+        smooth="jacobi",
+        improve_candidates=None,
+        aggregate="standard",
+        presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        max_levels=15,
+        max_coarse=300,
+        coarse_solver="pinv")
+
+    ##
+    # Solve system
+    # res = []
+    x = ml.solve(b, x0=x0, tol=1e-08, residuals=res, accel="cg", maxiter=maxiter, cycle="W")
+    res_rate = (res[-1]/res[0])**(1.0/(len(res)-1.))
+    normr0 = pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x0))
+    print(" ")
+    print(ml)
+    print("System size:                " + str(A.shape))
+    print("Avg. Resid Reduction:       %1.2f" % res_rate)
+    print("Iterations:                 %d" % len(res))
+    print("Operator Complexity:        %1.2f" % ml.operator_complexity())
+    print("Work per DOA:               %1.2f" % (ml.cycle_complexity()/abs(np.log10(res_rate))))
+    print("Relative residual norm:     %1.2e" % (pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x))/normr0))
+
+    ##
+    # Solve system
+    res = []
+    x = ml.solve(b, x0=x0, tol=1e-08, residuals=res, accel="cg", maxiter=maxiter, cycle="W")
+    res_rate = (res[-1]/res[0])**(1.0/(len(res)-1.))
+    normr0 = pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x0))
+    print(" ")
+    print(ml)
+    print("System size:                " + str(A.shape))
+    print("Avg. Resid Reduction:       %1.2f" % res_rate)
+    print("Iterations:                 %d" % len(res))
+    print("Operator Complexity:        %1.2f" % ml.operator_complexity())
+    print("Work per DOA:               %1.2f" % (ml.cycle_complexity()/abs(np.log10(res_rate))))
+    print("Relative residual norm:     %1.2e" % (pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x))/normr0))
+
+    # ##
+    # # Plot residual history
+    # plt.semilogy(np.array(res)/res[0])
+    # plt.title('Residual Histories')
+    # plt.xlabel('Iteration')
+    # plt.ylabel('Relative Residual Norm')
+    # plt.show()
+
+
+def prepare_A_b(mat_size = 10, case_num = 0, postfix=""):
+    global A, b
+
+    if(generate_data):
+        print("generating data...")
+        # A, b = generate_A_b_pyamg(n=mat_size)
+        A, b = generate_A_b_spd(n=mat_size)
+        scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
+        np.savetxt(to_read_dir + f"b{case_num}.txt", b)
+    else:
+        print("loading data...")
+        A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
+        A = A.tocsr()
+        A = A.astype(np.float64)
+        b = np.loadtxt(to_read_dir+f"b_{postfix}.txt", dtype=np.float64)
+    return A,b
 
 def improve_A(A):
     A = A + 1 * sparse.eye(A.shape[0])
@@ -426,7 +507,7 @@ def analyse_A(A,R,P):
 
 def solve_pyamg(ml, b):
     residuals = []
-    x = ml.solve(b, tol=1e-3, residuals=residuals, maxiter=1)
+    x = ml.solve(b, tol=1e-3, residuals=residuals, maxiter=maxiter)
     return x, residuals
 
 def solve_FAS(A, b, x0, R, P, residuals=[]):
@@ -619,11 +700,8 @@ def solve_onlySmoother(A, b, x0, R, P):
 
 
 
-def solve_amg(A, b, x0, R, P, residuals=[]):
-    tol = 1e-3
-    maxiter = 1
+def solve_amg(A, b, x0, R, P, residuals=[], maxiter = 1, tol = 1e-6):
     A2 = R @ A @ P
-    x0 = np.zeros_like(b) # initial guess x0
     x = x0.copy()
     normb = np.linalg.norm(b)
     if normb == 0.0:
@@ -842,7 +920,10 @@ def test_all_A():
 
 if __name__ == "__main__":
     # test_all_A()
-    for i in range(1,30,5):
-        test_amg(10,0,f"F{i}-0")
     # test_amg(10,0,f"F1-0")
     # test_different_N()
+    
+    for i in range(1,30,5):
+        postfix = f"F{i}-0"
+        A,b = prepare_A_b(postfix=postfix)
+        test_amg2(A,b,postfix)

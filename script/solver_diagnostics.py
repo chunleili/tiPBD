@@ -659,6 +659,7 @@ def solver_diagnostics(
 if __name__ == '__main__':
     import scipy.io
     import os
+    import numpy as np
     postfix = "F1-0"
 
     print("loading data...")

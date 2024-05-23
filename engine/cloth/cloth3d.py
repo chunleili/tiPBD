@@ -18,7 +18,7 @@ prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 out_dir = prj_path + f"/result/latest/"
 frame = 0
-end_frame = 30
+end_frame = 200
 save_image = True
 max_iter = 100
 max_iter_Axb = 600
@@ -1180,34 +1180,40 @@ if not restart and not dont_clean_results:
 #                                initialization                                #
 # ---------------------------------------------------------------------------- #
 timer_all = time.perf_counter()
+print("\nInitializing...")
+print("Initializing pos..")
 init_pos(inv_mass,pos)
 init_tri(tri)
+print("Initializing edge..")
 init_edge(edge, rest_len, pos)
 write_obj(out_dir + f"/obj/{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
+print("Initializing edge done")
 if scale_instead_of_attach:
     init_scale()
 
-#init adjacent edge
-tic = time.time()
-init_adjacent_edge_kernel(adjacent_edge, num_adjacent_edge, edge)
-adjacent_edge_abc.fill(-1)
-init_adjacent_edge_abc_kernel()
-print(f"init_adjacent_edge and abc time: {time.time()-tic:.3f}s")
+use_direct_fill_A = False
+if use_direct_fill_A:
+    tic = time.time()
+    print("Initializing adjacent edge and abc...")
+    init_adjacent_edge_kernel(adjacent_edge, num_adjacent_edge, edge)
+    adjacent_edge_abc.fill(-1)
+    init_adjacent_edge_abc_kernel()
+    print(f"init_adjacent_edge and abc time: {time.time()-tic:.3f}s")
 
-#calculate number of nonzeros by counting number of adjacent edges
-num_nonz = calc_num_nonz() 
-nnz_each_row = calc_nnz_each_row()
+    #calculate number of nonzeros by counting number of adjacent edges
+    num_nonz = calc_num_nonz() 
+    nnz_each_row = calc_nnz_each_row()
 
-# init csr pattern. In the future we will replace all ijv pattern with csr
-data, indices, indptr = init_A_CSR_pattern()
-coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
+    # init csr pattern. In the future we will replace all ijv pattern with csr
+    data, indices, indptr = init_A_CSR_pattern()
+    coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
 
-spMatA = SpMat(num_nonz, NE)
-spMatA._init_pattern()
-fill_A_diag_kernel(spMatA.diags)
+    spMatA = SpMat(num_nonz, NE)
+    spMatA._init_pattern()
+    fill_A_diag_kernel(spMatA.diags)
 
 if solver_type=="AMG":
-    init_edge_center(edge_center, edge, pos)
+    # init_edge_center(edge_center, edge, pos)
     if save_P:
         R, P, labels, new_M = compute_R_and_P_kmeans()
         scipy.io.mmwrite(misc_dir_path + "R.mtx", R)

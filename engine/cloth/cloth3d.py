@@ -14,6 +14,14 @@ import argparse
 from collections import namedtuple
 import json
 
+parser = argparse.ArgumentParser()
+parser.add_argument("-N", type=int, default=64)
+parser.add_argument("-delta_t", type=int, default=0.001)
+parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPBD"
+N = parser.parse_args().N
+delta_t = parser.parse_args().delta_t
+solver_type = parser.parse_args().solver_type
+
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 out_dir = prj_path + f"/result/latest/"
@@ -27,7 +35,7 @@ save_P, load_P = False, False
 use_viewer = False
 export_obj = True
 export_residual = True
-solver_type = "AMG" # "AMG", "GS", "XPBD"
+# solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
 stop_frame = end_frame #early stop
 scale_instead_of_attach = False
@@ -48,20 +56,15 @@ global_vars = globals().copy()
 
 ti.init(arch=ti.cpu)
 
-parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=64)
-
-N = parser.parse_args().N
-print("N: ", N)
 
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
-h = 0.001
+# delta_t = 0.001
 M = NE
 new_M = int(NE / 100)
 compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
-alpha = compliance * (1.0 / h / h)  # timestep related compliance, see XPBD paper
+alpha = compliance * (1.0 / delta_t / delta_t)  # timestep related compliance, see XPBD paper
 omega = 0.5
 
 tri = ti.field(ti.i32, shape=3 * NT)
@@ -329,9 +332,9 @@ def semi_euler(
     g = ti.Vector(gravity)
     for i in range(NV):
         if inv_mass[i] != 0.0:
-            vel[i] += h * g
+            vel[i] += delta_t * g
             old_pos[i] = pos[i]
-            pos[i] += h * vel[i]
+            pos[i] += delta_t * vel[i]
             predict_pos[i] = pos[i]
 
 
@@ -404,7 +407,7 @@ def update_vel(
 ):
     for i in range(NV):
         if inv_mass[i] != 0.0:
-            vel[i] = (pos[i] - old_pos[i]) / h
+            vel[i] = (pos[i] - old_pos[i]) / delta_t
 
 
 @ti.kernel 
@@ -956,7 +959,7 @@ def compute_potential_energy():
 @ti.kernel
 def compute_inertial_energy():
     inertial_energy[None] = 0.0
-    inv_h2 = 1.0 / h**2
+    inv_h2 = 1.0 / delta_t**2
     for i in range(NV):
         if inv_mass[i] == 0.0:
             continue

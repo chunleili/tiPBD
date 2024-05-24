@@ -1,7 +1,9 @@
 from PIL import Image
 import os
 
-os.chdir("result/latest")
+case_name = 'scale64'
+
+os.chdir(f"result/{case_name}/png")
 
 print(os.getcwd())
 
@@ -35,4 +37,4 @@ result_image.paste(image5, (width4, height2))   # 第二排第二个
 result_image.paste(image6, (width4+width5, height3)) # 第二排第三个
 
 # 保存拼接后的图像
-result_image.save('concatenated.png')
+result_image.save(f'{case_name}_concat.png')

@@ -21,7 +21,7 @@ prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 out_dir = prj_path + f"/result/latest/"
 frame = 0
-end_frame = 200
+# end_frame = 50
 save_image = True
 max_iter = 100
 max_iter_Axb = 600
@@ -32,14 +32,13 @@ export_obj = True
 export_residual = True
 # solver_type = "AMG" # "AMG", "GS", "XPBD"
 # export_matrix = True
-stop_frame = end_frame #early stop
-scale_instead_of_attach = False
+# scale_instead_of_attach = False
 use_offdiag = True
 restart = False
 restart_frame = 10
 restart_dir = prj_path+f"/result/amg-primary/state/"
 # export_state = True
-gravity = [0.0, -9.8, 0.0]
+# gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
 early_stop = True
 use_primary_residual = False
@@ -51,16 +50,24 @@ report_time = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=64)
-parser.add_argument("-delta_t", type=float, default=0.001)
+parser.add_argument("-delta_t", type=float, default=0.005)
 parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPBD"
 parser.add_argument("-export_matrix", type=int, default=1)
 parser.add_argument("-export_state", type=int, default=1)
+parser.add_argument("-scale_instead_of_attach", type=int, default=1) # attach/scale
+parser.add_argument("-end_frame", type=int, default=30)
 
-N = parser.parse_args().N
-delta_t = parser.parse_args().delta_t
-solver_type = parser.parse_args().solver_type
-export_matrix = bool(parser.parse_args().export_matrix)
-export_state = bool(parser.parse_args().export_state)
+
+args = parser.parse_args()
+N = args.N
+delta_t = args.delta_t
+solver_type = args.solver_type
+export_matrix = bool(args.export_matrix)
+export_state = bool(args.export_state)
+scale_instead_of_attach = bool(args.scale_instead_of_attach)
+if scale_instead_of_attach: gravity = [0.0, 0.0, 0.0]
+else : gravity = [0.0, -9.8, 0.0]
+end_frame = args.end_frame
 
 global_vars = globals().copy()
 

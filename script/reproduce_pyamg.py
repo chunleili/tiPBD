@@ -19,20 +19,24 @@ sys.path.append(os.getcwd())
 
 prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
-to_read_dir = prj_dir + "result/latest/A/"
+case_name = 'scale64'
+to_read_dir = prj_dir + f"result/{case_name}/A/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-title", type=str, default=f"")
 parser.add_argument("-f", type=int, default=10)
 plot_title = parser.parse_args().title
 frame = parser.parse_args().f
-save_fig_instad_of_show = False
+save_fig_instad_of_show = True
 generate_data = False
 show_plot = True
-maxiter = 2
+maxiter = 300
+early_stop = True
+tol=1e-10
+
 
 def test_amg(A, b, postfix=""):
-
+    # classical AMG
     ml = pyamg.ruge_stuben_solver(A, max_levels=2)
     res = []
     x_pyamg = ml.solve(b, tol=1e-10, residuals=res,maxiter=maxiter)
@@ -40,7 +44,7 @@ def test_amg(A, b, postfix=""):
     print("res1 classical AMG", len(res), res[-1])
     print((res[-1]/res[0])**(1.0/(len(res)-1)))
 
-
+    # SA
     ml2 = pyamg.smoothed_aggregation_solver(A)
     res2 = []
     x_pyamg2 = ml2.solve(b, tol=1e-10, residuals=res2,maxiter=maxiter)
@@ -58,24 +62,9 @@ def test_amg(A, b, postfix=""):
     print("res4 GS",len(res4), res4[-1])
     print((res4[-1]/res4[0])**(1.0/(len(res4)-1)))
 
-    # from diagnostic, SA+CG
+    #  SA+CG, from diagnostic,
     res5 = []
     SA_from_diagnostic(A, b, res5)
-    # ml5 = pyamg.smoothed_aggregation_solver(A, B=b, BH=b.copy(),
-    #     strength=('symmetric', {'theta': 0.0}),
-    #     smooth="jacobi",
-    #     improve_candidates=None,
-    #     aggregate="standard",
-    #     presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-    #     postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-    #     max_levels=15,
-    #     max_coarse=300,
-    #     coarse_solver="pinv")
-    # x0 = np.zeros_like(b)
-    # res5 = []
-    # x5 = ml5.solve(b, x0=x0, tol=1e-08, residuals=res5, accel="cg", maxiter=maxiter , cycle="F")
-    # print("res5 SA+CG",len(res5),res5[-1])
-    # print((res5[-1]/res5[0])**(1.0/(len(res5)-1)))
 
     # CG
     x6 = np.zeros_like(b)
@@ -94,6 +83,11 @@ def test_amg(A, b, postfix=""):
     print("res7 diag+CG", len(res7),res7[-1])
     print((res7[-1]/res7[0])**(1.0/(len(res7)-1)))
 
+    #my amg
+    R1, P1 = generate_R_P(A)
+    x0 = np.zeros_like(b)
+    res7 = []
+    x_amg = solve_amg(A, b, x0=np.zeros_like(b), R=R1, P=P1, residuals=res7, maxiter=maxiter)
 
     if show_plot:
         fig, axs = plt.subplots(1, figsize=(8, 9))
@@ -107,10 +101,18 @@ def test_amg(A, b, postfix=""):
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
         if save_fig_instad_of_show:
-            plt.savefig(f"result/latest/residuals_{plot_title}.png")
+            dir = os.path.dirname(os.path.dirname(to_read_dir)) + '/png/'
+            mkdir_if_not_exist(dir)
+            plt.savefig(dir+f"/residuals_{plot_title}.png")
         else:
             plt.show()
 
+def mkdir_if_not_exist(path=None):
+    from pathlib import Path
+    directory_path = Path(path)
+    directory_path.mkdir(parents=True, exist_ok=True)
+    if not os.path.exists(directory_path):
+        os.makedirs(path)
 
 def test_amg1(mat_size = 10, case_num = 0, postfix=""):
     # ------------------------------- prepare data ------------------------------- #
@@ -224,17 +226,30 @@ def test_amg2(A, b, postfix=''):
     R1, P1 = generate_R_P(A)
     x0 = np.zeros_like(b)
     res_amg = []
-    x_amg = solve_amg(A, b, x0, R1, P1, residuals=res_amg)
-    x_rep,residuals_rep, full_residual_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
+    x_amg = solve_amg(A, b, x0=np.zeros_like(b), R=R1, P=P1, residuals=res_amg, maxiter=maxiter)
 
-    print_residuals(res_amg, "amg")
-    print_residuals(residuals_rep, "rep")
+    res4 = []
+    x4=x0.copy()
+    for _ in range(maxiter+1):
+        x4 = gauss_seidel(A, x4, b, iterations=1, residuals=res4, tol=tol)
+        x4 = gauss_seidel(A, x4, b, iterations=1, residuals=res4, tol=tol)
+    print("res4 GS",len(res4), res4[-1])
+    print((res4[-1]/res4[0])**(1.0/(len(res4)-1)))
+
+
+    ml = pyamg.ruge_stuben_solver(A)
+    res1 = []
+    x_pyamg = ml.solve(b, tol=1e-10, residuals=res1,maxiter=maxiter)
+    print(ml)
+    print("res1 classical AMG", len(res1), res1[-1])
+    print((res1[-1]/res1[0])**(1.0/(len(res1)-1)))
 
 
     if show_plot:
-        fig, axs = plt.subplots(2, 1, figsize=(8, 9))
-        plot_residuals(res_amg, axs[0], label="amg")
-        plot_residuals(residuals_rep, axs[0], label="rep")
+        fig, axs = plt.subplots(1, 1, figsize=(8, 9))
+        plot_residuals(res_amg, axs, label="amg")
+        plot_residuals(res4, axs, label="gs2",marker='.')
+        plot_residuals(res1, axs, label="amg_full",marker='o')
 
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
@@ -598,9 +613,7 @@ def solve_rep_noSmoother(A, b, x0, R, P):
             return x, residuals
 
 
-def solve_rep(A, b, x0, R, P):
-    tol = 1e-3
-    maxiter = 1
+def solve_rep(A, b, x0, R, P, maxiter=1, tol=1e-6):
     residuals = []
     full_residual = [[],[],[],[]]
 
@@ -652,12 +665,10 @@ def solve_rep(A, b, x0, R, P):
 
 
 
-def solve_onlySmoother(A, b, x0, R, P):
-    tol = 1e-3
-    maxiter = 1
+def solve_onlySmoother(A, b, x0, R, P, maxiter=1, tol=1e-6):
     residuals = []
 
-    A2 = R @ A @ P
+    # A2 = R @ A @ P
     x0 = np.zeros_like(b) # initial guess x0
     x = x0.copy()
 
@@ -782,22 +793,27 @@ def A_norm(A,x):
     return x.T @ A @ x
 
 
-def gauss_seidel(A, x, b, iterations=1):
-    if not sparse.isspmatrix_csr(A):
-        raise ValueError("A must be csr matrix!")
+def gauss_seidel(A, x, b, iterations=1, residuals = [], tol=1e-6):
+    # if not scipy.sparse.isspmatrix_csr(A):
+    #     raise ValueError("A must be csr matrix!")
 
     for _iter in range(iterations):
         # forward sweep
-        # print("forward sweeping")
-        for _ in range(iterations):
+        for _ in range(1):
             amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
 
         # backward sweep
-        # print("backward sweeping")
-        for _ in range(iterations):
+        for _ in range(1):
             amg_core_gauss_seidel_kernel(
                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
             )
+        
+        normr = np.linalg.norm(b - A @ x)
+        residuals.append(normr)
+
+        if early_stop:
+            if normr < tol:
+                break
     return x
 
 
@@ -919,11 +935,7 @@ def test_all_A():
             test_amg(10, 0, postfix)
 
 if __name__ == "__main__":
-    # test_all_A()
-    # test_amg(10,0,f"F1-0")
-    # test_different_N()
-    
     for i in range(1,30,5):
         postfix = f"F{i}-0"
         A,b = prepare_A_b(postfix=postfix)
-        test_amg2(A,b,postfix)
+        test_amg(A,b,postfix)

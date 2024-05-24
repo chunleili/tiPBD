@@ -14,13 +14,6 @@ import argparse
 from collections import namedtuple
 import json
 
-parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=64)
-parser.add_argument("-delta_t", type=int, default=0.001)
-parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPBD"
-N = parser.parse_args().N
-delta_t = parser.parse_args().delta_t
-solver_type = parser.parse_args().solver_type
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -36,7 +29,7 @@ use_viewer = False
 export_obj = True
 export_residual = True
 # solver_type = "AMG" # "AMG", "GS", "XPBD"
-export_matrix = True
+# export_matrix = True
 stop_frame = end_frame #early stop
 scale_instead_of_attach = False
 use_offdiag = True
@@ -52,6 +45,18 @@ use_chen2023 = False
 use_chen2023_blended = False
 chen2023_blended_ksi = 0.5
 dont_clean_results = False
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-N", type=int, default=64)
+parser.add_argument("-delta_t", type=int, default=0.001)
+parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPBD"
+parser.add_argument("-export_matrix", type=int, default=1)
+
+N = parser.parse_args().N
+delta_t = parser.parse_args().delta_t
+solver_type = parser.parse_args().solver_type
+export_matrix = bool(parser.parse_args().export_matrix)
+
 global_vars = globals().copy()
 
 ti.init(arch=ti.cpu)

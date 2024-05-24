@@ -456,6 +456,8 @@ def calc_dual_residual(
 def calc_primary_residual(G,M_inv):
     MASS = sp.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
     primary_residual = MASS @ (predict_pos.to_numpy().flatten() - pos.to_numpy().flatten()) - G.transpose() @ lagrangian.to_numpy()
+    where_zeros = np.where(M_inv.diagonal()==0)
+    primary_residual = np.delete(primary_residual, where_zeros)
     return primary_residual
 
 def step_xpbd(max_iter):

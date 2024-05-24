@@ -19,7 +19,7 @@ sys.path.append(os.getcwd())
 
 prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
-case_name = 'scale64'
+case_name = 'latest'
 to_read_dir = prj_dir + f"result/{case_name}/A/"
 
 parser = argparse.ArgumentParser()
@@ -37,7 +37,7 @@ tol=1e-10
 
 def test_amg(A, b, postfix=""):
     # classical AMG
-    ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+    ml = pyamg.ruge_stuben_solver(A)
     res = []
     x_pyamg = ml.solve(b, tol=1e-10, residuals=res,maxiter=maxiter)
     print(ml)
@@ -84,10 +84,10 @@ def test_amg(A, b, postfix=""):
     print((res7[-1]/res7[0])**(1.0/(len(res7)-1)))
 
     #my amg
-    R1, P1 = generate_R_P(A)
-    x0 = np.zeros_like(b)
-    res7 = []
-    x_amg = solve_amg(A, b, x0=np.zeros_like(b), R=R1, P=P1, residuals=res7, maxiter=maxiter)
+    # R1, P1 = generate_R_P(A)
+    # x0 = np.zeros_like(b)
+    # res7 = []
+    # x_amg = solve_amg(A, b, x0=np.zeros_like(b), R=R1, P=P1, residuals=res7, maxiter=maxiter)
 
     if show_plot:
         fig, axs = plt.subplots(1, figsize=(8, 9))
@@ -96,7 +96,7 @@ def test_amg(A, b, postfix=""):
         plot_residuals(res4/res4[0], axs,  label="Gauss Seidel", marker="s", color="red")
         plot_residuals(res5/res5[0], axs,  label="SA+CG", marker="d", color="purple")
         plot_residuals(res6/res6[0], axs,  label="CG", marker="^", color="green")
-        plot_residuals(res7/res7[0], axs,  label="diag CG", marker="v", color="black")
+        # plot_residuals(res7/res7[0], axs,  label="diag CG", marker="v", color="black")
         plot_title = postfix
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
@@ -322,20 +322,6 @@ def SA_from_diagnostic(A, b, res):
     print("Work per DOA:               %1.2f" % (ml.cycle_complexity()/abs(np.log10(res_rate))))
     print("Relative residual norm:     %1.2e" % (pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x))/normr0))
 
-    ##
-    # Solve system
-    res = []
-    x = ml.solve(b, x0=x0, tol=1e-08, residuals=res, accel="cg", maxiter=maxiter, cycle="W")
-    res_rate = (res[-1]/res[0])**(1.0/(len(res)-1.))
-    normr0 = pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x0))
-    print(" ")
-    print(ml)
-    print("System size:                " + str(A.shape))
-    print("Avg. Resid Reduction:       %1.2f" % res_rate)
-    print("Iterations:                 %d" % len(res))
-    print("Operator Complexity:        %1.2f" % ml.operator_complexity())
-    print("Work per DOA:               %1.2f" % (ml.cycle_complexity()/abs(np.log10(res_rate))))
-    print("Relative residual norm:     %1.2e" % (pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x))/normr0))
 
     # ##
     # # Plot residual history

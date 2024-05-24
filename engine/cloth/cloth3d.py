@@ -36,7 +36,7 @@ use_offdiag = True
 restart = False
 restart_frame = 10
 restart_dir = prj_path+f"/result/amg-primary/state/"
-export_state = True
+# export_state = True
 gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
 early_stop = True
@@ -51,11 +51,13 @@ parser.add_argument("-N", type=int, default=64)
 parser.add_argument("-delta_t", type=int, default=0.001)
 parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPBD"
 parser.add_argument("-export_matrix", type=int, default=1)
+parser.add_argument("-export_state", type=int, default=1)
 
 N = parser.parse_args().N
 delta_t = parser.parse_args().delta_t
 solver_type = parser.parse_args().solver_type
 export_matrix = bool(parser.parse_args().export_matrix)
+export_state = bool(parser.parse_args().export_state)
 
 global_vars = globals().copy()
 
@@ -1020,7 +1022,9 @@ def substep_all_solver(max_iter=1):
             b += G @ Minv_gg
 
         if export_matrix and ite==0:
+            tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
+            print(f"export A and b time={time.perf_counter()-tic:.1f}s")
 
         rsys1 = (np.linalg.norm(b-A@x))
         if solver_type == "Direct":
@@ -1045,6 +1049,7 @@ def substep_all_solver(max_iter=1):
 
 
         if export_residual:
+            tic = time.perf_counter()
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
             # if use_primary_residual:
             primary_residual = calc_primary_residual(G, M_inv)
@@ -1057,6 +1062,7 @@ def substep_all_solver(max_iter=1):
             robj = (potential_energy[None]+inertial_energy[None])
             print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t:.2f}s")
             r.append(Residual([rsys1,rsys2], primary_r, dual_r, robj, ramg, rgs, t))
+            print(f"calc residual time={time.perf_counter()-tic:.1f}s")
 
         x_prev = x.copy()
         # gradC_prev = gradC.to_numpy().copy()
@@ -1067,10 +1073,12 @@ def substep_all_solver(max_iter=1):
         
 
     if export_residual:
+        tic = time.perf_counter()
         serialized_r = [r[i]._asdict() for i in range(len(r))]
         r_json = json.dumps(serialized_r)
         with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
             file.write(r_json)
+        print(f"export residual time={time.perf_counter()-tic:.1f}s")
 
     update_vel(old_pos, inv_mass, vel, pos)
 
@@ -1275,9 +1283,13 @@ while True:
         else:
             substep_all_solver(max_iter)
         if export_obj:
+            tic = time.perf_counter()
             write_obj(out_dir + f"/obj/{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
+            print(f"write obj time: {time.perf_counter()-tic:.1f}s")
         if export_state:
+            tic = time.perf_counter()
             save_state(out_dir+'/state/' + f"{frame:04d}.npz")
+            print(f"save state time: {time.perf_counter()-tic:.1f}s")
     
     if frame == end_frame:
         print(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.1f}min")

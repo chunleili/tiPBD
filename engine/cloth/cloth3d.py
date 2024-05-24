@@ -13,6 +13,8 @@ import tqdm
 import argparse
 from collections import namedtuple
 import json
+import logging
+from logging import info
 
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,10 +47,11 @@ use_chen2023 = False
 use_chen2023_blended = False
 chen2023_blended_ksi = 0.5
 dont_clean_results = False
+report_time = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=64)
-parser.add_argument("-delta_t", type=int, default=0.001)
+parser.add_argument("-delta_t", type=float, default=0.001)
 parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPBD"
 parser.add_argument("-export_matrix", type=int, default=1)
 parser.add_argument("-export_state", type=int, default=1)
@@ -60,6 +63,16 @@ export_matrix = bool(parser.parse_args().export_matrix)
 export_state = bool(parser.parse_args().export_state)
 
 global_vars = globals().copy()
+
+logging.getLogger().setLevel(logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+t_export_matrix = 0.0
+t_calc_residual = 0.0
+t_export_residual = 0.0
+t_export_obj = 0.0
+t_save_state = 0.0
+
 
 ti.init(arch=ti.cpu)
 
@@ -983,6 +996,7 @@ Residual = namedtuple('residual', ['sys', 'primary', 'dual', 'obj', 'amg', 'gs',
 
 def substep_all_solver(max_iter=1):
     global pos, lagrangian
+    global t_export_matrix, t_calc_residual, t_export_residual, t_save_state
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
     inv_mass_np = np.repeat(inv_mass.to_numpy(), 3, axis=0)
@@ -1002,8 +1016,9 @@ def substep_all_solver(max_iter=1):
     x_prev = x0.copy()
     x = x0.copy()
     r = []
+    t_calc_residual = 0.0
     for ite in range(max_iter):
-        t_iter = time.time()
+        t_iter_start = time.time()
         copy_field(pos_mid, pos)
 
         A,G = fill_A_by_spmm(M_inv, ALPHA)
@@ -1024,7 +1039,7 @@ def substep_all_solver(max_iter=1):
         if export_matrix and ite==0:
             tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
-            print(f"export A and b time={time.perf_counter()-tic:.1f}s")
+            t_export_matrix = time.perf_counter()-tic
 
         rsys1 = (np.linalg.norm(b-A@x))
         if solver_type == "Direct":
@@ -1049,7 +1064,8 @@ def substep_all_solver(max_iter=1):
 
 
         if export_residual:
-            tic = time.perf_counter()
+            t_iter = time.time()-t_iter_start
+            t_calc_residual_start = time.perf_counter()
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
             # if use_primary_residual:
             primary_residual = calc_primary_residual(G, M_inv)
@@ -1058,11 +1074,10 @@ def substep_all_solver(max_iter=1):
             dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
             compute_potential_energy()
             compute_inertial_energy()
-            t = time.time()-t_iter
             robj = (potential_energy[None]+inertial_energy[None])
-            print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t:.2f}s")
-            r.append(Residual([rsys1,rsys2], primary_r, dual_r, robj, ramg, rgs, t))
-            print(f"calc residual time={time.perf_counter()-tic:.1f}s")
+            info(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t_iter:.2f}s")
+            r.append(Residual([rsys1,rsys2], primary_r, dual_r, robj, ramg, rgs, t_iter))
+            t_calc_residual += time.perf_counter()-t_calc_residual_start
 
         x_prev = x.copy()
         # gradC_prev = gradC.to_numpy().copy()
@@ -1078,7 +1093,7 @@ def substep_all_solver(max_iter=1):
         r_json = json.dumps(serialized_r)
         with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
             file.write(r_json)
-        print(f"export residual time={time.perf_counter()-tic:.1f}s")
+        t_export_residual = time.perf_counter()-tic
 
     update_vel(old_pos, inv_mass, vel, pos)
 
@@ -1151,7 +1166,7 @@ def save_state(filename):
     for i in range(1, len(state)):
         state[i] = state[i].to_numpy()
     np.savez(filename, *state)
-    print(f"saved state to '{filename}', totally saved {len(state)} variables, frame={frame}")
+    print(f"Saved frame-{frame} states to '{filename}', {len(state)} variables")
 
 def load_state(filename):
     global frame, pos, vel, old_pos, predict_pos
@@ -1160,7 +1175,7 @@ def load_state(filename):
     frame = int(npzfile["arr_0"])
     for i in range(1, len(state)):
         state[i].from_numpy(npzfile["arr_" + str(i)])
-    print(f"loaded state from '{filename}', totally loaded {len(state)} variables, frame={frame}")
+    print(f"Loaded frame-{frame} states to '{filename}', {len(state)} variables")
 
 
 def print_all_globals(global_vars):
@@ -1245,7 +1260,7 @@ if restart:
     frame = restart_frame
     print(f"restart from frame {frame}")
 
-print("Initialization done. Cost time: ", time.perf_counter() - timer_all, "s")
+print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.1g}s")
 
 
 class Viewer:
@@ -1267,8 +1282,8 @@ viewer = Viewer()
 step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
 while True:
     step_pbar.update(1)
-    print("\n")
-    time_one_frame = time.perf_counter()
+    print()
+    t_one_frame_start = time.perf_counter()
     frame += 1
     if use_viewer:
         for e in viewer.window.get_events(ti.ui.PRESS):
@@ -1285,14 +1300,18 @@ while True:
         if export_obj:
             tic = time.perf_counter()
             write_obj(out_dir + f"/obj/{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
-            print(f"write obj time: {time.perf_counter()-tic:.1f}s")
+            t_export_obj = time.perf_counter()-tic
         if export_state:
             tic = time.perf_counter()
             save_state(out_dir+'/state/' + f"{frame:04d}.npz")
-            print(f"save state time: {time.perf_counter()-tic:.1f}s")
+            t_save_state = time.perf_counter()-tic
+        if report_time:
+            info(f"Time of exporting: obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s total_export:{t_export_obj+t_save_state+t_export_matrix+t_export_residual+t_calc_residual:.2f}")
+            info(f"Time of frame-{frame}: {time.perf_counter()-t_one_frame_start:.2f}s")
     
     if frame == end_frame:
-        print(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.1f}min")
+        t_all = time.perf_counter() - timer_all
+        print(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.1g}min")
         exit()
     if use_viewer:
         viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
@@ -1305,3 +1324,4 @@ while True:
         if save_image:
             file_path = out_dir + f"{frame:04d}.png"
             viewer.window.save_image(file_path)  # export and show in GUI
+    print()

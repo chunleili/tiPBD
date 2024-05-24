@@ -19,7 +19,7 @@ sys.path.append(os.getcwd())
 
 prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
-case_name = 'latest'
+case_name = 'scale64'
 to_read_dir = prj_dir + f"result/{case_name}/A/"
 
 parser = argparse.ArgumentParser()
@@ -33,6 +33,7 @@ show_plot = True
 maxiter = 300
 early_stop = True
 tol=1e-10
+run_concate_png = True
 
 
 def test_amg(A, b, postfix=""):
@@ -89,6 +90,24 @@ def test_amg(A, b, postfix=""):
     # res7 = []
     # x_amg = solve_amg(A, b, x0=np.zeros_like(b), R=R1, P=P1, residuals=res7, maxiter=maxiter)
 
+    # SA with strength algebraic_distance_epsilon3
+    ml8 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('algebraic_distance', {'epsilon': 3.0}))
+    res8 = []
+    _ = ml8.solve(b, tol=1e-12, residuals=res8,maxiter=maxiter, accel='cg')
+    print("res8 SA+strength", len(res8), res8[-1])
+    print((res8[-1]/res8[0])**(1.0/(len(res8)-1)))
+
+
+    # SA with strength affinity_4.0
+    ml9 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('affinity', {'epsilon': 4.0, 'R': 10, 'alpha': 0.5, 'k': 20}))
+    res9 = []
+    _ = ml9.solve(b, tol=1e-12, residuals=res9,maxiter=maxiter, accel='cg')
+    print("res9 SA+affinity4.0+cg", len(res9), res9[-1])
+    print((res9[-1]/res9[0])**(1.0/(len(res9)-1)))
+
+    # strength options
+    # strength_options()
+
     if show_plot:
         fig, axs = plt.subplots(1, figsize=(8, 9))
         plot_residuals(res/res[0], axs,  label="Classical AMG", marker="o", color="blue")
@@ -97,6 +116,9 @@ def test_amg(A, b, postfix=""):
         plot_residuals(res5/res5[0], axs,  label="SA+CG", marker="d", color="purple")
         plot_residuals(res6/res6[0], axs,  label="CG", marker="^", color="green")
         # plot_residuals(res7/res7[0], axs,  label="diag CG", marker="v", color="black")
+        plot_residuals(res8/res8[0], axs,  label="SA+algebraic4.0+cg", marker="v", color="black")
+        plot_residuals(res9/res9[0], axs,  label="SA+affinity4.0+cg")
+
         plot_title = postfix
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
@@ -107,12 +129,6 @@ def test_amg(A, b, postfix=""):
         else:
             plt.show()
 
-def mkdir_if_not_exist(path=None):
-    from pathlib import Path
-    directory_path = Path(path)
-    directory_path.mkdir(parents=True, exist_ok=True)
-    if not os.path.exists(directory_path):
-        os.makedirs(path)
 
 def test_amg1(mat_size = 10, case_num = 0, postfix=""):
     # ------------------------------- prepare data ------------------------------- #
@@ -889,6 +905,73 @@ def solve_simplest(A, b, R, P, residuals):
         if it == maxiter:
             return x
 
+
+def strength_options():
+    import numpy as np
+    import pyamg
+    import matplotlib.pyplot as plt
+    import time
+
+    # n = int(1e2)
+    # stencil = pyamg.gallery.diffusion_stencil_2d(type='FE', epsilon=0.001, theta=np.pi / 3)
+    # A = pyamg.gallery.stencil_grid(stencil, (n, n), format='csr')
+    # b = np.random.rand(A.shape[0])
+    # A,b = prepare_A_b(case_name)
+    x0 = 0 * b
+
+    runs = []
+    options = []
+    options.append(('symmetric', {'theta': 0.0}))
+    options.append(('symmetric', {'theta': 0.25}))
+    options.append(('evolution', {'epsilon': 4.0}))
+    options.append(('affinity', {'epsilon': 3.0, 'R': 10, 'alpha': 0.5, 'k': 20}))
+    options.append(('affinity', {'epsilon': 4.0, 'R': 10, 'alpha': 0.5, 'k': 20}))
+    options.append(('algebraic_distance',
+                {'epsilon': 2.0, 'p': np.inf, 'R': 10, 'alpha': 0.5, 'k': 20}))
+    options.append(('algebraic_distance',
+                {'epsilon': 3.0, 'p': np.inf, 'R': 10, 'alpha': 0.5, 'k': 20}))
+
+    for opt in options:
+        #optstr = opt[0] + '\n    ' + \
+        #    ',\n    '.join(['%s=%s' % (u, v) for (u, v) in list(opt[1].items())])
+        optstr = opt[0] + ': ' + \
+            ', '.join(['%s=%s' % (u, v) for (u, v) in list(opt[1].items())])
+        print("running %s" % (optstr))
+
+        tic = time.perf_counter()
+        ml = pyamg.smoothed_aggregation_solver(
+            A,
+            strength=opt,
+            max_levels=15,
+            max_coarse=300,
+            keep=False)
+        res = []
+        x = ml.solve(b, x0, tol=1e-12, residuals=res)
+        runs.append((res, optstr))
+        print(f"Elapsed time: {time.perf_counter() - tic:0.4f} seconds")
+
+    fig, ax = plt.subplots()
+    for run in runs:
+        label = run[1]
+        label = label.replace('theta', '$\\theta$')
+        label = label.replace('epsilon', '$\\epsilon$')
+        label = label.replace('alpha', '$\\alpha$')
+        ax.semilogy(run[0], label=label, linewidth=3)
+    ax.set_xlabel('Iteration')
+    ax.set_ylabel('Relative Residual')
+
+    #l4 = plt.legend(bbox_to_anchor=(0,1.02,1,0.5), loc="lower left",
+    #                mode="expand", borderaxespad=0, ncol=1)
+    plt.legend(loc="lower left", borderaxespad=0, ncol=1, frameon=False)
+    plt.title(f'{case_name}: Strength Options')
+
+    figname = f'./output/strength_options.png'
+    import sys
+    if '--savefig' in sys.argv:
+        plt.savefig(figname, bbox_inches='tight', dpi=150)
+    else:
+        plt.show()
+
 def plot_residuals(data, ax, *args, **kwargs):
     title = kwargs.pop("title", "")
     linestyle = kwargs.pop("linestyle", "-")
@@ -902,6 +985,12 @@ def plot_residuals(data, ax, *args, **kwargs):
     ax.legend(loc="upper right")
 
 
+def mkdir_if_not_exist(path=None):
+    from pathlib import Path
+    directory_path = Path(path)
+    directory_path.mkdir(parents=True, exist_ok=True)
+    if not os.path.exists(directory_path):
+        os.makedirs(path)
 
 def test_different_N():
     global plot_title, generate_data
@@ -925,3 +1014,7 @@ if __name__ == "__main__":
         postfix = f"F{i}-0"
         A,b = prepare_A_b(postfix=postfix)
         test_amg(A,b,postfix)
+
+    if run_concate_png:
+        import concatenate_png
+        concatenate_png.concatenate_png(case_name)

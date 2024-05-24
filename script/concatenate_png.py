@@ -1,4 +1,4 @@
-def concatenate_png(case_name='attach64'):
+def concatenate_png(case_name='attach64', prefix='residuals'):
     from PIL import Image
     import os
     import sys
@@ -10,12 +10,12 @@ def concatenate_png(case_name='attach64'):
 
     print(os.getcwd())
 
-    image1 = Image.open('residuals_F1-0.png')
-    image2 = Image.open('residuals_F6-0.png')
-    image3 = Image.open('residuals_F11-0.png')
-    image4 = Image.open('residuals_F16-0.png')
-    image5 = Image.open('residuals_F21-0.png')
-    image6 = Image.open('residuals_F26-0.png')
+    image1 = Image.open(f'{prefix}_F1-0.png')
+    image2 = Image.open(f'{prefix}_F6-0.png')
+    image3 = Image.open(f'{prefix}_F11-0.png')
+    image4 = Image.open(f'{prefix}_F16-0.png')
+    image5 = Image.open(f'{prefix}_F21-0.png')
+    image6 = Image.open(f'{prefix}_F26-0.png')
 
     width1, height1 = image1.size
     width2, height2 = image2.size
@@ -40,8 +40,8 @@ def concatenate_png(case_name='attach64'):
     result_image.paste(image6, (width4+width5, height3)) # 第二排第三个
 
     # 保存拼接后的图像
-    result_image.save(f'{case_name}_concat.png')
-    result_image.show(title=f'{case_name}_concat.png')
+    result_image.save(f'{case_name}_{prefix}_concat.png')
+    result_image.show(f'{case_name}_{prefix}_concat.png')
 
 if __name__ == '__main__':
     concatenate_png()

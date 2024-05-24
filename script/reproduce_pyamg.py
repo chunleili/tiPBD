@@ -19,7 +19,7 @@ sys.path.append(os.getcwd())
 
 prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
-case_name = 'scale64'
+case_name = 'attach64'
 to_read_dir = prj_dir + f"result/{case_name}/A/"
 
 parser = argparse.ArgumentParser()
@@ -119,6 +119,7 @@ def test_amg(A, b, postfix=""):
         plot_residuals(res8/res8[0], axs,  label="SA+algebraic4.0+cg", marker="v", color="black")
         plot_residuals(res9/res9[0], axs,  label="SA+affinity4.0+cg")
 
+        global plot_title
         plot_title = postfix
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
@@ -130,149 +131,149 @@ def test_amg(A, b, postfix=""):
             plt.show()
 
 
-def test_amg1(mat_size = 10, case_num = 0, postfix=""):
-    # ------------------------------- prepare data ------------------------------- #
-    if(generate_data):
-        print("generating data...")
-        # A, b = generate_A_b_pyamg(n=mat_size)
-        A, b = generate_A_b_spd(n=mat_size)
-        scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
-        np.savetxt(to_read_dir + f"b{case_num}.txt", b)
-    else:
-        print("loading data...")
-        A = scipy.io.mmread(to_read_dir+f"A_F10-0.mtx")
-        A = A.tocsr()
-        b = np.loadtxt(to_read_dir+f"b_F10-0.txt", dtype=np.float32)
-        # b = np.random.random(A.shape[0])
-        # b = np.ones(A.shape[0])
+# def test_amg1(mat_size = 10, case_num = 0, postfix=""):
+#     # ------------------------------- prepare data ------------------------------- #
+#     if(generate_data):
+#         print("generating data...")
+#         # A, b = generate_A_b_pyamg(n=mat_size)
+#         A, b = generate_A_b_spd(n=mat_size)
+#         scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
+#         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
+#     else:
+#         print("loading data...")
+#         A = scipy.io.mmread(to_read_dir+f"A_F10-0.mtx")
+#         A = A.tocsr()
+#         b = np.loadtxt(to_read_dir+f"b_F10-0.txt", dtype=np.float32)
+#         # b = np.random.random(A.shape[0])
+#         # b = np.ones(A.shape[0])
 
-    A1 = A.copy()
-    A2 = improve_A_by_remove_offdiag(A)
-    A3 = improve_A_by_reduce_offdiag(A)
-    t = perf_counter()
-    print("to make M matrix...")
-    A4 = improve_A_make_M_matrix(A)
-    print(f"make M matrix took {perf_counter() - t:.3e} s")
-    print(f"A: {A.shape}")
+#     A1 = A.copy()
+#     A2 = improve_A_by_remove_offdiag(A)
+#     A3 = improve_A_by_reduce_offdiag(A)
+#     t = perf_counter()
+#     print("to make M matrix...")
+#     A4 = improve_A_make_M_matrix(A)
+#     print(f"make M matrix took {perf_counter() - t:.3e} s")
+#     print(f"A: {A.shape}")
 
-    # generate R by pyamg
-    R1,P1 = generate_R_P(A1)
-    R2,P2 = generate_R_P(A2)
-    R3,P3 = generate_R_P(A3)
-    R4,P4 = generate_R_P(A4)
-    scipy.io.mmwrite(to_read_dir + f"R{case_num}.mtx", R1)
+#     # generate R by pyamg
+#     R1,P1 = generate_R_P(A1)
+#     R2,P2 = generate_R_P(A2)
+#     R3,P3 = generate_R_P(A3)
+#     R4,P4 = generate_R_P(A4)
+#     scipy.io.mmwrite(to_read_dir + f"R{case_num}.mtx", R1)
 
-    # analyse_A(A,R,P)
+#     # analyse_A(A,R,P)
 
-    # ------------------------------- test solvers ------------------------------- #
-    # print("Solving pyamg...")
-    # x0 = np.zeros_like(b)
-    # res = []
-    #ml = pyamg.ruge_stuben_solver(A, max_levels=2)
-    #_,res = timer_wrapper(solve_pyamg, ml, b)
+#     # ------------------------------- test solvers ------------------------------- #
+#     # print("Solving pyamg...")
+#     # x0 = np.zeros_like(b)
+#     # res = []
+#     #ml = pyamg.ruge_stuben_solver(A, max_levels=2)
+#     #_,res = timer_wrapper(solve_pyamg, ml, b)
 
-    x0 = np.zeros_like(b)
-    x_amg = solve_amg(A, b, x0, R1, P1, residuals=[])
-    x_rep,residuals_rep, full_residual_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
-    x_onlySmoother,residuals_onlySmoother = timer_wrapper(solve_onlySmoother, A, b, x0, R1, P1)
-    x_noSmoother,residuals_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R1, P1)
-    x_remove_offdiag,residuals_remove_offdiag,_ = timer_wrapper(solve_rep, A2, b, x0, R2, P2)
-    x_reduce_offdiag,residuals_reduce_offdiag,_ = timer_wrapper(solve_rep, A3, b, x0, R3, P3)
-    x_M_matrix,residuals_M_matrix,_ = timer_wrapper(solve_rep, A4, b, x0, R4, P4)
+#     x0 = np.zeros_like(b)
+#     x_amg = solve_amg(A, b, x0, R1, P1, residuals=[])
+#     x_rep,residuals_rep, full_residual_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
+#     x_onlySmoother,residuals_onlySmoother = timer_wrapper(solve_onlySmoother, A, b, x0, R1, P1)
+#     x_noSmoother,residuals_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R1, P1)
+#     x_remove_offdiag,residuals_remove_offdiag,_ = timer_wrapper(solve_rep, A2, b, x0, R2, P2)
+#     x_reduce_offdiag,residuals_reduce_offdiag,_ = timer_wrapper(solve_rep, A3, b, x0, R3, P3)
+#     x_M_matrix,residuals_M_matrix,_ = timer_wrapper(solve_rep, A4, b, x0, R4, P4)
 
-    #assert np.allclose(x_rep, x_amg, atol=1e-5)
-    # print("generating R and P by selecting row...")
-    # R2 = scipy.sparse.csr_matrix((2,A.shape[0]), dtype=np.int32)
-    # R2[0,0] = 1
-    # R2[1,9] = 1
-    # P2 = R2.T
-    # x0 = np.zeros_like(b)
-    # _,residuals_selectRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R2, P2)
+#     #assert np.allclose(x_rep, x_amg, atol=1e-5)
+#     # print("generating R and P by selecting row...")
+#     # R2 = scipy.sparse.csr_matrix((2,A.shape[0]), dtype=np.int32)
+#     # R2[0,0] = 1
+#     # R2[1,9] = 1
+#     # P2 = R2.T
+#     # x0 = np.zeros_like(b)
+#     # _,residuals_selectRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R2, P2)
 
-    # print("generating R and P by removing rows...")
-    # R3 = scipy.sparse.identity(A.shape[0], dtype=np.int32)
-    # R3=R3.tocsr()
-    # R3 = delete_rows_csr(R3, range(0, A.shape[0] - 1, 2))
-    # P3 = R3.T
-    # print(f"##########R: {R3.shape}, P: {P3.shape}")
-    # x0 = np.zeros_like(b)
-    # print("rank of P3:", np.linalg.matrix_rank(P3.toarray()))
-    # _,residuals_removeRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R3, P3)
+#     # print("generating R and P by removing rows...")
+#     # R3 = scipy.sparse.identity(A.shape[0], dtype=np.int32)
+#     # R3=R3.tocsr()
+#     # R3 = delete_rows_csr(R3, range(0, A.shape[0] - 1, 2))
+#     # P3 = R3.T
+#     # print(f"##########R: {R3.shape}, P: {P3.shape}")
+#     # x0 = np.zeros_like(b)
+#     # print("rank of P3:", np.linalg.matrix_rank(P3.toarray()))
+#     # _,residuals_removeRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R3, P3)
 
-    # ------------------------------- print results ---------------------------- #
-    # print("x_rep:", x_rep)
-    # x_rep_max = np.max(np.abs(x_rep))
-    # print("x_onlySmoother:", np.max(np.abs(x_rep-x_onlySmoother)/x_rep_max))
-    # print("x_noSmoother:", np.max(np.abs(x_rep-x_noSmoother)/x_rep_max))
-    # print("x_remove_offdiag:", np.max(np.abs(x_rep-x_remove_offdiag)/x_rep_max))
-    # print("x_reduce_offdiag:", np.max(np.abs(x_rep-x_reduce_offdiag)/x_rep_max))
-    # print("x_M_matrix:", np.max(np.abs(x_rep-x_M_matrix)/x_rep_max))
-
-
-    print_residuals(residuals_rep, "rep")
-    print_residuals(residuals_onlySmoother, "onlySmoother")
-    print_residuals(residuals_noSmoother, "noSmoother")
-    print_residuals(residuals_remove_offdiag, "remove_offdiag")
-    print_residuals(residuals_reduce_offdiag, "reduce_offdiag")
-    print_residuals(residuals_M_matrix, "M_matrix")
-
-    if show_plot:
-        fig, axs = plt.subplots(2, 1, figsize=(8, 9))
-        plot_residuals(residuals_rep, axs[0], label="rep")
-        plot_residuals(residuals_onlySmoother, axs[0], label="onlySmoother")
-        plot_residuals(residuals_remove_offdiag, axs[0],  label="remove_offdiag")
-        plot_residuals(residuals_reduce_offdiag, axs[0],  label="reduce_offdiag")
-        plot_residuals(residuals_M_matrix, axs[0],  label="M_matrix")
-        plot_residuals(residuals_noSmoother, axs[1],  label="noSmoother")
-
-        # plot_full_residual(full_residual_rep[0], "residual0")
-        # plot_full_residual(full_residual_rep[1], "residual1")
-        # plot_full_residual(full_residual_rep[2], "residual2")
-        # plot_full_residual(full_residual_rep[3], "residual3")
-
-        fig.canvas.manager.set_window_title(plot_title)
-        plt.tight_layout()
-        if save_fig_instad_of_show:
-            plt.savefig(f"result/latest/residuals_{plot_title}.png")
-        else:
-            plt.show()
+#     # ------------------------------- print results ---------------------------- #
+#     # print("x_rep:", x_rep)
+#     # x_rep_max = np.max(np.abs(x_rep))
+#     # print("x_onlySmoother:", np.max(np.abs(x_rep-x_onlySmoother)/x_rep_max))
+#     # print("x_noSmoother:", np.max(np.abs(x_rep-x_noSmoother)/x_rep_max))
+#     # print("x_remove_offdiag:", np.max(np.abs(x_rep-x_remove_offdiag)/x_rep_max))
+#     # print("x_reduce_offdiag:", np.max(np.abs(x_rep-x_reduce_offdiag)/x_rep_max))
+#     # print("x_M_matrix:", np.max(np.abs(x_rep-x_M_matrix)/x_rep_max))
 
 
-def test_amg2(A, b, postfix=''):
-    R1, P1 = generate_R_P(A)
-    x0 = np.zeros_like(b)
-    res_amg = []
-    x_amg = solve_amg(A, b, x0=np.zeros_like(b), R=R1, P=P1, residuals=res_amg, maxiter=maxiter)
+#     print_residuals(residuals_rep, "rep")
+#     print_residuals(residuals_onlySmoother, "onlySmoother")
+#     print_residuals(residuals_noSmoother, "noSmoother")
+#     print_residuals(residuals_remove_offdiag, "remove_offdiag")
+#     print_residuals(residuals_reduce_offdiag, "reduce_offdiag")
+#     print_residuals(residuals_M_matrix, "M_matrix")
 
-    res4 = []
-    x4=x0.copy()
-    for _ in range(maxiter+1):
-        x4 = gauss_seidel(A, x4, b, iterations=1, residuals=res4, tol=tol)
-        x4 = gauss_seidel(A, x4, b, iterations=1, residuals=res4, tol=tol)
-    print("res4 GS",len(res4), res4[-1])
-    print((res4[-1]/res4[0])**(1.0/(len(res4)-1)))
+#     if show_plot:
+#         fig, axs = plt.subplots(2, 1, figsize=(8, 9))
+#         plot_residuals(residuals_rep, axs[0], label="rep")
+#         plot_residuals(residuals_onlySmoother, axs[0], label="onlySmoother")
+#         plot_residuals(residuals_remove_offdiag, axs[0],  label="remove_offdiag")
+#         plot_residuals(residuals_reduce_offdiag, axs[0],  label="reduce_offdiag")
+#         plot_residuals(residuals_M_matrix, axs[0],  label="M_matrix")
+#         plot_residuals(residuals_noSmoother, axs[1],  label="noSmoother")
+
+#         # plot_full_residual(full_residual_rep[0], "residual0")
+#         # plot_full_residual(full_residual_rep[1], "residual1")
+#         # plot_full_residual(full_residual_rep[2], "residual2")
+#         # plot_full_residual(full_residual_rep[3], "residual3")
+
+#         fig.canvas.manager.set_window_title(plot_title)
+#         plt.tight_layout()
+#         if save_fig_instad_of_show:
+#             plt.savefig(f"result/latest/residuals_{plot_title}.png")
+#         else:
+#             plt.show()
 
 
-    ml = pyamg.ruge_stuben_solver(A)
-    res1 = []
-    x_pyamg = ml.solve(b, tol=1e-10, residuals=res1,maxiter=maxiter)
-    print(ml)
-    print("res1 classical AMG", len(res1), res1[-1])
-    print((res1[-1]/res1[0])**(1.0/(len(res1)-1)))
+# def test_amg2(A, b, postfix=''):
+#     R1, P1 = generate_R_P(A)
+#     x0 = np.zeros_like(b)
+#     res_amg = []
+#     x_amg = solve_amg(A, b, x0=np.zeros_like(b), R=R1, P=P1, residuals=res_amg, maxiter=maxiter)
+
+#     res4 = []
+#     x4=x0.copy()
+#     for _ in range(maxiter+1):
+#         x4 = gauss_seidel(A, x4, b, iterations=1, residuals=res4, tol=tol)
+#         x4 = gauss_seidel(A, x4, b, iterations=1, residuals=res4, tol=tol)
+#     print("res4 GS",len(res4), res4[-1])
+#     print((res4[-1]/res4[0])**(1.0/(len(res4)-1)))
 
 
-    if show_plot:
-        fig, axs = plt.subplots(1, 1, figsize=(8, 9))
-        plot_residuals(res_amg, axs, label="amg")
-        plot_residuals(res4, axs, label="gs2",marker='.')
-        plot_residuals(res1, axs, label="amg_full",marker='o')
+#     ml = pyamg.ruge_stuben_solver(A)
+#     res1 = []
+#     x_pyamg = ml.solve(b, tol=1e-10, residuals=res1,maxiter=maxiter)
+#     print(ml)
+#     print("res1 classical AMG", len(res1), res1[-1])
+#     print((res1[-1]/res1[0])**(1.0/(len(res1)-1)))
 
-        fig.canvas.manager.set_window_title(plot_title)
-        plt.tight_layout()
-        if save_fig_instad_of_show:
-            plt.savefig(f"result/latest/residuals_{plot_title}.png")
-        else:
-            plt.show()
+
+#     if show_plot:
+#         fig, axs = plt.subplots(1, 1, figsize=(8, 9))
+#         plot_residuals(res_amg, axs, label="amg")
+#         plot_residuals(res4, axs, label="gs2",marker='.')
+#         plot_residuals(res1, axs, label="amg_full",marker='o')
+
+#         fig.canvas.manager.set_window_title(plot_title)
+#         plt.tight_layout()
+#         if save_fig_instad_of_show:
+#             plt.savefig(f"result/latest/residuals_{plot_title}.png")
+#         else:
+#             plt.show()
 
 
 
@@ -906,7 +907,7 @@ def solve_simplest(A, b, R, P, residuals):
             return x
 
 
-def strength_options():
+def strength_options(A,b):
     import numpy as np
     import pyamg
     import matplotlib.pyplot as plt
@@ -965,10 +966,11 @@ def strength_options():
     plt.legend(loc="lower left", borderaxespad=0, ncol=1, frameon=False)
     plt.title(f'{case_name}: Strength Options')
 
-    figname = f'./output/strength_options.png'
+    # figname = f'./output/strength_options.png'
     import sys
-    if '--savefig' in sys.argv:
-        plt.savefig(figname, bbox_inches='tight', dpi=150)
+    # if '--savefig' in sys.argv:
+    if save_fig_instad_of_show:
+        plt.savefig(prj_dir+f"/result/{case_name}/png/strength_{plot_title}.png")
     else:
         plt.show()
 
@@ -1012,9 +1014,11 @@ def test_all_A():
 if __name__ == "__main__":
     for i in range(1,30,5):
         postfix = f"F{i}-0"
+        plot_title =  postfix   
         A,b = prepare_A_b(postfix=postfix)
-        test_amg(A,b,postfix)
+        # test_amg(A,b,postfix)
+        strength_options(A,b)
 
     if run_concate_png:
         import concatenate_png
-        concatenate_png.concatenate_png(case_name)
+        concatenate_png.concatenate_png(case_name, 'strength')

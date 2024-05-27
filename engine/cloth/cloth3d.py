@@ -48,6 +48,8 @@ chen2023_blended_ksi = 0.5
 dont_clean_results = False
 report_time = True
 export_log = True
+tol_sim=1e-9
+tol_Axb=1e-9
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=64)
@@ -716,9 +718,9 @@ def solve_amg_SA(A,b,x0,residuals=[]):
         coarse_solver="pinv")
     res1 = []
     res2 = []
-    x5 = ml5.solve(b, x0=x0.copy(), tol=1e-10, residuals=res1, accel=None, maxiter=20, cycle="W")
-    if max_iter_Axb>20:
-        x5 = ml5.solve(b, x0=x5.copy(), tol=1e-10, residuals=res2, accel="cg", maxiter=max_iter_Axb-20, cycle="W")
+    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=res1, accel=None, maxiter=20, cycle="W")
+    if max_iter_Axb>20 and res1[-1]>tol_Axb:
+        x5 = ml5.solve(b, x0=x5.copy(), tol=tol_Axb, residuals=res2, accel="cg", maxiter=max_iter_Axb-20, cycle="W")
     residuals = res1+res2
     return x5
 
@@ -1062,7 +1064,7 @@ def substep_all_solver(max_iter=1):
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic
 
-        rsys1 = (np.linalg.norm(b-A@x))
+        rsys0 = (np.linalg.norm(b-A@x))
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
         if solver_type == "GS":
@@ -1098,17 +1100,17 @@ def substep_all_solver(max_iter=1):
             compute_potential_energy()
             compute_inertial_energy()
             robj = (potential_energy[None]+inertial_energy[None])
-            print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
+            print(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             if export_log:
-                logging.info(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
-            r.append(Residual([rsys1,rsys2], primary_r, dual_r, robj, ramg, rgs, t_iter))
+                logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
+            r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, t_iter))
             t_calc_residual += time.perf_counter()-t_calc_residual_start
 
         x_prev = x.copy()
         # gradC_prev = gradC.to_numpy().copy()
 
         if early_stop:
-            if rsys1 < 1e-6:
+            if rsys0 < tol_sim:
                 break
         
 

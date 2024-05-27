@@ -31,6 +31,7 @@ export_obj = True
 export_residual = True
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = True
+export_matrix_interval = 10
 scale_instead_of_attach = False
 use_offdiag = True
 restart = False
@@ -63,6 +64,8 @@ parser.add_argument("-end_frame", type=int, default=end_frame)
 parser.add_argument("-restart", type=int, default=restart)
 parser.add_argument("-restart_frame", type=int, default=restart_frame)
 parser.add_argument("-restart_dir", type=str, default=restart_dir)
+parser.add_argument("-tol_sim", type=float, default=tol_sim)
+parser.add_argument("-tol_Axb", type=float, default=tol_Axb)
 
 args = parser.parse_args()
 N = args.N
@@ -77,6 +80,8 @@ end_frame = args.end_frame
 restart = bool(args.restart)
 restart_frame = args.restart_frame
 restart_dir = args.restart_dir
+tol_sim = args.tol_sim
+tol_Axb = args.tol_Axb
 
 
 #to print out the parameters
@@ -1058,7 +1063,7 @@ def substep_all_solver(max_iter=1):
             Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
             b += G @ Minv_gg
 
-        if export_matrix and ite==0:
+        if export_matrix and ite==0 and frame%export_matrix_interval==0:
             tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic

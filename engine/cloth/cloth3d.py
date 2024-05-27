@@ -716,7 +716,7 @@ def solve_amg_SA(A,b,x0,residuals=[]):
         coarse_solver="pinv")
     res1 = []
     res2 = []
-    x5 = ml5.solve(b, x0=x0, tol=1e-10, residuals=res1, accel=None, maxiter=20, cycle="W")
+    x5 = ml5.solve(b, x0=x0.copy(), tol=1e-10, residuals=res1, accel=None, maxiter=20, cycle="W")
     if max_iter_Axb>20:
         x5 = ml5.solve(b, x0=x5.copy(), tol=1e-10, residuals=res2, accel="cg", maxiter=max_iter_Axb-20, cycle="W")
     residuals = res1+res2
@@ -1070,11 +1070,13 @@ def substep_all_solver(max_iter=1):
             rgs=[]
             gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=rgs)
             ramg = [None,None]
+            r_Axb = rgs
         if solver_type == "AMG":
             ramg=[]
             # x = solve_amg(A, b, x, R, P, ramg)
             x = solve_amg_SA(A,b,x_prev,ramg)
             rgs=[None,None]
+            r_Axb = ramg
 
         rsys2 = np.linalg.norm(b-A@x)
         if use_primary_residual:
@@ -1096,9 +1098,9 @@ def substep_all_solver(max_iter=1):
             compute_potential_energy()
             compute_inertial_energy()
             robj = (potential_energy[None]+inertial_energy[None])
-            print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t_iter:.2f}s")
+            print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             if export_log:
-                logging.info(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t_iter:.2f}s")
+                logging.info(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             r.append(Residual([rsys1,rsys2], primary_r, dual_r, robj, ramg, rgs, t_iter))
             t_calc_residual += time.perf_counter()-t_calc_residual_start
 

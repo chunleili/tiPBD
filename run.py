@@ -18,8 +18,19 @@ else:
 # case1: AMG restart from 200-400  dt=1e-3 N1024
 def case1():
     args = ["python3", "engine/cloth/cloth3d.py",
-          "-N=64",
+          "-N=1024",
           "-solver_type=AMG", 
+          "-delta_t=1e-3", 
+          "-restart=0", 
+          "-restart_frame=200",
+          "-end_frame=400"]
+    call(args)
+
+# case2: GS restart from 200-400  dt=1e-3 N1024
+def case2():
+    args = ["python3", "engine/cloth/cloth3d.py",
+          "-N=1024",
+          "-solver_type=GS", 
           "-delta_t=1e-3", 
           "-restart=0", 
           "-restart_frame=200",
@@ -32,7 +43,7 @@ if __name__=='__main__':
     if case_num==1:
         case1()
     elif case_num==2:
-        ...
+        case2()
     else:
         print('Invalid case number. Exiting...')
         sys.exit(1)

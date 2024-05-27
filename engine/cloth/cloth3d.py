@@ -14,14 +14,13 @@ import argparse
 from collections import namedtuple
 import json
 import logging
-# from logging import info
-
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+#default value for parameters
 out_dir = prj_path + f"/result/latest/"
 frame = 0
-# end_frame = 50
+end_frame = 50
 save_image = True
 max_iter = 100
 max_iter_Axb = 600
@@ -30,15 +29,15 @@ save_P, load_P = False, False
 use_viewer = False
 export_obj = True
 export_residual = True
-# solver_type = "AMG" # "AMG", "GS", "XPBD"
-# export_matrix = True
-# scale_instead_of_attach = False
+solver_type = "AMG" # "AMG", "GS", "XPBD"
+export_matrix = True
+scale_instead_of_attach = False
 use_offdiag = True
-# restart = False
-# restart_frame = 10
-# restart_dir = prj_path+f"/result/latest/state/"
-# export_state = True
-# gravity = [0.0, -9.8, 0.0]
+restart = False
+restart_frame = 10
+restart_dir = prj_path+f"/result/latest/state/"
+export_state = True
+gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
 early_stop = True
 use_primary_residual = False
@@ -50,18 +49,20 @@ report_time = True
 export_log = True
 tol_sim=1e-9
 tol_Axb=1e-9
+delta_t = 1e-3
 
+#parse arguments to change default values
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=64)
-parser.add_argument("-delta_t", type=float, default=0.005)
+parser.add_argument("-delta_t", type=float, default=delta_t)
 parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPBD"
-parser.add_argument("-export_matrix", type=int, default=1)
-parser.add_argument("-export_state", type=int, default=1)
-parser.add_argument("-scale_instead_of_attach", type=int, default=1) # attach/scale
-parser.add_argument("-end_frame", type=int, default=30)
-parser.add_argument("-restart", type=int, default=0)
-parser.add_argument("-restart_frame", type=int, default=200)
-parser.add_argument("-restart_dir", type=str, default=prj_path+f"/result/latest/state/")
+parser.add_argument("-export_matrix", type=int, default=export_matrix)
+parser.add_argument("-export_state", type=int, default=export_state)
+parser.add_argument("-scale_instead_of_attach", type=int, default=scale_instead_of_attach)
+parser.add_argument("-end_frame", type=int, default=end_frame)
+parser.add_argument("-restart", type=int, default=restart)
+parser.add_argument("-restart_frame", type=int, default=restart_frame)
+parser.add_argument("-restart_dir", type=str, default=restart_dir)
 
 args = parser.parse_args()
 N = args.N
@@ -78,9 +79,8 @@ restart_frame = args.restart_frame
 restart_dir = args.restart_dir
 
 
+#to print out the parameters
 global_vars = globals().copy()
-
-
 
 
 t_export_matrix = 0.0
@@ -96,7 +96,6 @@ ti.init(arch=ti.cpu)
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
-# delta_t = 0.001
 M = NE
 new_M = int(NE / 100)
 compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
@@ -774,7 +773,7 @@ def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg=None):
         dpos1 = dpos.copy()
         dpos = dpos1 * chen2023_blended_ksi + dpos2 * (1.0 - chen2023_blended_ksi)
     dpos = dpos.reshape(-1, 3)
-    pos.from_numpy(pos_mid.to_numpy() + dpos)
+    pos.from_numpy(pos_mid.to_numpy() + omega*dpos)
 
 @ti.kernel
 def transfer_back_to_pos_mfree_kernel():
@@ -1082,10 +1081,10 @@ def substep_all_solver(max_iter=1):
 
         rsys2 = np.linalg.norm(b-A@x)
         if use_primary_residual:
-            transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg)
+            transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
         else:
-            # transfer_back_to_pos_mfree(x) #XPBD
-            transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) #Chen2023 Primal XPBD
+            transfer_back_to_pos_mfree(x) #XPBD
+            # transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) 
 
 
         if export_residual:

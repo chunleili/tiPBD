@@ -14,7 +14,7 @@ import argparse
 from collections import namedtuple
 import json
 import logging
-from logging import info
+# from logging import info
 
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,9 +34,9 @@ export_residual = True
 # export_matrix = True
 # scale_instead_of_attach = False
 use_offdiag = True
-restart = False
-restart_frame = 10
-restart_dir = prj_path+f"/result/amg-primary/state/"
+# restart = False
+# restart_frame = 10
+# restart_dir = prj_path+f"/result/latest/state/"
 # export_state = True
 # gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
@@ -47,6 +47,7 @@ use_chen2023_blended = False
 chen2023_blended_ksi = 0.5
 dont_clean_results = False
 report_time = True
+export_log = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=64)
@@ -56,7 +57,9 @@ parser.add_argument("-export_matrix", type=int, default=1)
 parser.add_argument("-export_state", type=int, default=1)
 parser.add_argument("-scale_instead_of_attach", type=int, default=1) # attach/scale
 parser.add_argument("-end_frame", type=int, default=30)
-
+parser.add_argument("-restart", type=int, default=0)
+parser.add_argument("-restart_frame", type=int, default=200)
+parser.add_argument("-restart_dir", type=str, default=prj_path+f"/result/latest/state/")
 
 args = parser.parse_args()
 N = args.N
@@ -68,11 +71,15 @@ scale_instead_of_attach = bool(args.scale_instead_of_attach)
 if scale_instead_of_attach: gravity = [0.0, 0.0, 0.0]
 else : gravity = [0.0, -9.8, 0.0]
 end_frame = args.end_frame
+restart = bool(args.restart)
+restart_frame = args.restart_frame
+restart_dir = args.restart_dir
+
 
 global_vars = globals().copy()
 
-logging.getLogger().setLevel(logging.INFO)
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+
 
 t_export_matrix = 0.0
 t_calc_residual = 0.0
@@ -1084,7 +1091,9 @@ def substep_all_solver(max_iter=1):
             compute_potential_energy()
             compute_inertial_energy()
             robj = (potential_energy[None]+inertial_energy[None])
-            info(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t_iter:.2f}s")
+            print(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t_iter:.2f}s")
+            if export_log:
+                logging.info(f"{frame}-{ite} r:{rsys1:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} t:{t_iter:.2f}s")
             r.append(Residual([rsys1,rsys2], primary_r, dual_r, robj, ramg, rgs, t_iter))
             t_calc_residual += time.perf_counter()-t_calc_residual_start
 
@@ -1133,6 +1142,7 @@ def clean_result_dir(folder_path):
         '*.json',
         '*.npz',
         '*.mtx',
+        '*.log'
     ]:
         files = glob.glob(wildcard_name)
         to_remove += (files)
@@ -1216,6 +1226,8 @@ if not restart and not dont_clean_results:
     clean_result_dir(out_dir + "/obj/")
 
 
+logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + 'latest.log',filemode='a')
+
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #
 # ---------------------------------------------------------------------------- #
@@ -1292,6 +1304,7 @@ step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
 while True:
     step_pbar.update(1)
     print()
+    logging.info("")
     t_one_frame_start = time.perf_counter()
     frame += 1
     if use_viewer:
@@ -1315,8 +1328,11 @@ while True:
             save_state(out_dir+'/state/' + f"{frame:04d}.npz")
             t_save_state = time.perf_counter()-tic
         if report_time:
-            info(f"Time of exporting: obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s total_export:{t_export_obj+t_save_state+t_export_matrix+t_export_residual+t_calc_residual:.2f}")
-            info(f"Time of frame-{frame}: {time.perf_counter()-t_one_frame_start:.2f}s")
+            print(f"Time of exporting: obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s total_export:{t_export_obj+t_save_state+t_export_matrix+t_export_residual+t_calc_residual:.2f}")
+            print(f"Time of frame-{frame}: {time.perf_counter()-t_one_frame_start:.2f}s")
+            if export_log:
+                logging.info(f"Time of exporting: obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s total_export:{t_export_obj+t_save_state+t_export_matrix+t_export_residual+t_calc_residual:.2f}")
+                logging.info(f"Time of frame-{frame}: {time.perf_counter()-t_one_frame_start:.2f}s")
     
     if frame == end_frame:
         t_all = time.perf_counter() - timer_all

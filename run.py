@@ -15,26 +15,24 @@ else:
           '1:  AMG restart from 200-400  dt=1e-3 N1024\n'
           '2:  ')
 
-# case1: AMG restart from 200-400  dt=1e-3 N1024
+# case1: AMG 1024
 def case1():
     args = ["python", "engine/cloth/cloth3d.py",
           "-N=1024",
           "-solver_type=AMG", 
-          "-delta_t=1e-3", 
-          "-restart=0", 
-          "-restart_frame=200",
-          "-end_frame=400"]
+          "-delta_t=4e-3", 
+          "-end_frame=400",
+          "-scale_instead_of_attach=0"]
     call(args)
 
-# case2: GS restart from 200-400  dt=1e-3 N1024
+# case2: GS N1024
 def case2():
     args = ["python", "engine/cloth/cloth3d.py",
           "-N=1024",
           "-solver_type=GS", 
-          "-delta_t=1e-3", 
-          "-restart=0", 
-          "-restart_frame=200",
-          "-end_frame=400"]
+          "-delta_t=4se-3", 
+          "-end_frame=400",
+          "-scale_instead_of_attach=0"]
     call(args)
 
 

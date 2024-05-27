@@ -17,7 +17,7 @@ else:
 
 # case1: AMG restart from 200-400  dt=1e-3 N1024
 def case1():
-    args = ["python3", "engine/cloth/cloth3d.py",
+    args = ["python", "engine/cloth/cloth3d.py",
           "-N=1024",
           "-solver_type=AMG", 
           "-delta_t=1e-3", 
@@ -28,7 +28,7 @@ def case1():
 
 # case2: GS restart from 200-400  dt=1e-3 N1024
 def case2():
-    args = ["python3", "engine/cloth/cloth3d.py",
+    args = ["python", "engine/cloth/cloth3d.py",
           "-N=1024",
           "-solver_type=GS", 
           "-delta_t=1e-3", 

@@ -1300,6 +1300,7 @@ class Viewer:
 
 viewer = Viewer()
 
+initial_frame = frame
 step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
 while True:
     step_pbar.update(1)
@@ -1337,6 +1338,8 @@ while True:
     if frame == end_frame:
         t_all = time.perf_counter() - timer_all
         print(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.1g}min")
+        if export_log:
+            logging.info(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.1g}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s")
         exit()
     if use_viewer:
         viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)

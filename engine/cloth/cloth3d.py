@@ -500,7 +500,7 @@ def step_xpbd(max_iter):
         update_pos(inv_mass, dpos, pos)
 
         residual[i+1] = np.linalg.norm(dual_residual.to_numpy())
-    np.savetxt(out_dir + f"dual_residual_{frame}.txt",residual)
+    np.savetxt(out_dir + f"/r/dual_residual_{frame}.txt",residual)
 
     update_vel(old_pos, inv_mass, vel, pos)
 

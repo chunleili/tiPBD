@@ -18,7 +18,8 @@ import logging
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 #default value for parameters
-out_dir = prj_path + f"/result/latest/"
+case_name = "latest"
+out_dir = prj_path + f"/result/{case_name}/"
 frame = 0
 end_frame = 200
 save_image = True
@@ -36,7 +37,7 @@ scale_instead_of_attach = False
 use_offdiag = True
 restart = False
 restart_frame = 10
-restart_dir = prj_path+f"/result/latest/state/"
+restart_dir = prj_path+f"/result/{case_name}/state/"
 export_state = True
 gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
@@ -1244,7 +1245,7 @@ if not restart and not dont_clean_results:
     clean_result_dir(out_dir + "/obj/")
 
 
-logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + 'latest.log',filemode='a')
+logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'{case_name}.log',filemode='a')
 
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #

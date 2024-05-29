@@ -20,10 +20,10 @@ prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 #default value for parameters
 out_dir = prj_path + f"/result/latest/"
 frame = 0
-end_frame = 50
+end_frame = 200
 save_image = True
 max_iter = 100
-max_iter_Axb = 600
+max_iter_Axb = 150
 paused = False
 save_P, load_P = False, False
 use_viewer = False
@@ -48,8 +48,8 @@ chen2023_blended_ksi = 0.5
 dont_clean_results = False
 report_time = True
 export_log = True
-tol_sim=1e-9
-tol_Axb=1e-9
+tol_sim=1e-6
+tol_Axb=1e-6
 delta_t = 1e-3
 
 #parse arguments to change default values
@@ -66,6 +66,9 @@ parser.add_argument("-restart_frame", type=int, default=restart_frame)
 parser.add_argument("-restart_dir", type=str, default=restart_dir)
 parser.add_argument("-tol_sim", type=float, default=tol_sim)
 parser.add_argument("-tol_Axb", type=float, default=tol_Axb)
+parser.add_argument("-max_iter", type=int, default=max_iter)
+parser.add_argument("-max_iter_Axb", type=int, default=max_iter_Axb)
+
 
 args = parser.parse_args()
 N = args.N
@@ -82,6 +85,8 @@ restart_frame = args.restart_frame
 restart_dir = args.restart_dir
 tol_sim = args.tol_sim
 tol_Axb = args.tol_Axb
+max_iter = args.max_iter
+max_iter_Axb = args.max_iter_Axb
 
 
 #to print out the parameters
@@ -1350,9 +1355,9 @@ while True:
     
     if frame == end_frame:
         t_all = time.perf_counter() - timer_all
-        print(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.1g}min")
+        print(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.2f}min")
         if export_log:
-            logging.info(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.1g}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s")
+            logging.info(f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s")
         exit()
     if use_viewer:
         viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)

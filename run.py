@@ -60,6 +60,26 @@ def case4():
     log_args(args)
     call(args)
 
+
+# case5: profile 1024 attach
+def case4():
+    args = ["python","-m","cProfile", 
+            "-o","profile", "engine/cloth/cloth3d.py"
+          "-N=1024",
+          "-solver_type=XPBD", 
+          "-delta_t=1e-3", 
+          "-end_frame=5",
+          "-max_iter=100",
+          "-max_iter_Axb=150",
+          "-scale_instead_of_attach=0",
+          "-export_matrix=0",
+          ]
+    log_args(args)
+    call(args)
+    # snakeviz profile
+    call(["snakeviz", "profile"])
+
+
 def log_args(args:list):
     args1 = " ".join(args) # 将ARGS转换为字符串
     print(f"\nArguments:\n{args1}\n")

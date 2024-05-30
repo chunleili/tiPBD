@@ -3,10 +3,13 @@ import subprocess
 from subprocess import call
 import argparse
 
+pythonExe = "python"
+if sys.platform == "darwin":
+    pythonExe = "python3"
 
 # case1: AMG 1024
 def case1():
-    args = ["python", "engine/cloth/cloth3d.py",
+    args = [pythonExe, "engine/cloth/cloth3d.py",
           "-N=1024",
           "-solver_type=AMG", 
           "-delta_t=1e-3", 
@@ -20,7 +23,7 @@ def case1():
 
 # case2: GS N1024
 def case2():
-    args = ["python", "engine/cloth/cloth3d.py",
+    args = [pythonExe, "engine/cloth/cloth3d.py",
           "-N=1024",
           "-solver_type=GS", 
           "-delta_t=1e-3", 
@@ -34,7 +37,7 @@ def case2():
 
 # case3: XPBD 1024
 def case3():
-    args = ["python", "engine/cloth/cloth3d.py",
+    args = [pythonExe, "engine/cloth/cloth3d.py",
           "-N=1024",
           "-solver_type=XPBD", 
           "-delta_t=1e-3", 
@@ -48,7 +51,7 @@ def case3():
 
 # case4: XPBD 64
 def case4():
-    args = ["python", "engine/cloth/cloth3d.py",
+    args = [pythonExe, "engine/cloth/cloth3d.py",
           "-N=64",
           "-solver_type=XPBD", 
           "-delta_t=1e-3", 
@@ -61,12 +64,12 @@ def case4():
     call(args)
 
 
-# case5: profile 1024 attach
+# case5: profile 1024 attach amg
 def case5():
-    args = ["python","-m","cProfile", 
+    args = [pythonExe,"-m","cProfile", 
             "-o","profile", "engine/cloth/cloth3d.py",
           "-N=1024",
-          "-solver_type=XPBD", 
+          "-solver_type=AMG", 
           "-delta_t=1e-3", 
           "-end_frame=5",
           "-max_iter=100",

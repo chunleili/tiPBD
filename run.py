@@ -64,7 +64,7 @@ def case4():
 # case5: profile 1024 attach
 def case5():
     args = ["python","-m","cProfile", 
-            "-o","profile", "engine/cloth/cloth3d.py"
+            "-o","profile", "engine/cloth/cloth3d.py",
           "-N=1024",
           "-solver_type=XPBD", 
           "-delta_t=1e-3", 
@@ -73,11 +73,12 @@ def case5():
           "-max_iter_Axb=150",
           "-scale_instead_of_attach=0",
           "-export_matrix=0",
+          "-out_dir=result/profile1024",
           ]
     log_args(args)
     call(args)
     # snakeviz profile
-    call(["snakeviz", "profile"])
+    # call(["snakeviz", "profile"])
 
 
 def log_args(args:list):

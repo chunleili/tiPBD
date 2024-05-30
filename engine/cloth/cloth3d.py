@@ -18,8 +18,7 @@ import logging
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 #default value for parameters
-case_name = "latest"
-out_dir = prj_path + f"/result/{case_name}/"
+out_dir = prj_path + f"/result/latest/"
 frame = 0
 end_frame = 200
 save_image = True
@@ -37,7 +36,7 @@ scale_instead_of_attach = False
 use_offdiag = True
 restart = False
 restart_frame = 10
-restart_dir = prj_path+f"/result/{case_name}/state/"
+restart_dir = prj_path+f"/result/latest/state/"
 export_state = True
 gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
@@ -59,6 +58,7 @@ parser.add_argument("-N", type=int, default=64)
 parser.add_argument("-delta_t", type=float, default=delta_t)
 parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPBD"
 parser.add_argument("-export_matrix", type=int, default=export_matrix)
+parser.add_argument("-export_matrix_interval", type=int, default=export_matrix_interval)
 parser.add_argument("-export_state", type=int, default=export_state)
 parser.add_argument("-scale_instead_of_attach", type=int, default=scale_instead_of_attach)
 parser.add_argument("-end_frame", type=int, default=end_frame)
@@ -69,6 +69,8 @@ parser.add_argument("-tol_sim", type=float, default=tol_sim)
 parser.add_argument("-tol_Axb", type=float, default=tol_Axb)
 parser.add_argument("-max_iter", type=int, default=max_iter)
 parser.add_argument("-max_iter_Axb", type=int, default=max_iter_Axb)
+parser.add_argument("-export_log", type=int, default=export_log)
+parser.add_argument("-out_dir", type=str, default=out_dir)
 
 
 args = parser.parse_args()
@@ -76,6 +78,7 @@ N = args.N
 delta_t = args.delta_t
 solver_type = args.solver_type
 export_matrix = bool(args.export_matrix)
+export_matrix_interval = args.export_matrix_interval
 export_state = bool(args.export_state)
 scale_instead_of_attach = bool(args.scale_instead_of_attach)
 if scale_instead_of_attach: gravity = [0.0, 0.0, 0.0]
@@ -88,6 +91,8 @@ tol_sim = args.tol_sim
 tol_Axb = args.tol_Axb
 max_iter = args.max_iter
 max_iter_Axb = args.max_iter_Axb
+export_log = bool(args.export_log)
+out_dir = args.out_dir
 
 
 #to print out the parameters
@@ -1245,7 +1250,7 @@ if not restart and not dont_clean_results:
     clean_result_dir(out_dir + "/obj/")
 
 
-logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'{case_name}.log',filemode='a')
+logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'latest.log',filemode='a')
 
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #

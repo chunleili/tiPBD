@@ -1229,9 +1229,14 @@ def print_all_globals(global_vars):
     keys_to_delete = []
     for var_name, var_value in global_vars.items():
         if var_name != module_name and not var_name.startswith('__') and not callable(var_value) and not isinstance(var_value, type(sys)):
+            if var_name == 'parser':
+                continue
             print(var_name, "=", var_value)
+            if export_log:
+                logging.info(f"{var_name} = {var_value}")
             keys_to_delete.append(var_name)
     print("\n\n\n")
+    logging.info("\n\n\n")
 
 
 print_all_globals(global_vars)

@@ -14,7 +14,7 @@ def case1():
           "-max_iter=50",
           "-max_iter_Axb=150"
           "-scale_instead_of_attach=0",
-          "export_matrix_intervel=20"]
+          "-export_matrix_intervel=20"]
     log_args(args)
     call(args)
 
@@ -23,7 +23,7 @@ def case2():
     args = ["python", "engine/cloth/cloth3d.py",
           "-N=1024",
           "-solver_type=GS", 
-          "-delta_t=1se-3", 
+          "-delta_t=1e-3", 
           "-end_frame=200",
           "-max_iter=50",
           "-max_iter_Axb=150",

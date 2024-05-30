@@ -62,7 +62,7 @@ def case4():
 
 
 # case5: profile 1024 attach
-def case4():
+def case5():
     args = ["python","-m","cProfile", 
             "-o","profile", "engine/cloth/cloth3d.py"
           "-N=1024",
@@ -102,6 +102,8 @@ if __name__=='__main__':
         case3()
     elif case_num==4:
         case4()
+    elif case_num==5:
+        case5()
     else:
         print('Invalid case number. Exiting...')
         sys.exit(1)

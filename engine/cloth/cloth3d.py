@@ -32,7 +32,7 @@ export_residual = True
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = False
 export_matrix_interval = 10
-scale_instead_of_attach = False
+scale_instead_of_attach = True
 use_offdiag = True
 restart = False
 restart_frame = 10
@@ -737,7 +737,7 @@ def solve_amg_SA(A,b,x0,residuals=[]):
     # if max_iter_Axb>20 and res1[-1]>tol_Axb:
     #     x5 = ml5.solve(b, x0=x5.copy(), tol=tol_Axb, residuals=res2, accel="cg", maxiter=max_iter_Axb-20, cycle="W")
     # residuals = res1+res2
-    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=20, cycle="W")
+    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="W")
     return x5
 
 def solve_amg(A, b, x0, R, P, residuals=[], maxiter = 1, tol = 1e-6):

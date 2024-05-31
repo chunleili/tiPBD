@@ -1034,9 +1034,9 @@ def strength_options(A,b):
     # figname = f'./output/strength_options.png'
     import sys
     # if '--savefig' in sys.argv:
-    if save_fig_instad_of_show:
+    if save_fig:
         plt.savefig(prj_dir+f"/result/{case_name}/png/strength_{plot_title}.png")
-    else:
+    if show_fig:
         plt.show()
 
 def plot_residuals(data, ax, *args, **kwargs):

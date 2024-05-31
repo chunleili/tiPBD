@@ -24,17 +24,17 @@ to_read_dir = prj_dir + "result/amg64/A/"
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=100)
 N = parser.parse_args().N
-print(f"N={N}")
 parser.add_argument("-title", type=str, default=f"")
 plot_title = parser.parse_args().title
 parser.add_argument("-f", type=int, default=10)
 frame = parser.parse_args().f
 save_fig_instad_of_show = False
+save_fig=True
+show_fig=True
 
-def test_amg(mat_size = 10, frame=1):
+def test_amg_bug(mat_size = 10, frame=1, maxiter=1):
     # ------------------------------- prepare data ------------------------------- #
     generate_data = False
-    # N = 20
     if(generate_data):
         print("generating data...")
         A, b = generate_A_b_pyamg(n=mat_size)
@@ -54,40 +54,33 @@ def test_amg(mat_size = 10, frame=1):
     x0 = np.zeros_like(b)
 
     print("Solving pyamg...")
-    r_norms_pyamg = []
-    x_pyamg = timer_wrapper(solve_pyamg, ml, b, r_norms_pyamg)
+    r1 = []
+    x = ml.solve(b, tol=1e-3, residuals=r1, maxiter=maxiter)
 
-    print("Solving rep...")
-    r_norms_rep = []
-    x_rep = timer_wrapper(solve_rep, A, b, x0, R, P, r_norms_rep)
+    print("Solving no smoother...")
+    r2 = []
+    _ = solve_rep_noSmoother( A, b, x0, R, P, maxiter, r2)
 
-    print("Solving rep_noSmoother...")
-    r_norms_noSmoother = []
-    x_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R, P, r_norms_noSmoother)
+    print("Solving gauss_seidel...")
+    r3 = []
+    x3 = x0.copy()
+    r3.append(np.linalg.norm(b - A @ x3))
+    for _ in range(maxiter):
+        pyamg.relaxation.relaxation.gauss_seidel(A=A, x=x3, b=b, iterations=1)
+        r3.append(np.linalg.norm(b - A @ x3))
 
-
-    diff = x_noSmoother - x_pyamg
-    print(f"max x_noSmoother diff:{np.max(diff)}, in {np.argmax(diff)}")
-    diff2 = x_rep - x_pyamg
-    print(f"max rep diff:{np.max(diff2)}, in {np.argmax(diff2)}")
-
-    # ------------------------------- print results ------------------------------- #
-    print_residuals(r_norms_pyamg, "pyamg")
-    print_residuals(r_norms_rep, "rep")
-    print_residuals(r_norms_noSmoother, "rep_noSmoother")
-    
+    print("plotting...")
     fig, axs = plt.subplots(1, 1, figsize=(8, 4))
-    plot_r_norms(r_norms_pyamg, axs, title=plot_title,linestyle="-",label="amg iter=1")
-    plot_r_norms(r_norms_rep, axs, title=plot_title, linestyle="--",label="amg iter=50")
-    plot_r_norms(r_norms_noSmoother, axs, title=plot_title, linestyle="--",label="no smoother")
+    plot_r_norms(r1, axs, title=plot_title,linestyle="-", label=f"amg iter={maxiter}", marker="o", color="C0")
+    plot_r_norms(r2, axs, title=plot_title, linestyle="--",label="no smoother", marker="x", color="green")
+    plot_r_norms(r3, axs, title=plot_title, linestyle="--",label="gauss_seidel", marker="*", color="red")
 
     fig.canvas.manager.set_window_title(plot_title)
     plt.tight_layout()
-    if save_fig_instad_of_show:
-        plt.savefig(f"result/residuals_{plot_title}.png")
-    else:
+    if save_fig:
+        plt.savefig(f"residuals_{plot_title}.png")
+    if show_fig:
         plt.show()
-
 
 def timer_wrapper(func, *args, **kwargs):
     t = perf_counter()
@@ -114,18 +107,15 @@ def print_residuals(residuals, name="residuals"):
 
 
 
-def solve_pyamg(ml, b, r_norms=[]):
-    x = ml.solve(b, tol=1e-3, residuals=r_norms, maxiter=1)
+def solve_pyamg(ml, b, maxiter=1, r_norms=[]):
+    x = ml.solve(b, tol=1e-3, residuals=r_norms, maxiter=maxiter)
     return x
 
 
-def solve_rep_noSmoother(A, b, x0, R, P, residuals=[]):
+def solve_rep_noSmoother(A, b, x0, R, P, maxiter=1, residuals=[]):
     tol = 1e-3
-    maxiter = 50
 
     A2 = R @ A @ P
-
-    
 
     x = x0.copy()
 
@@ -340,14 +330,13 @@ def plot_r_norms(data, ax, *args, **kwargs):
     ax.plot(x, data, label=label, linestyle=linestyle, *args, **kwargs)
     ax.set_title(title)
     # ax.set_yscale("log")
+    if len(x) <= 2:
+        x = [0,1]
+        ax.set_xticks(x)
     ax.set_xlabel("iteration")
     ax.set_ylabel("residual")
     ax.legend(loc="upper right")
 
 if __name__ == "__main__":
-    # for frame in range(1, 30, 5):
-    test_amg(10, frame=11)
-    # test_amg(20)
-    # test_amg(30)
-    # test_amg(50)
-    # test_amg(100)
+    test_amg_bug(10, frame=11, maxiter=1)
+    test_amg_bug(10, frame=11, maxiter=50)

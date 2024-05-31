@@ -19,18 +19,20 @@ sys.path.append(os.getcwd())
 
 prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
-case_name = 'scale64'
-to_read_dir = prj_dir + f"result/{case_name}/A/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-title", type=str, default=f"")
-parser.add_argument("-f", type=int, default=10)
+parser.add_argument("-f", type=int, default=20)
+parser.add_argument("-case_name", type=str, default='amg64')
 plot_title = parser.parse_args().title
 frame = parser.parse_args().f
-save_fig_instad_of_show = True
-save_fig_and_show = True
+case_name = parser.parse_args().case_name
+
+to_read_dir = prj_dir + f"result/{case_name}/A/"
+save_fig = True
+show_fig = False
 generate_data = False
-show_plot = True
+draw_plot = True
 maxiter = 300
 early_stop = True
 tol=1e-10
@@ -45,13 +47,13 @@ def test_amg(A, b, postfix=""):
     # classical AMG
     ml = pyamg.ruge_stuben_solver(A)
     res = []
-    x_pyamg = ml.solve(b, x0=x0.copy(), tol=1e-10, residuals=res,maxiter=maxiter)
+    x_pyamg = ml.solve(b, x0=x0.copy(), tol=tol, residuals=res,maxiter=maxiter)
     print("res1 classical AMG",(res[-1]/res[0])**(1.0/(len(res)-1)))
 
     # SA
     ml2 = pyamg.smoothed_aggregation_solver(A)
     res2 = []
-    x_pyamg2 = ml2.solve(b, x0=x0.copy(), tol=1e-10, residuals=res2,maxiter=maxiter)
+    x_pyamg2 = ml2.solve(b, x0=x0.copy(), tol=tol, residuals=res2,maxiter=maxiter)
     print("res2 SA", (res2[-1]/res2[0])**(1.0/(len(res2)-1)))
 
     # GS
@@ -59,8 +61,10 @@ def test_amg(A, b, postfix=""):
     res4 = []
     for _ in range(maxiter+1):
         res4.append(np.linalg.norm(b - A @ x4))
-        x4 = gauss_seidel(A, x4, b, iterations=1)
-        x4 = gauss_seidel(A, x4, b, iterations=1)
+        x4 = gauss_seidel(A, x4, b, iterations=1, tol=tol)
+        x4 = gauss_seidel(A, x4, b, iterations=1, tol=tol)
+        if res4[-1] < tol:
+            break
     print("res4 GS",(res4[-1]/res4[0])**(1.0/(len(res4)-1)))
 
     #  SA+CG, from diagnostic,
@@ -71,7 +75,7 @@ def test_amg(A, b, postfix=""):
     x6 = x0.copy()
     res6 = []
     res6.append(np.linalg.norm(b - A @ x6))
-    x6 = scipy.sparse.linalg.cg(A, b, x0=x6, tol=1e-10, maxiter=maxiter, callback=lambda x: res6.append(np.linalg.norm(b - A @ x)))
+    x6 = scipy.sparse.linalg.cg(A, b, x0=x6, tol=tol, maxiter=maxiter, callback=lambda x: res6.append(np.linalg.norm(b - A @ x)))
     print("res6 CG ",(res6[-1]/res6[0])**(1.0/(len(res6)-1)))
 
     #  diagnal preconditioner + CG
@@ -79,7 +83,7 @@ def test_amg(A, b, postfix=""):
     x7 = x0.copy()
     res7 = []
     res7.append(np.linalg.norm(b - A @ x7))
-    x7 = scipy.sparse.linalg.cg(A, b, x0=x7, tol=1e-10, maxiter=maxiter, callback=lambda x: res7.append(np.linalg.norm(b - A @ x)), M=M)
+    x7 = scipy.sparse.linalg.cg(A, b, x0=x7, tol=tol, maxiter=maxiter, callback=lambda x: res7.append(np.linalg.norm(b - A @ x)), M=M)
     print("res7 diag+CG",(res7[-1]/res7[0])**(1.0/(len(res7)-1)))
 
     #my amg
@@ -91,20 +95,20 @@ def test_amg(A, b, postfix=""):
     # SA with strength algebraic_distance_epsilon3
     ml8 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('algebraic_distance', {'epsilon': 3.0}))
     res8 = []
-    _ = ml8.solve(b, x0=x0.copy(), tol=1e-12, residuals=res8,maxiter=maxiter, accel='cg')
-    print("res8 SA+strength", (res8[-1]/res8[0])**(1.0/(len(res8)-1)))
+    _ = ml8.solve(b, x0=x0.copy(), tol=tol, residuals=res8,maxiter=maxiter, accel='cg')
+    print("res8 SA+algebraic3.0", (res8[-1]/res8[0])**(1.0/(len(res8)-1)))
 
 
     # SA with strength affinity_4.0
     ml9 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('affinity', {'epsilon': 4.0, 'R': 10, 'alpha': 0.5, 'k': 20}))
     res9 = []
-    _ = ml9.solve(b, x0=x0.copy(), tol=1e-12, residuals=res9,maxiter=maxiter, accel='cg')
+    _ = ml9.solve(b, x0=x0.copy(), tol=tol, residuals=res9,maxiter=maxiter, accel='cg')
     print("res9 SA+affinity4.0+cg:",(res9[-1]/res9[0])**(1.0/(len(res9)-1)))
 
 
     # blackbox
     res10=[]
-    blackbox(A,b,res10)
+    blackbox(A,b,x0.copy(), res10)
 
 
     # CR: fail pyamg/classical/cr.py", line 64, in _CRsweep rhok = enorm / enorm_old
@@ -145,35 +149,33 @@ def test_amg(A, b, postfix=""):
     # strength options
     # strength_options()
 
-    if show_plot:
+    if draw_plot:
         # https://matplotlib.org/stable/api/markers_api.html for different markers
         fig, axs = plt.subplots(1, figsize=(8, 9))
-        plot_residuals(res/res[0], axs,  label="Classical AMG", marker="o", color="blue")
-        plot_residuals(res2/res2[0], axs,  label="Smoothed Aggregation", marker="x", color="orange")
-        plot_residuals(res4/res4[0], axs,  label="Gauss Seidel", marker="s", color="red")
-        plot_residuals(res5/res5[0], axs,  label="SA+CG", marker="d", color="purple")
-        plot_residuals(res6/res6[0], axs,  label="CG", marker="^", color="green")
-        # plot_residuals(res7/res7[0], axs,  label="diag CG", marker="v", color="black")
-        plot_residuals(res8/res8[0], axs,  label="SA+algebraic4.0+cg", marker="v", color="black")
-        plot_residuals(res9/res9[0], axs,  label="SA+affinity4.0+cg")
-        plot_residuals(res10/res10[0], axs,  label="blackbox")
-        # plot_residuals(res11/res11[0], axs,  label="CR")
-        plot_residuals(res12/res12[0], axs,  label="rootnode+CG", marker='1')
-        plot_residuals(res13/res13[0], axs,  label="SA+CG normal", marker='2')
-        plot_residuals(res14/res14[0], axs,  label="SA+CG smooth='energy'", marker='3')
-        plot_residuals(res15/res15[0], axs,  label="SA+CG 20noCG+last CG" , marker='4')
+        plot_residuals(res, axs,  label="Classical AMG", marker="o", color="blue")
+        plot_residuals(res2, axs,  label="Smoothed Aggregation", marker="x", color="orange")
+        plot_residuals(res4, axs,  label="Gauss Seidel", marker="s", color="red")
+        plot_residuals(res5, axs,  label="SA+CG", marker="d", color="purple")
+        plot_residuals(res6, axs,  label="CG", marker="^", color="green")
+        # plot_residuals(res7, axs,  label="diag CG", marker="v", color="black")
+        plot_residuals(res8, axs,  label="SA+algebraic3.0+cg", marker="v", color="black")
+        plot_residuals(res9, axs,  label="SA+affinity4.0+cg")
+        plot_residuals(res10, axs,  label="blackbox")
+        # plot_residuals(res11, axs,  label="CR")
+        plot_residuals(res12, axs,  label="rootnode+CG", marker='1')
+        plot_residuals(res13, axs,  label="SA+CG normal", marker='2')
+        plot_residuals(res14, axs,  label="SA+CG smooth='energy'", marker='3')
+        plot_residuals(res15, axs,  label="SA+CG 20noCG+last CG" , marker='4')
 
         global plot_title
         plot_title = postfix
         fig.canvas.manager.set_window_title(plot_title)
         plt.tight_layout()
-        if save_fig_instad_of_show or save_fig_and_show:
+        if save_fig:
             dir = os.path.dirname(os.path.dirname(to_read_dir)) + '/png/'
             mkdir_if_not_exist(dir)
             plt.savefig(dir+f"/residuals_{plot_title}.png")
-        else:
-            plt.show()
-        if save_fig_and_show:
+        if show_fig:
             plt.show()
 
 
@@ -374,7 +376,7 @@ def SA_from_diagnostic(A, b, x0, res):
     ##
     # Solve system
     # res = []
-    x = ml.solve(b, x0=x0, tol=1e-08, residuals=res, accel="cg", maxiter=maxiter, cycle="W")
+    x = ml.solve(b, x0=x0, tol=tol, residuals=res, accel="cg", maxiter=maxiter, cycle="W")
     res_rate = (res[-1]/res[0])**(1.0/(len(res)-1.))
     normr0 = pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x0))
     # print(" ")
@@ -1075,10 +1077,11 @@ def test_all_A():
             test_amg(10, 0, postfix)
 
 
-def blackbox(A,b,res):
-    x = pyamg.solve(A, b, verb=False, residuals=res, maxiter=300)
+def blackbox(A,b,x0, res):
+    x = pyamg.solve(A, b, x0, tol=tol, verb=False, residuals=res, maxiter=300)
 
-if __name__ == "__main__":
+
+def test_6():
     for i in range(1,30,5):
         postfix = f"F{i}-0"
         plot_title =  postfix   
@@ -1089,8 +1092,19 @@ if __name__ == "__main__":
         else:
             test_amg(A,b,postfix)
 
-    if run_concate_png and save_fig_instad_of_show:
+    if run_concate_png:
         import concatenate_png
         if run_strength_options : prefix = 'strength'
         else: prefix = 'residuals'
         concatenate_png.concatenate_png(case_name, prefix)
+
+
+if __name__ == "__main__":
+    frames = [1, 6, 11, 16, 21, 26]
+    for frame in frames:
+        postfix=f"F{frame}-0"
+        A,b = prepare_A_b(postfix=postfix)
+        test_amg(A,b,postfix=postfix)
+
+    import concatenate_png
+    concatenate_png.concatenate_png(case_name, prefix='residuals', frames=frames)

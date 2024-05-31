@@ -1,4 +1,4 @@
-def concatenate_png(case_name='attach64', prefix='residuals'):
+def concatenate_png(case_name='attach64', prefix='residuals', frames=[1, 6, 11, 16, 21, 26]):
     from PIL import Image
     import os
     import sys
@@ -10,12 +10,12 @@ def concatenate_png(case_name='attach64', prefix='residuals'):
 
     print(os.getcwd())
 
-    image1 = Image.open(f'{prefix}_F1-0.png')
-    image2 = Image.open(f'{prefix}_F6-0.png')
-    image3 = Image.open(f'{prefix}_F11-0.png')
-    image4 = Image.open(f'{prefix}_F16-0.png')
-    image5 = Image.open(f'{prefix}_F21-0.png')
-    image6 = Image.open(f'{prefix}_F26-0.png')
+    image1 = Image.open(f'{prefix}_F{frames[0]}-0.png')
+    image2 = Image.open(f'{prefix}_F{frames[1]}-0.png')
+    image3 = Image.open(f'{prefix}_F{frames[2]}-0.png')
+    image4 = Image.open(f'{prefix}_F{frames[3]}-0.png')
+    image5 = Image.open(f'{prefix}_F{frames[4]}-0.png')
+    image6 = Image.open(f'{prefix}_F{frames[5]}-0.png')
 
     width1, height1 = image1.size
     width2, height2 = image2.size

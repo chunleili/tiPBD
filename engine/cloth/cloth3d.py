@@ -731,12 +731,13 @@ def solve_amg_SA(A,b,x0,residuals=[]):
         max_levels=15,
         max_coarse=300,
         coarse_solver="pinv")
-    res1 = []
-    res2 = []
-    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=res1, accel=None, maxiter=20, cycle="W")
-    if max_iter_Axb>20 and res1[-1]>tol_Axb:
-        x5 = ml5.solve(b, x0=x5.copy(), tol=tol_Axb, residuals=res2, accel="cg", maxiter=max_iter_Axb-20, cycle="W")
-    residuals = res1+res2
+    # res1 = []
+    # res2 = []
+    # x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=res1, accel=None, maxiter=20, cycle="W")
+    # if max_iter_Axb>20 and res1[-1]>tol_Axb:
+    #     x5 = ml5.solve(b, x0=x5.copy(), tol=tol_Axb, residuals=res2, accel="cg", maxiter=max_iter_Axb-20, cycle="W")
+    # residuals = res1+res2
+    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=20, cycle="W")
     return x5
 
 def solve_amg(A, b, x0, R, P, residuals=[], maxiter = 1, tol = 1e-6):

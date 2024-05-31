@@ -1359,11 +1359,13 @@ while True:
             save_state(out_dir+'/state/' + f"{frame:04d}.npz")
             t_save_state = time.perf_counter()-tic
         if report_time:
-            print(f"Time of exporting: obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s total_export:{t_export_obj+t_save_state+t_export_matrix+t_export_residual+t_calc_residual:.2f}")
-            print(f"Time of frame-{frame}: {time.perf_counter()-t_one_frame_start:.2f}s")
+            total_export_time = t_export_obj+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
+            t_frame = time.perf_counter()-t_one_frame_start
+            print(f"Time of exporting: {total_export_time:.2f}s, where obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
+            print(f"Time of frame-{frame}: {t_frame:.2f}s")
             if export_log:
-                logging.info(f"Time of exporting: obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s total_export:{t_export_obj+t_save_state+t_export_matrix+t_export_residual+t_calc_residual:.2f}")
-                logging.info(f"Time of frame-{frame}: {time.perf_counter()-t_one_frame_start:.2f}s")
+                logging.info(f"Time of exporting: {total_export_time:.2f}s, where obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
+                logging.info(f"Time of frame-{frame}: {t_frame:.2f}s")
     
     if frame == end_frame:
         t_all = time.perf_counter() - timer_all

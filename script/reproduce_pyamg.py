@@ -40,7 +40,7 @@ postfix = ''
 
 
 def test_amg(A, b, postfix=""):
-    x0 = np.random.rand(A.shape[0], 1)
+    x0 = 0*b
 
     # classical AMG
     ml = pyamg.ruge_stuben_solver(A)
@@ -55,8 +55,7 @@ def test_amg(A, b, postfix=""):
     print("res2 SA", (res2[-1]/res2[0])**(1.0/(len(res2)-1)))
 
     # GS
-    # x4 = np.zeros_like(b)
-    x4 = np.random.rand(A.shape[0])
+    x4 = x0.copy()
     res4 = []
     for _ in range(maxiter+1):
         res4.append(np.linalg.norm(b - A @ x4))
@@ -66,7 +65,7 @@ def test_amg(A, b, postfix=""):
 
     #  SA+CG, from diagnostic,
     res5 = []
-    SA_from_diagnostic(A, b, res5)
+    SA_from_diagnostic(A, b, x0, res5)
 
     # CG
     x6 = x0.copy()
@@ -347,7 +346,7 @@ def plot_full_residual(data, title=""):
     # ax.zaxis.set_major_formatter('{x:.02f}')
     fig.colorbar(surf0, shrink=0.5, aspect=5)
 
-def SA_from_diagnostic(A, b, res):
+def SA_from_diagnostic(A, b, x0, res):
     ##
     # Generate B
     B = np.ones((A.shape[0],1), dtype=A.dtype); BH = B.copy()
@@ -356,7 +355,7 @@ def SA_from_diagnostic(A, b, res):
     # Random initial guess, zero right-hand side
     np.random.seed(0)
     # b = zeros((A.shape[0],1))
-    x0 = np.random.rand(A.shape[0],1)
+    # x0 = np.random.rand(A.shape[0],1)
     # x0 = 0*b
 
     ##

@@ -13,11 +13,12 @@ def case1():
           "-N=1024",
           "-solver_type=AMG", 
           "-delta_t=1e-3", 
-          "-end_frame=200",
-          "-max_iter=50",
-          "-max_iter_Axb=150"
+          "-end_frame=800",
+          "-max_iter=100",
+          "-max_iter_Axb=100",
           "-scale_instead_of_attach=0",
-          "-export_matrix_intervel=20"]
+          "-export_matrix=1",
+          "-export_matrix_interval=50"]
     log_args(args)
     call(args)
 
@@ -96,6 +97,7 @@ if __name__=='__main__':
         case_num = int(sys.argv[i+1])
     else:
         print('Usage: python run.py -case N, with N=1 or 2, etc.\n')
+        sys.exit(1)
     
     # print(f'Running case {case_num}...')
     if case_num==1:

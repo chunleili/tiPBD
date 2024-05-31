@@ -1240,8 +1240,6 @@ def print_all_globals(global_vars):
     logging.info("\n\n\n")
 
 
-print_all_globals(global_vars)
-
 misc_dir_path = prj_path + "/data/misc/"
 mkdir_if_not_exist(out_dir)
 mkdir_if_not_exist(out_dir + "/r/")
@@ -1257,6 +1255,8 @@ if not restart and not dont_clean_results:
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'latest.log',filemode='a')
+
+print_all_globals(global_vars)
 
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #

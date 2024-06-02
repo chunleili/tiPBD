@@ -30,7 +30,7 @@ case_name = parser.parse_args().case_name
 
 to_read_dir = prj_dir + f"result/{case_name}/A/"
 save_fig = True
-show_fig = True
+show_fig = False
 generate_data = False
 draw_plot = True
 maxiter = 300
@@ -188,21 +188,28 @@ def test_amg(A, b, postfix=""):
     # toc15 = perf_counter()
 
     # CAMG+CG
-    ml16 = pyamg.smoothed_aggregation_solver(A, smooth='energy')
+    ml16 = pyamg.ruge_stuben_solver(A)
     res16 = []
     _ = ml16.solve(b, x0=x0.copy(), tol=tol, residuals=res16, maxiter=maxiter, accel='cg')
     conv16 = calc_conv(res16)
     print("res16 CAMG+CG",conv16)
     toc16 = perf_counter()
 
+    # SA+CG smooth=None
+    ml17 = pyamg.smoothed_aggregation_solver(A, smooth=None)
+    res17 = []
+    _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=res17,maxiter=maxiter, accel='cg')
+    conv17 = calc_conv(res17)
+    print("res17 SA+CG smooth=None",conv17)
+    toc17 = perf_counter()
+
     # strength options
     # strength_options()
 
-    convs = [conv1, conv2, conv4, conv5, conv6, conv7, conv8, conv9, conv10, conv12, conv13, conv14, conv16]
-    # draw_convergence_factors(convs)
-    times = np.diff(np.array([tic, toc1, toc2, toc4, toc5, toc6, toc7, toc8, toc9, toc10, toc12, toc13, toc14, toc16]))
-    # draw_times(times)
-    # draw_conv_over_time(convs, times)
+    convs = [conv1, conv2, conv4, conv5, conv6, conv7, conv8, conv9, conv10, conv12, conv13, conv14, conv16, conv17]
+    times = np.diff(np.array([tic, toc1, toc2, toc4, toc5, toc6, toc7, toc8, toc9, toc10, toc12, toc13, toc14, toc16, toc17]))
+    draw_convergence_factors(convs)
+    draw_times(times)
 
     if draw_plot:
         # https://matplotlib.org/stable/api/markers_api.html for different markers
@@ -223,6 +230,7 @@ def test_amg(A, b, postfix=""):
         plot_residuals(a2r(res14), axs,  label="SA+CG smooth='energy'", marker='3')
         # plot_residuals(a2r(res15), axs,  label="SA+CG noCG+CG" , marker='4')
         plot_residuals(a2r(res16), axs,  label="CAMG+CG", marker="+")
+        plot_residuals(a2r(res17), axs,  label="SA+CG smooth=None", marker="X")
 
 
         global plot_title
@@ -247,7 +255,7 @@ def draw_convergence_factors(convs):
     fig, ax = plt.subplots()
     ax.barh(range(len(convs)), convs, color='blue')
     ax.set_yticks(range(len(convs)))
-    ax.set_yticklabels(["Classical AMG", "Smoothed Aggregation", "Gauss Seidel", "SA+CG", "CG", "diag+CG", "SA+algebraic3.0+cg", "SA+affinity4.0+cg", "blackbox", "rootnode+CG", "SA+CG normal", "SA+CG smooth='energy'", "CAMG+CG"])
+    ax.set_yticklabels(["Classical AMG", "Smoothed Aggregation", "Gauss Seidel", "SA+CG", "CG", "diag+CG", "SA+algebraic3.0+cg", "SA+affinity4.0+cg", "blackbox", "rootnode+CG", "SA+CG normal", "SA+CG smooth='energy'", "CAMG+CG", "SA+CG smooth=None"])
     ax.set_title("Convergence factor of each solver")
 
 def draw_times(times):
@@ -255,7 +263,7 @@ def draw_times(times):
     fig, ax = plt.subplots()
     ax.barh(range(len(times)), times, color='red')
     ax.set_yticks(range(len(times)))
-    ax.set_yticklabels(["Classical AMG", "Smoothed Aggregation", "Gauss Seidel", "SA+CG", "CG", "diag+CG", "SA+algebraic3.0+cg", "SA+affinity4.0+cg", "blackbox", "rootnode+CG", "SA+CG normal", "SA+CG smooth='energy'", "CAMG+CG"])
+    ax.set_yticklabels(["Classical AMG", "Smoothed Aggregation", "Gauss Seidel", "SA+CG", "CG", "diag+CG", "SA+algebraic3.0+cg", "SA+affinity4.0+cg", "blackbox", "rootnode+CG", "SA+CG normal", "SA+CG smooth='energy'", "CAMG+CG", "SA+CG smooth=None"])
     ax.set_title("Time taken for each solver")
 
 def draw_conv_over_time(convs, times):
@@ -263,7 +271,7 @@ def draw_conv_over_time(convs, times):
     fig, ax = plt.subplots()
     ax.barh(range(len(convs_over_time)), convs_over_time, color='green')
     ax.set_yticks(range(len(convs_over_time)))
-    ax.set_yticklabels(["Classical AMG", "Smoothed Aggregation", "Gauss Seidel", "SA+CG", "CG", "diag+CG", "SA+algebraic3.0+cg", "SA+affinity4.0+cg", "blackbox", "rootnode+CG", "SA+CG normal", "SA+CG smooth='energy'", "SA+CG 20noCG+last CG"])
+    ax.set_yticklabels(["Classical AMG", "Smoothed Aggregation", "Gauss Seidel", "SA+CG", "CG", "diag+CG", "SA+algebraic3.0+cg", "SA+affinity4.0+cg", "blackbox", "rootnode+CG", "SA+CG normal", "SA+CG smooth='energy'", "CAMG+CG", "SA+CG smooth=None"])
     ax.set_title("Convergence factor over time")
 
 # def test_amg1(mat_size = 10, case_num = 0, postfix=""):

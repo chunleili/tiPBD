@@ -1031,7 +1031,7 @@ def build_P(A):
     R = ml.levels[0].R
     return P, R
 
-Residual = namedtuple('residual', ['sys', 'primary', 'dual', 'obj', 'amg', 'gs','t'])
+Residual = namedtuple('residual', ['sys', 'primary', 'dual', 'obj', 'amg', 'gs','iters','t'])
 
 def substep_all_solver(max_iter=1):
     global pos, lagrangian
@@ -1119,7 +1119,7 @@ def substep_all_solver(max_iter=1):
             print(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             if export_log:
                 logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
-            r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, t_iter))
+            r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, len(r_Axb), t_iter))
             t_calc_residual += time.perf_counter()-t_calc_residual_start
 
         x_prev = x.copy()

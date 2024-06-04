@@ -77,7 +77,7 @@ def case5():
           "-max_iter_Axb=150",
           "-scale_instead_of_attach=0",
           "-export_matrix=0",
-          "-out_dir=result/profile1024",
+          "-out_dir=result/profile1024/",
           ]
     log_args(args)
     call(args)
@@ -97,7 +97,7 @@ def case6():
           "-scale_instead_of_attach=1",
           "-export_matrix=1",
           "-export_matrix_interval=1",
-          "-out_dir=result/scale64",
+          "-out_dir=result/scale64/",
           ]
     log_args(args)
     call(args)

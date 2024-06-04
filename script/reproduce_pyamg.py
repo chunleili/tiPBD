@@ -23,7 +23,7 @@ print("prj_dir", prj_dir)
 parser = argparse.ArgumentParser()
 parser.add_argument("-title", type=str, default=f"")
 parser.add_argument("-f", type=int, default=20)
-parser.add_argument("-case_name", type=str, default='scale64')
+parser.add_argument("-case_name", type=str, default='attach64')
 plot_title = parser.parse_args().title
 frame = parser.parse_args().f
 case_name = parser.parse_args().case_name
@@ -51,17 +51,17 @@ def test_amg(A, b, postfix=""):
     # classical AMG
     label = "Classical AMG"
     print(f"Calculating {label}...")
-    ml = pyamg.ruge_stuben_solver(A)
+    ml1 = pyamg.ruge_stuben_solver(A)
     r = []
-    _ = ml.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
+    _ = ml1.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
     allres.append(Residual(label, r, perf_counter()))
 
     # SA
     label = "Smoothed Aggregation"
     print(f"Calculating {label}...")
-    ml = pyamg.smoothed_aggregation_solver(A)
+    ml2 = pyamg.smoothed_aggregation_solver(A)
     r = []
-    _ = ml.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
+    _ = ml2.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
     allres.append(Residual(label, r, perf_counter()))
 
     # Jacobi: diverge
@@ -85,10 +85,21 @@ def test_amg(A, b, postfix=""):
     allres.append(Residual(label, r, perf_counter()))
 
     #  SA+CG, from diagnostic,
-    label = "SA + CG"
+    label = "SA+CG"
     print(f"Calculating {label}...")
     r = []
-    SA_from_diagnostic(A, b, x0, r)
+    B = np.ones((A.shape[0],1), dtype=A.dtype); BH = B.copy()
+    ml5 = pyamg.smoothed_aggregation_solver(A,B=B,BH=BH, 
+        strength=('symmetric', {'theta': 0.0}),
+        smooth="jacobi",
+        improve_candidates=None,
+        aggregate="standard",
+        presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        max_levels=15,
+        max_coarse=300,
+        coarse_solver="pinv")
+    x = ml5.solve(b, x0=x0, tol=tol, residuals=r, accel="cg", maxiter=maxiter, cycle="W")
     allres.append(Residual(label, r, perf_counter()))
 
     # CG
@@ -109,15 +120,6 @@ def test_amg(A, b, postfix=""):
     r.append(np.linalg.norm(b - A @ x7))
     x7 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)), M=M)
     allres.append(Residual(label, r, perf_counter()))
-
-    #my amg
-    # R1, P1 = generate_R_P(A)
-    # x0 = np.zeros_like(b)
-    # res7 = []
-    # x_amg = solve_amg(A, b, x0=x0.copy(), R=R1, P=P1, residuals=res7, maxiter=maxiter)
-    # conv7 = calc_conv(res7)
-    # print("res7 my amg",conv7)
-    # toc7 = perf_counter()
 
     # SA with strength algebraic_distance_epsilon3
     label = "SA+CG+Algebraic3.0"
@@ -145,15 +147,6 @@ def test_amg(A, b, postfix=""):
     conv10 = calc_conv(r)
     allres.append(Residual(label, r, perf_counter()))
 
-
-    # CR: fail pyamg/classical/cr.py", line 64, in _CRsweep rhok = enorm / enorm_old
-    # ZeroDivisionError: float division by zero
-    # ml11 = pyamg.ruge_stuben_solver(A, CF='CR')
-    # res11 = []
-    # x_pyamg = ml.solve(b, x0=x0.copy(), tol=tol, residuals=res11,maxiter=maxiter)
-    # print("res11 CR", len(res11), res11[-1])
-    # print((res11[-1]/res11[0])**(1.0/(len(res11)-1)))
-
     # rootnode
     label = "Rootnode+CG"
     print(f"Calculating {label}...")
@@ -179,17 +172,6 @@ def test_amg(A, b, postfix=""):
     _ = ml14.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
     allres.append(Residual(label, r, perf_counter()))
 
-    # # SA w/o CG for first 5 iterations, then SA with CG
-    # ml15 = pyamg.smoothed_aggregation_solver(A)
-    # res15_1 = []
-    # res15_2 = []
-    # x15 = ml15.solve(b, x0=x0.copy(), tol=tol, residuals=res15_1,maxiter=5, accel=None)
-    # _ = ml15.solve(b, x0=x15, tol=tol, residuals=res15_2,maxiter=maxiter-5, accel='cg')
-    # res15 = res15_1 + res15_2
-    # conv15 = calc_conv(res15)
-    # print("res15 SA noCG+CG",conv15)
-    # toc15 = perf_counter()
-
     # CAMG+CG
     label = "CAMG+CG"
     print(f"Calculating {label}...")
@@ -198,66 +180,44 @@ def test_amg(A, b, postfix=""):
     _ = ml16.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter, accel='cg')
     allres.append(Residual(label, r, perf_counter()))
 
-    # SA+CG smooth=None
-    label = "SA+CG unsmooth"
+    # UA+CG
+    label = "UA+CG"
     print(f"Calculating {label}...")
     ml17 = pyamg.smoothed_aggregation_solver(A, smooth=None)
     r = []
     _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
     allres.append(Residual(label, r, perf_counter()))
 
-    # strength options
-    # strength_options()
+    label = "UA+CG coarse=GS"
+    print(f"Calculating {label}...")
+    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='gauss_seidel')
+    r = []
+    _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
 
-    # convs = [conv1, conv2, conv4, conv5, conv6, conv7, conv8, conv9, conv10, conv12, conv13, conv14, conv16, conv17]
-    # times = np.diff(np.array([tic, toc1, toc2, toc4, toc5, toc6, toc7, toc8, toc9, toc10, toc12, toc13, toc14, toc16, toc17]))
-    # labels = ["Classical AMG", #1
-    #           "Smoothed Aggregation", #2
-    #           "Gauss Seidel", #4
-    #           "SA+CG", #5
-    #           "CG", #6
-    #           "diag+CG", #7
-    #           "SA+algebraic3.0+cg", #8
-    #           "SA+affinity4.0+cg", #9
-    #           "blackbox", #10
-    #           "rootnode+CG", #12
-    #           "SA+CG normal", #13
-    #           "SA+CG smooth='energy'", #14
-    #           "CAMG+CG", #16
-    #           "SA+CG smooth=None" #17
-    #           ]  
     convs,times,labels  = postprocess_residual(allres, tic)
     
     draw_convergence_factors(convs, labels)
     draw_times(times, labels)
-    print_df(labels, convs, times)
 
+    df = print_df(labels, convs, times)
+    save_data(allres,postfix)
 
-    markers = ['o', 'x', 's', 'd', '^', 'v', '>', '<', '1', '2', '3', '4', '+', 'X']
     if draw_plot:
+        colors = ['blue', 'orange', 'red', 'purple', 'green', 'black', 'brown', 'pink', 'gray', 'olive', 'cyan', 'lime', 'teal', 'brown', 'pink']
+        markers = ['o', 'x', 's', 'd', '^', 'v', '>', '<', '1', '2', '3', '4', '+', 'X']
+        markers = ['' for _ in range(len(allres)-1)]
+        markers.append('o')
+
         # https://matplotlib.org/stable/api/markers_api.html for different markers
+        # https://matplotlib.org/stable/users/explain/colors/colors.html#colors-def for different colors
+        # https://matplotlib.org/stable/gallery/color/named_colors.html
         fig, axs = plt.subplots(1, figsize=(8, 9))
-        # plot_residuals(res3, axs,  label="Jacobi", marker="*", color="purple") # diverge
-        # plot_residuals(res11, axs,  label="CR")
-
-        # plot_residuals(a2r(res1 ), axs,  label="Classical AMG", marker="o", color="blue")
-        # plot_residuals(a2r(res2 ), axs,  label="Smoothed Aggregation", marker="x", color="orange")
-        # plot_residuals(a2r(res4 ), axs,  label="Gauss Seidel", marker="s", color="red")
-        # plot_residuals(a2r(res5 ), axs,  label="SA+CG", marker="d", color="purple")
-        # plot_residuals(a2r(res6 ), axs,  label="CG", marker="^", color="green")
-        # plot_residuals(a2r(res7 ), axs,  label="diag CG", marker="v", color="black")
-        # plot_residuals(a2r(res8 ), axs,  label="SA+algebraic3.0+cg", marker="v", color="black")
-        # plot_residuals(a2r(res9 ), axs,  label="SA+affinity4.0+cg")
-        # plot_residuals(a2r(res10), axs,  label="blackbox")
-        # plot_residuals(a2r(res12), axs,  label="rootnode+CG", marker='1')
-        # # plot_residuals(a2r(res13), axs,  label="SA+CG normal", marker='2')
-        # plot_residuals(a2r(res14), axs,  label="SA+CG smooth='energy'", marker='3')
-        # # plot_residuals(a2r(res15), axs,  label="SA+CG noCG+CG" , marker='4')
-        # plot_residuals(a2r(res16), axs,  label="CAMG+CG", marker="+")
-        # plot_residuals(a2r(res17), axs,  label="SA+CG smooth=None", marker="X")
         for i in range(len(allres)):
-            plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label, marker=markers[i])
-
+            # if allres[i].label == 'SA+CG' or\
+            #    allres[i].label == 'UA+CG' or\
+            #    allres[i].label == 'UA+CG coarse=GS':
+            plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label, marker=markers[i], color=colors[i])
 
         global plot_title
         plot_title = postfix
@@ -301,19 +261,27 @@ def draw_times(times, labels):
     ax.set_title("Time taken for each solver")
 
 
-def print_df(labels, convs, times):
+def print_df(labels, convs, times, verbose=False):
     import pandas as pd
     print("\n\nDataframe of convergence factor and time taken for each solver")
     pd.set_option("display.precision", 3)
-    df = pd.DataFrame({"label":labels, "convergence factor":convs, "time(s)":times})
+    df = pd.DataFrame({"label":labels, "conv_fac":convs, "time":times})
     print(df)
-    print("\nIn increasing order of convergence factor:")
-    df = df.sort_values(by="convergence factor", ascending=True)
-    print(df)
-    print("\nIn increasing order of time taken:")
-    df = df.sort_values(by="time(s)", ascending=True)
-    print(df)
+    if verbose:
+        print("\nIn increasing order of conv_fac:")
+        df = df.sort_values(by="conv_fac", ascending=True)
+        print(df)
+        print("\nIn increasing order of time taken:")
+        df = df.sort_values(by="time", ascending=True)
+        print(df)
+    return df
 
+def save_data(allres, postfix=""):
+    import pandas as pd
+    df = pd.DataFrame(allres)
+    dir = os.path.dirname(os.path.dirname(to_read_dir)) + '/png/'
+    mkdir_if_not_exist(dir)
+    df.to_csv(dir+f"/allres_{postfix}.csv")
 
 def postprocess_residual(allres, tic):
     # import pandas as pd
@@ -501,18 +469,8 @@ def plot_full_residual(data, title=""):
     fig.colorbar(surf0, shrink=0.5, aspect=5)
 
 def SA_from_diagnostic(A, b, x0, res):
-    ##
     # Generate B
     B = np.ones((A.shape[0],1), dtype=A.dtype); BH = B.copy()
-
-    ##
-    # Random initial guess, zero right-hand side
-    np.random.seed(0)
-    # b = zeros((A.shape[0],1))
-    # x0 = np.random.rand(A.shape[0],1)
-    # x0 = 0*b
-
-    ##
     # Create solver
     ml = pyamg.smoothed_aggregation_solver(A,B=B,BH=BH, 
         strength=('symmetric', {'theta': 0.0}),
@@ -524,29 +482,8 @@ def SA_from_diagnostic(A, b, x0, res):
         max_levels=15,
         max_coarse=300,
         coarse_solver="pinv")
-
-    ##
-    # Solve system
-    # res = []
     x = ml.solve(b, x0=x0, tol=tol, residuals=res, accel="cg", maxiter=maxiter, cycle="W")
-    res_rate = (res[-1]/res[0])**(1.0/(len(res)-1.))
-    # normr0 = pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x0))
-    # print(" ")
-    # print(ml)
-    # print("System size:                " + str(A.shape))
-    # print("res5 SA from diagnostic:\t%f" % res_rate) #convergence factor aka. residual readuction rate
-    # print("Iterations:                 %d" % len(res))
-    # print("Operator Complexity:        %1.2f" % ml.operator_complexity())
-    # print("Work per DOA:               %1.2f" % (ml.cycle_complexity()/abs(np.log10(res_rate))))
-    # print("Relative residual norm:     %1.2e" % (pyamg.util.linalg.norm(np.ravel(b) - np.ravel(A*x))/normr0))
 
-    # ##
-    # # Plot residual history
-    # plt.semilogy(np.array(res)/res[0])
-    # plt.title('Residual Histories')
-    # plt.xlabel('Iteration')
-    # plt.ylabel('Relative Residual Norm')
-    # plt.show()
 
 def load_A_b(case_name = "scale64"):
     import scipy.io
@@ -1251,6 +1188,7 @@ if __name__ == "__main__":
     frames = [1, 6, 11, 16, 21, 26]
     for frame in frames:
         postfix=f"F{frame}-0"
+        print(f"\n\n\n{postfix}")
         A,b = prepare_A_b(postfix=postfix)
         test_amg(A,b,postfix=postfix)
 

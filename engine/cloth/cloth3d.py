@@ -1254,7 +1254,7 @@ if not restart and not dont_clean_results:
     clean_result_dir(out_dir + "/obj/")
 
 
-logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'latest.log',filemode='a')
+logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
 
 print_all_globals(global_vars)
 

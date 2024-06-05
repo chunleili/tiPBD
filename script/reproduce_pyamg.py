@@ -23,7 +23,7 @@ print("prj_dir", prj_dir)
 parser = argparse.ArgumentParser()
 parser.add_argument("-title", type=str, default=f"")
 parser.add_argument("-f", type=int, default=20)
-parser.add_argument("-case_name", type=str, default='attach64')
+parser.add_argument("-case_name", type=str, default='scale64')
 plot_title = parser.parse_args().title
 frame = parser.parse_args().f
 case_name = parser.parse_args().case_name
@@ -79,7 +79,7 @@ def test_amg(A, b, postfix=""):
     print(f"Calculating {label}...")
     x4 = x0.copy()
     r = []
-    for _ in range(maxiter+1):
+    for _ in range(maxiter*8+1):
         r.append(np.linalg.norm(b - A @ x4))
         pyamg.relaxation.relaxation.gauss_seidel(A=A, x=x4, b=b, iterations=1)
     allres.append(Residual(label, r, perf_counter()))
@@ -190,7 +190,7 @@ def test_amg(A, b, postfix=""):
 
     label = "UA+CG coarse=GS"
     print(f"Calculating {label}...")
-    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='gauss_seidel')
+    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='gauss_seidel', max_coarse=300)
     r = []
     _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
     allres.append(Residual(label, r, perf_counter()))

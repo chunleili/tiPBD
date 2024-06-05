@@ -1,3 +1,4 @@
+import scipy.sparse
 import taichi as ti
 import numpy as np
 import time
@@ -45,6 +46,7 @@ use_primary_residual = False
 use_chen2023 = False
 use_chen2023_blended = False
 chen2023_blended_ksi = 0.5
+use_geometric_stiffness = True
 dont_clean_results = False
 report_time = True
 export_log = True
@@ -144,7 +146,8 @@ potential_energy = ti.field(dtype=float, shape=())
 inertial_energy = ti.field(dtype=float, shape=())
 predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 # primary_residual = np.zeros(dtype=float, shape=(3*NV))
-
+# H = ti.Matrix.field(3, 3, ti.f64, (NV, NV)) # geometric stiffness
+H = ti.Vector.field(3, ti.f64, (NV, NV)) # geometric stiffness. only retain diagonal elements
 
 
 class SpMat():
@@ -596,6 +599,16 @@ def compute_C_and_gradC_kernel(
         gradC[i, 0] = g
         gradC[i, 1] = -g
 
+        #geometric stiffness H: 
+        # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
+        I = ti.math.eye(3)
+        k = lagrangian[i] / dis.norm() * (I - g.outer_product(g))
+        kdiag = ti.Vector([k[0,0], k[1,1], k[2,2]])
+        H[idx0, idx0] += kdiag
+        H[idx0, idx1] -= kdiag
+        H[idx1, idx0] -= kdiag
+        H[idx1, idx1] += kdiag
+
 @ti.kernel
 def update_constraints_kernel(
     pos:ti.template(),
@@ -822,16 +835,67 @@ def spy_A(A,b):
     plt.show()
     exit()
 
+# def assemble_H():
+#     # we only use diagonal of H
+#     H = scipy.sparse.diags([H.to_numpy().diagonal()], [0], format="csr")
+
+
+# @ti.kernel
+# def fill_H_triplets(
+#     ii:ti.types.ndarray(dtype=ti.i32),
+#     jj:ti.types.ndarray(dtype=ti.i32),
+#     vv:ti.types.ndarray(dtype=ti.f32),
+#     H:ti.template(),
+# ):
+#     cnt=0
+#     ti.loop_config(serialize=True)
+#     for i in range(NV):
+#         for j in range(NV):
+#             if i == j:
+#                 ii[cnt],jj[cnt],vv[cnt] = i,    j,      H[i,j][0]
+#                 cnt+=1
+#                 ii[cnt],jj[cnt],vv[cnt] = i+1,  j,      H[i,j][1]
+#                 cnt+=1
+#                 ii[cnt],jj[cnt],vv[cnt] = i+1,  j+1,    H[i,j][2]
+#                 cnt+=1
+
+
+@ti.kernel
+def fill_H_diag(
+    diag:ti.types.ndarray(dtype=ti.f32),
+    H:ti.template(),
+):
+    for i in range(NV):
+        diag[3*i]   = H[i,i][0]
+        diag[3*i+1] = H[i,i][1]
+        diag[3*i+2] = H[i,i][2]
+
+
+def mass_remove_infinity(inv_mass):
+    inv_mass_np = inv_mass.to_numpy()
+    mass = inv_mass_np[inv_mass_np!=0]
+    mass = 1.0/mass
+    return mass
+
 # legacy
 def fill_A_by_spmm(M_inv, ALPHA):
     G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
     compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
+
+    # Geometric Stiffness: K = M - H, we only use diagonal of H and then replace M_inv with K_inv
+    Hdiag = np.zeros(NV*3, dtype=np.float32)
+    fill_H_diag(Hdiag, H)
+    mass_no_inf = mass_remove_infinity(inv_mass)
+    mass_no_inf = np.repeat(mass_no_inf, 3, axis=0)
+    Kinv = scipy.sparse.diags([1.0/(mass_no_inf-Hdiag)], [0], format="dia")
+    M_inv_ori = M_inv.copy()
+    M_inv = Kinv
+    diff = (M_inv_ori - M_inv).diagonal()
+
     A = G @ M_inv @ G.transpose() + ALPHA
     A = scipy.sparse.csr_matrix(A)
-
-    # A = improve_A_by_reduce_offdiag(A)
     return A, G
 
 def improve_A_by_add_diag(A):
@@ -1100,8 +1164,8 @@ def substep_all_solver(max_iter=1):
         if use_primary_residual:
             transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
         else:
-            transfer_back_to_pos_mfree(x) #XPBD
-            # transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) 
+            # transfer_back_to_pos_mfree(x) #XPBD
+            transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) 
 
 
         if export_residual:

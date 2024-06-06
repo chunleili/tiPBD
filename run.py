@@ -120,6 +120,26 @@ def case7():
     log_args(args)
     call(args)
 
+# case8: use geo vs. no geo_stiffness
+def case7():
+    args = [pythonExe, "engine/cloth/cloth3d.py",
+          "-N=64",
+          "-solver_type=AMG", 
+          "-delta_t=1e-3", 
+          "-end_frame=51",
+          "-restart=1",
+          "-restart_frame=50",
+          "-restart_dir=result/restart/",
+          "-max_iter=100",
+          "-max_iter_Axb=150",
+          "-setup_num=0",
+          "-export_matrix=1",
+          "-export_matrix_interval=1",
+          "-out_dir=result/geoStiff/",
+          ]
+    log_args(args)
+    call(args)
+
 def log_args(args:list):
     args1 = " ".join(args) # 将ARGS转换为字符串
     print(f"\nArguments:\n{args1}\n")
@@ -154,6 +174,8 @@ if __name__=='__main__':
         case6()
     elif case_num==7:
         case7()
+    elif case_num==8:
+        case8()
     else:
         print('Invalid case number. Exiting...')
         sys.exit(1)

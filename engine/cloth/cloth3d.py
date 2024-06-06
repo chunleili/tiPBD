@@ -862,51 +862,6 @@ def spy_A(A,b):
     plt.show()
     exit()
 
-# def assemble_H():
-#     # we only use diagonal of H
-#     H = scipy.sparse.diags([H.to_numpy().diagonal()], [0], format="csr")
-
-
-# @ti.kernel
-# def fill_H_triplets(
-#     ii:ti.types.ndarray(dtype=ti.i32),
-#     jj:ti.types.ndarray(dtype=ti.i32),
-#     vv:ti.types.ndarray(dtype=ti.f32),
-#     H:ti.template(),
-# ):
-#     cnt=0
-#     ti.loop_config(serialize=True)
-#     for i in range(NV):
-#         for j in range(NV):
-#             if i == j:
-#                 ii[cnt],jj[cnt],vv[cnt] = i,    j,      H[i,j][0]
-#                 cnt+=1
-#                 ii[cnt],jj[cnt],vv[cnt] = i+1,  j,      H[i,j][1]
-#                 cnt+=1
-#                 ii[cnt],jj[cnt],vv[cnt] = i+1,  j+1,    H[i,j][2]
-#                 cnt+=1
-
-
-@ti.kernel
-def fill_H_diag(
-    diag:ti.types.ndarray(dtype=ti.f32),
-    H:ti.template(),
-):
-    for i in range(NV):
-        diag[3*i]   = H[i,i][0]
-        diag[3*i+1] = H[i,i][1]
-        diag[3*i+2] = H[i,i][2]
-
-
-def mass_remove_infinity(inv_mass):
-    inv_mass_np = inv_mass.to_numpy()
-    inv_mass_np[inv_mass_np==0] = 1e-12
-    mass = 1.0/inv_mass_np
-    return mass
-
-def assemble_K_inv():
-    for i in range(NE):
-        ...
 
 # legacy
 def fill_A_by_spmm(M_inv, ALPHA):
@@ -1331,6 +1286,7 @@ def load_state(filename):
 
 def print_all_globals(global_vars):
     print("\n\n### Global Variables ###")
+    logging.info("\n\n### Global Variables ###")
     import sys
     module_name = sys.modules[__name__].__name__
     global_vars = global_vars.copy()

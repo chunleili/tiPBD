@@ -33,6 +33,7 @@ early_stop = True
 use_primary_residual = False
 use_geometric_stiffness = True
 dont_clean_results = False
+auto_another_outdir = True
 report_time = True
 
 #parse arguments to change default values
@@ -44,6 +45,8 @@ parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-export_matrix_interval", type=int, default=10)
 parser.add_argument("-export_state", type=int, default=True)
 parser.add_argument("-end_frame", type=int, default=200)
+parser.add_argument("-out_dir", type=str, default=prj_path + f"/result/latest/")
+parser.add_argument("-auto_another_outdir", type=int, default=1)
 parser.add_argument("-restart", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=10)
 parser.add_argument("-restart_dir", type=str, default=prj_path+f"/result/latest/state/")
@@ -52,7 +55,6 @@ parser.add_argument("-tol_Axb", type=float, default=1e-6)
 parser.add_argument("-max_iter", type=int, default=100)
 parser.add_argument("-max_iter_Axb", type=int, default=150)
 parser.add_argument("-export_log", type=int, default=True)
-parser.add_argument("-out_dir", type=str, default=prj_path + f"/result/latest/")
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, stretch:1")
 
 
@@ -1242,6 +1244,23 @@ def clean_result_dir(folder_path):
     print(f"clean {folder_path} done")
     os.chdir(pwd)
 
+def create_another_outdir(out_dir):
+    path = Path(out_dir)
+    if path.exists():
+        # add a number to the end of the folder name
+        path = path.parent / (path.name + "_1")
+        if path.exists():
+            i = 2
+            while True:
+                path = path.parent / (path.name[:-2] + f"_{i}")
+                if not path.exists():
+                    break
+                i += 1
+    path.mkdir(parents=True, exist_ok=True)
+    out_dir = str(path)
+    print(f"\ncreate another outdir: {out_dir}\n")
+    return out_dir
+
 @ti.kernel
 def copy_field(dst: ti.template(), src: ti.template()):
     for i in src:
@@ -1302,6 +1321,10 @@ def print_all_globals(global_vars):
     print("\n\n\n")
     logging.info("\n\n\n")
 
+
+if auto_another_outdir:
+    out_dir = create_another_outdir(out_dir)
+    dont_clean_results = True
 
 misc_dir_path = prj_path + "/data/misc/"
 mkdir_if_not_exist(out_dir)

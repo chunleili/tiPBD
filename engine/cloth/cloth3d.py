@@ -18,26 +18,15 @@ import logging
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-#default value for parameters
-out_dir = prj_path + f"/result/latest/"
+# parameters not in argparse
 frame = 0
-end_frame = 200
 save_image = True
-max_iter = 100
-max_iter_Axb = 150
 paused = False
 save_P, load_P = False, False
 use_viewer = False
 export_obj = True
 export_residual = True
-solver_type = "AMG" # "AMG", "GS", "XPBD"
-export_matrix = False
-export_matrix_interval = 10
 use_offdiag = True
-restart = False
-restart_frame = 10
-restart_dir = prj_path+f"/result/latest/state/"
-export_state = True
 gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
 early_stop = True
@@ -45,29 +34,25 @@ use_primary_residual = False
 use_geometric_stiffness = True
 dont_clean_results = False
 report_time = True
-export_log = True
-tol_sim=1e-6
-tol_Axb=1e-6
-delta_t = 1e-3
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=64)
-parser.add_argument("-delta_t", type=float, default=delta_t)
-parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPBD"
-parser.add_argument("-export_matrix", type=int, default=export_matrix)
-parser.add_argument("-export_matrix_interval", type=int, default=export_matrix_interval)
-parser.add_argument("-export_state", type=int, default=export_state)
-parser.add_argument("-end_frame", type=int, default=end_frame)
-parser.add_argument("-restart", type=int, default=restart)
-parser.add_argument("-restart_frame", type=int, default=restart_frame)
-parser.add_argument("-restart_dir", type=str, default=restart_dir)
-parser.add_argument("-tol_sim", type=float, default=tol_sim)
-parser.add_argument("-tol_Axb", type=float, default=tol_Axb)
-parser.add_argument("-max_iter", type=int, default=max_iter)
-parser.add_argument("-max_iter_Axb", type=int, default=max_iter_Axb)
-parser.add_argument("-export_log", type=int, default=export_log)
-parser.add_argument("-out_dir", type=str, default=out_dir)
+parser.add_argument("-delta_t", type=float, default=1e-3)
+parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
+parser.add_argument("-export_matrix", type=int, default=False)
+parser.add_argument("-export_matrix_interval", type=int, default=10)
+parser.add_argument("-export_state", type=int, default=True)
+parser.add_argument("-end_frame", type=int, default=200)
+parser.add_argument("-restart", type=int, default=False)
+parser.add_argument("-restart_frame", type=int, default=10)
+parser.add_argument("-restart_dir", type=str, default=prj_path+f"/result/latest/state/")
+parser.add_argument("-tol_sim", type=float, default=1e-6)
+parser.add_argument("-tol_Axb", type=float, default=1e-6)
+parser.add_argument("-max_iter", type=int, default=100)
+parser.add_argument("-max_iter_Axb", type=int, default=150)
+parser.add_argument("-export_log", type=int, default=True)
+parser.add_argument("-out_dir", type=str, default=prj_path + f"/result/latest/")
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, stretch:1")
 
 

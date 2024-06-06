@@ -611,14 +611,16 @@ def compute_K_kernel(K_diag:ti.types.ndarray()):
         #geometric stiffness K: 
         # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
         # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
-        I = ti.Matrix([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-        ki = lagrangian[i] / L * (I - g.outer_product(g))
-        K_diag[idx0*3]   = ki[0,0]
-        K_diag[idx0*3+1] = ki[1,1]
-        K_diag[idx0*3+2] = ki[2,2]
-        K_diag[idx1*3]   = ki[0,0]
-        K_diag[idx1*3+1] = ki[1,1]
-        K_diag[idx1*3+2] = ki[2,2]
+        # https://blog.csdn.net/weixin_43940314/article/details/139448858
+        k0 = lagrangian[i] / L * (1 - g[0]*g[0])
+        k1 = lagrangian[i] / L * (1 - g[1]*g[1])
+        k2 = lagrangian[i] / L * (1 - g[2]*g[2])
+        K_diag[idx0*3]   += k0
+        K_diag[idx0*3+1] += k1
+        K_diag[idx0*3+2] += k2
+        K_diag[idx1*3]   += k0
+        K_diag[idx1*3+1] += k1
+        K_diag[idx1*3+2] += k2
     ...
 
 
@@ -747,23 +749,11 @@ def gauss_seidel(A, x, b, iterations=1, residuals = []):
 
 def solve_amg_SA(A,b,x0,residuals=[]):
     import pyamg
-    ml5 = pyamg.smoothed_aggregation_solver(A, B=b, BH=b.copy(),
-        strength=('symmetric', {'theta': 0.0}),
-        smooth="jacobi",
-        improve_candidates=None,
-        aggregate="standard",
-        presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-        postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-        max_levels=15,
-        max_coarse=300,
+    ml5 = pyamg.smoothed_aggregation_solver(A,
+        smooth=None,
+        max_coarse=400,
         coarse_solver="pinv")
-    # res1 = []
-    # res2 = []
-    # x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=res1, accel=None, maxiter=20, cycle="W")
-    # if max_iter_Axb>20 and res1[-1]>tol_Axb:
-    #     x5 = ml5.solve(b, x0=x5.copy(), tol=tol_Axb, residuals=res2, accel="cg", maxiter=max_iter_Axb-20, cycle="W")
-    # residuals = res1+res2
-    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="W")
+    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="V")
     return x5
 
 def solve_amg(A, b, x0, R, P, residuals=[], maxiter = 1, tol = 1e-6):
@@ -901,40 +891,20 @@ def fill_A_by_spmm(M_inv, ALPHA):
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
 
-    # Geometric Stiffness: K = M - H, we only use diagonal of H and then replace M_inv with K_inv
-    # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
-    # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
-    K_diag.fill(0.0)
-    compute_K_kernel(K_diag)
-    mass = 1.0/(M_inv.diagonal()+1e-12)
-    MK_inv = scipy.sparse.diags([1.0/(mass - K_diag.flatten())], [0], format="dia")
-    M_inv = MK_inv # replace old M_inv with MK_inv
+    if use_geometric_stiffness:
+        # Geometric Stiffness: K = M - H, we only use diagonal of H and then replace M_inv with K_inv
+        # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
+        # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
+        # https://blog.csdn.net/weixin_43940314/article/details/139448858
+        K_diag.fill(0.0)
+        compute_K_kernel(K_diag)
+        mass = 1.0/(M_inv.diagonal()+1e-12)
+        MK_inv = scipy.sparse.diags([1.0/(mass - K_diag)], [0], format="dia")
+        M_inv = MK_inv # replace old M_inv with MK_inv
 
     A = G @ M_inv @ G.transpose() + ALPHA
     A = scipy.sparse.csr_matrix(A)
     return A, G
-
-def improve_A_by_add_diag(A):
-    diags = A.diagonal(0)
-    diags += 1
-    A.setdiag(diags)
-    return A
-
-def improve_A_make_M_matrix(A):
-    Anew = A.copy()
-    diags = A.diagonal().copy()
-    A.setdiag(np.zeros(A.shape[0]))
-    A.data[A.data >0 ] *= 0.1
-    A.setdiag(diags)
-    return Anew
-
-def improve_A_by_reduce_offdiag(A):
-    A_diag = A.diagonal(0)
-    A_diag_mat = sp.diags([A_diag], [0], format="csr")
-    A_offdiag = A - A_diag_mat
-    A_offdiag = A_offdiag * 0.1
-    newA = A_diag_mat + A_offdiag
-    return newA
 
 def calc_num_nonz():
     global num_nonz
@@ -1123,13 +1093,6 @@ def substep_all_solver(max_iter=1):
     alpha_tilde_np = np.array([alpha] * M)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
-    A,G = fill_A_by_spmm(M_inv, ALPHA)
-    # A = fill_A_ti()
-    Aori = A.copy()
-    if reduce_offdiag:
-        A = improve_A_by_reduce_offdiag(A)
-    # if solver_type == "AMG":
-    #     P,R = build_P(A)
 
     x0 = np.random.rand(NE)
     x_prev = x0.copy()
@@ -1141,12 +1104,6 @@ def substep_all_solver(max_iter=1):
         copy_field(pos_mid, pos)
 
         A,G = fill_A_by_spmm(M_inv, ALPHA)
-        Aori = A.copy()
-        if reduce_offdiag:
-            A = improve_A_by_reduce_offdiag(A)
-        # if solver_type == "AMG":
-        #     P,R = build_P(A)
-
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
@@ -1171,7 +1128,6 @@ def substep_all_solver(max_iter=1):
             r_Axb = rgs
         if solver_type == "AMG":
             ramg=[]
-            # x = solve_amg(A, b, x, R, P, ramg)
             x = solve_amg_SA(A,b,x_prev,ramg)
             rgs=[None,None]
             r_Axb = ramg

@@ -376,6 +376,57 @@ def init_adjacent_edge(adjacent_edge, num_adjacent_edge, edge):
                 num_adjacent_edge[i]+=1
                 num_adjacent_edge[j]+=1
 
+def read_tri_cloth(filename):
+    edge_file_name = filename + ".edge"
+    node_file_name = filename + ".node"
+    face_file_name = filename + ".face"
+
+    with open(node_file_name, "r") as f:
+        lines = f.readlines()
+        NV = int(lines[0].split()[0])
+        pos = np.zeros((NV, 3), dtype=np.float32)
+        for i in range(NV):
+            pos[i] = np.array(lines[i + 1].split()[1:], dtype=np.float32)
+
+    with open(edge_file_name, "r") as f:
+        lines = f.readlines()
+        NE = int(lines[0].split()[0])
+        edge_indices = np.zeros((NE, 2), dtype=np.int32)
+        for i in range(NE):
+            edge_indices[i] = np.array(lines[i + 1].split()[1:], dtype=np.int32)
+
+    with open(face_file_name, "r") as f:
+        lines = f.readlines()
+        NF = int(lines[0].split()[0])
+        face_indices = np.zeros((NF, 3), dtype=np.int32)
+        for i in range(NF):
+            face_indices[i] = np.array(lines[i + 1].split()[1:-1], dtype=np.int32)
+
+    return pos, edge_indices, face_indices.flatten()
+
+
+def read_tri_cloth_obj(path):
+    print(f"path is {path}")
+    mesh = meshio.read(path)
+    tri = mesh.cells_dict["triangle"]
+    pos = mesh.points
+
+    num_tri = len(tri)
+    edges=[]
+    for i in range(num_tri):
+        ele = tri[i]
+        edges.append([min((ele[0]), (ele[1])), max((ele[0]),(ele[1]))])
+        edges.append([min((ele[1]), (ele[2])), max((ele[1]),(ele[2]))])
+        edges.append([min((ele[0]), (ele[2])), max((ele[0]),(ele[2]))])
+    #remove the duplicate edges
+    # https://stackoverflow.com/questions/2213923/removing-duplicates-from-a-list-of-lists
+    import itertools
+    edges.sort()
+    edges = list(edges for edges,_ in itertools.groupby(edges))
+
+    return pos, np.array(edges), tri.flatten()
+
+
 @ti.kernel
 def semi_euler(
     old_pos:ti.template(),
@@ -1080,6 +1131,53 @@ def build_P(A):
     P = ml.levels[0].P
     R = ml.levels[0].R
     return P, R
+
+
+def substep_GaussNewton():
+    MASS = scipy.sparse.diags(np.ones(3*NV, float))
+    alpha_tilde_np = np.array([alpha] * M)
+    ALPHA_INV = scipy.sparse.diags(1.0 / alpha_tilde_np)
+    h2_inv = 1.0/(h*h)
+    linesarch_alpha = 1.0
+
+    semi_euler(old_pos, inv_mass, vel, pos)
+    x_n = pos.to_numpy().copy()
+    x_tilde = x_n.copy() + h * vel.to_numpy().copy()
+
+    delta_x = (pos.to_numpy() - x_tilde).flatten()
+    total_energy_old = 0.5 * 1.0/alpha * np.dot(constraints.to_numpy(), constraints.to_numpy()) + 0.5 * h2_inv * delta_x @ MASS @ delta_x
+
+    for ite in range(max_iter):
+        G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
+        compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
+        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
+        G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
+        H = G.transpose() @ ALPHA_INV @ G + h2_inv * MASS
+        # H_inv = scipy.sparse.diags(1.0/H.diagonal())
+
+        # fill b
+        delta_x = (pos.to_numpy() - x_tilde).flatten()
+        gradF = G.transpose() @ ALPHA_INV @ constraints.to_numpy() + h2_inv * MASS @ delta_x
+
+        d_x = scipy.sparse.linalg.spsolve(H, -gradF)
+
+        pos.from_numpy((pos.to_numpy().flatten() + d_x * linesarch_alpha).reshape(-1, 3))
+
+        # line search
+        total_energy = 0.5 * 1.0/alpha * np.dot(constraints.to_numpy(), constraints.to_numpy()) + 0.5 * h2_inv * delta_x @ MASS @ delta_x
+        delta_energy = total_energy - total_energy_old
+        if delta_energy > 0:
+            linesarch_alpha *= 0.5
+            pos.from_numpy(x_n.reshape(-1, 3))
+            # continue
+        total_energy_old = total_energy.copy()
+
+        err = np.linalg.norm(d_x)
+        print(f"iter {ite}, err: {err:.1e}")
+        if err < 1e-4 and ite>1:
+            break
+    update_vel(old_pos, inv_mass, vel, pos)
+
 
 Residual = namedtuple('residual', ['sys', 'primary', 'dual', 'obj', 'amg', 'gs','iters','t'])
 

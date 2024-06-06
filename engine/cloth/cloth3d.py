@@ -55,7 +55,9 @@ parser.add_argument("-tol_Axb", type=float, default=1e-6)
 parser.add_argument("-max_iter", type=int, default=100)
 parser.add_argument("-max_iter_Axb", type=int, default=150)
 parser.add_argument("-export_log", type=int, default=True)
-parser.add_argument("-setup_num", type=int, default=0, help="attach:0, stretch:1")
+parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
+parser.add_argument("-use_json", type=int, default=1, help="json configs will overwrite the command line args")
+parser.add_argument("-json_path", type=str, default="attach64.json", help="json configs will overwrite the command line args")
 
 
 args = parser.parse_args()
@@ -80,6 +82,21 @@ export_log = bool(args.export_log)
 out_dir = args.out_dir
 auto_another_outdir = bool(args.auto_another_outdir)
 restart_from_last_frame = bool(args.restart_from_last_frame)
+use_json = bool(args.use_json)
+json_path = args.json_path
+
+if use_json:
+    print(f"CAUTION: using json config file {json_path} to overwrite the command line args!")
+    with open(prj_path + "/data/scene/cloth/"+ json_path, "r") as json_file:
+        config = json.load(json_file)
+    for key, value in config.items():
+        if key in globals():
+            if globals()[key] != value:
+                print(f"overwriting {key} from {globals()[key]} to {value}")
+                globals()[key] = value
+        else:
+            print(f"json key {key} not exist in globals()!")
+
 
 #to print out the parameters
 global_vars = globals().copy()
@@ -1314,6 +1331,8 @@ def print_all_globals(global_vars):
     for var_name, var_value in global_vars.items():
         if var_name != module_name and not var_name.startswith('__') and not callable(var_value) and not isinstance(var_value, type(sys)):
             if var_name == 'parser':
+                continue
+            if var_name == 'args':
                 continue
             print(var_name, "=", var_value)
             if export_log:

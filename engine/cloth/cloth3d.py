@@ -33,7 +33,7 @@ export_residual = True
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = False
 export_matrix_interval = 10
-scale_instead_of_attach = True
+scale_instead_of_attach = False
 use_offdiag = True
 restart = False
 restart_frame = 10
@@ -146,9 +146,9 @@ potential_energy = ti.field(dtype=float, shape=())
 inertial_energy = ti.field(dtype=float, shape=())
 predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 # primary_residual = np.zeros(dtype=float, shape=(3*NV))
-# H = ti.Matrix.field(3, 3, ti.f64, (NV, NV)) # geometric stiffness
-H = ti.Vector.field(3, ti.f64, (NV, NV)) # geometric stiffness. only retain diagonal elements
-
+# K = ti.Matrix.field(3, 3, float, (NV, NV)) 
+# geometric stiffness, only retain diagonal elements
+K_diag = np.zeros((NV*3), dtype=float)
 
 class SpMat():
     def __init__(self, nnz, nrow=NE):
@@ -599,15 +599,28 @@ def compute_C_and_gradC_kernel(
         gradC[i, 0] = g
         gradC[i, 1] = -g
 
-        #geometric stiffness H: 
+
+@ti.kernel
+def compute_K_kernel(K_diag:ti.types.ndarray()):
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        dis = pos[idx0] - pos[idx1]
+        L= dis.norm()
+        g = dis.normalized()
+
+        #geometric stiffness K: 
         # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
-        I = ti.math.eye(3)
-        k = lagrangian[i] / dis.norm() * (I - g.outer_product(g))
-        kdiag = ti.Vector([k[0,0], k[1,1], k[2,2]])
-        H[idx0, idx0] += kdiag
-        H[idx0, idx1] -= kdiag
-        H[idx1, idx0] -= kdiag
-        H[idx1, idx1] += kdiag
+        # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
+        I = ti.Matrix([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        ki = lagrangian[i] / L * (I - g.outer_product(g))
+        K_diag[idx0*3]   = ki[0,0]
+        K_diag[idx0*3+1] = ki[1,1]
+        K_diag[idx0*3+2] = ki[2,2]
+        K_diag[idx1*3]   = ki[0,0]
+        K_diag[idx1*3+1] = ki[1,1]
+        K_diag[idx1*3+2] = ki[2,2]
+    ...
+
 
 @ti.kernel
 def update_constraints_kernel(
@@ -873,9 +886,13 @@ def fill_H_diag(
 
 def mass_remove_infinity(inv_mass):
     inv_mass_np = inv_mass.to_numpy()
-    mass = inv_mass_np[inv_mass_np!=0]
-    mass = 1.0/mass
+    inv_mass_np[inv_mass_np==0] = 1e-12
+    mass = 1.0/inv_mass_np
     return mass
+
+def assemble_K_inv():
+    for i in range(NE):
+        ...
 
 # legacy
 def fill_A_by_spmm(M_inv, ALPHA):
@@ -885,14 +902,13 @@ def fill_A_by_spmm(M_inv, ALPHA):
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
 
     # Geometric Stiffness: K = M - H, we only use diagonal of H and then replace M_inv with K_inv
-    Hdiag = np.zeros(NV*3, dtype=np.float32)
-    fill_H_diag(Hdiag, H)
-    mass_no_inf = mass_remove_infinity(inv_mass)
-    mass_no_inf = np.repeat(mass_no_inf, 3, axis=0)
-    Kinv = scipy.sparse.diags([1.0/(mass_no_inf-Hdiag)], [0], format="dia")
-    M_inv_ori = M_inv.copy()
-    M_inv = Kinv
-    diff = (M_inv_ori - M_inv).diagonal()
+    # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
+    # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
+    K_diag.fill(0.0)
+    compute_K_kernel(K_diag)
+    mass = 1.0/(M_inv.diagonal()+1e-12)
+    MK_inv = scipy.sparse.diags([1.0/(mass - K_diag.flatten())], [0], format="dia")
+    M_inv = MK_inv # replace old M_inv with MK_inv
 
     A = G @ M_inv @ G.transpose() + ALPHA
     A = scipy.sparse.csr_matrix(A)

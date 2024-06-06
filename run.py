@@ -102,6 +102,24 @@ def case6():
     log_args(args)
     call(args)
 
+
+# case7: attach 64
+def case7():
+    args = [pythonExe, "engine/cloth/cloth3d.py",
+          "-N=64",
+          "-solver_type=AMG", 
+          "-delta_t=4e-3", 
+          "-end_frame=50",
+          "-max_iter=100",
+          "-max_iter_Axb=150",
+          "-scale_instead_of_attach=0",
+          "-export_matrix=1",
+          "-export_matrix_interval=1",
+          "-out_dir=result/attach64/",
+          ]
+    log_args(args)
+    call(args)
+
 def log_args(args:list):
     args1 = " ".join(args) # 将ARGS转换为字符串
     print(f"\nArguments:\n{args1}\n")
@@ -129,6 +147,8 @@ if __name__=='__main__':
         case5()
     elif case_num==6:
         case6()
+    elif case_num==7:
+        case7()
     else:
         print('Invalid case number. Exiting...')
         sys.exit(1)

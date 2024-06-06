@@ -43,9 +43,6 @@ gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
 early_stop = True
 use_primary_residual = False
-use_chen2023 = False
-use_chen2023_blended = False
-chen2023_blended_ksi = 0.5
 use_geometric_stiffness = True
 dont_clean_results = False
 report_time = True
@@ -848,14 +845,6 @@ def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg=None):
     dpos = M_inv @ G.transpose() @ dLambda_ 
     if use_primary_residual:
         dpos -=  Minv_gg
-    if use_chen2023:
-        chen2023_added = M_inv @ G.transpose() @ lagrangian.to_numpy()
-        dpos += chen2023_added
-    if use_chen2023_blended:
-        chen2023_added = M_inv @ G.transpose() @ lagrangian.to_numpy()
-        dpos2 = dpos + chen2023_added 
-        dpos1 = dpos.copy()
-        dpos = dpos1 * chen2023_blended_ksi + dpos2 * (1.0 - chen2023_blended_ksi)
     dpos = dpos.reshape(-1, 3)
     pos.from_numpy(pos_mid.to_numpy() + omega*dpos)
 

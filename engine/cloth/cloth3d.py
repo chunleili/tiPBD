@@ -95,7 +95,7 @@ ti.init(arch=ti.cpu)
 NV = (N + 1)**2
 NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
-M = NE
+NCONS = NE
 new_M = int(NE / 100)
 compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
 alpha = compliance * (1.0 / delta_t / delta_t)  # timestep related compliance, see XPBD paper
@@ -556,12 +556,12 @@ def compute_R_based_on_kmeans_label_triplets(
     jj: ti.types.ndarray(dtype=int),
     vv: ti.types.ndarray(dtype=int),
     new_M: ti.i32,
-    M: ti.i32
+    NCONS: ti.i32
 ):
     cnt=0
     ti.loop_config(serialize=True)
     for i in range(new_M):
-        for j in range(M):
+        for j in range(NCONS):
             if labels[j] == i:
                 ii[cnt],jj[cnt],vv[cnt] = i,j,1
                 cnt+=1
@@ -578,9 +578,9 @@ def compute_R_and_P_kmeans():
     print("kmeans start")
     input = edge_center.to_numpy()
 
-    M = NE
+    NCONS = NE
     global new_M
-    print("M: ", M, "  new_M: ", new_M)
+    print("NCONS: ", NCONS, "  new_M: ", new_M)
 
     # run kmeans
     input = whiten(input)
@@ -595,12 +595,12 @@ def compute_R_and_P_kmeans():
 
     # ----------------------------------- R and P --------------------------------- #
     # 将labels转换为R
-    i_arr = np.zeros((M), dtype=np.int32)
-    j_arr = np.zeros((M), dtype=np.int32)
-    v_arr = np.zeros((M), dtype=np.int32)
-    compute_R_based_on_kmeans_label_triplets(labels, i_arr, j_arr, v_arr, new_M, M)
+    i_arr = np.zeros((NCONS), dtype=np.int32)
+    j_arr = np.zeros((NCONS), dtype=np.int32)
+    v_arr = np.zeros((NCONS), dtype=np.int32)
+    compute_R_based_on_kmeans_label_triplets(labels, i_arr, j_arr, v_arr, new_M, NCONS)
 
-    R = scipy.sparse.coo_array((v_arr, (i_arr, j_arr)), shape=(new_M, M)).tocsr()
+    R = scipy.sparse.coo_array((v_arr, (i_arr, j_arr)), shape=(new_M, NCONS)).tocsr()
     P = R.transpose()
     print(f"Computing P and R done, time = {time.perf_counter() - t}")
 
@@ -910,13 +910,13 @@ def assemble_K_inv():
 
 # legacy
 def fill_A_by_spmm(M_inv, ALPHA):
-    G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
+    G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
     compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
-    G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
+    G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
 
     if use_geometric_stiffness:
-        # Geometric Stiffness: K = M - H, we only use diagonal of H and then replace M_inv with K_inv
+        # Geometric Stiffness: K = NCONS - H, we only use diagonal of H and then replace M_inv with K_inv
         # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
         # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
         # https://blog.csdn.net/weixin_43940314/article/details/139448858
@@ -1108,7 +1108,7 @@ def build_P(A):
 
 def substep_GaussNewton():
     MASS = scipy.sparse.diags(np.ones(3*NV, float))
-    alpha_tilde_np = np.array([alpha] * M)
+    alpha_tilde_np = np.array([alpha] * NCONS)
     ALPHA_INV = scipy.sparse.diags(1.0 / alpha_tilde_np)
     h2_inv = 1.0/(delta_t*delta_t)
     linesarch_alpha = 1.0
@@ -1121,10 +1121,10 @@ def substep_GaussNewton():
     total_energy_old = 0.5 * 1.0/alpha * np.dot(constraints.to_numpy(), constraints.to_numpy()) + 0.5 * h2_inv * delta_x @ MASS @ delta_x
 
     for ite in range(max_iter):
-        G_ii, G_jj, G_vv = np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.int32), np.zeros(M*6, dtype=np.float32)
+        G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
         fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
-        G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(M, 3 * NV))
+        G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
         H = G.transpose() @ ALPHA_INV @ G + h2_inv * MASS
         # H_inv = scipy.sparse.diags(1.0/H.diagonal())
 
@@ -1161,7 +1161,7 @@ def substep_all_solver(max_iter=1):
     reset_lagrangian(lagrangian)
     inv_mass_np = np.repeat(inv_mass.to_numpy(), 3, axis=0)
     M_inv = scipy.sparse.diags(inv_mass_np)
-    alpha_tilde_np = np.array([alpha] * M)
+    alpha_tilde_np = np.array([alpha] * NCONS)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
 
@@ -1178,7 +1178,7 @@ def substep_all_solver(max_iter=1):
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
-        #we calc inverse mass times gg(primary residual), because M may contains infinity for fixed pin points. And gg always appears with inv_mass.
+        #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
         if use_primary_residual:
             Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
             b += G @ Minv_gg

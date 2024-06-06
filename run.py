@@ -16,7 +16,7 @@ def case1():
           "-end_frame=800",
           "-max_iter=100",
           "-max_iter_Axb=100",
-          "-scale_instead_of_attach=0",
+          "-setup_num=0",
           "-export_matrix=1",
           "-export_matrix_interval=50"]
     log_args(args)
@@ -31,7 +31,7 @@ def case2():
           "-end_frame=200",
           "-max_iter=50",
           "-max_iter_Axb=150",
-          "-scale_instead_of_attach=0"]
+          "-setup_num=0"]
     log_args(args)
     call(args)
 
@@ -45,7 +45,7 @@ def case3():
           "-end_frame=200",
           "-max_iter=100",
           "-max_iter_Axb=150",
-          "-scale_instead_of_attach=0",
+          "-setup_num=0",
           ]
     log_args(args)
     call(args)
@@ -59,7 +59,7 @@ def case4():
           "-end_frame=200",
           "-max_iter=100",
           "-max_iter_Axb=150",
-          "-scale_instead_of_attach=0",
+          "-setup_num=0",
           ]
     log_args(args)
     call(args)
@@ -75,7 +75,7 @@ def case5():
           "-end_frame=5",
           "-max_iter=100",
           "-max_iter_Axb=150",
-          "-scale_instead_of_attach=0",
+          "-setup_num=0",
           "-export_matrix=0",
           "-out_dir=result/profile1024/",
           ]
@@ -94,7 +94,7 @@ def case6():
           "-end_frame=50",
           "-max_iter=100",
           "-max_iter_Axb=150",
-          "-scale_instead_of_attach=1",
+          "-setup_num=1",
           "-export_matrix=1",
           "-export_matrix_interval=1",
           "-out_dir=result/scale64/",
@@ -108,11 +108,11 @@ def case7():
     args = [pythonExe, "engine/cloth/cloth3d.py",
           "-N=64",
           "-solver_type=AMG", 
-          "-delta_t=4e-3", 
+          "-delta_t=1e-3", 
           "-end_frame=50",
           "-max_iter=100",
           "-max_iter_Axb=150",
-          "-scale_instead_of_attach=0",
+          "-setup_num=0",
           "-export_matrix=1",
           "-export_matrix_interval=1",
           "-out_dir=result/attach64/",
@@ -127,13 +127,18 @@ def log_args(args:list):
         f.write(f"{args1}\n")
 
 if __name__=='__main__':
-    if '-case' in sys.argv:
-        i = sys.argv.index('-case')
-        case_num = int(sys.argv[i+1])
-    else:
-        print('Usage: python run.py -case N, with N=1 or 2, etc.\n')
-        sys.exit(1)
-    
+    # if '-case' in sys.argv:
+    #     i = sys.argv.index('-case')
+    #     case_num = int(sys.argv[i+1])
+    # else:
+    #     print('Usage: python run.py -case N, with N=1 or 2, etc.\n')
+    #     sys.exit(1)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-case", type=int, default=7,
+                        help="case number, 1 or 2, etc.")
+    case_num = parser.parse_args().case
+
     # print(f'Running case {case_num}...')
     if case_num==1:
         case1()

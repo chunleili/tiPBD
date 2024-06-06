@@ -33,7 +33,6 @@ export_residual = True
 solver_type = "AMG" # "AMG", "GS", "XPBD"
 export_matrix = False
 export_matrix_interval = 10
-scale_instead_of_attach = False
 use_offdiag = True
 restart = False
 restart_frame = 10
@@ -59,7 +58,6 @@ parser.add_argument("-solver_type", type=str, default='AMG') # "AMG", "GS", "XPB
 parser.add_argument("-export_matrix", type=int, default=export_matrix)
 parser.add_argument("-export_matrix_interval", type=int, default=export_matrix_interval)
 parser.add_argument("-export_state", type=int, default=export_state)
-parser.add_argument("-scale_instead_of_attach", type=int, default=scale_instead_of_attach)
 parser.add_argument("-end_frame", type=int, default=end_frame)
 parser.add_argument("-restart", type=int, default=restart)
 parser.add_argument("-restart_frame", type=int, default=restart_frame)
@@ -70,6 +68,7 @@ parser.add_argument("-max_iter", type=int, default=max_iter)
 parser.add_argument("-max_iter_Axb", type=int, default=max_iter_Axb)
 parser.add_argument("-export_log", type=int, default=export_log)
 parser.add_argument("-out_dir", type=str, default=out_dir)
+parser.add_argument("-setup_num", type=int, default=0, help="attach:0, stretch:1")
 
 
 args = parser.parse_args()
@@ -79,8 +78,8 @@ solver_type = args.solver_type
 export_matrix = bool(args.export_matrix)
 export_matrix_interval = args.export_matrix_interval
 export_state = bool(args.export_state)
-scale_instead_of_attach = bool(args.scale_instead_of_attach)
-if scale_instead_of_attach: gravity = [0.0, 0.0, 0.0]
+setup_num = args.setup_num
+if setup_num==1: gravity = [0.0, 0.0, 0.0]
 else : gravity = [0.0, -9.8, 0.0]
 end_frame = args.end_frame
 restart = bool(args.restart)
@@ -212,7 +211,7 @@ def init_pos(
         # pos[idx] = ti.Vector([i / N,  j / N, 0.5])  # vertical hang
         pos[idx] = ti.Vector([i / N, 0.5, j / N]) # horizontal hang
         inv_mass[idx] = 1.0
-    if not scale_instead_of_attach:
+    if setup_num == 0:
         inv_mass[N] = 0.0
         inv_mass[NV-1] = 0.0
 
@@ -1126,12 +1125,12 @@ def substep_GaussNewton():
     MASS = scipy.sparse.diags(np.ones(3*NV, float))
     alpha_tilde_np = np.array([alpha] * M)
     ALPHA_INV = scipy.sparse.diags(1.0 / alpha_tilde_np)
-    h2_inv = 1.0/(h*h)
+    h2_inv = 1.0/(delta_t*delta_t)
     linesarch_alpha = 1.0
 
     semi_euler(old_pos, inv_mass, vel, pos)
     x_n = pos.to_numpy().copy()
-    x_tilde = x_n.copy() + h * vel.to_numpy().copy()
+    x_tilde = x_n.copy() + delta_t * vel.to_numpy().copy()
 
     delta_x = (pos.to_numpy() - x_tilde).flatten()
     total_energy_old = 0.5 * 1.0/alpha * np.dot(constraints.to_numpy(), constraints.to_numpy()) + 0.5 * h2_inv * delta_x @ MASS @ delta_x
@@ -1393,7 +1392,7 @@ print("Initializing edge..")
 init_edge(edge, rest_len, pos)
 write_obj(out_dir + f"/obj/{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
 print("Initializing edge done")
-if scale_instead_of_attach:
+if setup_num == 1:
     init_scale()
 
 use_direct_fill_A = False

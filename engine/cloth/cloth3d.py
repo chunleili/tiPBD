@@ -33,7 +33,6 @@ early_stop = True
 use_primary_residual = False
 use_geometric_stiffness = True
 dont_clean_results = False
-auto_another_outdir = True
 report_time = True
 
 #parse arguments to change default values
@@ -46,10 +45,11 @@ parser.add_argument("-export_matrix_interval", type=int, default=10)
 parser.add_argument("-export_state", type=int, default=True)
 parser.add_argument("-end_frame", type=int, default=200)
 parser.add_argument("-out_dir", type=str, default=prj_path + f"/result/latest/")
-parser.add_argument("-auto_another_outdir", type=int, default=1)
-parser.add_argument("-restart", type=int, default=False)
+parser.add_argument("-auto_another_outdir", type=int, default=False)
+parser.add_argument("-restart", type=int, default=True)
 parser.add_argument("-restart_frame", type=int, default=10)
 parser.add_argument("-restart_dir", type=str, default=prj_path+f"/result/latest/state/")
+parser.add_argument("-restart_from_last_frame", type=int, default=True)
 parser.add_argument("-tol_sim", type=float, default=1e-6)
 parser.add_argument("-tol_Axb", type=float, default=1e-6)
 parser.add_argument("-max_iter", type=int, default=100)
@@ -78,7 +78,8 @@ max_iter = args.max_iter
 max_iter_Axb = args.max_iter_Axb
 export_log = bool(args.export_log)
 out_dir = args.out_dir
-
+auto_another_outdir = bool(args.auto_another_outdir)
+restart_from_last_frame = bool(args.restart_from_last_frame)
 
 #to print out the parameters
 global_vars = globals().copy()
@@ -1321,6 +1322,16 @@ def print_all_globals(global_vars):
     print("\n\n\n")
     logging.info("\n\n\n")
 
+def find_last_frame(dir):
+    # find the last frame number of dir
+    files = glob.glob(dir + "/state/*.npz")
+    files.sort(key=os.path.getmtime)
+    if len(files) == 0:
+        return 0
+    path = Path(files[-1])
+    last_frame = int(path.stem)
+    return last_frame
+
 
 if auto_another_outdir:
     out_dir = create_another_outdir(out_dir)
@@ -1393,9 +1404,14 @@ if solver_type=="AMG":
         # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 if restart:
-    load_state(restart_dir + f"{restart_frame:04d}.npz")
-    frame = restart_frame
-    print(f"restart from frame {frame}")
+    if restart_from_last_frame :
+        restart_frame =  find_last_frame(out_dir)
+    if restart_frame == 0:
+        print("No restart file found.")
+    else:
+        load_state(restart_dir + f"{restart_frame:04d}.npz")
+        frame = restart_frame
+        print(f"restart from frame {frame}")
 
 print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.1g}s")
 

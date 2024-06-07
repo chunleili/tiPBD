@@ -934,7 +934,7 @@ def main():
         coarse = SoftBody(meta.args.coarse_model_path)
         fine.initialize()
         coarse.initialize()
-        R,P = compute_R_and_P(fine) 
+        R,P = compute_R_and_P(coarse,fine) 
         ist = fine
     else:
         ist = SoftBody(meta.args.model_path)

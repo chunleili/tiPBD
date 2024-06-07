@@ -24,7 +24,7 @@ save_image = True
 paused = False
 save_P, load_P = False, False
 use_viewer = False
-export_obj = True
+export_mesh = True
 export_residual = True
 use_offdiag = True
 gravity = [0.0, -9.8, 0.0]
@@ -115,7 +115,7 @@ global_vars = globals().copy()
 t_export_matrix = 0.0
 t_calc_residual = 0.0
 t_export_residual = 0.0
-t_export_obj = 0.0
+t_export_mesh = 0.0
 t_save_state = 0.0
 
 
@@ -1298,7 +1298,7 @@ def copy_field(dst: ti.template(), src: ti.template()):
         dst[i] = src[i]
 
 
-def write_obj(filename, pos, tri):
+def write_mesh(filename, pos, tri, format="ply"):
     cells = [
         ("triangle", tri.reshape(-1, 3)),
     ]
@@ -1306,7 +1306,13 @@ def write_obj(filename, pos, tri):
         pos,
         cells,
     )
-    mesh.write(filename)
+
+    if format == "ply":
+        mesh.write(filename + ".ply", binary=True)
+    elif format == "obj":
+        mesh.write(filename + ".obj")
+    else:
+        raise ValueError("Unknown format")
     return mesh
 
 @ti.kernel
@@ -1374,13 +1380,13 @@ mkdir_if_not_exist(out_dir)
 mkdir_if_not_exist(out_dir + "/r/")
 mkdir_if_not_exist(out_dir + "/A/")
 mkdir_if_not_exist(out_dir + "/state/")
-mkdir_if_not_exist(out_dir + "/obj/")
+mkdir_if_not_exist(out_dir + "/mesh/")
 if not restart and not dont_clean_results:
     clean_result_dir(out_dir)
     clean_result_dir(out_dir + "/r/")
     clean_result_dir(out_dir + "/A/")
     clean_result_dir(out_dir + "/state/")
-    clean_result_dir(out_dir + "/obj/")
+    clean_result_dir(out_dir + "/mesh/")
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
@@ -1397,7 +1403,7 @@ init_pos(inv_mass,pos)
 init_tri(tri)
 print("Initializing edge..")
 init_edge(edge, rest_len, pos)
-write_obj(out_dir + f"/obj/{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
+write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
 print("Initializing edge done")
 if setup_num == 1:
     init_scale()
@@ -1485,21 +1491,21 @@ while True:
             step_xpbd(max_iter)
         else:
             substep_all_solver(max_iter)
-        if export_obj:
+        if export_mesh:
             tic = time.perf_counter()
-            write_obj(out_dir + f"/obj/{frame:04d}.obj", pos.to_numpy(), tri.to_numpy())
-            t_export_obj = time.perf_counter()-tic
+            write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
+            t_export_mesh = time.perf_counter()-tic
         if export_state:
             tic = time.perf_counter()
             save_state(out_dir+'/state/' + f"{frame:04d}.npz")
             t_save_state = time.perf_counter()-tic
         if report_time:
-            total_export_time = t_export_obj+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
+            total_export_time = t_export_mesh+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
             t_frame = time.perf_counter()-t_one_frame_start
-            print(f"Time of exporting: {total_export_time:.2f}s, where obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
+            print(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
             print(f"Time of frame-{frame}: {t_frame:.2f}s")
             if export_log:
-                logging.info(f"Time of exporting: {total_export_time:.2f}s, where obj:{t_export_obj:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
+                logging.info(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
                 logging.info(f"Time of frame-{frame}: {t_frame:.2f}s")
     
     if frame == end_frame:

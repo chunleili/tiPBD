@@ -27,7 +27,7 @@ parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument(
-    "--solver", type=str, default="Jacobi", choices=["Jacobi", "GaussSeidel", "DirectSolver", "SOR", "AMG", "HPBD"]
+    "--solver", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "DirectSolver", "SOR", "AMG", "HPBD"]
 )
 
 # default_model = "bunny1k2k" # "cube" "bunny1k2k" "toy"
@@ -35,11 +35,14 @@ parser.add_argument(
 # parser.add_argument("--fine_model_path", type=str, default=f"data/model/{default_model}/fine.node")
 parser.add_argument("--model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
+parser.add_argument("--auto_another_outdir", type=int, default=False)
 
-export_obj = True
+
+
+export_mesh = True
 proj_dir_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = proj_dir_path + "/result/test/"
-stop_frame = 10
+out_dir = proj_dir_path + "/result/latest/"
+stop_frame = 50
 export_matrix = True
 
 
@@ -83,7 +86,9 @@ def clean_result_dir(folder_path):
         '*.txt',
         '*.obj',
         '*.png',
-        '*.ply'
+        '*.ply',
+        '*.npz',
+        '*.json',
     ]:
         files = glob.glob(os.path.join(folder_path, name))
         to_remove += (files)
@@ -92,7 +97,7 @@ def clean_result_dir(folder_path):
         os.remove(file_path)
     print(f"clean {folder_path} done")
 
-def write_obj(filename, pos, tri):
+def write_mesh(filename, pos, tri):
     cells = [
         ("triangle", tri.reshape(-1, 3)),
     ]
@@ -100,7 +105,7 @@ def write_obj(filename, pos, tri):
         pos,
         cells,
     )
-    mesh.write(filename)
+    mesh.write(filename, binary=True)
     return mesh
 
 def read_tetgen(filename):
@@ -1088,7 +1093,7 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
 
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
-
+        res =[]
         if solver == "Jacobi":
             x, r = solve_jacobi_sparse(A, b, x0, 100, 1e-6)
         elif solver == "GaussSeidel":
@@ -1102,7 +1107,8 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
         elif solver == "DirectSolver":
             x = scipy.sparse.linalg.spsolve(A, b)
         elif solver == "AMG":
-            x = solve_pyamg_my2(A, b, x0, R, P)
+            x = solve_amg_SA(A=A, b=b, x0=x0, residuals=res, tol_Axb=1e-6, max_iter_Axb=150)
+            print(f"r: {res[0]:.2e} {res[-1]:.2e}  iter: {len(res)}")
 
         # ------------------------- transfer data back to PBD ------------------------ #
         dlambda = x
@@ -1117,6 +1123,16 @@ def substep_all_solver(ist, max_iter=1, solver="Jacobi", P=None, R=None):
 # ---------------------------------------------------------------------------- #
 #                               PYAMG reproduced                               #
 # ---------------------------------------------------------------------------- #
+
+def solve_amg_SA(A,b,x0,residuals=[],tol_Axb=1e-6, max_iter_Axb=150):
+    import pyamg
+    ml5 = pyamg.smoothed_aggregation_solver(A,
+        smooth=None,
+        max_coarse=400,
+        coarse_solver="pinv")
+    # print("layer",len(ml5.levels))
+    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="V")
+    return x5
 
 
 def solve_pyamg_my2(A, b, x0, R, P):
@@ -1415,6 +1431,23 @@ def compute_R_and_P_kmeans(ist):
     return R, P
 
 
+def create_another_outdir(dir):
+    path = Path(dir)
+    if path.exists():
+        # add a number to the end of the folder name
+        path = path.parent / (path.name + "_1")
+        if path.exists():
+            i = 2
+            while True:
+                path = path.parent / (path.name[:-2] + f"_{i}")
+                if not path.exists():
+                    break
+                i += 1
+    path.mkdir(parents=True, exist_ok=True)
+    dir = str(path)
+    print(f"\ncreate another outdir: {dir}\n")
+    return dir
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1434,7 +1467,18 @@ def main():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    if meta.args.solver == "AMG":
+    global out_dir
+    dont_clean_results = False
+    if meta.args.auto_another_outdir:
+        out_dir = create_another_outdir(out_dir)
+        dont_clean_results = True
+    if not dont_clean_results:
+        # clean_result_dir(out_dir)
+        import shutil
+        shutil.rmtree(out_dir, ignore_errors=True)
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+    if meta.args.solver == "HPBD":
         fine = ArapMultigrid(meta.args.fine_model_path)
         coarse = ArapMultigrid(meta.args.coarse_model_path)
         fine.initialize()
@@ -1445,8 +1489,6 @@ def main():
     else:
         ist = ArapMultigrid(meta.args.model_path)
         ist.initialize()
-
-    clean_result_dir(out_dir)
 
     use_viewer = False
     if use_viewer:
@@ -1470,9 +1512,9 @@ def main():
             info("\n\n----------------------")
             info(f"frame {meta.frame}")
             t = time()
-            substep_all_solver(ist, 30, "GaussSeidel")
-            if export_obj:
-                write_obj(out_dir + f"{meta.frame:04d}.obj", ist.pos.to_numpy(), ist.model_tri)
+            substep_all_solver(ist, 30, solver=meta.args.solver)
+            if export_mesh:
+                write_mesh(out_dir + f"{meta.frame:04d}.ply", ist.pos.to_numpy(), ist.model_tri)
             meta.frame += 1
             info(f"step time: {time() - t:.2g} s")
 

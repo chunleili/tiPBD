@@ -90,19 +90,22 @@ json_path = prj_path + args.json_path
 auto_complete_path = bool(args.auto_complete_path)
 arch = args.arch
 
-if use_json:
-    if not os.path.exists(json_path):
-        assert False, f"json file {json_path} not exist!"
-    print(f"CAUTION: using json config file {json_path} to overwrite the command line args!")
-    with open(json_path, "r") as json_file:
+def parse_json_params(path, vars_to_overwrite):
+    if not os.path.exists(path):
+        assert False, f"json file {path} not exist!"
+    print(f"CAUTION: using json config file {path} to overwrite the command line args!")
+    with open(path, "r") as json_file:
         config = json.load(json_file)
     for key, value in config.items():
-        if key in globals():
-            if globals()[key] != value:
-                print(f"overwriting {key} from {globals()[key]} to {value}")
-                globals()[key] = value
+        if key in vars_to_overwrite:
+            if vars_to_overwrite[key] != value:
+                print(f"overwriting {key} from {vars_to_overwrite[key]} to {value}")
+                vars_to_overwrite[key] = value
         else:
-            print(f"json key {key} not exist in globals()!")
+            print(f"json key {key} not exist in vars_to_overwrite!")
+
+if use_json:
+    parse_json_params(json_path, globals())
 
 if auto_complete_path:
     out_dir = prj_path + f"/result/" +  out_dir + "/"

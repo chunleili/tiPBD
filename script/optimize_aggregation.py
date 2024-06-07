@@ -38,7 +38,7 @@ def test_amg(A, b, postfix=""):
 
     label = "UA+CG"
     print(f"Calculating {label}...")
-    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='pinv', max_coarse=400,keep=True)
+    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='pinv', max_coarse=2, max_levels=2, keep=True)
     r = []
     _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg',cycle='V')
     allres.append(Residual(label, r, perf_counter()))

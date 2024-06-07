@@ -100,14 +100,14 @@
             ]
         },
         {
-            "name": "debug:scale3",
+            "name": "debug:config.json",
             "type": "debugpy",
             "request": "launch",
             "program": "engine/cloth/cloth3d.py",
             "console": "integratedTerminal",
             "args": [
                 "-use_json=1",
-                "-json_path=scale3.json",
+                "-json_path=config.json",
             ]
         }
     ]

@@ -56,8 +56,8 @@ parser.add_argument("-max_iter", type=int, default=100)
 parser.add_argument("-max_iter_Axb", type=int, default=150)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
-parser.add_argument("-use_json", type=int, default=0, help="json configs will overwrite the command line args")
-parser.add_argument("-json_path", type=str, default="", help="json configs will overwrite the command line args")
+parser.add_argument("-use_json", type=int, default=1, help="json configs will overwrite the command line args")
+parser.add_argument("-json_path", type=str, default="config.json", help="json configs will overwrite the command line args")
 parser.add_argument("-auto_complete_path", type=int, default=1, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 
 
@@ -117,7 +117,7 @@ t_export_obj = 0.0
 t_save_state = 0.0
 
 
-ti.init(arch=ti.cpu)
+ti.init(arch=ti.cuda)
 
 
 NV = (N + 1)**2

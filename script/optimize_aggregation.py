@@ -16,7 +16,7 @@ prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-case_name", type=str, default='scale64')
+parser.add_argument("-case_name", type=str, default='scale3')
 case_name = parser.parse_args().case_name
 
 to_read_dir = prj_dir + f"result/{case_name}/A/"
@@ -36,39 +36,12 @@ def test_amg(A, b, postfix=""):
     allres = []
     tic = perf_counter()
 
-    # SA +CG
-    label = "UA+CG V"
+    label = "UA+CG"
     print(f"Calculating {label}...")
-    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='gauss_seidel', max_coarse=300,keep=True)
+    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='pinv', max_coarse=400,keep=True)
     r = []
     _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg',cycle='V')
     allres.append(Residual(label, r, perf_counter()))
-
-    label = "UA+CG W"
-    print(f"Calculating {label}...")
-    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='gauss_seidel', max_coarse=300,keep=True)
-    r = []
-    _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg', cycle='W')
-    allres.append(Residual(label, r, perf_counter()))
-
-    label = "UA+CG F"
-    print(f"Calculating {label}...")
-    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='gauss_seidel', max_coarse=300,keep=True)
-    r = []
-    _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg', cycle='F')
-    allres.append(Residual(label, r, perf_counter()))
-
-
-
-    # label = "CAMG+CG"
-    # print(f"Calculating {label}...")
-    # ml1 = pyamg.ruge_stuben_solver(A, max_coarse=300,keep=True)
-    # r = []
-    # _ = ml1.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # mmwrite(f"Ac.mtx", ml18.levels[0].A)
-    # mmwrite(f"P.mtx", ml18.levels[0].P)
 
 
     convs,times,labels  = postprocess_residual(allres, tic)

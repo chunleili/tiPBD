@@ -71,7 +71,7 @@ args = [pythonExe,"-m","cProfile",
         "-max_iter_Axb=150",
         "-setup_num=0",
         "-export_matrix=0",
-        "-out_dir=result/profile1024/",
+        "-out_dir=profile1024",
         ]
 # snakeviz profile
 # call(["snakeviz", "profile"])
@@ -89,7 +89,7 @@ args = [pythonExe, "engine/cloth/cloth3d.py",
         "-setup_num=1",
         "-export_matrix=1",
         "-export_matrix_interval=1",
-        "-out_dir=result/scale64/",
+        "-out_dir=scale64",
         ]
 allargs.append(args)
 
@@ -105,7 +105,7 @@ args = [pythonExe, "engine/cloth/cloth3d.py",
         "-setup_num=0",
         "-export_matrix=1",
         "-export_matrix_interval=1",
-        "-out_dir=result/attach64/",
+        "-out_dir=attach64",
         ]
 allargs.append(args)
 
@@ -118,13 +118,13 @@ args = [pythonExe, "engine/cloth/cloth3d.py",
         "-end_frame=51",
         "-restart=1",
         "-restart_frame=50",
-        "-restart_dir=result/restart/",
+        "-restart_dir=restart",
         "-max_iter=100",
         "-max_iter_Axb=150",
         "-setup_num=0",
         "-export_matrix=1",
         "-export_matrix_interval=1",
-        "-out_dir=result/geoStiff/",
+        "-out_dir=geoStiff",
         ]
 allargs.append(args)
 

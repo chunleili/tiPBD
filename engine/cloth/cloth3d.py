@@ -31,7 +31,7 @@ gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
 early_stop = True
 use_primary_residual = False
-use_geometric_stiffness = True
+use_geometric_stiffness = False
 dont_clean_results = False
 report_time = True
 
@@ -44,11 +44,11 @@ parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-export_matrix_interval", type=int, default=10)
 parser.add_argument("-export_state", type=int, default=True)
 parser.add_argument("-end_frame", type=int, default=200)
-parser.add_argument("-out_dir", type=str, default=prj_path + f"/result/latest/")
+parser.add_argument("-out_dir", type=str, default=f"latest")
 parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-restart", type=int, default=True)
 parser.add_argument("-restart_frame", type=int, default=10)
-parser.add_argument("-restart_dir", type=str, default=prj_path+f"/result/latest/state/")
+parser.add_argument("-restart_dir", type=str, default="latest/state")
 parser.add_argument("-restart_from_last_frame", type=int, default=True)
 parser.add_argument("-tol_sim", type=float, default=1e-6)
 parser.add_argument("-tol_Axb", type=float, default=1e-6)
@@ -56,8 +56,8 @@ parser.add_argument("-max_iter", type=int, default=100)
 parser.add_argument("-max_iter_Axb", type=int, default=150)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
-parser.add_argument("-use_json", type=int, default=1, help="json configs will overwrite the command line args")
-parser.add_argument("-json_path", type=str, default="attach64.json", help="json configs will overwrite the command line args")
+parser.add_argument("-use_json", type=int, default=0, help="json configs will overwrite the command line args")
+parser.add_argument("-json_path", type=str, default="", help="json configs will overwrite the command line args")
 
 
 args = parser.parse_args()
@@ -73,19 +73,21 @@ else : gravity = [0.0, -9.8, 0.0]
 end_frame = args.end_frame
 restart = bool(args.restart)
 restart_frame = args.restart_frame
-restart_dir = args.restart_dir
+restart_dir = prj_path + f"/result/" + args.restart_dir + "/"
 tol_sim = args.tol_sim
 tol_Axb = args.tol_Axb
 max_iter = args.max_iter
 max_iter_Axb = args.max_iter_Axb
 export_log = bool(args.export_log)
-out_dir = args.out_dir
+out_dir = prj_path + f"/result/" +  args.out_dir + "/"
 auto_another_outdir = bool(args.auto_another_outdir)
 restart_from_last_frame = bool(args.restart_from_last_frame)
 use_json = bool(args.use_json)
 json_path = args.json_path
 
 if use_json:
+    if not os.path.exists(json_path):
+        assert False, f"json file {json_path} not exist!"
     print(f"CAUTION: using json config file {json_path} to overwrite the command line args!")
     with open(prj_path + "/data/scene/cloth/"+ json_path, "r") as json_file:
         config = json.load(json_file)
@@ -1430,7 +1432,8 @@ if restart:
     else:
         load_state(restart_dir + f"{restart_frame:04d}.npz")
         frame = restart_frame
-        print(f"restart from frame {frame}")
+        print(f"restart from last frame: {restart_frame}")
+        logging.info(f"restart from last frame: {restart_frame}")
 
 print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.1g}s")
 

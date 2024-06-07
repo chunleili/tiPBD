@@ -2,8 +2,8 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: 当前文件",
-            "type": "python",
+            "name": "debugpy: 当前文件",
+            "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
@@ -12,7 +12,7 @@
         },
         {
             "name": "profile",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "cProfile",
             "justMyCode": true,
@@ -22,7 +22,7 @@
         },
         {
             "name": "hpbd 5 5",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
@@ -39,7 +39,7 @@
         },
         {
             "name": "coarse direct",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
@@ -54,7 +54,7 @@
         },
         {
             "name": "fine direct",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
@@ -69,7 +69,7 @@
         },
         {
             "name": "amg direct",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
@@ -86,7 +86,7 @@
         },
         {
             "name": "fine Jacobian",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "engine/volumetric/arap_multigrid.py",
             "console": "integratedTerminal",
@@ -100,18 +100,14 @@
             ]
         },
         {
-            "name": "amg",
-            "type": "python",
+            "name": "debug:scale3",
+            "type": "debugpy",
             "request": "launch",
             "program": "engine/cloth/cloth3d.py",
             "console": "integratedTerminal",
             "args": [
-                "-N=64",
-                "-solver_type=AMG", 
-                "-delta_t=1e-3", 
-                "-restart=0", 
-                "-restart_frame=200",
-                "-end_frame=400"
+                "-use_json=1",
+                "-json_path=scale3.json",
             ]
         }
     ]

@@ -1,15 +1,22 @@
 import pathlib
 import shutil
-
+import argparse
 
 result_dir = pathlib.Path(__file__).resolve().parent
 
-dir = result_dir / "scale64-10086" / "obj"
+parser = argparse.ArgumentParser()
+parser.add_argument("-case_name", default= "latest")
+parser.add_argument("-start_frame", default=0)
+parser.add_argument("-end_frame", default=50)
 
-print(f"rename all obj files in {dir} from %04d.obj to %d.obj")
+args = parser.parse_args()
+case_name = args.case_name
+start_frame = args.start_frame
+end_frame = args.end_frame
 
-start_frame = 0
-end_frame = 50
+dir = result_dir / f"{case_name}" / "obj"
+
+print(f"rename obj files (frame {start_frame} to {end_frame}) in {dir} from %04d.obj to %d.obj")
 
 # change all %04d.obj to %d.obj
 for i in range(start_frame, end_frame+1):

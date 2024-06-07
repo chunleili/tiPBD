@@ -83,13 +83,13 @@ out_dir = prj_path + f"/result/" +  args.out_dir + "/"
 auto_another_outdir = bool(args.auto_another_outdir)
 restart_from_last_frame = bool(args.restart_from_last_frame)
 use_json = bool(args.use_json)
-json_path = args.json_path
+json_path = prj_path + "/data/scene/cloth/"+ args.json_path
 
 if use_json:
     if not os.path.exists(json_path):
         assert False, f"json file {json_path} not exist!"
     print(f"CAUTION: using json config file {json_path} to overwrite the command line args!")
-    with open(prj_path + "/data/scene/cloth/"+ json_path, "r") as json_file:
+    with open(json_path, "r") as json_file:
         config = json.load(json_file)
     for key, value in config.items():
         if key in globals():

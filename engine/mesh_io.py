@@ -225,11 +225,14 @@ def scale(mesh, s):
 
 def rotate(mesh, axis, angle):
     import trimesh
-    import numpy as np
 
-    if isinstance(mesh, trimesh.Scene):
-        mesh = mesh.dump().sum()
-    mesh.vertices = trimesh.transformations.rotation_matrix(angle, axis)[:3, :3].dot(mesh.vertices.T).T
+    # if isinstance(mesh, trimesh.Scene):
+    #     mesh = mesh.dump().sum()
+    # mesh.vertices = trimesh.transformations.rotation_matrix(angle, axis)[:3, :3].dot(mesh.vertices.T).T
+
+    t = trimesh.transformations.rotation_matrix(angle, axis)
+    mesh.apply_transform(t)
+
 
 
 def match_size(mesh, bbox):

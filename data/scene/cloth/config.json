@@ -8,6 +8,6 @@
     "max_iter_Axb":150,
     "export_matrix":1,
     "export_matrix_interval":1,
-    "out_dir":"scale64-cuda",
+    "out_dir":"scale64-cpu",
     "auto_another_outdir":1
 }

@@ -5,9 +5,9 @@
     "delta_t":4e-3,
     "end_frame":50,
     "max_iter":100,
-    "max_iter_Axb":250,
+    "max_iter_Axb":150,
     "export_matrix":1,
     "export_matrix_interval":1,
-    "out_dir":"result/scale64-10086/",
+    "out_dir":"result/attach64/",
     "auto_another_outdir":1
 }

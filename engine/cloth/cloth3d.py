@@ -15,8 +15,9 @@ import argparse
 from collections import namedtuple
 import json
 import logging
+import datetime
 
-prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 
 # parameters not in argparse
 frame = 0
@@ -57,7 +58,7 @@ parser.add_argument("-max_iter_Axb", type=int, default=150)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 parser.add_argument("-use_json", type=int, default=1, help="json configs will overwrite the command line args")
-parser.add_argument("-json_path", type=str, default="config.json", help="json configs will overwrite the command line args")
+parser.add_argument("-json_path", type=str, default="json/config.json", help="json configs will overwrite the command line args")
 parser.add_argument("-auto_complete_path", type=int, default=1, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
 
@@ -85,7 +86,7 @@ out_dir =  args.out_dir + "/"
 auto_another_outdir = bool(args.auto_another_outdir)
 restart_from_last_frame = bool(args.restart_from_last_frame)
 use_json = bool(args.use_json)
-json_path = prj_path + "/data/scene/cloth/"+ args.json_path
+json_path = prj_path + args.json_path
 auto_complete_path = bool(args.auto_complete_path)
 arch = args.arch
 
@@ -1064,11 +1065,15 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
         n += 1 # diag placeholder
 
 
-def export_A_b(A,b,postfix=""):
-    # print(f"writting A and b to {out_dir}")
-    scipy.io.mmwrite(out_dir+"/A/" + f"A_{postfix}.mtx", A)
-    np.savetxt(out_dir+"/A/" + f"b_{postfix}.txt", b)
-    # print(f"writting A and b done")
+def export_A_b(A,b,postfix="", binary=False):
+    dir = out_dir + "/A/"
+    if binary:
+        scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)
+        np.save(dir + f"b_{postfix}.npy", b)
+        # A = scipy.sparse.load_npz("A.npz") # load
+    else:
+        scipy.io.mmwrite(dir + f"A_{postfix}.mtx", A, symmetry='symmetric')
+        np.savetxt(dir + f"b_{postfix}.txt", b)
 
 @ti.kernel
 def compute_potential_energy():
@@ -1343,6 +1348,10 @@ def load_state(filename):
 def print_all_globals(global_vars):
     print("\n\n### Global Variables ###")
     logging.info("\n\n### Global Variables ###")
+    import datetime
+    d = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print("datetime:", d)
+    logging.info(f"datetime:{d}",)
     import sys
     module_name = sys.modules[__name__].__name__
     global_vars = global_vars.copy()
@@ -1350,8 +1359,6 @@ def print_all_globals(global_vars):
     for var_name, var_value in global_vars.items():
         if var_name != module_name and not var_name.startswith('__') and not callable(var_value) and not isinstance(var_value, type(sys)):
             if var_name == 'parser':
-                continue
-            if var_name == 'args':
                 continue
             print(var_name, "=", var_value)
             if export_log:
@@ -1397,6 +1404,7 @@ print_all_globals(global_vars)
 #                                initialization                                #
 # ---------------------------------------------------------------------------- #
 timer_all = time.perf_counter()
+start_wall_time = datetime.datetime.now()
 print("\nInitializing...")
 print("Initializing pos..")
 init_pos(inv_mass,pos)
@@ -1502,7 +1510,7 @@ while True:
         if report_time:
             total_export_time = t_export_mesh+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
             t_frame = time.perf_counter()-t_one_frame_start
-            print(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
+            print(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2e}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
             print(f"Time of frame-{frame}: {t_frame:.2f}s")
             if export_log:
                 logging.info(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
@@ -1510,9 +1518,11 @@ while True:
     
     if frame == end_frame:
         t_all = time.perf_counter() - timer_all
-        print(f"Time all: {(time.perf_counter() - timer_all):.0f}s = {(time.perf_counter() - timer_all)/60:.2f}min")
+        end_wall_time = datetime.datetime.now()
+        s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_wall_time}, end at {end_wall_time}."
+        print(s)
         if export_log:
-            logging.info(f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s")
+            logging.info(s)
         exit()
     if use_viewer:
         viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)

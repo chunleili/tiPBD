@@ -1,0 +1,13 @@
+{
+    "setup_num":1,
+    "N":128,
+    "solver_type":"AMG",
+    "delta_t":1e-3,
+    "end_frame":3,
+    "max_iter":100,
+    "max_iter_Axb":150,
+    "export_matrix":1,
+    "export_matrix_interval":1,
+    "out_dir":"latest",
+    "auto_another_outdir":1
+}

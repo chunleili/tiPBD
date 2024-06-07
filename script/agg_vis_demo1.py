@@ -20,46 +20,44 @@ pyamg.vis.vis_coarse.vis_aggregate_groups(V=V, E2V=E2V, AggOp=AggOp,
 pyamg.vis.vtk_writer.write_basic_mesh(V=V, E2V=E2V,
                                       mesh_type='tri', fname='output_mesh.vtu')
 
-try:
-    import vedo
-    gmesh = vedo.load('output_mesh.vtu')
-    gaggs = vedo.load('output_aggs.vtu')
 
-    gmesh = gmesh.tomesh().color('w').alpha(0.1)
-    gmesh.color('gray')
-    gmesh.lw(3.0)
+import vedo
+gmesh = vedo.load('output_mesh.vtu')
+gaggs = vedo.load('output_aggs.vtu')
 
-    agg3 = []
-    agg2 = []
-    for cell in gaggs.cells:
-        if len(cell) == 2:
-            agg2.append(cell)
-        else:
-            agg3.append(cell)
+gmesh = gmesh.tomesh().color('w').alpha(0.1)
+gmesh.color('gray')
+gmesh.lw(3.0)
 
-    mesh2 = vedo.Mesh([gaggs.points(), agg2])
-    mesh3 = vedo.Mesh([gaggs.points(), agg3])
-    # mesh2.lineColor('b').lineWidth(8)
-    # mesh3.color('b').lineWidth(0)
-
-    figname = './vis_aggs2.png'
-    import sys
-    if len(sys.argv) > 1:
-        if sys.argv[1] == '--savefig':
-            plt = vedo.Plotter(offscreen=True)
-            plt += gmesh
-            plt += mesh2
-            plt += mesh3
-            plt.show().screenshot(figname)
+agg3 = []
+agg2 = []
+for cell in gaggs.cells:
+    if len(cell) == 2:
+        agg2.append(cell)
     else:
-        plt = vedo.Plotter()
+        agg3.append(cell)
+
+mesh2 = vedo.Mesh([gaggs.points(), agg2])
+mesh3 = vedo.Mesh([gaggs.points(), agg3])
+mesh2.linecolor('b').linewidth(8)
+mesh3.color('b').linewidth(0)
+
+figname = './vis_aggs2.png'
+import sys
+if len(sys.argv) > 1:
+    if sys.argv[1] == '--savefig':
+        plt = vedo.Plotter(offscreen=True)
         plt += gmesh
         plt += mesh2
         plt += mesh3
-        plt.show()
-except:
-    print("Failed to visualize aggregates using vedo. Please install vedo.")
-    pass
+        plt.show().screenshot(figname)
+else:
+    plt = vedo.Plotter()
+    plt += gmesh
+    plt += mesh2
+    plt += mesh3
+    plt.show()
+
 
 # to use Paraview:
 # start Paraview: Paraview --data=output_mesh.vtu

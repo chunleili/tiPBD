@@ -43,6 +43,10 @@ def test_amg(A, b, postfix=""):
     _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg',cycle='V')
     allres.append(Residual(label, r, perf_counter()))
 
+    A0 = ml18.levels[0].A
+    A1 = ml18.levels[1].A
+    Agg0 = ml18.levels[0].AggOp
+
 
     convs,times,labels  = postprocess_residual(allres, tic)
     
@@ -179,13 +183,23 @@ def mkdir_if_not_exist(path=None):
         os.makedirs(path)
 
 
+def spy_A(A):
+    print("shape:", A.shape)
+    plt.spy(A, markersize=1)
+    plt.show()
+
+
 if __name__ == "__main__":
-    frames = [ 21, 26]
+    frames = [26]
     for frame in frames:
         postfix=f"F{frame}-0"
         print(f"\n\n\n{postfix}")
         A,b = load_A_b(postfix=postfix)
         test_amg(A,b,postfix=postfix)
 
-    import concatenate_png
-    concatenate_png.concatenate_png(case_name, prefix='residuals', frames=frames)
+    if len(frames) != 6:
+        run_concate_png = False
+
+    if run_concate_png:
+        import concatenate_png
+        concatenate_png.concatenate_png(case_name, prefix='residuals', frames=frames)

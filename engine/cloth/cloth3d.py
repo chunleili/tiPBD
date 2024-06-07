@@ -58,6 +58,7 @@ parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 parser.add_argument("-use_json", type=int, default=0, help="json configs will overwrite the command line args")
 parser.add_argument("-json_path", type=str, default="", help="json configs will overwrite the command line args")
+parser.add_argument("-auto_complete_path", type=int, default=1, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 
 
 args = parser.parse_args()
@@ -73,17 +74,18 @@ else : gravity = [0.0, -9.8, 0.0]
 end_frame = args.end_frame
 restart = bool(args.restart)
 restart_frame = args.restart_frame
-restart_dir = prj_path + f"/result/" + args.restart_dir + "/"
+restart_dir = args.restart_dir + "/"
 tol_sim = args.tol_sim
 tol_Axb = args.tol_Axb
 max_iter = args.max_iter
 max_iter_Axb = args.max_iter_Axb
 export_log = bool(args.export_log)
-out_dir = prj_path + f"/result/" +  args.out_dir + "/"
+out_dir =  args.out_dir + "/"
 auto_another_outdir = bool(args.auto_another_outdir)
 restart_from_last_frame = bool(args.restart_from_last_frame)
 use_json = bool(args.use_json)
 json_path = prj_path + "/data/scene/cloth/"+ args.json_path
+auto_complete_path = bool(args.auto_complete_path)
 
 if use_json:
     if not os.path.exists(json_path):
@@ -98,6 +100,10 @@ if use_json:
                 globals()[key] = value
         else:
             print(f"json key {key} not exist in globals()!")
+
+if auto_complete_path:
+    out_dir = prj_path + f"/result/" +  out_dir + "/"
+    restart_dir = prj_path + f"/result/" + restart_dir + "/"
 
 
 #to print out the parameters

@@ -49,31 +49,34 @@ def process_log(log_file):
         object = [float(i) for i in object]
         object = np.array(object)
 
-    # %%
-    fig1, ax1 = plt.subplots()
-    ax1.plot(amg.flatten(), label="r_amg", marker="o", markersize=5, color="blue")
-    ax1.plot(gs.flatten(), label="r_gs", marker="x", markersize=5, color="orange")
-    ax1.set_ylabel('residual(2-norm)')
-    ax1.set_xlabel("iterations")
-    ax1.legend()
-    fig1.savefig(f"r.png")
-    ax1.set_title(log_file)
+    # # %%
+    # fig1, ax1 = plt.subplots()
+    # ax1.plot(amg.flatten(), label="r_amg", marker="o", markersize=5, color="blue")
+    # ax1.plot(gs.flatten(), label="r_gs", marker="x", markersize=5, color="orange")
+    # ax1.set_ylabel('residual(2-norm)')
+    # ax1.set_xlabel("iterations")
+    # ax1.legend()
+    # fig1.savefig(f"r.png")
+    # ax1.set_title(log_file)
 
     return gs, amg, dual_r, object
 
-gs1, amg1, dual_r1, object1 = process_log("gs.log")
-gs2 ,amg2, dual_r2, object2 = process_log("amg.log")
+
+from pathlib import Path
+
+prj_dir = Path(__file__).parent.parent
+path = prj_dir / "result/latest_2/latest.log"
+print(path)
+gs1, amg1, dual_r1, object1 = process_log(path)
 
 
 
 fig2, ax2 = plt.subplots()
-ax2.plot(dual_r1, label=f"gs_dualr", marker="o", markersize=5, color="blue")
-ax2.plot(dual_r2, label=f"amg_dualr", marker="o", markersize=5, color="orange")
+ax2.plot(dual_r1, label=f"dualr", marker="o", markersize=0, color="blue")
 ax2.legend()
 
 fig3, ax3 = plt.subplots()
-ax3.plot(object1, label=f"gs_object", marker="o", markersize=5, color="blue")
-ax3.plot(object2, label=f"amg_object", marker="o", markersize=5, color="orange")
+ax3.plot(object1, label=f"object", marker="o", markersize=0, color="blue")
 ax3.legend()
 
 plt.show()

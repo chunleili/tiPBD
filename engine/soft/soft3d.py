@@ -6,10 +6,15 @@ from logging import info, warning
 import scipy
 import scipy.sparse as sparse
 import sys, os, argparse
-from time import time
+import time
+from time import perf_counter
 from pathlib import Path
 import meshio
 from collections import namedtuple
+import json
+from functools import singledispatch
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
@@ -30,11 +35,21 @@ parser.add_argument("--fine_model_path", type=str, default=f"data/model/{default
 parser.add_argument("--model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
 
-export_obj = True
+export_mesh = True
 proj_dir_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = proj_dir_path + "/result/test/"
-stop_frame = 10
+out_dir = proj_dir_path + "/result/latest/"
+Path(out_dir).mkdir(parents=True, exist_ok=True)
+end_frame = 50
 export_matrix = True
+export_residual = True
+early_stop = True
+export_log = True
+
+t_export_matrix = 0.0
+t_calc_residual = 0.0
+t_export_residual = 0.0
+t_export_mesh = 0.0
+t_save_state = 0.0
 
 
 ti.init(arch=ti.cpu)
@@ -69,7 +84,10 @@ def clean_result_dir(folder_path):
         '*.txt',
         '*.obj',
         '*.png',
-        '*.ply'
+        '*.ply',
+        '*.npz',
+        '*.mtx',
+        '*.log',
     ]:
         files = glob.glob(os.path.join(folder_path, name))
         to_remove += (files)
@@ -78,7 +96,8 @@ def clean_result_dir(folder_path):
         os.remove(file_path)
     print(f"clean {folder_path} done")
 
-def write_obj(filename, pos, tri):
+
+def write_mesh(filename, pos, tri, format="ply"):
     cells = [
         ("triangle", tri.reshape(-1, 3)),
     ]
@@ -86,8 +105,15 @@ def write_obj(filename, pos, tri):
         pos,
         cells,
     )
-    mesh.write(filename)
+
+    if format == "ply":
+        mesh.write(filename + ".ply", binary=True)
+    elif format == "obj":
+        mesh.write(filename + ".obj")
+    else:
+        raise ValueError("Unknown format")
     return mesh
+
 
 def read_tetgen(filename):
     """
@@ -184,9 +210,12 @@ class SoftBody:
         self.constraint = ti.field(ti.f32, shape=(self.NT))
         self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
         self.residual = ti.field(ti.f32, shape=self.NT)
+        self.dual_residual = ti.field(ti.f32, shape=self.NT)
         self.dlambda = ti.field(ti.f32, shape=self.NT)
         self.negative_C_minus_alpha_lambda = ti.field(ti.f32, shape=self.NT)
         self.tet_centroid = ti.Vector.field(3, ti.f32, shape=self.NT)
+        self.potential_energy = ti.field(ti.f32, shape=())
+        self.inertial_energy = ti.field(ti.f32, shape=())
 
         self.state = [
             self.pos,
@@ -238,6 +267,7 @@ class SoftBody:
         # elif self.name == "fine":
         #     self.max_iter = meta.args.fine_iterations
         # info(f"{self.name} max_iter:{self.max_iter}")
+
 
     def solve_constraints(self):
         solve_constraints_kernel(
@@ -586,8 +616,63 @@ def transfer_back_to_pos_mfree(x,dLambda,dpos,pos):
     update_pos(inv_mass, dpos, pos)
     collision(pos)
 
+@ti.kernel
+def compute_potential_energy(potential_energy:ti.template(),
+                             alpha:ti.template(),
+                             constraints:ti.template()):
+    potential_energy[None] = 0.0
+    for i in range(constraints.shape[0]):
+        inv_alpha = 1.0/alpha[i]
+        potential_energy[None] += 0.5 * inv_alpha * constraints[i]**2
+
+@ti.kernel
+def compute_inertial_energy(inertial_energy:ti.template(),
+                            inv_mass:ti.template(),
+                            pos:ti.template(),
+                            predict_pos:ti.template(),
+                            delta_t:ti.f32):
+    inertial_energy[None] = 0.0
+    inv_h2 = 1.0 / delta_t**2
+    for i in range(pos.shape[0]):
+        if inv_mass[i] == 0.0:
+            continue
+        inertial_energy[None] += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
+
+
+@ti.kernel
+def calc_dual_residual(alpha_tilde:ti.template(),
+                       lagrangian:ti.template(),
+                       constraint:ti.template(),
+                       dual_residual:ti.template()):
+    for i in range(dual_residual.shape[0]):
+        dual_residual[i] = -(constraint[i] + alpha_tilde[i] * lagrangian[i])
+
+def calc_primary_residual(G,M_inv,predict_pos,pos,lagrangian):
+    MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
+    primary_residual = MASS @ (predict_pos.to_numpy().flatten() - pos.to_numpy().flatten()) - G.transpose() @ lagrangian.to_numpy()
+    where_zeros = np.where(M_inv.diagonal()==0)
+    primary_residual = np.delete(primary_residual, where_zeros)
+    return primary_residual
+
+
+# To deal with the json dump error for np.float32
+# https://ellisvalentiner.com/post/serializing-numpyfloat32-json/
+@singledispatch
+def to_serializable(val):
+    """Used by default."""
+    return str(val)
+
+
+@to_serializable.register(np.float32)
+def ts_float32(val):
+    """Used if *val* is an instance of numpy.float32."""
+    return np.float64(val)
+
+
+Residual = namedtuple('residual', ['sys', 'primary', 'dual', 'obj', 'amg', 'gs','iters','t'])
 
 def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=None):
+    global t_export_matrix, t_calc_residual, t_export_residual, t_save_state
     # ist is instance of fine or coarse
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
@@ -600,6 +685,9 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
     alpha_tilde_np = ist.alpha_tilde.to_numpy()
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
+    t_iter_start = perf_counter()
+    r=[]
+    tol_sim = 1e-6
     for ite in range(max_iter):
         # ----------------------------- prepare matrices ----------------------------- #
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
@@ -614,7 +702,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         A = scipy.sparse.csr_matrix(A)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
-        if meta.frame == stop_frame and export_matrix:
+        if meta.frame == end_frame and export_matrix:
             print(f"writing A and b to {out_dir}")
             scipy.io.mmwrite(out_dir + f"A.mtx", A)
             np.savetxt(out_dir + f"b.txt", b)
@@ -622,6 +710,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         # -------------------------------- solve Ax=b -------------------------------- #
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
+        rsys0 = np.linalg.norm(b-A @ x0)
 
         if solver_type == "GaussSeidel":
             x = np.zeros_like(b)
@@ -632,12 +721,51 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         elif solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
         elif solver_type == "AMG":
-            x = solve_pyamg_my2(A, b, x0, R, P)
+            ramg = []
+            x = solve_amg_SA(A, b, x0, ramg)
+            r_Axb = ramg
+            rgs = [None]
 
         dlambda = x
         ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
         dpos = M_inv @ G.transpose() @ dlambda
         ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+        rsys2 = np.linalg.norm(b - A @ x)
+        
+
+        if export_residual:
+            t_iter = time.perf_counter()-t_iter_start
+            t_calc_residual_start = time.perf_counter()
+            calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
+            # if use_primary_residual:
+            primary_residual = calc_primary_residual(G, M_inv, ist.predict_pos, ist.pos, ist.lagrangian)
+            primary_r = np.linalg.norm(primary_residual).astype(float)
+            # else: primary_r = 0.0
+            dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
+            compute_potential_energy(ist.potential_energy, ist.alpha_tilde, ist.lagrangian)
+            compute_inertial_energy(ist.inertial_energy, ist.inv_mass, ist.pos, ist.predict_pos, meta.h)
+            robj = (ist.potential_energy[None]+ist.inertial_energy[None])
+            print(f"{meta.frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
+            if export_log:
+                logging.info(f"{meta.frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
+            r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, len(r_Axb), t_iter))
+            t_calc_residual += time.perf_counter()-t_calc_residual_start
+
+        x_prev = x.copy()
+        # gradC_prev = gradC.to_numpy().copy()
+
+        if early_stop:
+            if rsys0 < tol_sim:
+                break
+
+    if export_residual:
+        tic = time.perf_counter()
+        serialized_r = [r[i]._asdict() for i in range(len(r))]
+        r_json = json.dumps(serialized_r,   default=to_serializable)
+        with open(out_dir+'/r/'+ f'{meta.frame}.json', 'w') as file:
+            file.write(r_json)
+        t_export_residual = time.perf_counter()-tic
 
     collsion_response(ist.pos)
     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
@@ -646,7 +774,14 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 # ---------------------------------------------------------------------------- #
 #                               PYAMG reproduced                               #
 # ---------------------------------------------------------------------------- #
-
+def solve_amg_SA(A,b,x0,residuals=[],tol_Axb=1e-6, max_iter_Axb=150):
+    import pyamg
+    ml5 = pyamg.smoothed_aggregation_solver(A,
+        smooth=None,
+        max_coarse=400,
+        coarse_solver="pinv")
+    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="V")
+    return x5
 
 def solve_pyamg_my2(A, b, x0, R, P):
     tol = 1e-3
@@ -856,7 +991,7 @@ def compute_R_and_P(coarse, fine):
 
     # 计算R 和 P
     print(">>Computing P and R...")
-    t = time()
+    t = perf_counter()
     M, N = coarse.tet_indices.shape[0], fine.tet_indices.shape[0]
     R = np.zeros((M, N))
     compute_R_kernel_np(
@@ -864,7 +999,7 @@ def compute_R_and_P(coarse, fine):
     )
     R = scipy.sparse.csr_matrix(R)
     P = R.transpose()
-    print(f"Computing P and R done, time = {time() - t}")
+    print(f"Computing P and R done, time = {perf_counter() - t}")
     # print(f"writing P and R...")
     # R.mmwrite("R.mtx")
     # P.mmwrite("P.mtx")
@@ -873,7 +1008,7 @@ def compute_R_and_P(coarse, fine):
 
 def compute_R_and_P_kmeans(ist):
     print(">>Computing P and R...")
-    t = time()
+    t = perf_counter()
 
     from scipy.cluster.vq import vq, kmeans, whiten
 
@@ -912,7 +1047,7 @@ def compute_R_and_P_kmeans(ist):
 
     R = scipy.sparse.csr_matrix(R)
     P = R.transpose()
-    print(f"Computing P and R done, time = {time() - t}")
+    print(f"Computing P and R done, time = {perf_counter() - t}")
 
     print(f"writing P and R...")
     scipy.io.mmwrite("R.mtx", R)
@@ -921,39 +1056,47 @@ def compute_R_and_P_kmeans(ist):
 
     return R, P
 
+def make_and_clean_dirs(out_dir):
+    import shutil
+    from pathlib import Path
+
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    Path(out_dir + "/r/").mkdir(parents=True, exist_ok=True)
+    Path(out_dir + "/A/").mkdir(parents=True, exist_ok=True)
+    Path(out_dir + "/state/").mkdir(parents=True, exist_ok=True)
+    Path(out_dir + "/mesh/").mkdir(parents=True, exist_ok=True)
+
 
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
 def main():
-    logging.getLogger().setLevel(logging.INFO)
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    make_and_clean_dirs(out_dir)
 
-    if meta.args.solver_type == "AMG":
-        fine = SoftBody(meta.args.fine_model_path)
-        coarse = SoftBody(meta.args.coarse_model_path)
-        fine.initialize()
-        coarse.initialize()
-        R,P = compute_R_and_P(coarse,fine) 
-        ist = fine
-    else:
-        ist = SoftBody(meta.args.model_path)
-        ist.initialize()
+    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
 
-    clean_result_dir(out_dir)
+    import datetime
+    date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    logging.info(date)
+
+    ist = SoftBody(meta.args.model_path)
+    ist.initialize()
+
 
     while True:
         info("\n\n----------------------")
         info(f"frame {meta.frame}")
-        t = time()
+        t = perf_counter()
 
         substep_all_solver(ist, meta.args.max_iter, meta.args.solver_type)
 
-        if export_obj:
-            write_obj(out_dir + f"{meta.frame:04d}.obj", ist.pos.to_numpy(), ist.model_tri)
+        if export_mesh:
+            write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
         
         meta.frame += 1
-        info(f"step time: {time() - t:.2g} s")
+        info(f"step time: {perf_counter() - t:.2g} s")
             
         if meta.frame == meta.args.max_frame:
             exit()

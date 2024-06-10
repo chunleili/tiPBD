@@ -59,7 +59,7 @@ parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 parser.add_argument("-use_json", type=int, default=1, help="json configs will overwrite the command line args")
 parser.add_argument("-json_path", type=str, default="json/config.json", help="json configs will overwrite the command line args")
-parser.add_argument("-auto_complete_path", type=int, default=1, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
+parser.add_argument("-auto_complete_path", type=int, default=0, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
 
 

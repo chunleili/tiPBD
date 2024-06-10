@@ -25,7 +25,7 @@ def update_plot(data,frame):
     plt.plot(data)
     plt.xlabel('iteration')
     plt.ylabel('object')
-    plt.title(f'object of GS frame-{frame}')
+    plt.title(f'object of frame-{frame}')
     plt.grid(True)
     # plt.ylim(1, 1e8)
     # plt.yscale('log')
@@ -40,7 +40,12 @@ def mkdir_if_not_exist(path=None):
         os.makedirs(path)
 
 prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = prj_path+f"./result/latest/r/"
+
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("-outdir", type=str, default=prj_path+f"/result/latest/r/")
+
+out_dir = parser.parse_args().outdir
 os.chdir(out_dir)
 mkdir_if_not_exist('./plt')
 

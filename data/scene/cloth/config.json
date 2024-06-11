@@ -1,6 +1,6 @@
 {
     "setup_num":1,
-    "N":128,
+    "N":64,
     "solver_type":"AMG",
     "delta_t":1e-3,
     "end_frame":50,

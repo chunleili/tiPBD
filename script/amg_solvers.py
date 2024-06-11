@@ -15,13 +15,13 @@ prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 print("prj_dir", prj_dir)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-case_name", type=str, default='scale64')
+parser.add_argument("-case_name", type=str, default='latest')
 case_name = parser.parse_args().case_name
 
 to_read_dir = prj_dir + f"result/{case_name}/A/"
 save_fig = True
-show_fig = True
-maxiter = 300
+show_fig = False
+maxiter = 50
 early_stop = False
 tol=1e-10 # relative tolerance
 run_concate_png = True
@@ -35,127 +35,123 @@ def test_amg(A, b, postfix=""):
     allres = []
     tic = perf_counter()
 
-    # # classical AMG
-    # label = "Classical AMG"
-    # print(f"Calculating {label}...")
-    # ml1 = pyamg.ruge_stuben_solver(A)
-    # r = []
-    # _ = ml1.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
-    # allres.append(Residual(label, r, perf_counter()))
+    # classical AMG
+    label = "Classical AMG"
+    print(f"Calculating {label}...")
+    ml1 = pyamg.ruge_stuben_solver(A)
+    r = []
+    _ = ml1.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
+    allres.append(Residual(label, r, perf_counter()))
 
-    # # SA
-    # label = "Smoothed Aggregation"
-    # print(f"Calculating {label}...")
-    # ml2 = pyamg.smoothed_aggregation_solver(A)
-    # r = []
-    # _ = ml2.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
-    # allres.append(Residual(label, r, perf_counter()))
-
-
-    # # GS
-    # label = "Gauss Seidel"
-    # print(f"Calculating {label}...")
-    # x4 = x0.copy()
-    # r = []
-    # for _ in range(maxiter*8+1):
-    #     r.append(np.linalg.norm(b - A @ x4))
-    #     pyamg.relaxation.relaxation.gauss_seidel(A=A, x=x4, b=b, iterations=1)
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # #  SA+CG, from diagnostic,
-    # label = "SA+CG"
-    # print(f"Calculating {label}...")
-    # r = []
-    # B = np.ones((A.shape[0],1), dtype=A.dtype); BH = B.copy()
-    # ml5 = pyamg.smoothed_aggregation_solver(A,B=B,BH=BH, 
-    #     strength=('symmetric', {'theta': 0.0}),
-    #     smooth="jacobi",
-    #     improve_candidates=None,
-    #     aggregate="standard",
-    #     presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-    #     postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-    #     max_levels=15,
-    #     max_coarse=300,
-    #     coarse_solver="pinv")
-    # x = ml5.solve(b, x0=x0, tol=tol, residuals=r, accel="cg", maxiter=maxiter, cycle="W")
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # # CG
-    # label = "CG"
-    # print(f"Calculating {label}...")
-    # x6 = x0.copy()
-    # r = []
-    # r.append(np.linalg.norm(b - A @ x6))
-    # x6 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)))
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # #  diagnal preconditioner + CG
-    # label = "diag PCG"
-    # print(f"Calculating {label}...")
-    # M = scipy.sparse.diags(1.0/A.diagonal())
-    # x7 = x0.copy()
-    # r = []
-    # r.append(np.linalg.norm(b - A @ x7))
-    # x7 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)), M=M)
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # label = "UA+CG+Algebraic3.0"
-    # print(f"Calculating {label}...")
-    # ml8 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('algebraic_distance', {'epsilon': 3.0}), smooth=None)
-    # r = []
-    # _ = ml8.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
+    # SA
+    label = "Smoothed Aggregation"
+    print(f"Calculating {label}...")
+    ml2 = pyamg.smoothed_aggregation_solver(A)
+    r = []
+    _ = ml2.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
+    allres.append(Residual(label, r, perf_counter()))
 
 
-    # label = "UA+CG+Affinity4.0"
-    # print(f"Calculating {label}...")
-    # ml9 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('affinity', {'epsilon': 4.0, 'R': 10, 'alpha': 0.5, 'k': 20}), smooth=None)
-    # r = []
-    # _ = ml9.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
+    label = "GS"
+    print(f"Calculating {label}...")
+    x4 = x0.copy()
+    r = []
+    for _ in range(maxiter+1):
+        r.append(np.linalg.norm(b - A @ x4))
+        pyamg.relaxation.relaxation.gauss_seidel(A=A, x=x4, b=b, iterations=1)
+    allres.append(Residual(label, r, perf_counter()))
+
+    #  SA+CG, from diagnostic,
+    label = "SA+CG"
+    print(f"Calculating {label}...")
+    r = []
+    B = np.ones((A.shape[0],1), dtype=A.dtype); BH = B.copy()
+    ml5 = pyamg.smoothed_aggregation_solver(A,B=B,BH=BH, 
+        strength=('symmetric', {'theta': 0.0}),
+        smooth="jacobi",
+        improve_candidates=None,
+        aggregate="standard",
+        presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
+        max_levels=15,
+        max_coarse=300,
+        coarse_solver="pinv")
+    x = ml5.solve(b, x0=x0, tol=tol, residuals=r, accel="cg", maxiter=maxiter, cycle="W")
+    allres.append(Residual(label, r, perf_counter()))
+
+    # CG
+    label = "CG"
+    print(f"Calculating {label}...")
+    x6 = x0.copy()
+    r = []
+    r.append(np.linalg.norm(b - A @ x6))
+    x6 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)))
+    allres.append(Residual(label, r, perf_counter()))
+
+    #  diagnal preconditioner + CG
+    label = "diag PCG"
+    print(f"Calculating {label}...")
+    M = scipy.sparse.diags(1.0/A.diagonal())
+    x7 = x0.copy()
+    r = []
+    r.append(np.linalg.norm(b - A @ x7))
+    x7 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)), M=M)
+    allres.append(Residual(label, r, perf_counter()))
+
+    label = "UA+CG+Algebraic3.0"
+    print(f"Calculating {label}...")
+    ml8 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('algebraic_distance', {'epsilon': 3.0}), smooth=None)
+    r = []
+    _ = ml8.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
 
 
-    # # blackbox
-    # label = "Blackbox"
-    # print(f"Calculating {label}...")
-    # r=[]
-    # x = pyamg.solve(A, b, x0, tol=tol, verb=False, residuals=r, maxiter=maxiter)
-    # conv10 = calc_conv(r)
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # # rootnode
-    # label = "Rootnode+CG"
-    # print(f"Calculating {label}...")
-    # ml12 = pyamg.rootnode_solver(A)
-    # r = []
-    # x12 = ml12.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
+    label = "UA+CG+Affinity4.0"
+    print(f"Calculating {label}...")
+    ml9 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('affinity', {'epsilon': 4.0, 'R': 10, 'alpha': 0.5, 'k': 20}), smooth=None)
+    r = []
+    _ = ml9.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
 
 
-    # # SA+CG normal
-    # label = "SA+CG"
-    # print(f"Calculating {label}...")
-    # ml13 = pyamg.smoothed_aggregation_solver(A)
-    # r = []
-    # _ = ml13.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
+    # blackbox
+    label = "Blackbox"
+    print(f"Calculating {label}...")
+    r=[]
+    x = pyamg.solve(A, b, x0, tol=tol, verb=False, residuals=r, maxiter=maxiter)
+    conv10 = calc_conv(r)
+    allres.append(Residual(label, r, perf_counter()))
 
-    # # SA+CG smooth='energy'
-    # label = "SA+CG smooth=energy"
-    # print(f"Calculating {label}...")
-    # ml14 = pyamg.smoothed_aggregation_solver(A, smooth='energy')
-    # r = []
-    # _ = ml14.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
+    # rootnode
+    label = "Rootnode+CG"
+    print(f"Calculating {label}...")
+    ml12 = pyamg.rootnode_solver(A)
+    r = []
+    x12 = ml12.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
 
-    # CAMG+CG
-    # label = "CAMG+CG"
-    # print(f"Calculating {label}...")
-    # ml16 = pyamg.ruge_stuben_solver(A)
-    # r = []
-    # _ = ml16.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
 
+    label = "SA+CG"
+    print(f"Calculating {label}...")
+    ml13 = pyamg.smoothed_aggregation_solver(A)
+    r = []
+    _ = ml13.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
+
+    label = "SA+CG smooth=energy"
+    print(f"Calculating {label}...")
+    ml14 = pyamg.smoothed_aggregation_solver(A, smooth='energy')
+    r = []
+    _ = ml14.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
+
+
+    label = "CAMG+CG"
+    print(f"Calculating {label}...")
+    ml16 = pyamg.ruge_stuben_solver(A)
+    r = []
+    _ = ml16.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
 
 
     label = "UA+CG"
@@ -167,12 +163,12 @@ def test_amg(A, b, postfix=""):
     print("len(level)=", len(ml17.levels))
 
 
-    # label = "UA+CG coarse=GS"
-    # print(f"Calculating {label}...")
-    # ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='gauss_seidel', max_coarse=300)
-    # r = []
-    # _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
+    label = "UA+CG coarse=GS"
+    print(f"Calculating {label}...")
+    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='gauss_seidel', max_coarse=300)
+    r = []
+    _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
 
     convs,times,labels  = postprocess_residual(allres, tic)
     
@@ -193,10 +189,10 @@ def test_amg(A, b, postfix=""):
     # https://matplotlib.org/stable/gallery/color/named_colors.html
     fig, axs = plt.subplots(1, figsize=(8, 9))
     for i in range(len(allres)):
-        # if allres[i].label == 'SA+CG' or\
-        #    allres[i].label == 'UA+CG' or\
-        #    allres[i].label == 'UA+CG coarse=GS':
-        plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label)
+        if allres[i].label == 'SA+CG' or\
+           allres[i].label == 'UA+CG' or\
+           allres[i].label == 'GS':
+            plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label)
 
     global plot_title
     plot_title = postfix
@@ -310,7 +306,7 @@ def mkdir_if_not_exist(path=None):
 
 
 if __name__ == "__main__":
-    frames = [21, 26]
+    frames = [1, 6, 11, 16, 21, 26, 31]
     for frame in frames:
         postfix=f"F{frame}-0"
         print(f"\n\n\n{postfix}")

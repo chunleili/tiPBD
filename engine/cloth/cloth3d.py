@@ -6,7 +6,7 @@ import scipy
 import scipy.sparse as sp
 from scipy.io import mmwrite, mmread
 from pathlib import Path
-import os
+import os,sys
 from matplotlib import pyplot as plt
 import shutil, glob
 import meshio
@@ -1219,7 +1219,7 @@ def substep_all_solver(max_iter=1):
             compute_potential_energy()
             compute_inertial_energy()
             robj = (potential_energy[None]+inertial_energy[None])
-            print(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
+            # print(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             if export_log:
                 logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, len(r_Axb), t_iter))
@@ -1349,11 +1349,11 @@ def load_state(filename):
 
 
 def print_all_globals(global_vars):
-    print("\n\n### Global Variables ###")
+    # print("\n\n### Global Variables ###")
     logging.info("\n\n### Global Variables ###")
     import datetime
     d = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print("datetime:", d)
+    # print("datetime:", d)
     logging.info(f"datetime:{d}",)
     import sys
     module_name = sys.modules[__name__].__name__
@@ -1363,11 +1363,11 @@ def print_all_globals(global_vars):
         if var_name != module_name and not var_name.startswith('__') and not callable(var_value) and not isinstance(var_value, type(sys)):
             if var_name == 'parser':
                 continue
-            print(var_name, "=", var_value)
+            # print(var_name, "=", var_value)
             if export_log:
                 logging.info(f"{var_name} = {var_value}")
             keys_to_delete.append(var_name)
-    print("\n\n\n")
+    # print("\n\n\n")
     logging.info("\n\n\n")
 
 def find_last_frame(dir):
@@ -1400,6 +1400,8 @@ if not restart and not dont_clean_results:
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
+logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+
 
 print_all_globals(global_vars)
 
@@ -1460,7 +1462,7 @@ if restart:
     else:
         load_state(restart_dir + f"{restart_frame:04d}.npz")
         frame = restart_frame
-        print(f"restart from last frame: {restart_frame}")
+        # print(f"restart from last frame: {restart_frame}")
         logging.info(f"restart from last frame: {restart_frame}")
 
 print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.1g}s")
@@ -1486,7 +1488,7 @@ initial_frame = frame
 step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
 while True:
     step_pbar.update(1)
-    print()
+    # print()
     logging.info("")
     t_one_frame_start = time.perf_counter()
     frame += 1
@@ -1513,8 +1515,8 @@ while True:
         if report_time:
             total_export_time = t_export_mesh+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
             t_frame = time.perf_counter()-t_one_frame_start
-            print(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2e}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
-            print(f"Time of frame-{frame}: {t_frame:.2f}s")
+            # print(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2e}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
+            # print(f"Time of frame-{frame}: {t_frame:.2f}s")
             if export_log:
                 logging.info(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
                 logging.info(f"Time of frame-{frame}: {t_frame:.2f}s")
@@ -1523,7 +1525,7 @@ while True:
         t_all = time.perf_counter() - timer_all
         end_wall_time = datetime.datetime.now()
         s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_wall_time}, end at {end_wall_time}."
-        print(s)
+        # print(s)
         if export_log:
             logging.info(s)
         exit()

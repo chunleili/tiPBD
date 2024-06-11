@@ -29,17 +29,18 @@ parser.add_argument(
     "--solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"]
 )
 
-default_model = "bunny1k2k" # "cube" "bunny1k2k" "toy"
+default_model = "bunnyBig" # "cube" "bunny1k2k" "toy"
 parser.add_argument("--coarse_model_path", type=str, default=f"data/model/{default_model}/coarse.node")
 parser.add_argument("--fine_model_path", type=str, default=f"data/model/{default_model}/fine.node")
-parser.add_argument("--model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
+# parser.add_argument("--model_path", type=str, default=f"data/model/{default_model}/{default_model}.ply")
+parser.add_argument("--model_path", type=str, default=f"D:/CG/Houdini/Projects/mgxpbd/models/bunnyBig.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
+parser.add_argument("--end_frame", type=int, default=30)
 
 export_mesh = True
 proj_dir_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 out_dir = proj_dir_path + "/result/latest/"
 Path(out_dir).mkdir(parents=True, exist_ok=True)
-end_frame = 50
 export_matrix = True
 export_residual = True
 early_stop = True
@@ -60,6 +61,7 @@ class Meta:
         # control parameters
         self.args = parser.parse_args()
         self.frame = 0
+        self.ite = 0
 
         # physical parameters
         self.omega = self.args.omega  # SOR factor, default 0.1
@@ -688,7 +690,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
     t_iter_start = perf_counter()
     r=[]
     tol_sim = 1e-6
-    for ite in range(max_iter):
+    for meta.ite in range(max_iter):
         # ----------------------------- prepare matrices ----------------------------- #
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
@@ -702,11 +704,11 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         A = scipy.sparse.csr_matrix(A)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
-        if meta.frame == end_frame and export_matrix:
-            print(f"writing A and b to {out_dir}")
-            scipy.io.mmwrite(out_dir + f"A.mtx", A)
-            np.savetxt(out_dir + f"b.txt", b)
-            exit()
+        if export_matrix and meta.ite==0:
+            tic = time.perf_counter()
+            export_A_b(A,b,postfix=f"F{meta.frame}-{meta.ite}")
+            t_export_matrix = time.perf_counter()-tic
+
         # -------------------------------- solve Ax=b -------------------------------- #
         x0 = np.zeros_like(b)
         A = scipy.sparse.csr_matrix(A)
@@ -717,7 +719,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
             for _ in range(1):
                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
                 r_norm = np.linalg.norm(A @ x - b)
-                print(f"{ite} r:{r_norm:.2g}")
+                print(f"{meta.ite} r:{r_norm:.2g}")
         elif solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
         elif solver_type == "AMG":
@@ -746,9 +748,9 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
             compute_potential_energy(ist.potential_energy, ist.alpha_tilde, ist.lagrangian)
             compute_inertial_energy(ist.inertial_energy, ist.inv_mass, ist.pos, ist.predict_pos, meta.h)
             robj = (ist.potential_energy[None]+ist.inertial_energy[None])
-            print(f"{meta.frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
+            # print(f"{meta.frame}-{meta.ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             if export_log:
-                logging.info(f"{meta.frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
+                logging.info(f"{meta.frame}-{meta.ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, len(r_Axb), t_iter))
             t_calc_residual += time.perf_counter()-t_calc_residual_start
 
@@ -1069,6 +1071,16 @@ def make_and_clean_dirs(out_dir):
     Path(out_dir + "/mesh/").mkdir(parents=True, exist_ok=True)
 
 
+def export_A_b(A,b,postfix="", binary=False):
+    dir = out_dir + "/A/"
+    if binary:
+        scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)
+        np.save(dir + f"b_{postfix}.npy", b)
+        # A = scipy.sparse.load_npz("A.npz") # load
+    else:
+        scipy.io.mmwrite(dir + f"A_{postfix}.mtx", A, symmetry='symmetric')
+        np.savetxt(dir + f"b_{postfix}.txt", b)
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1076,6 +1088,7 @@ def main():
     make_and_clean_dirs(out_dir)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
     import datetime
     date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
@@ -1098,7 +1111,7 @@ def main():
         meta.frame += 1
         info(f"step time: {perf_counter() - t:.2g} s")
             
-        if meta.frame == meta.args.max_frame:
+        if meta.frame == meta.args.end_frame:
             exit()
 
 if __name__ == "__main__":

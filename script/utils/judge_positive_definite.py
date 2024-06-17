@@ -15,9 +15,10 @@ def is_pos_def(A):
     else:
         print("A is not positive definite")
         return False
-
-A = scipy.io.mmread("./result/test/A2.mtx")
-A=A.todense()
-is_pos_def(A)
-# chol_A = np.linalg.cholesky(A)
-# print(chol_A)
+    
+if __name__ == "__main__":
+    A = scipy.io.mmread("./result/test/A2.mtx")
+    A=A.todense()
+    is_pos_def(A)
+    # chol_A = np.linalg.cholesky(A)
+    # print(chol_A)

@@ -2,27 +2,22 @@
 import numpy as np
 import scipy
 import os, sys
-from scipy.io import mmread, mmwrite
 from time import perf_counter
 from matplotlib import pyplot as plt
 import pyamg
 from pyamg.relaxation.smoothing import change_smoothers
 from collections import namedtuple
 import argparse
+from utils.define_to_read_dir import to_read_dir, case_name
+from utils.load_A_b import load_A_b
 
 sys.path.append(os.getcwd())
 
-prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
-print("prj_dir", prj_dir)
 
-parser = argparse.ArgumentParser()
-parser.add_argument("-case_name", type=str, default='scale3')
-case_name = parser.parse_args().case_name
 
-to_read_dir = prj_dir + f"result/{case_name}/A/"
 save_fig = True
-show_fig = True
-maxiter = 300
+show_fig = False
+maxiter = 150
 early_stop = False
 tol=1e-10 # relative tolerance
 run_concate_png = True
@@ -30,28 +25,129 @@ postfix = ''
 
 Residual = namedtuple('Residual', ['label','r', 't'])
 
+A1 = load_A_b("F10-0")[0]
+
+
+
+def manual_setup():
+    # manual construction of a two-level AMG hierarchy
+    from pyamg.gallery import poisson
+    from pyamg.multilevel import MultilevelSolver
+    from pyamg.strength import classical_strength_of_connection
+    from pyamg.classical.interpolate import direct_interpolation
+    from pyamg.classical.split import RS
+    # compute necessary operators
+    A = poisson((100, 100), format='csr')
+    C = classical_strength_of_connection(A)
+    splitting = RS(A)
+    P = direct_interpolation(A, C, splitting)
+    R = P.T
+    # store first level data
+    levels = []
+    levels.append(MultilevelSolver.Level())
+    levels.append(MultilevelSolver.Level())
+    levels[0].A = A
+    levels[0].C = C
+    levels[0].splitting = splitting
+    levels[0].P = P
+    levels[0].R = R
+    # store second level data
+    levels[1].A = R @ A @ P                      # coarse-level matrix
+    # create MultilevelSolver
+    ml = MultilevelSolver(levels, coarse_solver='splu')
+    print(ml)
+
+
+
+
+def construct_ml_manually(A,P0,P1):
+    from pyamg.multilevel import MultilevelSolver
+
+    levels = []
+    levels.append(MultilevelSolver.Level())
+    levels.append(MultilevelSolver.Level())
+    levels.append(MultilevelSolver.Level())
+
+    levels[0].A = A
+    levels[0].P = P0
+    levels[0].R = P0.T
+    levels[1].A = P0.T @ A @ P0
+
+    levels[1].P = P1
+    levels[1].R = P1.T
+    levels[2].A = P1.T @ levels[1].A @ P1
+
+    ml = MultilevelSolver(levels, coarse_solver='pinv')
+
+    presmoother=('block_gauss_seidel',{'sweep': 'symmetric'})
+    postsmoother=('block_gauss_seidel',{'sweep': 'symmetric'})
+    change_smoothers(ml, presmoother, postsmoother)
+
+    return ml
+
+
+
+
+
+
 def test_amg(A, b, postfix=""):
     # x0 = np.random.rand(A.shape[0])
     x0 = np.zeros_like(b)
     allres = []
     tic = perf_counter()
 
-    label = "UA+CG"
+    label = "GS"
     print(f"Calculating {label}...")
-    ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='pinv', max_coarse=2, max_levels=2, keep=True)
+    x4 = x0.copy()
     r = []
-    _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg',cycle='V')
+    for _ in range(maxiter+1):
+        r.append(np.linalg.norm(b - A @ x4))
+        pyamg.relaxation.relaxation.gauss_seidel(A=A, x=x4, b=b, iterations=1)
     allres.append(Residual(label, r, perf_counter()))
 
-    A0 = ml18.levels[0].A
-    A1 = ml18.levels[1].A
-    Agg0 = ml18.levels[0].AggOp
+
+    # CG
+    label = "CG"
+    print(f"Calculating {label}...")
+    x6 = x0.copy()
+    r = []
+    r.append(np.linalg.norm(b - A @ x6))
+    x6 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)))
+    allres.append(Residual(label, r, perf_counter()))
+
+
+    label = "SA+CG"
+    print(f"Calculating {label}...")
+    tt = perf_counter()
+    ml17 = pyamg.smoothed_aggregation_solver(A, max_coarse=400, keep=True)
+    print("setup phase of SA time=", perf_counter()-tt)
+    r = []
+    tt = perf_counter()
+    _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    print("solve phase of SA time=", perf_counter()-tt)
+    allres.append(Residual(label, r, perf_counter()))
+    print("len(level)=", len(ml17.levels))
+
+
+
+    label = "commonP A1"
+    print(f"Calculating {label}...")
+    # A1 = load_A_b("F10-0")[0]
+    tt1 = perf_counter()
+    ml18 = construct_ml_manually(A1, ml17.levels[0].P, ml17.levels[1].P)
+    print("setup phase of commonP time=", perf_counter()-tt1)
+    r = []
+    tt = perf_counter()
+    _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter, accel='cg')
+    print("solve phase of common P time=", perf_counter()-tt)
+    allres.append(Residual(label, r, perf_counter()))
+    
 
 
     convs,times,labels  = postprocess_residual(allres, tic)
     
     # draw_convergence_factors(convs, labels)
-    draw_times(times, labels)
+    # draw_times(times, labels)
 
     df = print_df(labels, convs, times)
     save_data(allres,postfix)
@@ -69,8 +165,8 @@ def test_amg(A, b, postfix=""):
     for i in range(len(allres)):
         # if allres[i].label == 'SA+CG' or\
         #    allres[i].label == 'UA+CG' or\
-        #    allres[i].label == 'UA+CG coarse=GS':
-        plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label, marker=markers[i], color=colors[i])
+        #    allres[i].label == 'GS':
+        plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label, marker=markers[i])
 
     global plot_title
     plot_title = postfix
@@ -153,13 +249,13 @@ def postprocess_residual(allres, tic):
 
 
 
-def load_A_b(postfix):
-    print("loading data...")
-    A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
-    A = A.tocsr()
-    A = A.astype(np.float64)
-    b = np.loadtxt(to_read_dir+f"b_{postfix}.txt", dtype=np.float64)
-    return A, b
+# def load_A_b(postfix):
+#     print("loading data...")
+#     A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
+#     A = A.tocsr()
+#     A = A.astype(np.float64)
+#     b = np.loadtxt(to_read_dir+f"b_{postfix}.txt", dtype=np.float64)
+#     return A, b
 
 
 def plot_residuals(data, ax, *args, **kwargs):
@@ -183,23 +279,14 @@ def mkdir_if_not_exist(path=None):
         os.makedirs(path)
 
 
-def spy_A(A):
-    print("shape:", A.shape)
-    plt.spy(A, markersize=1)
-    plt.show()
-
-
 if __name__ == "__main__":
-    frames = [26]
+    # frames = [1, 6, 11, 16, 21, 26]
+    frames=[10,20,30,40,50,60]
     for frame in frames:
         postfix=f"F{frame}-0"
         print(f"\n\n\n{postfix}")
         A,b = load_A_b(postfix=postfix)
         test_amg(A,b,postfix=postfix)
 
-    if len(frames) != 6:
-        run_concate_png = False
-
-    if run_concate_png:
-        import script.utils.concatenate_png as concatenate_png
-        concatenate_png.concatenate_png(case_name, prefix='residuals', frames=frames)
+    import script.utils.concatenate_png as concatenate_png
+    concatenate_png.concatenate_png(case_name, prefix='residuals', frames=frames)

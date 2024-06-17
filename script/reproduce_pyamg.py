@@ -1178,7 +1178,7 @@ def test_6():
             test_amg(A,b,postfix)
 
     if run_concate_png:
-        import concatenate_png
+        import script.utils.concatenate_png as concatenate_png
         if run_strength_options : prefix = 'strength'
         else: prefix = 'residuals'
         concatenate_png.concatenate_png(case_name, prefix)
@@ -1192,5 +1192,5 @@ if __name__ == "__main__":
         A,b = prepare_A_b(postfix=postfix)
         test_amg(A,b,postfix=postfix)
 
-    import concatenate_png
+    import script.utils.concatenate_png as concatenate_png
     concatenate_png.concatenate_png(case_name, prefix='residuals', frames=frames)

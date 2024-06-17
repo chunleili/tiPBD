@@ -3,7 +3,7 @@
     "N":64,
     "solver_type":"AMG",
     "delta_t":1e-3,
-    "end_frame":50,
+    "end_frame":30,
     "max_iter":100,
     "max_iter_Axb":150,
     "export_matrix":1,

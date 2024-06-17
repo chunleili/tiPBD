@@ -42,12 +42,12 @@ parser.add_argument("-N", type=int, default=64)
 parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
-parser.add_argument("-export_matrix_interval", type=int, default=10)
+parser.add_argument("-export_matrix_interval", type=int, default=1)
 parser.add_argument("-export_state", type=int, default=True)
-parser.add_argument("-end_frame", type=int, default=200)
-parser.add_argument("-out_dir", type=str, default=f"latest")
+parser.add_argument("-end_frame", type=int, default=30)
+parser.add_argument("-out_dir", type=str, default=f"result/latest/")
 parser.add_argument("-auto_another_outdir", type=int, default=False)
-parser.add_argument("-restart", type=int, default=True)
+parser.add_argument("-restart", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=10)
 parser.add_argument("-restart_dir", type=str, default="latest/state")
 parser.add_argument("-restart_from_last_frame", type=int, default=True)
@@ -1160,7 +1160,6 @@ def substep_all_solver(max_iter=1):
     alpha_tilde_np = np.array([alpha] * NCONS)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
-
     x0 = np.random.rand(NE)
     x_prev = x0.copy()
     x = x0.copy()
@@ -1179,12 +1178,13 @@ def substep_all_solver(max_iter=1):
             Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
             b += G @ Minv_gg
 
-        if export_matrix and ite==0 and frame%export_matrix_interval==0:
+        if export_matrix and (ite==0 or ite==1) and frame%export_matrix_interval==0:
             tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic
 
         rsys0 = (np.linalg.norm(b-A@x))
+
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
         if solver_type == "GS":

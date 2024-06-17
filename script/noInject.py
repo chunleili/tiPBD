@@ -1,4 +1,4 @@
-"""测试不同参数的AMG找到最佳收敛和最快速度"""
+"""测试去掉inject步骤的SA"""
 import numpy as np
 import scipy
 import os, sys

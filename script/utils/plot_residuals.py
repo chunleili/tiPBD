@@ -1,5 +1,4 @@
-def plot_residuals_all(allres,show_fig=True,save_fig=True,plot_title='Residuals'):
-
+def plot_residuals_all(allres,show_fig=True,save_fig=True,plot_title='Residuals', use_markers=False):
     import matplotlib.pyplot as plt
     import os
     from utils.mkdir_if_not_exist import mkdir_if_not_exist
@@ -8,7 +7,8 @@ def plot_residuals_all(allres,show_fig=True,save_fig=True,plot_title='Residuals'
     # draw_plot
     colors = ['blue', 'orange', 'red', 'purple', 'green', 'black', 'brown', 'pink', 'gray', 'olive', 'cyan', 'lime', 'teal', 'brown', 'pink']
     markers = ['o', 'x', 's', 'd', '^', 'v', '>', '<', '1', '2', '3', '4', '+', 'X']
-
+    if not use_markers:
+        markers = [None for _ in range(len(allres))]
     # https://matplotlib.org/stable/api/markers_api.html for different markers
     # https://matplotlib.org/stable/users/explain/colors/colors.html#colors-def for different colors
     # https://matplotlib.org/stable/gallery/color/named_colors.html
@@ -21,7 +21,7 @@ def plot_residuals_all(allres,show_fig=True,save_fig=True,plot_title='Residuals'
         # if allres[i].label == 'SA+CG' or\
         #    allres[i].label == 'UA+CG' or\
         #    allres[i].label == 'GS':
-        plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label)
+        plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label, marker=markers[i], color=colors[i])
 
     fig.canvas.manager.set_window_title(plot_title)
     plt.tight_layout()
@@ -46,3 +46,33 @@ def plot_residuals(data, ax, *args, **kwargs):
     ax.set_xlabel("iteration")
     ax.set_ylabel("relative residual")
     ax.legend(loc="upper right")
+
+
+
+def draw_convergence_factors(convs, labels):
+    import matplotlib.pyplot as plt
+
+    assert len(convs) == len(labels)
+    print("\n\nConvergence factor of each solver")
+    for i in range(len(labels)):
+        print(f"{labels[i]}:\t{convs[i]:.3f}")
+    fig, ax = plt.subplots()
+    ax.barh(range(len(convs)), convs, color='blue')
+    ax.set_yticks(range(len(convs)))
+    ax.set_yticklabels(labels)
+    ax.set_title("Convergence factor of each solver")
+
+
+
+def draw_times(times, labels):
+    import matplotlib.pyplot as plt
+
+    assert len(times) == len(labels)
+    print("\n\nTime(s) taken for each solver")
+    for i in range(len(labels)):
+        print(f"{labels[i]}:\t{times[i]:.2f}")
+    fig, ax = plt.subplots()
+    ax.barh(range(len(times)), times, color='red')
+    ax.set_yticks(range(len(times)))
+    ax.set_yticklabels(labels)
+    ax.set_title("Time taken for each solver")

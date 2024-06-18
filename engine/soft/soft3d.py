@@ -30,10 +30,8 @@ parser.add_argument(
 )
 
 default_model = "bunnyBig" # "cube" "bunny1k2k" "toy"
-parser.add_argument("--coarse_model_path", type=str, default=f"data/model/{default_model}/coarse.node")
-parser.add_argument("--fine_model_path", type=str, default=f"data/model/{default_model}/fine.node")
-# parser.add_argument("--model_path", type=str, default=f"data/model/{default_model}/{default_model}.ply")
-parser.add_argument("--model_path", type=str, default=f"D:/CG/Houdini/Projects/mgxpbd/models/bunnyBig.node")
+model_extension = "node"
+parser.add_argument("--model_path", type=str, default=f"data/model/{default_model}/{default_model}"+f".{model_extension}")
 parser.add_argument("--kmeans_k", type=int, default=1000)
 parser.add_argument("--end_frame", type=int, default=30)
 

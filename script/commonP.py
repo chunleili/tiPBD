@@ -14,9 +14,10 @@ from utils.load_A_b import load_A_b
 sys.path.append(os.getcwd())
 
 
-
+# frames=[10,20,30,40,50,60]
+frames = [1,6,11,16,21,26]
 save_fig = True
-show_fig = False
+show_fig = True
 maxiter = 150
 early_stop = False
 tol=1e-10 # relative tolerance
@@ -25,7 +26,7 @@ postfix = ''
 
 Residual = namedtuple('Residual', ['label','r', 't'])
 
-A1 = load_A_b("F10-0")[0]
+A1 = load_A_b("F1-0")[0]
 
 
 
@@ -280,8 +281,6 @@ def mkdir_if_not_exist(path=None):
 
 
 if __name__ == "__main__":
-    # frames = [1, 6, 11, 16, 21, 26]
-    frames=[10,20,30,40,50,60]
     for frame in frames:
         postfix=f"F{frame}-0"
         print(f"\n\n\n{postfix}")

@@ -105,7 +105,8 @@ args = [pythonExe, "engine/cloth/cloth3d.py",
         "-setup_num=0",
         "-export_matrix=1",
         "-export_matrix_interval=1",
-        "-out_dir=attach64",
+        "-out_dir=result/attach64",
+        "-use_json=0"
         ]
 allargs.append(args)
 

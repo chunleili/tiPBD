@@ -18,11 +18,9 @@ from utils.postprocess_residual import calc_conv, print_df, save_data, postproce
 sys.path.append(os.getcwd())
 
 
-# frames=[10,20,30,40,50,60]
-frames = [1,6,11,16,21,26]
 save_fig = True
-show_fig = True
-maxiter = 150
+show_fig = False
+maxiter = 300
 early_stop = False
 tol=1e-10 # relative tolerance
 run_concate_png = True
@@ -30,8 +28,7 @@ postfix = ''
 
 Residual = namedtuple('Residual', ['label','r', 't'])
 
-A1 = load_A_b("F1-0")[0]
-
+A1 = load_A_b("F10-0")[0]
 
 
 def test_amg(A, b, postfix=""):
@@ -84,19 +81,36 @@ def test_amg(A, b, postfix=""):
     print("solve phase of common P time=", perf_counter()-tt)
     allres.append(Residual(label, r, perf_counter()))
     
+
+    label = "Classical injectionP"
+    print(f"Calculating {label}...")
+    ml19 = pyamg.ruge_stuben_solver(A, max_coarse=400, keep=True, interpolation='injection')
+    print("setup phase of SA time=", perf_counter()-tt)
+    r = []
+    _ = ml19.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
+    print("len(level)=", len(ml19.levels))
+
+
+
     convs,times,labels  = postprocess_residual(allres, tic)
-    draw_times(times, labels)
+    # draw_times(times, labels)
     df = print_df(labels, convs, times)
     save_data(allres,postfix)
     plot_residuals_all(allres,show_fig=show_fig,save_fig=save_fig,plot_title=postfix, use_markers=True)
 
 
 if __name__ == "__main__":
+    # iters = [0,1,2,4,6,8]
+    # frame=10
+    # frames = [10, 20, 40, 60, 80, 100]
+    frames = [1,6,11,16,21,26]
+    ite = 0
     for frame in frames:
-        postfix=f"F{frame}-0"
+        postfix=f"F{frame}-{ite}"
         print(f"\n\n\n{postfix}")
         A,b = load_A_b(postfix=postfix)
         test_amg(A,b,postfix=postfix)
 
     import script.utils.concatenate_png as concatenate_png
-    concatenate_png.concatenate_png(case_name, prefix='residuals', frames=frames)
+    concatenate_png.concatenate_png(case_name, imgs=[f"F{frame}-{ite}" for frame in frames])

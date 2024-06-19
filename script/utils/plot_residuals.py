@@ -28,7 +28,7 @@ def plot_residuals_all(allres,show_fig=True,save_fig=True,plot_title='Residuals'
     if save_fig:
         dir = os.path.dirname(os.path.dirname(to_read_dir)) + '/png/'
         mkdir_if_not_exist(dir)
-        plt.savefig(dir+f"/residuals_{plot_title}.png")
+        plt.savefig(dir+f"/{plot_title}.png")
     if show_fig:
         plt.show()
 

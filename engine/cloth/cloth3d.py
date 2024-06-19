@@ -816,6 +816,50 @@ def gauss_seidel(A, x, b, iterations=1, residuals = []):
                 break
     return x
 
+
+def build_Ps(A):
+    import pyamg
+    ml = pyamg.smoothed_aggregation_solver(A,
+        smooth=None,
+        max_coarse=400,
+        coarse_solver="pinv")
+    
+    Ps = []
+    for i in range(len(ml.levels)-1):
+        Ps.append(ml.levels[i].P)
+    return Ps
+
+
+def construct_ml_manually(A,Ps=[]):
+    from pyamg.multilevel import MultilevelSolver
+    from pyamg.relaxation.smoothing import change_smoothers
+
+    lvl = len(Ps) + 1 # number of levels
+
+    levels = []
+    for i in range(lvl):
+        levels.append(MultilevelSolver.Level())
+
+    levels[0].A = A
+
+    for i in range(lvl-1):
+        levels[i].P = Ps[i]
+        levels[i].R = Ps[i].T
+        levels[i+1].A = Ps[i].T @ levels[i].A @ Ps[i]
+
+    ml = MultilevelSolver(levels, coarse_solver='pinv')
+
+    presmoother=('block_gauss_seidel',{'sweep': 'symmetric'})
+    postsmoother=('block_gauss_seidel',{'sweep': 'symmetric'})
+    change_smoothers(ml, presmoother, postsmoother)
+    return ml
+
+
+def solve_amg_SA_solve(ml,b,x0,residuals=[]):
+    x = ml.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="V")
+    return x
+
+
 def solve_amg_SA(A,b,x0,residuals=[]):
     import pyamg
     ml5 = pyamg.smoothed_aggregation_solver(A,
@@ -1094,13 +1138,6 @@ def compute_inertial_energy():
             continue
         inertial_energy[None] += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
 
-def build_P(A):
-    import pyamg
-    ml = pyamg.ruge_stuben_solver(A, max_levels=2, strength=('classical', {'theta': 0.5, 'norm': 'abs'}))
-    P = ml.levels[0].P
-    R = ml.levels[0].R
-    return P, R
-
 
 def substep_GaussNewton():
     MASS = scipy.sparse.diags(np.ones(3*NV, float))
@@ -1178,7 +1215,8 @@ def substep_all_solver(max_iter=1):
             Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
             b += G @ Minv_gg
 
-        if export_matrix and (ite==0 or ite==1) and frame%export_matrix_interval==0:
+        # if export_matrix and (ite==0 or ite==1) and frame%export_matrix_interval==0:
+        if export_matrix:
             tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic

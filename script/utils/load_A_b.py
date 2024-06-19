@@ -4,7 +4,7 @@ import os, sys
 from utils.define_to_read_dir import to_read_dir
 
 def load_A_b(postfix):
-    print("loading data...")
+    print(f"loading data {postfix}...")
     A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
     A = A.tocsr()
     A = A.astype(np.float64)

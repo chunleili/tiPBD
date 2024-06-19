@@ -1,1 +1,0 @@
-python engine/cloth/cloth3d.py -N=1024 -solver_type=AMG -delta_t=4e-3 -end_frame=400 -scale_instead_of_attach=0

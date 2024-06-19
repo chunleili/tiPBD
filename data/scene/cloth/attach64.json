@@ -2,12 +2,11 @@
     "setup_num":0,
     "N":64,
     "solver_type":"AMG",
-    "delta_t":4e-3,
-    "end_frame":50,
+    "delta_t":1e-3,
+    "end_frame":30,
     "max_iter":100,
     "max_iter_Axb":150,
     "export_matrix":1,
     "export_matrix_interval":1,
-    "out_dir":"result/attach64/",
-    "auto_another_outdir":1
+    "out_dir":"result/attach64/"
 }

@@ -96,17 +96,8 @@ allargs.append(args)
 
 # case7: attach 64
 args = [pythonExe, "engine/cloth/cloth3d.py",
-        "-N=64",
-        "-solver_type=AMG", 
-        "-delta_t=1e-3", 
-        "-end_frame=50",
-        "-max_iter=100",
-        "-max_iter_Axb=150",
-        "-setup_num=0",
-        "-export_matrix=1",
-        "-export_matrix_interval=1",
-        "-out_dir=result/attach64",
-        "-use_json=0"
+        "-json_path=data/scene/cloth/attach64.json",
+        "-use_json=1"
         ]
 allargs.append(args)
 

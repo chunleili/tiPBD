@@ -17,7 +17,7 @@
             "module": "cProfile",
             "justMyCode": true,
             "args":["-o",
-                    "profile",
+                    "${fileBasenameNoExtension}.prof",
                     "${file}"]
         },
         {

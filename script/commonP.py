@@ -21,6 +21,7 @@ save_fig = True
 show_fig = False
 show_time_plot = True
 only_postprecess = False
+run_concate_png = False
 
 A1 = load_A_b("F1-0")[0]
 
@@ -36,7 +37,8 @@ def test_amg(A, b, postfix=""):
     P0 = ml17.levels[0].P
     P1 = ml17.levels[1].P
     commonP(A1, b,x0, allres, P0,P1)
-    injectionP(A, b, x0, allres)
+    CAMG(A, b, x0, allres)
+    CAMG_CG(A, b, x0, allres)
 
     df  = postprocess_residual_new(allres, tic)
     print_df_new(df)
@@ -47,23 +49,20 @@ def test_amg(A, b, postfix=""):
 
 
 if __name__ == "__main__":
+
     frames = [1,6,11,16,21,26]
     ite = 0
 
-    if only_postprecess:
-        from script.utils.postprocess_residual import postprocess_from_file
-
-        for frame in frames:
-            postfix=f"F{frame}-{ite}"
-            print(f"\n\n\n{postfix}")
+    for frame in frames:
+        postfix=f"F{frame}-{ite}"
+        print(f"\n\n\n{postfix}")
+        if only_postprecess:
+            from script.utils.postprocess_residual import postprocess_from_file
             postprocess_from_file(postfix)
-
-    else:
-        for frame in frames:
-            postfix=f"F{frame}-{ite}"
-            print(f"\n\n\n{postfix}")
+        else:
             A,b = load_A_b(postfix=postfix)
             test_amg(A,b,postfix=postfix)
 
-    import script.utils.concatenate_png as concatenate_png
-    concatenate_png.concatenate_png(case_name, imgs=[f"F{frame}-{ite}" for frame in frames])
+    if run_concate_png:
+        import script.utils.concatenate_png as concatenate_png
+        concatenate_png.concatenate_png(case_name, imgs=[f"F{frame}-{ite}" for frame in frames])

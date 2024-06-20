@@ -9,7 +9,7 @@ from .construct_ml_manually import construct_ml_manually_3levels
 
 
 def injectionP(A,b,x0, allres):
-    label = "Classical injectionP"
+    label = "injectionP"
     print(f"Calculating {label}...")
     ml19 = pyamg.ruge_stuben_solver(A, max_coarse=400, keep=True, interpolation='injection')
     r = []
@@ -30,7 +30,7 @@ def GS(A,b,x0,allres):
 
 
 def commonP(A1, b, x0, allres, P0, P1):
-    label = "commonP A1"
+    label = "commonP"
     print(f"Calculating {label}...")
     tt1 = perf_counter()
     ml18 = construct_ml_manually_3levels(A1,P0,P1)
@@ -43,7 +43,7 @@ def commonP(A1, b, x0, allres, P0, P1):
 
 
 def SA_CG(A, b, x0, allres):
-    label = "SA+CG"
+    label = "SA_CG"
     print(f"Calculating {label}...")
     tt = perf_counter()
     ml17 = pyamg.smoothed_aggregation_solver(A, max_coarse=400, keep=True)
@@ -56,6 +56,23 @@ def SA_CG(A, b, x0, allres):
     print("len(level)=", len(ml17.levels))
     return ml17
 
+def UA_CG(A, b, x0, allres):
+    label = "UA_CG"
+    print(f"Calculating {label}...")
+    ml17 = pyamg.smoothed_aggregation_solver(A, smooth=None, max_coarse=400)
+    r = []
+    _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
+    print("len(level)=", len(ml17.levels))
+
+def UA_CG_GS(A, b, x0, allres):
+    label = "UA_CG"
+    print(f"Calculating {label}...")
+    ml17 = pyamg.smoothed_aggregation_solver(A, smooth=None, max_coarse=400, coarse_solver='gauss_seidel')
+    r = []
+    _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
+    print("len(level)=", len(ml17.levels))
 
 def CG(A, b, x0, allres):
     label = "CG"
@@ -64,4 +81,33 @@ def CG(A, b, x0, allres):
     r = []
     r.append(np.linalg.norm(b - A @ x6))
     x6 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)))
+    allres.append(Residual(label, r, perf_counter()))
+
+
+def diagCG(A,b,x0,allres):
+    label = "diagCG"
+    print(f"Calculating {label}...")
+    M = scipy.sparse.diags(1.0/A.diagonal())
+    x7 = x0.copy()
+    r = []
+    r.append(np.linalg.norm(b - A @ x7))
+    x7 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)), M=M)
+    allres.append(Residual(label, r, perf_counter()))
+
+
+def CAMG(A,b,x0,allres):
+    label = "CAMG" # classical AMG
+    print(f"Calculating {label}...")
+    ml1 = pyamg.ruge_stuben_solver(A)
+    r = []
+    _ = ml1.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
+    allres.append(Residual(label, r, perf_counter()))
+
+
+def CAMG_CG(A,b,x0,allres):
+    label = "CAMG_CG"
+    print(f"Calculating {label}...")
+    ml16 = pyamg.ruge_stuben_solver(A, max_coarse=400)
+    r = []
+    _ = ml16.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter, accel='cg')
     allres.append(Residual(label, r, perf_counter()))

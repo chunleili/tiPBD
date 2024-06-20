@@ -7,6 +7,16 @@ pythonExe = "python"
 if sys.platform == "darwin":
     pythonExe = "python3"
 
+parser = argparse.ArgumentParser()
+
+parser.add_argument("-pyfile", type=str, default="script/commonP.py", help="python file to run")
+parser.add_argument("-case", type=int, default=7,help=f"case number")
+parser.add_argument("-list", action="store_true", help="list all cases")
+
+pyfile = parser.parse_args().pyfile
+case_num = parser.parse_args().case
+
+
 allargs = [None]
 
 # case1: AMG 1024
@@ -120,6 +130,17 @@ args = [pythonExe, "engine/cloth/cloth3d.py",
         ]
 allargs.append(args)
 
+#case9: profile
+pyfileBaseNameNoextention = os.path.splitext(os.path.basename(pyfile))[0]
+args = [pythonExe,"-m","cProfile", 
+        "-o",f"{pyfileBaseNameNoextention}.prof", pyfile
+        ]
+allargs.append(args)
+
+#case10: vis profile
+args = ["snakeviz", f"{pyfileBaseNameNoextention}.prof"]
+allargs.append(args)
+
 
 def run_case(case_num:int):
     args = allargs[case_num]
@@ -133,13 +154,6 @@ def log_args(args:list):
         f.write(f"{args1}\n")
 
 if __name__=='__main__':
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-case", type=int, default=7,
-                        help=f"case number, from 1 to {len(allargs)-1}")
-    parser.add_argument("-list", action="store_true",
-                        help="list all cases")
-    case_num = parser.parse_args().case
 
     if parser.parse_args().list:
         print("All cases:")

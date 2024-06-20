@@ -1,8 +1,6 @@
 import numpy as np
 import scipy
-import os, sys
 from time import perf_counter
-from matplotlib import pyplot as plt
 import pyamg
 from .parms import maxiter, tol, Residual
 from .construct_ml_manually import construct_ml_manually_3levels
@@ -110,4 +108,13 @@ def CAMG_CG(A,b,x0,allres):
     ml16 = pyamg.ruge_stuben_solver(A, max_coarse=400)
     r = []
     _ = ml16.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
+
+
+def SA(A,b,x0,allres):
+    label = "SA"
+    print(f"Calculating {label}...")
+    ml2 = pyamg.smoothed_aggregation_solver(A)
+    r = []
+    _ = ml2.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
     allres.append(Residual(label, r, perf_counter()))

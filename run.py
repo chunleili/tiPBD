@@ -9,7 +9,7 @@ if sys.platform == "darwin":
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("-pyfile", type=str, default="script/commonP.py", help="python file to run")
+parser.add_argument("-pyfile", type=str, default="script/prof_solvers.py", help="python file to run")
 parser.add_argument("-case", type=int, default=7,help=f"case number")
 parser.add_argument("-list", action="store_true", help="list all cases")
 

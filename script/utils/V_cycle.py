@@ -1,6 +1,7 @@
 import numpy as np
 from pyamg.relaxation.relaxation import gauss_seidel
-from scipy.linalg import pinv
+from time import perf_counter
+from .coarse_solver import coarse_solver
 
 def presmoother(A,x,b):
     gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
@@ -8,9 +9,6 @@ def presmoother(A,x,b):
 def postsmoother(A,x,b):
     gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
 
-def coarse_solver(A, b):
-    P = pinv(A.toarray())
-    return np.dot(P, b)
 
 def V_cycle(levels,lvl,x,b):
     A = levels[lvl].A
@@ -23,10 +21,10 @@ def V_cycle(levels,lvl,x,b):
     coarse_x = np.zeros_like(coarse_b)
 
     if lvl == len(levels)-2:
-        coarse_x = coarse_solver(levels[-1].A, coarse_b)
+        coarse_x = coarse_solver(levels[lvl+1].A, coarse_b)
     else:
         V_cycle(levels, lvl+1, coarse_x, coarse_b)
 
     x += levels[lvl].P @ coarse_x
 
-    presmoother(A, x, b)
+    postsmoother(A, x, b)

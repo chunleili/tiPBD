@@ -1,5 +1,5 @@
-maxiter = 150
-tol=1e-10 # relative tolerance
+maxiter = 100
+tol=1e-6 # relative tolerance
 
 from collections import namedtuple
 Residual = namedtuple('Residual', ['label','r', 't'])

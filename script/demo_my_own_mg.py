@@ -35,7 +35,7 @@ def demo_my_own_mg():
     toc = perf_counter()
     print("UA_CG Time:", toc-tic)
 
-    plot_residuals_all(allres)
+    plot_residuals_all(allres,use_markers=True)
 
 
 if __name__ == "__main__":

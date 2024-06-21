@@ -13,7 +13,8 @@ def aspreconditioner(levels, x0):
     dtype = A0.dtype
 
     def matvec(b):
-        return amg_standalone_solve(levels, b, x0, maxiter=1, tol=1e-12)
+        # return amg_standalone_solve(levels, b, x0, maxiter=1, tol=1e-12)
+        return amg_standalone_solve_once(levels, b, x0)
 
     return LinearOperator(shape, matvec, dtype=dtype)
 

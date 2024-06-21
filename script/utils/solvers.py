@@ -57,9 +57,15 @@ def SA_CG(A, b, x0, allres):
 def UA_CG(A, b, x0, allres):
     label = "UA_CG"
     print(f"Calculating {label}...")
+    tic1 = perf_counter()
     ml17 = pyamg.smoothed_aggregation_solver(A, smooth=None, max_coarse=400)
+    toc1 = perf_counter()
+    print("UA_CG Setup Time:", toc1-tic1)
     r = []
+    tic2 = perf_counter()
     _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    toc2 = perf_counter()
+    print("UA_CG Solve Time:", toc2-tic2)
     allres.append(Residual(label, r, perf_counter()))
     print("len(level)=", len(ml17.levels))
 

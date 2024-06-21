@@ -1,7 +1,7 @@
 import numpy as np
 import scipy
 import os, sys
-from utils.define_to_read_dir import to_read_dir
+from .define_to_read_dir import to_read_dir
 
 def load_A_b(postfix):
     print(f"loading data {postfix}...")

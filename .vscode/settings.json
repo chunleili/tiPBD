@@ -1,5 +1,8 @@
 {
     "python.analysis.diagnosticSeverityOverrides": {
         "reportInvalidTypeForm": "none"
+    },
+    "files.associations": {
+        "filesystem": "cpp"
     }
 }

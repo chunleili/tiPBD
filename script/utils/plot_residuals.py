@@ -1,6 +1,7 @@
 def plot_residuals_all(allres,show_fig=True,save_fig=True,postfix='', use_markers=False):
     import matplotlib.pyplot as plt
     import os
+    import numpy as np
     from utils.mkdir_if_not_exist import mkdir_if_not_exist
     from utils.define_to_read_dir import to_read_dir
 
@@ -15,6 +16,7 @@ def plot_residuals_all(allres,show_fig=True,save_fig=True,postfix='', use_marker
     fig, axs = plt.subplots(1, figsize=(8, 9))
     
     def a2r(r): #absolute to relative
+        r = np.array(r)
         return r/r[0]
     
     for i in range(len(allres)):

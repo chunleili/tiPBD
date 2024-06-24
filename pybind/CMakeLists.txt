@@ -6,7 +6,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 project(AmgPybind)
 
 add_subdirectory(pybind11)
-pybind11_add_module(amg_cg_solve_bind amg_cg_solve_bind.cpp)
+# pybind11_add_module(amg_cg_solve_bind amg_cg_solve_bind.cpp)
+pybind11_add_module(AmgPybind relaxation.cpp)
+
+
 
 # add_custom_command(
 #         TARGET ${PROJECT_NAME}  POST_BUILD

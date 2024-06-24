@@ -56,7 +56,8 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     residuals = np.zeros(maxiter+1)
     def psolve(b):
         x = x0.copy()
-        V_cycle(levels, 0, x, b)
+        # V_cycle(levels, 0, x, b)
+        V_cycle_norecur(levels, 0, x, b)
         return x
     bnrm2 = np.linalg.norm(b)
     atol = tol * bnrm2
@@ -101,6 +102,37 @@ def V_cycle(levels,lvl,x,b):
     gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
 
 
+def V_cycle_norecur(levels,lvl,x,b):
+    lvl = 0
+    x0=x
+    b0=b
+    A0 = levels[lvl].A
+    gauss_seidel(A0,x0,b0,iterations=1, sweep='symmetric') # presmoother
+    residual0 = b0 - A0 @ x0
+    b1 = levels[lvl].R @ residual0
+
+    lvl = 1
+    x1 = np.zeros_like(b1)
+    A1 = levels[lvl].A
+    gauss_seidel(A1,x1,b1,iterations=1, sweep='symmetric') # presmoother
+    residual1 = b1 - A1 @ x1
+    b2 = levels[lvl].R @ residual1
+
+    lvl = 2
+    A2 = levels[lvl].A
+    x2 = coarse_solver(A2, b2)
+
+    lvl = 1
+    x1 += levels[lvl].P @ x2
+    gauss_seidel(A1,x1,b1,iterations=1, sweep='symmetric') # postsmoother
+
+    lvl = 0
+    x0 += levels[lvl].P @ x1
+    gauss_seidel(A0,x0,b0,iterations=1, sweep='symmetric') # postsmoother
+
+    x = x0
+
+
 # 实现仅第一次进入coarse_solver时计算一次P
 # https://stackoverflow.com/a/279597/19253199
 def coarse_solver(A, b):
@@ -120,6 +152,8 @@ def demo_my_own_mg():
     Residual = namedtuple('Residual', ['label','r', 't'])
 
     A, b = load_A_b('F11-0')
+
+    # for _ in range(5):
     t0= perf_counter()
     Ps = build_Ps(A)
     levels = build_levels(A, Ps)
@@ -141,12 +175,8 @@ def demo_my_own_mg():
     toc = perf_counter()
     print("UA_CG Time:", toc-tic)
 
-    # sys.path.append("C:\dev\tiPBD\pybind\build\Debug")
-    import amg_cg_solve_bind
-    # amg_cg_solve_bind.amg_cg_solve(levels, b, x0=x0, maxiter=100, tol=1e-6)
-    res = amg_cg_solve_bind.amg_cg_solve_bind(levels, b, x0=x0, maxiter=100, tol=1e-6)
-    print(res)
-    # plot_residuals_all(allres,use_markers=True)
+    
+    plot_residuals_all(allres,use_markers=True)
 
 
 if __name__ == "__main__":

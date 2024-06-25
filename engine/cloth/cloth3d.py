@@ -16,6 +16,13 @@ from collections import namedtuple
 import json
 import logging
 import datetime
+from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
+from pyamg.relaxation.smoothing import approximate_spectral_radius, chebyshev_polynomial_coefficients
+from pyamg.relaxation.relaxation import polynomial
+from time import perf_counter
+from scipy.linalg import pinv
+import pyamg
+
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 
@@ -35,6 +42,8 @@ use_primary_residual = False
 use_geometric_stiffness = False
 dont_clean_results = False
 report_time = True
+smoother = 'chebyshev'
+chebyshev_coeff = None
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
@@ -897,6 +906,162 @@ def solve_amg(A, b, x0, R, P, residuals=[], maxiter = 1, tol = 1e-6):
             return x
         if it == maxiter:
             return x
+        
+def chebyshev(A, x, b):
+    polynomial(A, x, b, coefficients=chebyshev_coeff, iterations=1)
+
+
+def setup_chebyshev(lvl, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
+                    iterations=1):
+    global chebyshev_coeff # FIXME: later we should store this in the level
+    """Set up Chebyshev."""
+    rho = approximate_spectral_radius(lvl.A)
+    a = rho * lower_bound
+    b = rho * upper_bound
+    # drop the constant coefficient
+    coefficients = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
+    chebyshev_coeff = coefficients
+    return coefficients
+
+
+def build_Ps(A, method='UA'):
+    """Build a list of prolongation matrices Ps from A """
+    if method == 'UA' or method == 'UA_CG':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None)
+    elif method == 'SA' or method == 'SA_CG':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400)
+    elif method == 'UA_CG_GS':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, coarse_solver='gauss_seidel')
+    elif method == 'CAMG' or method == 'CAMG_CG':
+        ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
+    else:
+        raise ValueError(f"Method {method} not recognized")
+
+    Ps = []
+    for i in range(len(ml.levels)-1):
+        Ps.append(ml.levels[i].P)
+
+    return Ps
+
+
+class MultiLevel:
+    A = None
+    P = None
+    R = None
+
+
+def build_levels(A, Ps=[]):
+    '''Give A and a list of prolongation matrices Ps, return a list of levels'''
+    lvl = len(Ps) + 1 # number of levels
+
+    levels = [MultiLevel() for i in range(lvl)]
+
+    levels[0].A = A
+
+    for i in range(lvl-1):
+        levels[i].P = Ps[i]
+        levels[i].R = Ps[i].T
+        levels[i+1].A = Ps[i].T @ levels[i].A @ Ps[i]
+
+    return levels
+
+def setup_AMG(A):
+    global levels
+    if not ((frame%10==0) or (frame==1)):
+        return levels
+    Ps = build_Ps(A)
+    levels = build_levels(A, Ps)
+    setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    return levels
+
+
+def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
+    x = x0.copy()
+    A = levels[0].A
+    residuals = np.zeros(maxiter+1)
+    def psolve(b):
+        x = x0.copy()
+        V_cycle(levels, 0, x, b)
+        return x
+    bnrm2 = np.linalg.norm(b)
+    atol = tol * bnrm2
+    r = b - A@(x)
+    rho_prev, p = None, None
+    normr = np.linalg.norm(r)
+    residuals[0] = normr
+    for iteration in range(maxiter):
+        if normr < atol:  # Are we done?
+            break
+        z = psolve(r)
+        rho_cur = np.dot(r, z)
+        if iteration > 0:
+            beta = rho_cur / rho_prev
+            p *= beta
+            p += z
+        else:  # First spin
+            p = np.empty_like(r)
+            p[:] = z[:]
+        q = A@(p)
+        alpha = rho_cur / np.dot(p, q)
+        x += alpha*p
+        r -= alpha*q
+        rho_prev = rho_cur
+        normr = np.linalg.norm(r)
+        residuals[iteration+1] = normr
+    residuals = residuals[:iteration+1]
+    return (x),  residuals  
+
+
+def diag_sweep(A,x,b,iterations=1):
+    diag = A.diagonal()
+    diag = np.where(diag==0, 1, diag)
+    x[:] = b / diag
+
+def presmoother(A,x,b):
+    from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
+    if smoother == 'gauss_seidel':
+        gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
+    elif smoother == 'jacobi':
+        jacobi(A,x,b,iterations=10)
+    elif smoother == 'sor_vanek':
+        for _ in range(1):
+            sor(A,x,b,omega=1.0,iterations=1,sweep='forward')
+            sor(A,x,b,omega=1.85,iterations=1,sweep='backward')
+    elif smoother == 'sor':
+        sor(A,x,b,omega=1.33,sweep='symmetric',iterations=1)
+    elif smoother == 'diag_sweep':
+        diag_sweep(A,x,b,iterations=1)
+    elif smoother == 'chebyshev':
+        chebyshev(A,x,b)
+
+
+def postsmoother(A,x,b):
+    presmoother(A,x,b)
+
+
+# 实现仅第一次进入coarse_solver时计算一次P
+# https://stackoverflow.com/a/279597/19253199
+def coarse_solver(A, b):
+    # if not hasattr(coarse_solver, "P"):
+    # coarse_solver.P = pinv(A.toarray())
+    # res = np.dot(coarse_solver.P, b)
+    res = np.linalg.solve(A.toarray(), b)
+    return res
+
+def V_cycle(levels,lvl,x,b):
+    A = levels[lvl].A
+    presmoother(A,x,b)
+    residual = b - A @ x
+    coarse_b = levels[lvl].R @ residual
+    coarse_x = np.zeros_like(coarse_b)
+    if lvl == len(levels)-2:
+        coarse_x = coarse_solver(levels[lvl+1].A, coarse_b)
+    else:
+        V_cycle(levels, lvl+1, coarse_x, coarse_b)
+    x += levels[lvl].P @ coarse_x
+    postsmoother(A, x, b)
+
+
 
 # @ti.kernel
 # def calc_chen2023_added_dpos(G, M_inv, Minv_gg, dLambda):
@@ -1232,8 +1397,10 @@ def substep_all_solver(max_iter=1):
             ramg = [None,None]
             r_Axb = rgs
         if solver_type == "AMG":
+            levels = setup_AMG(A)
             ramg=[]
-            x = solve_amg_SA(A,b,x_prev,ramg)
+            x0 = np.zeros_like(b)
+            x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=100, tol=1e-6)
             rgs=[None,None]
             r_Axb = ramg
 

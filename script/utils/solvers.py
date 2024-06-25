@@ -117,7 +117,7 @@ def CG(A, b, x0, allres):
     x6 = x0.copy()
     r = []
     r.append(np.linalg.norm(b - A @ x6))
-    x6 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)))
+    x6 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), tol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)))
     toc = perf_counter()
     allres.append(Residual(label, r, toc-tic))
 

@@ -14,17 +14,19 @@ smoother = 'gauss_seidel'
 
 def setup_chebyshev(lvl, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
                     iterations=1):
+    global chebyshev_coeff # FIXME: later we should store this in the level
     """Set up Chebyshev."""
     rho = approximate_spectral_radius(lvl.A)
     a = rho * lower_bound
     b = rho * upper_bound
     # drop the constant coefficient
     coefficients = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
+    chebyshev_coeff = coefficients
+    return coefficients
 
-    def chebyshev(A, x, b):
-        polynomial(A, x, b, coefficients=coefficients, iterations=iterations)
-    return chebyshev
 
+def chebyshev(A, x, b):
+    polynomial(A, x, b, coefficients=chebyshev_coeff, iterations=1)
 
 
 def build_Ps(A, method='UA'):
@@ -76,8 +78,6 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     def psolve(b):
         x = x0.copy()
         V_cycle(levels, 0, x, b)
-        # V_cycle_norecur(levels, 0, x, b)
-        # x = V_cycle_norecur_newnew(b)
         return x
     bnrm2 = np.linalg.norm(b)
     atol = tol * bnrm2
@@ -108,19 +108,6 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     return (x),  residuals         
 
 
-# def diag_sweep(A,x,b,iterations=1):
-#     Ap = A.indptr
-#     Aj = A.indices
-#     Ax = A.data
-#     for i in range(0, A.shape[0]):
-#         start = Ap[i]
-#         end = Ap[i + 1]
-#         for jj in range(start, end):
-#             j = Aj[jj]
-#             if i == j:
-#                 diag = Ax[jj]
-#         if diag != 0.0:
-#             x[i] = (b[i]) / diag
 
 def diag_sweep(A,x,b,iterations=1):
     diag = A.diagonal()
@@ -149,6 +136,14 @@ def postsmoother(A,x,b):
     presmoother(A,x,b)
 
 
+# 实现仅第一次进入coarse_solver时计算一次P
+# https://stackoverflow.com/a/279597/19253199
+def coarse_solver(A, b):
+    if not hasattr(coarse_solver, "P"):
+        coarse_solver.P = pinv(A.toarray())
+    res = np.dot(coarse_solver.P, b)
+    return res
+
 def V_cycle(levels,lvl,x,b):
     A = levels[lvl].A
     presmoother(A,x,b)
@@ -163,93 +158,111 @@ def V_cycle(levels,lvl,x,b):
     postsmoother(A, x, b)
 
 
-def V_cycle_norecur(levels,lvl,x,b):
-    lvl = 0
-    x0=x
-    b0=b
-    A0 = levels[lvl].A
-    gauss_seidel(A0,x0,b0,iterations=1, sweep='symmetric') # presmoother
-    residual0 = b0 - A0 @ x0
-    b1 = levels[lvl].R @ residual0
+# def V_cycle_norecur(levels,lvl,x,b):
+#     lvl = 0
+#     x0=x
+#     b0=b
+#     A0 = levels[lvl].A
+#     gauss_seidel(A0,x0,b0,iterations=1, sweep='symmetric') # presmoother
+#     residual0 = b0 - A0 @ x0
+#     b1 = levels[lvl].R @ residual0
 
-    lvl = 1
-    x1 = np.zeros_like(b1)
-    A1 = levels[lvl].A
-    gauss_seidel(A1,x1,b1,iterations=1, sweep='symmetric') # presmoother
-    residual1 = b1 - A1 @ x1
-    b2 = levels[lvl].R @ residual1
+#     lvl = 1
+#     x1 = np.zeros_like(b1)
+#     A1 = levels[lvl].A
+#     gauss_seidel(A1,x1,b1,iterations=1, sweep='symmetric') # presmoother
+#     residual1 = b1 - A1 @ x1
+#     b2 = levels[lvl].R @ residual1
 
-    lvl = 2
-    A2 = levels[lvl].A
-    x2 = coarse_solver(A2, b2)
+#     lvl = 2
+#     A2 = levels[lvl].A
+#     x2 = coarse_solver(A2, b2)
 
-    lvl = 1
-    x1 += levels[lvl].P @ x2
-    gauss_seidel(A1,x1,b1,iterations=1, sweep='symmetric') # postsmoother
+#     lvl = 1
+#     x1 += levels[lvl].P @ x2
+#     gauss_seidel(A1,x1,b1,iterations=1, sweep='symmetric') # postsmoother
 
-    lvl = 0
-    x0 += levels[lvl].P @ x1
-    gauss_seidel(A0,x0,b0,iterations=1, sweep='symmetric') # postsmoother
+#     lvl = 0
+#     x0 += levels[lvl].P @ x1
+#     gauss_seidel(A0,x0,b0,iterations=1, sweep='symmetric') # postsmoother
 
-    x = x0
-
-
-
-def V_cycle_norecur_new(levels,lvl,x,b):
-    levels[0].x = x
-    levels[0].b = b
-
-    for l in range(len(levels)-1):
-        levels[l].x = np.zeros(levels[l].A.shape[0])
-        gauss_seidel(levels[l].A, levels[l].x , levels[l].b,  iterations=1, sweep='symmetric')
-        levels[l+1].b = levels[l].R @ (b - levels[l].A @ x)
-
-    l = len(levels)-1 # coarsest level: 2
-    x = coarse_solver(levels[l].A, levels[l].b)
-
-    for l in range(len(levels)-2, -1, -1): # 1, 0
-        levels[l].x += levels[l].P @ levels[l+1].x
-        gauss_seidel(levels[l].A, levels[l].x , b,  iterations=1, sweep='symmetric')
-
-    x = levels[0].x
+#     x = x0
 
 
-def unpack_levels(levels):
-    global lmax, xs, bs, As, Rs, Ps
-    lmax = len(levels)-1 # 2
-    numl = len(levels)
-    xs = [None] * (numl)
-    bs = [None] * (numl)
-    As = [None] * (numl)
-    Rs = [None] * (numl-1)
-    Ps = [None] * (numl-1)
-    for i in range(numl):
-        xs[i] = np.zeros(levels[i].A.shape[0])
-        bs[i] = np.zeros(levels[i].A.shape[0])
-        As[i] = levels[i].A
-    for i in range(numl-1):
-        Rs[i] = levels[i].R
-        Ps[i] = levels[i].P
 
-def V_cycle_norecur_newnew(b):
-    bs[0] = b
-    for i in range(lmax-1): # 0, 1
-        presmoother(As[i], xs[i] , bs[i])
-        bs[i+1] = Rs[i] @ (bs[i] - As[i] @ xs[i])
-    xs[lmax] = coarse_solver(As[lmax], bs[lmax])
-    for i in range(lmax-1, -1, -1): # 1, 0
-        xs[i] += Ps[i] @ xs[i+1]
-        postsmoother(As[i], xs[i] , bs[i])
-    return xs[0]
+# def V_cycle_norecur_new(levels,lvl,x,b):
+#     levels[0].x = x
+#     levels[0].b = b
+
+#     for l in range(len(levels)-1):
+#         levels[l].x = np.zeros(levels[l].A.shape[0])
+#         gauss_seidel(levels[l].A, levels[l].x , levels[l].b,  iterations=1, sweep='symmetric')
+#         levels[l+1].b = levels[l].R @ (b - levels[l].A @ x)
+
+#     l = len(levels)-1 # coarsest level: 2
+#     x = coarse_solver(levels[l].A, levels[l].b)
+
+#     for l in range(len(levels)-2, -1, -1): # 1, 0
+#         levels[l].x += levels[l].P @ levels[l+1].x
+#         gauss_seidel(levels[l].A, levels[l].x , b,  iterations=1, sweep='symmetric')
+
+#     x = levels[0].x
 
 
-# 实现仅第一次进入coarse_solver时计算一次P
-# https://stackoverflow.com/a/279597/19253199
-def coarse_solver(A, b):
-    if not hasattr(coarse_solver, "P"):
-        coarse_solver.P = pinv(A.toarray())
-    res = np.dot(coarse_solver.P, b)
-    return res
+# def unpack_levels(levels):
+#     global lmax, xs, bs, As, Rs, Ps
+#     lmax = len(levels)-1 # 2
+#     numl = len(levels)
+#     xs = [None] * (numl)
+#     bs = [None] * (numl)
+#     As = [None] * (numl)
+#     Rs = [None] * (numl-1)
+#     Ps = [None] * (numl-1)
+#     for i in range(numl):
+#         xs[i] = np.zeros(levels[i].A.shape[0])
+#         bs[i] = np.zeros(levels[i].A.shape[0])
+#         As[i] = levels[i].A
+#     for i in range(numl-1):
+#         Rs[i] = levels[i].R
+#         Ps[i] = levels[i].P
+
+
+# def V_cycle_norecur_newnew(b):
+#     bs[0] = b
+#     for i in range(lmax-1): # 0, 1
+#         presmoother(As[i], xs[i] , bs[i])
+#         bs[i+1] = Rs[i] @ (bs[i] - As[i] @ xs[i])
+#     xs[lmax] = coarse_solver(As[lmax], bs[lmax])
+#     for i in range(lmax-1, -1, -1): # 1, 0
+#         xs[i] += Ps[i] @ xs[i+1]
+#         postsmoother(As[i], xs[i] , bs[i])
+#     return xs[0]
+
+
+def setup_AMG(A):
+    Ps = build_Ps(A)
+    levels = build_levels(A, Ps)
+    chebyshev = setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    return levels, chebyshev
+
+
+def AMGCG(A,b):
+    # for _ in range(5):
+    t0= perf_counter()
+    Ps = build_Ps(A)
+    levels = build_levels(A, Ps)
+    t1 = perf_counter()
+    print('Setup Time:', t1-t0)
+
+    chebyshev = setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+
+    smoother = 'chebyshev'
+    tic = perf_counter()
+    x0 = np.zeros_like(b)
+    x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=100, tol=1e-6)
+    toc = perf_counter()
+    print("My chebyshev Time:", toc-tic)
+    # allres.append(Residual('MyChebyshev', residuals, toc-tic))
 
 
 def demo_my_own_mg():
@@ -264,6 +277,8 @@ def demo_my_own_mg():
     Residual = namedtuple('Residual', ['label','r', 't'])
     global smoother, chebyshev, levels
 
+    allres = []
+
     A, b = load_A_b('F10-0')
 
     # for _ in range(5):
@@ -271,23 +286,25 @@ def demo_my_own_mg():
     Ps = build_Ps(A)
     levels = build_levels(A, Ps)
     t1 = perf_counter()
+    setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
     print('Setup Time:', t1-t0)
 
-
-    chebyshev = setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
-
-    unpack_levels(levels)
-
+    smoother = 'chebyshev'
+    tic = perf_counter()
+    x0 = np.zeros_like(b)
+    x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
+    toc = perf_counter()
+    print("My chebyshev Time:", toc-tic)
+    allres.append(Residual('MyChebyshev', residuals, toc-tic))
 
     smoother = 'diag_sweep'
-    x0 = np.zeros_like(b)
     t2= perf_counter()
     residuals = []
-    x,residuals = amg_cg_solve(levels, b, x0=x0, maxiter=maxiter, tol=1e-6)
+    x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
     t3 = perf_counter()
     print('My diag_sweep Time:', t3-t2)
     # print('Total Time:', t3-t2+t1-t0)
-    allres = [Residual('diag_sweep', residuals, t3-t0)]
+    allres.append(Residual('diag_sweep', residuals, t3-t0))
 
     tic = perf_counter()
     UA_CG(A, b, x0, allres)
@@ -311,18 +328,11 @@ def demo_my_own_mg():
 
     smoother = 'sor'
     tic = perf_counter()
-    x,residuals = amg_cg_solve(levels, b, x0=x0, maxiter=maxiter, tol=1e-6)
+    x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
     toc = perf_counter()
     print("My sor Time:", toc-tic)
     allres.append(Residual('sor', residuals, toc-tic))
 
-
-    smoother = 'chebyshev'
-    tic = perf_counter()
-    x,residuals = amg_cg_solve(levels, b, x0=x0, maxiter=maxiter, tol=1e-6)
-    toc = perf_counter()
-    print("My chebyshev Time:", toc-tic)
-    allres.append(Residual('chebyshev', residuals, toc-tic))
 
     print_allres_time(allres, draw=True)
 

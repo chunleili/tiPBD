@@ -1,0 +1,143 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+
+\title{MG-XPBD algorithm}
+\author{Chunnlei Li}
+
+
+\begin{document}
+
+\maketitle
+
+\section{Method}
+\begin{algorithm}
+    \begin{algorithmic}[1]
+    \caption{amg\_cg\_solve}
+    \label{algo:AMG_CG_Solve}
+    
+    \State $r_0 = b-A x_0$
+    \State $z_0 =Vcycle(levels,0,z_{0},r_{0})$
+    \State $p_0=z_0$
+
+    \For {k=0,1,..., maxiter}
+        \State $\alpha_k = \frac{r_k^T z_k}{p_k^T A p_k}$
+        \State $x_{k+1} = x_k + \alpha_k p_k$
+        \State $r_{k+1} = r_k - \alpha_k A p_k$
+        \If{ $\|r_{k+1}\|_2 < tol$ }
+            \State break
+        \EndIf
+        \State $z_{k+1} = Vcycle(levels,0,z_{k+1},r_{k+1})$
+        \State $\beta_k = \frac{r_{k+1}^T z_{k+1}}{r_k^T z_k}$
+        \State $p_{k+1} = z_{k+1} + \beta_k p_k$
+    \EndFor
+\end{algorithmic}
+\end{algorithm}
+
+
+
+
+\begin{algorithm}
+    \begin{algorithmic}[1]
+    \caption{Vcycle}
+    \label{algo:Vcycle}
+    \Require{$levels$, $l$, $x$, $b$}
+    \Ensure{$x$}
+    \State $A = A_l$
+    \State presmoother(A,x,b)
+    \State $b_c = R_{l} (b - A x)$
+    \State $x_c = (0,...,0)^T$
+    \If{$l = numl-2$}
+        \State $x_c = coarse\_solver(A,b)$
+    \Else
+        \State $x_c = Vcycle(levels,l+1,x_c,b_c)$
+    \EndIf
+    \State $x = x + P_{l} x_c$
+    \State postsmoother(A,x,b)
+\end{algorithmic}
+\end{algorithm}
+
+
+
+\begin{algorithm}
+    \begin{algorithmic}[1]
+    \caption{Setup}
+    \label{algo:setup}
+    \Require{$A$}
+    \Ensure{$levels=\{A_0,...A_{numl-1},P_0,...,P_{numl-2},R_0,...,R_{numl-2}\}$}
+    \State $P_0,P_1,...,P_{numl-2} = build\_P(A,maxcoarse,maxlevels)$
+    \For {$l=0,1,...,numl-2$}
+        \State $A_{l+1} = P_l^T A_l P_l$
+        \State $R_l = P_l^T$
+    \EndFor
+    \State setup\_chebyshev($A_0$,...,$A_{numl-1}$)
+\end{algorithmic}
+\end{algorithm}
+
+
+\begin{algorithm}
+    \begin{algorithmic}[1]
+    \caption{build\_P}
+    \label{algo:build_P}
+    \Require{$A$, $maxcoarse$, $maxlevels$}
+    \Ensure{$P_0,...,P_{numl-2}$}
+    \State $A_0 = A$
+    \State $B_0 = (1,1,...,1)^T$
+    \For {$l=0,1,...,maxlevels$}
+        \State $S_{l} = strength(A_{l})$
+        \State $Agg_{l} = aggregation(S_{l})$
+        \State $P_{l},B_{l+1} = inject(Agg_{l},B_{l})$
+        \State $A_{l+1} = P_{l}^T A_{l} P_{l}$
+        \If {number of unkowns $\leq$ maxcoarse}
+            \State break
+        \EndIf
+    \EndFor
+    \State numl $=$ number of levels
+\end{algorithmic}
+\end{algorithm}
+
+
+
+\begin{algorithm}
+    \begin{algorithmic}[1]
+    \caption{assembleA}
+    \label{algo:assembleA}
+    \State calculate C and  G 
+    \State $A = G M^{-1} G^T + \tilde\alpha$
+\end{algorithmic}
+\end{algorithm}
+
+
+
+\begin{algorithm}
+    \begin{algorithmic}[1]
+    \caption{substep}
+    \label{algo:substep}
+    \State semi\_euler($pos$,$pos_{old}$,$vel$)
+    \State $\lambda=(0,...,0)^T$
+    
+    \For {$i=0,1,...,maxiter$}
+        \State assemble A
+        \State update constraints
+        \State calculate $b = - C - \tilde\alpha \lambda$
+        \If{ $\|b-Ax\|_2 < tol$ }
+            \State break
+        \EndIf
+        \State setup AMG for every 10 substeps
+        \State solve $A \Delta\lambda = b$ using amg\_cg\_solve
+        \State $\lambda = \lambda + \Delta\lambda$
+        \State $\Delta pos = M^{-1} G^T \Delta\lambda$
+        \State $pos = pos + \omega \Delta pos$
+    \EndFor
+    \State update velocities
+\end{algorithmic}
+\end{algorithm}
+
+
+
+
+\end{document}

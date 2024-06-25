@@ -110,3 +110,30 @@ def postprocess_from_file(postfix,show_fig=True):
     
     plot_residuals_all_new(df, show_fig=show_fig,save_fig=True,postfix=postfix, use_markers=True)
     print_df_new(df)
+
+
+def print_allres_time(allres, draw=False):
+    import pandas as pd
+    print("\n\nDataframe of time taken for each solver")
+    pd.set_option("display.precision", 3)
+    labels = [ri.label for ri in allres]
+    times = [ri.t for ri in allres]
+    df = pd.DataFrame({"label":labels, "time":times})
+    print("\nIn increasing order of time taken:")
+    df = df.sort_values(by="time", ascending=True)
+    print(df)
+    if draw:
+        import matplotlib.pyplot as plt
+        times = df['time'].values
+        labels = df['label'].values
+        
+        assert len(times) == len(labels)
+        print("\n\nTime(s) taken for each solver")
+        for i in range(len(labels)):
+            print(f"{labels[i]}:\t{times[i]:.2f}")
+        fig, ax = plt.subplots()
+        ax.barh(range(len(times)), times, color='red')
+        ax.set_yticks(range(len(times)))
+        ax.set_yticklabels(labels)
+        ax.set_title("Time taken for each solver")
+    return df

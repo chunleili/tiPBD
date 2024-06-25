@@ -66,7 +66,39 @@ def UA_CG(A, b, x0, allres):
     _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
     toc2 = perf_counter()
     print("UA_CG Solve Time:", toc2-tic2)
-    allres.append(Residual(label, r, perf_counter()))
+    allres.append(Residual(label, r, toc2-tic1))
+    print("len(level)=", len(ml17.levels))
+
+
+def UA_CG_chebyshev(A, b, x0, allres):
+    label = "UA_CG_chebyshev"
+    print(f"Calculating {label}...")
+    tic1 = perf_counter()
+    ml17 = pyamg.smoothed_aggregation_solver(A, smooth=None, max_coarse=400, presmoother=('chebyshev', {'degree': 3}), postsmoother=('chebyshev', {'degree': 3}))
+    toc1 = perf_counter()
+    print("UA_CG_chebyshev Setup Time:", toc1-tic1)
+    r = []
+    tic2 = perf_counter()
+    _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    toc2 = perf_counter()
+    print("UA_CG_chebyshev Solve Time:", toc2-tic2)
+    allres.append(Residual(label, r, toc2-tic1))
+    print("len(level)=", len(ml17.levels))
+
+
+def UA_CG_jacobi(A, b, x0, allres):
+    label = "UA_CG_jacobi"
+    print(f"Calculating {label}...")
+    tic1 = perf_counter()
+    ml17 = pyamg.smoothed_aggregation_solver(A, smooth=None, max_coarse=400, presmoother=('jacobi', {'omega': 1.0}), postsmoother=('jacobi', {'omega': 1.0}))
+    toc1 = perf_counter()
+    print("UA_CG_jacobi Setup Time:", toc1-tic1)
+    r = []
+    tic2 = perf_counter()
+    _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    toc2 = perf_counter()
+    print("UA_CG_jacobi Solve Time:", toc2-tic2)
+    allres.append(Residual(label, r, toc2-tic1))
     print("len(level)=", len(ml17.levels))
 
 def UA_CG_GS(A, b, x0, allres):
@@ -79,13 +111,15 @@ def UA_CG_GS(A, b, x0, allres):
     print("len(level)=", len(ml17.levels))
 
 def CG(A, b, x0, allres):
+    tic = perf_counter()
     label = "CG"
     print(f"Calculating {label}...")
     x6 = x0.copy()
     r = []
     r.append(np.linalg.norm(b - A @ x6))
     x6 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)))
-    allres.append(Residual(label, r, perf_counter()))
+    toc = perf_counter()
+    allres.append(Residual(label, r, toc-tic))
 
 
 def diagCG(A,b,x0,allres):

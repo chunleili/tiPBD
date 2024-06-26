@@ -1400,8 +1400,9 @@ def substep_all_solver(max_iter=1):
             levels = setup_AMG(A)
             ramg=[]
             x0 = np.zeros_like(b)
-            x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=100, tol=1e-6)
+            x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=max_iter_Axb, tol=1e-6)
             rgs=[None,None]
+            ramg = residuals
             r_Axb = ramg
 
         rsys2 = np.linalg.norm(b-A@x)

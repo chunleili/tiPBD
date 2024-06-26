@@ -2,7 +2,7 @@ import pyamg
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
 from scipy.sparse.linalg import cg
-# from pyamg.krylov import cg
+from pyamg.krylov import cg
 from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
 from pyamg.relaxation.smoothing import approximate_spectral_radius, chebyshev_polynomial_coefficients
 from pyamg.relaxation.relaxation import polynomial

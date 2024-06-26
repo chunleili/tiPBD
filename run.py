@@ -25,11 +25,10 @@ args = [pythonExe, "engine/cloth/cloth3d.py",
         "-solver_type=AMG", 
         "-delta_t=1e-3", 
         "-end_frame=800",
-        "-max_iter=100",
-        "-max_iter_Axb=100",
         "-setup_num=0",
-        "-export_matrix=1",
-        "-export_matrix_interval=50"]
+        "-export_matrix=0",
+        "-out_dir=result/attach1024",
+        "-auto_another_outdir=1"]
 allargs.append(args)
 
 

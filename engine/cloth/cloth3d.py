@@ -52,6 +52,7 @@ parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-export_matrix_interval", type=int, default=1)
+parser.add_argument("-export_matrix_binary", type=int, default=False)
 parser.add_argument("-export_state", type=int, default=True)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
@@ -78,6 +79,7 @@ delta_t = args.delta_t
 solver_type = args.solver_type
 export_matrix = bool(args.export_matrix)
 export_matrix_interval = args.export_matrix_interval
+export_matrix_binary = args.export_matrix_binary
 export_state = bool(args.export_state)
 setup_num = args.setup_num
 if setup_num==1: gravity = [0.0, 0.0, 0.0]
@@ -965,9 +967,10 @@ def build_levels(A, Ps=[]):
 
     return levels
 
-def setup_AMG(A):
-    global levels
-    if not ((frame%10==0) or (frame==1)):
+def setup_AMG(A,ite):
+    global levels, Ps
+    if not (((frame%10==0) or (frame==1)) and (ite==0)):
+        levels = build_levels(A, Ps)
         return levels
     Ps = build_Ps(A)
     levels = build_levels(A, Ps)
@@ -1277,7 +1280,7 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
         n += 1 # diag placeholder
 
 
-def export_A_b(A,b,postfix="", binary=False):
+def export_A_b(A,b,postfix="", binary=export_matrix_binary):
     dir = out_dir + "/A/"
     if binary:
         scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)
@@ -1397,10 +1400,16 @@ def substep_all_solver(max_iter=1):
             ramg = [None,None]
             r_Axb = rgs
         if solver_type == "AMG":
-            levels = setup_AMG(A)
+            tic = time.perf_counter()
+            levels = setup_AMG(A,ite)
+            toc1 = time.perf_counter()
+            logging.info(f"setup AMG time:{toc1-tic}")
             ramg=[]
             x0 = np.zeros_like(b)
+            tic2 = time.perf_counter()
             x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=max_iter_Axb, tol=1e-6)
+            toc2 = time.perf_counter()
+            logging.info(f"amg_cg_solve time {toc2-tic2}")
             rgs=[None,None]
             ramg = residuals
             r_Axb = ramg

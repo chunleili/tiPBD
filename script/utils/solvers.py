@@ -124,13 +124,15 @@ def CG(A, b, x0, allres):
 
 def diagCG(A,b,x0,allres):
     label = "diagCG"
+    tic = perf_counter()
     print(f"Calculating {label}...")
     M = scipy.sparse.diags(1.0/A.diagonal())
     x7 = x0.copy()
     r = []
     r.append(np.linalg.norm(b - A @ x7))
     x7 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)), M=M)
-    allres.append(Residual(label, r, perf_counter()))
+    toc = perf_counter()
+    allres.append(Residual(label, r, toc-tic))
 
 
 def CAMG(A,b,x0,allres):

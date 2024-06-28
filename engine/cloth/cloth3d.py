@@ -828,19 +828,6 @@ def gauss_seidel(A, x, b, iterations=1, residuals = []):
     return x
 
 
-def build_Ps(A):
-    import pyamg
-    ml = pyamg.smoothed_aggregation_solver(A,
-        smooth=None,
-        max_coarse=400,
-        coarse_solver="pinv")
-    
-    Ps = []
-    for i in range(len(ml.levels)-1):
-        Ps.append(ml.levels[i].P)
-    return Ps
-
-
 def construct_ml_manually(A,Ps=[]):
     from pyamg.multilevel import MultilevelSolver
     from pyamg.relaxation.smoothing import change_smoothers
@@ -926,7 +913,7 @@ def setup_chebyshev(lvl, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
     return coefficients
 
 
-def build_Ps(A, method='UA'):
+def build_Ps(A, method='UA_NoImprove'):
     """Build a list of prolongation matrices Ps from A """
     if method == 'UA' or method == 'UA_CG':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None)
@@ -936,6 +923,8 @@ def build_Ps(A, method='UA'):
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, coarse_solver='gauss_seidel')
     elif method == 'CAMG' or method == 'CAMG_CG':
         ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
+    if method == 'UA_NoImprove':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None)
     else:
         raise ValueError(f"Method {method} not recognized")
 
@@ -972,16 +961,28 @@ def setup_AMG(A,ite):
     if not (((frame%10==0) or (frame==1)) and (ite==0)):
         levels = build_levels(A, Ps)
         return levels
+    tic1 = perf_counter()
     Ps = build_Ps(A)
+    print(f"build_Ps time: {perf_counter()-tic1:.4f}s")
+    tic2 = perf_counter()
     levels = build_levels(A, Ps)
+    logging.info(f"number of levels: {len(levels)}")
+    for i in range(len(levels)):
+        logging.info(f"level {i} shape: {levels[i].A.shape}")
+
+    print(f"build_levels time: {perf_counter()-tic2:.4f}s")
+    tic3 = perf_counter()
     setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    print(f"setup_chebyshev time: {perf_counter()-tic3:.4f}s")
     return levels
 
 
 def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
+    tic_amgcg = perf_counter()
     x = x0.copy()
     A = levels[0].A
     residuals = np.zeros(maxiter+1)
+    t_vcycle = 0.0
     def psolve(b):
         x = x0.copy()
         V_cycle(levels, 0, x, b)
@@ -995,7 +996,11 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     for iteration in range(maxiter):
         if normr < atol:  # Are we done?
             break
+        tic_vcycle = perf_counter()
         z = psolve(r)
+        toc_vcycle = perf_counter()
+        t_vcycle += toc_vcycle - tic_vcycle
+        print(f"Once V_cycle time: {toc_vcycle - tic_vcycle:.4f}s")
         rho_cur = np.dot(r, z)
         if iteration > 0:
             beta = rho_cur / rho_prev
@@ -1012,6 +1017,11 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
         normr = np.linalg.norm(r)
         residuals[iteration+1] = normr
     residuals = residuals[:iteration+1]
+    toc_amgcg = perf_counter()
+    t_amgcg = toc_amgcg - tic_amgcg
+    print(f"Total V_cycle time in one amg_cg_solve: {t_vcycle:.4f}s")
+    print(f"Total time of amg_cg_solve: {t_amgcg:.4f}s")
+    print(f"Time of CG(exclude v-cycle): {t_amgcg - t_vcycle:.4f}s")
     return (x),  residuals  
 
 
@@ -1042,27 +1052,44 @@ def postsmoother(A,x,b):
     presmoother(A,x,b)
 
 
-# 实现仅第一次进入coarse_solver时计算一次P
+# 实现仅第一次进入coarse_solver时计算一次P, 但每个新的A都要重新计算
 # https://stackoverflow.com/a/279597/19253199
 def coarse_solver(A, b):
-    # if not hasattr(coarse_solver, "P"):
-    # coarse_solver.P = pinv(A.toarray())
-    # res = np.dot(coarse_solver.P, b)
-    res = np.linalg.solve(A.toarray(), b)
+    global update_coarse_solver
+    if not hasattr(coarse_solver, "P") or update_coarse_solver:
+        coarse_solver.P = pinv(A.toarray())
+        update_coarse_solver = False
+    res = np.dot(coarse_solver.P, b)
+    # res = scipy.sparse.linalg.spsolve(A, b)
+    # res = np.linalg.solve(A.toarray(), b)
     return res
 
+t_smoother = 0.0
+
 def V_cycle(levels,lvl,x,b):
+    global t_smoother
     A = levels[lvl].A
+    tic = perf_counter()
     presmoother(A,x,b)
+    toc = perf_counter()
+    t_smoother += toc-tic
+    print(f"lvl {lvl} presmoother time: {toc-tic:.4f}s")
     residual = b - A @ x
     coarse_b = levels[lvl].R @ residual
     coarse_x = np.zeros_like(coarse_b)
     if lvl == len(levels)-2:
+        tic = perf_counter()
         coarse_x = coarse_solver(levels[lvl+1].A, coarse_b)
+        toc = perf_counter()
+        print(f"lvl {lvl} coarse_solver time: {toc-tic:.4f}s")
     else:
         V_cycle(levels, lvl+1, coarse_x, coarse_b)
     x += levels[lvl].P @ coarse_x
+    tic = perf_counter()
     postsmoother(A, x, b)
+    toc = perf_counter()
+    t_smoother += toc-tic
+    print(f"lvl {lvl} postsmoother time: {toc-tic:.4f}s")
 
 
 
@@ -1283,6 +1310,7 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
 def export_A_b(A,b,postfix="", binary=export_matrix_binary):
     dir = out_dir + "/A/"
     if binary:
+        # https://stackoverflow.com/a/8980156/19253199
         scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)
         np.save(dir + f"b_{postfix}.npy", b)
         # A = scipy.sparse.load_npz("A.npz") # load
@@ -1407,6 +1435,8 @@ def substep_all_solver(max_iter=1):
             ramg=[]
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()
+            global update_coarse_solver
+            update_coarse_solver = True
             x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=max_iter_Axb, tol=1e-6)
             toc2 = time.perf_counter()
             logging.info(f"amg_cg_solve time {toc2-tic2}")
@@ -1435,10 +1465,12 @@ def substep_all_solver(max_iter=1):
             compute_inertial_energy()
             robj = (potential_energy[None]+inertial_energy[None])
             ramg = ramg.tolist()
+            t_calc_residual_end = time.perf_counter()
+            t_calc_residual += t_calc_residual_end-t_calc_residual_start
             if export_log:
-                logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
+                logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{t_calc_residual_end-t_calc_residual_start:.2f}s")
             r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, len(r_Axb), t_iter))
-            t_calc_residual += time.perf_counter()-t_calc_residual_start
+
 
         x_prev = x.copy()
         # gradC_prev = gradC.to_numpy().copy()

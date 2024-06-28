@@ -16,12 +16,12 @@ parser.add_argument("-list", action="store_true", help="list all cases")
 pyfile = parser.parse_args().pyfile
 case_num = parser.parse_args().case
 
-profile = [pythonExe,"-m","cProfile", "-o", "profile",  "engine/cloth/cloth3d.py"]
+profile = [pythonExe,"-m","cProfile", "-o", "profile"]
 
 allargs = [None]
 
 # case1: AMG 1024
-args = [*profile,
+args = [*profile, "engine/cloth/cloth3d.py",
         "-json_path=data/scene/cloth/attach1024.json",
         "-use_json=1"]
 allargs.append(args)

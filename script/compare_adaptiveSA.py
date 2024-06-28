@@ -289,6 +289,7 @@ def compare_adaptive_SA(postfix='F10-0'):
 
     allres = []
 
+    # UA
     t0= perf_counter()
     Ps = build_Ps(A, method='UA_NoImprove')
     levels = build_levels(A, Ps)
@@ -298,10 +299,8 @@ def compare_adaptive_SA(postfix='F10-0'):
     print(f"levels:{len(levels)}")
     for i in range(len(levels)):
         print(f"level {i} shape: {levels[i].A.shape}")
-    for i in range(len(levels)-1):
-        ratio = levels[i].A.shape[0] / levels[i+1].A.shape[0]
-        print(f"level {i} ratio: {ratio}")
 
+    # 注意！chebyshev对软体是不收敛的!
     smoother = 'gauss_seidel'
     tic = perf_counter()
     x0 = np.zeros_like(b)
@@ -312,9 +311,40 @@ def compare_adaptive_SA(postfix='F10-0'):
     conv = calc_conv(residuals)
     print("conv:", conv)
 
+
+
+
+
+
+    # adaptive SA
+    print("===========adaptive SA==========")
+    global update_coarse_solver
+    update_coarse_solver = True
+    t0= perf_counter()
+    Ps = build_Ps(A,method='adaptive_SA')
+    levels = build_levels(A, Ps)
+    t1 = perf_counter()
+    setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    print('Setup Time:', t1-t0)
+    print(f"levels:{len(levels)}")
+    for i in range(len(levels)):
+        print(f"level {i} shape: {levels[i].A.shape}")
+
+    # smoother = 'chebyshev'
+    smoother = 'gauss_seidel'
+    tic = perf_counter()
+    x0 = np.zeros_like(b)
+    x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
+    toc = perf_counter()
+    allres.append(Residual('adaptive_SA', residuals, toc-tic))
+    print("solve phase:", toc-tic)
+    conv = calc_conv(residuals)
+    print("conv:", conv)
+
     print_allres_time(allres, draw=True)
     plot_residuals_all(allres,use_markers=True)
 
+    # adpative 对软体效果比UA好，但是布料上几乎无差别。
 
 if __name__ == "__main__":
     compare_adaptive_SA()

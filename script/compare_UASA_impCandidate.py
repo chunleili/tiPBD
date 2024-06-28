@@ -29,7 +29,7 @@ def chebyshev(A, x, b):
     polynomial(A, x, b, coefficients=chebyshev_coeff, iterations=1)
 
 
-def build_Ps(A, method='UA_NoImprove'):
+def build_Ps(A, method='UA'):
     """Build a list of prolongation matrices Ps from A """
     if method == 'UA' or method == 'UA_CG':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None)
@@ -41,8 +41,8 @@ def build_Ps(A, method='UA_NoImprove'):
         ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
     elif method == 'UA_NoImprove':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None)
-    elif method == 'adaptive_SA':
-        ml = pyamg.aggregation.adaptive_sa_solver(A, max_coarse=400, smooth=None)[0]
+    elif method == 'SA_NoImprove':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, improve_candidates=None)
     else:
         raise ValueError(f"Method {method} not recognized")
 
@@ -272,7 +272,69 @@ def AMGCG(A,b):
 
 
 
-def compare_adaptive_SA(postfix='F10-0'):
+def compare_UA_SA(postfix='F10-0'):
+    import os, sys
+    sys.path.append(os.getcwd())
+    from utils.load_A_b import load_A_b
+    from utils.solvers import UA_CG, UA_CG_chebyshev, UA_CG_jacobi, CG
+    from collections import namedtuple
+    from utils.plot_residuals import plot_residuals_all
+    from utils.postprocess_residual import print_allres_time
+    from utils.parms import maxiter
+    Residual = namedtuple('Residual', ['label','r', 't'])
+    global smoother, chebyshev, levels
+
+
+    A, b = load_A_b(postfix,binary=False)
+
+    allres = []
+
+    t0= perf_counter()
+    Ps = build_Ps(A, method='UA')
+    levels = build_levels(A, Ps)
+    t1 = perf_counter()
+    setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    print('Setup Time:', t1-t0)
+    print(f"levels:{len(levels)}")
+    for i in range(len(levels)):
+        print(f"level {i} shape: {levels[i].A.shape}")
+
+    smoother = 'chebyshev'
+    tic = perf_counter()
+    x0 = np.zeros_like(b)
+    x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
+    toc = perf_counter()
+    print("UA_CG:", toc-tic)
+    allres.append(Residual('UA_CG', residuals, toc-tic))
+
+
+    global update_coarse_solver
+    update_coarse_solver = True
+    t0= perf_counter()
+    Ps = build_Ps(A,method='SA')
+    levels = build_levels(A, Ps)
+    t1 = perf_counter()
+    setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    print('Setup Time:', t1-t0)
+    print(f"levels:{len(levels)}")
+    for i in range(len(levels)):
+        print(f"level {i} shape: {levels[i].A.shape}")
+
+    smoother = 'chebyshev'
+    tic = perf_counter()
+    x0 = np.zeros_like(b)
+    x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
+    toc = perf_counter()
+    print("SA_CG:", toc-tic)
+    allres.append(Residual('SA_CG', residuals, toc-tic))
+    
+
+    print_allres_time(allres, draw=True)
+    plot_residuals_all(allres,use_markers=True)
+
+
+
+def compare_imporve_candidate(postfix='F10-0'):
     import os, sys
     sys.path.append(os.getcwd())
     from utils.load_A_b import load_A_b
@@ -289,8 +351,9 @@ def compare_adaptive_SA(postfix='F10-0'):
 
     allres = []
 
+    # NOT IMPROVED
     t0= perf_counter()
-    Ps = build_Ps(A, method='UA_NoImprove')
+    Ps = build_Ps(A, method='SA_NoImprove')
     levels = build_levels(A, Ps)
     t1 = perf_counter()
     setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
@@ -298,17 +361,39 @@ def compare_adaptive_SA(postfix='F10-0'):
     print(f"levels:{len(levels)}")
     for i in range(len(levels)):
         print(f"level {i} shape: {levels[i].A.shape}")
-    for i in range(len(levels)-1):
-        ratio = levels[i].A.shape[0] / levels[i+1].A.shape[0]
-        print(f"level {i} ratio: {ratio}")
 
-    smoother = 'gauss_seidel'
+    smoother = 'chebyshev'
     tic = perf_counter()
     x0 = np.zeros_like(b)
     x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
     toc = perf_counter()
-    print("solve phase:", toc-tic)
-    allres.append(Residual('UA', residuals, toc-tic))
+    print("not improve:", toc-tic)
+    allres.append(Residual('not improve', residuals, toc-tic))
+    conv = calc_conv(residuals)
+    print("conv:", conv)
+
+
+    # IMPROVED
+    print("===========IMPROVED==========")
+    global update_coarse_solver
+    update_coarse_solver = True
+    t0= perf_counter()
+    Ps = build_Ps(A,method='SA')
+    levels = build_levels(A, Ps)
+    t1 = perf_counter()
+    setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    print('Setup Time:', t1-t0)
+    print(f"levels:{len(levels)}")
+    for i in range(len(levels)):
+        print(f"level {i} shape: {levels[i].A.shape}")
+
+    smoother = 'chebyshev'
+    tic = perf_counter()
+    x0 = np.zeros_like(b)
+    x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
+    toc = perf_counter()
+    print("improve:", toc-tic)
+    allres.append(Residual('improve', residuals, toc-tic))
     conv = calc_conv(residuals)
     print("conv:", conv)
 
@@ -317,4 +402,4 @@ def compare_adaptive_SA(postfix='F10-0'):
 
 
 if __name__ == "__main__":
-    compare_adaptive_SA()
+    compare_imporve_candidate()

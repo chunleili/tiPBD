@@ -31,18 +31,20 @@ def chebyshev(A, x, b):
 
 def build_Ps(A, method='UA_NoImprove'):
     """Build a list of prolongation matrices Ps from A """
-    if method == 'UA' or method == 'UA_CG':
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric')
-    elif method == 'SA' or method == 'SA_CG':
+    if method == 'UA':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None)
+    elif method == 'SA':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400)
-    elif method == 'UA_CG_GS':
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, coarse_solver='gauss_seidel')
-    elif method == 'CAMG' or method == 'CAMG_CG':
+    elif method == 'CAMG':
         ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
     elif method == 'UA_NoImprove':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None)
     elif method == 'adaptive_SA':
         ml = pyamg.aggregation.adaptive_sa_solver(A, max_coarse=400, smooth=None)[0]
+    elif method == 'UA_sym':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric')
+    elif method == 'SA_sym':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400,symmetry='symmetric')
     else:
         raise ValueError(f"Method {method} not recognized")
 
@@ -281,6 +283,10 @@ def compare_adaptive_SA(postfix='F10-0'):
     from utils.plot_residuals import plot_residuals_all
     from utils.postprocess_residual import print_allres_time, calc_conv
     from utils.parms import maxiter
+    from utils.define_to_read_dir import case_name
+
+    print("case_name", case_name)
+
     Residual = namedtuple('Residual', ['label','r', 't'])
     global smoother, chebyshev, levels
 
@@ -290,7 +296,7 @@ def compare_adaptive_SA(postfix='F10-0'):
     allres = []
 
     t0= perf_counter()
-    Ps = build_Ps(A, method='UA_NoImprove')
+    Ps = build_Ps(A, method='SA')
     levels = build_levels(A, Ps)
     t1 = perf_counter()
     setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
@@ -302,13 +308,40 @@ def compare_adaptive_SA(postfix='F10-0'):
         ratio = levels[i].A.shape[0] / levels[i+1].A.shape[0]
         print(f"level {i} ratio: {ratio}")
 
-    smoother = 'gauss_seidel'
+    smoother = 'chebyshev'
     tic = perf_counter()
     x0 = np.zeros_like(b)
     x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
     toc = perf_counter()
     print("solve phase:", toc-tic)
-    allres.append(Residual('UA', residuals, toc-tic))
+    allres.append(Residual('SA', residuals, toc-tic))
+    conv = calc_conv(residuals)
+    print("conv:", conv)
+
+
+
+
+
+    t0= perf_counter()
+    Ps = build_Ps(A, method='SA_sym')
+    levels = build_levels(A, Ps)
+    t1 = perf_counter()
+    setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    print('Setup Time:', t1-t0)
+    print(f"levels:{len(levels)}")
+    for i in range(len(levels)):
+        print(f"level {i} shape: {levels[i].A.shape}")
+    for i in range(len(levels)-1):
+        ratio = levels[i].A.shape[0] / levels[i+1].A.shape[0]
+        print(f"level {i} ratio: {ratio}")
+
+    smoother = 'chebyshev'
+    tic = perf_counter()
+    x0 = np.zeros_like(b)
+    x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
+    toc = perf_counter()
+    print("solve phase:", toc-tic)
+    allres.append(Residual('SA_sym', residuals, toc-tic))
     conv = calc_conv(residuals)
     print("conv:", conv)
 

@@ -913,18 +913,14 @@ def setup_chebyshev(lvl, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
     return coefficients
 
 
-def build_Ps(A, method='UA_NoImprove'):
+def build_Ps(A, method='UA'):
     """Build a list of prolongation matrices Ps from A """
-    if method == 'UA' or method == 'UA_CG':
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None)
-    elif method == 'SA' or method == 'SA_CG':
+    if method == 'UA':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
+    elif method == 'SA' :
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400)
-    elif method == 'UA_CG_GS':
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, coarse_solver='gauss_seidel')
-    elif method == 'CAMG' or method == 'CAMG_CG':
+    elif method == 'CAMG':
         ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
-    if method == 'UA_NoImprove':
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None)
     else:
         raise ValueError(f"Method {method} not recognized")
 

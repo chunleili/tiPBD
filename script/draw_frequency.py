@@ -1,3 +1,4 @@
+
 import pyamg
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
@@ -8,6 +9,8 @@ from pyamg.relaxation.smoothing import approximate_spectral_radius, chebyshev_po
 from pyamg.relaxation.relaxation import polynomial
 from time import perf_counter
 from scipy.linalg import pinv
+import matplotlib.pyplot as plt
+import scipy
 
 smoother = 'gauss_seidel'
 update_coarse_solver = False
@@ -182,6 +185,9 @@ def main(postfix='F10-0'):
 
     A, b = load_A_b(postfix)
 
+    x = np.zeros_like(b)
+    r_before = b - A @ x
+
     allres = []
 
     t0= perf_counter()
@@ -210,6 +216,32 @@ def main(postfix='F10-0'):
     print_allres_time(allres, draw=True)
     plot_residuals_all(allres,use_markers=True)
 
+    r_after = b - A @ x
+    return r_before, r_after
+
+
+
+
+def draw_frequency(r_before, r_after):
+
+    fig, axes = plt.subplots(1)
+    frequencies, spectrum = scipy.signal.periodogram(r_before)
+    plt.plot(frequencies, spectrum, color="red")
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Power Spectral Density')
+    plt.title('Power Spectrum r_before')
+    plt.show()
+
+
+    frequencies, spectrum = scipy.signal.periodogram(r_after)
+    plt.plot(frequencies, spectrum, color="green")
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Power Spectral Density')
+    plt.title('Power Spectrum  r_after')
+    plt.show()
+
+
 
 if __name__ == "__main__":
-    main()
+    r_before, r_after= main()
+    draw_frequency(r_before, r_after)

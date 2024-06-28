@@ -1070,8 +1070,11 @@ def V_cycle(levels,lvl,x,b):
     toc = perf_counter()
     t_smoother += toc-tic
     print(f"lvl {lvl} presmoother time: {toc-tic:.4f}s")
+    tic = perf_counter()
     residual = b - A @ x
     coarse_b = levels[lvl].R @ residual
+    toc = perf_counter()
+    print(f"lvl {lvl} restriction time: {toc-tic:.4f}s")
     coarse_x = np.zeros_like(coarse_b)
     if lvl == len(levels)-2:
         tic = perf_counter()
@@ -1080,7 +1083,10 @@ def V_cycle(levels,lvl,x,b):
         print(f"lvl {lvl} coarse_solver time: {toc-tic:.4f}s")
     else:
         V_cycle(levels, lvl+1, coarse_x, coarse_b)
+    tic = perf_counter()
     x += levels[lvl].P @ coarse_x
+    toc = perf_counter()
+    print(f"lvl {lvl} interpolation time: {toc-tic:.4f}s")
     tic = perf_counter()
     postsmoother(A, x, b)
     toc = perf_counter()

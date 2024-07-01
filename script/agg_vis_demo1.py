@@ -2,12 +2,14 @@
 # https://github.com/pyamg/pyamg-examples?tab=readme-ov-file#visualizingaggregation
 import pyamg
 import pyamg.vis
+import numpy as np
 
-case_name = "scale12"
+case_name = "scale3"
 
 import pathlib
-# mkdir if not exists
-pathlib.Path(f'result/vis').mkdir(parents=True, exist_ok=True)
+path = f'result/{case_name}/vis/'
+pathlib.Path(path).mkdir(parents=True, exist_ok=True)   # mkdir if not exists
+
 
 def vis_aggs(frame=10):
     import meshio
@@ -25,40 +27,23 @@ def vis_aggs(frame=10):
 
     # perform smoothed aggregation
     AggOp, rootnodes = pyamg.aggregation.standard_aggregation(A)
+    np.savetxt(path+f'{case_name}_AggOp_{frame}.csv', AggOp.toarray(), fmt='%d')
+    np.savetxt(path+f'{case_name}_rootnodes_{frame}.csv', rootnodes, fmt='%d')
+    print(f"AggOp {AggOp}")
 
     # create the vtk file of aggregates
     pyamg.vis.vis_coarse.vis_aggregate_groups(V=V, E2V=E2V, AggOp=AggOp,
-                                            mesh_type='tri', fname=f'result/vis/{case_name}_aggs_{frame}.vtu')
+                                            mesh_type='tri', fname=path+f'{case_name}_aggs_{frame}.vtu')
 
     # create the vtk file for a mesh
     pyamg.vis.vtk_writer.write_basic_mesh(V=V, E2V=E2V,
-                                        mesh_type='tri', fname=f'result/vis/{case_name}_mesh_{frame}.vtu')
+                                        mesh_type='tri', fname=path+f'{case_name}_mesh_{frame}.vtu')
 
 
-for frame in range(1, 30):
-    vis_aggs(frame)
-
-
-
-
-
-
-
-
-
-
-
-# retrieve the problem
-# data = pyamg.gallery.load_example('unit_square')
-# A = data['A'].tocsr()
-# V = data['vertices']
-# E2V = data['elements']
-
-use_vedo = False
-if use_vedo:
+def visualize_vedo(frame=10):
     import vedo
-    gmesh = vedo.load('output_mesh.vtu')
-    gaggs = vedo.load('output_aggs.vtu')
+    gmesh = vedo.load(path+f'{case_name}_mesh_{frame}.vtu')
+    gaggs = vedo.load(path+f'{case_name}_aggs_{frame}.vtu')
 
     gmesh = gmesh.tomesh().color('w').alpha(0.1)
     gmesh.color('gray')
@@ -77,7 +62,7 @@ if use_vedo:
     mesh2.linecolor('blue').linewidth(8)
     mesh3.color('r').linewidth(0)
 
-    figname = './vis_aggs2.png'
+    figname = path+f'./vis_aggs2.png'
     import sys
     if len(sys.argv) > 1:
         if sys.argv[1] == '--savefig':
@@ -92,6 +77,13 @@ if use_vedo:
         plt += mesh2
         plt += mesh3
         plt.show()
+
+
+if __name__ == '__main__':
+    # for frame in range(1, 30):
+    frame = 10
+    vis_aggs(frame)
+    # visualize_vedo(frame)
 
 
 # to use Paraview:

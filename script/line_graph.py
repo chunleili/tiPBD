@@ -749,5 +749,9 @@ if __name__ == '__main__':
     # init_edge_pos(edge_pos, edge, pos)
     edge = edge.to_numpy()
     pos = pos.to_numpy()
+    
+    # for mathematica visualization
+    np.savetxt('edge.txt', edge, fmt='%d',delimiter='<->',newline=',\n')
+    np.savetxt('pos.txt', pos, fmt='%f', delimiter=',',newline='},\n{')
     # edge_pos = edge_pos.to_numpy().tolist()
     demo2(edge, pos)

@@ -962,9 +962,9 @@ def setup_AMG(A,ite):
     # print(f"build_Ps time: {perf_counter()-tic1:.4f}s")
     tic2 = perf_counter()
     levels = build_levels(A, Ps)
-    logging.info(f"number of levels: {len(levels)}")
-    for i in range(len(levels)):
-        logging.info(f"level {i} shape: {levels[i].A.shape}")
+    # logging.info(f"number of levels: {len(levels)}")
+    # for i in range(len(levels)):
+        # logging.info(f"level {i} shape: {levels[i].A.shape}")
 
     # print(f"build_levels time: {perf_counter()-tic2:.4f}s")
     tic3 = perf_counter()
@@ -1433,7 +1433,7 @@ def substep_all_solver(max_iter=1):
             tic = time.perf_counter()
             levels = setup_AMG(A,ite)
             toc1 = time.perf_counter()
-            logging.info(f"setup AMG time:{toc1-tic}")
+            # logging.info(f"setup AMG time:{toc1-tic}")
             ramg=[]
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()

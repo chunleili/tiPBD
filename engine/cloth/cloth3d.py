@@ -64,7 +64,7 @@ parser.add_argument("-restart_from_last_frame", type=int, default=True)
 parser.add_argument("-tol_sim", type=float, default=1e-6)
 parser.add_argument("-tol_Axb", type=float, default=1e-6)
 parser.add_argument("-max_iter", type=int, default=100)
-parser.add_argument("-max_iter_Axb", type=int, default=150)
+parser.add_argument("-max_iter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 parser.add_argument("-use_json", type=int, default=0, help="json configs will overwrite the command line args")
@@ -959,17 +959,17 @@ def setup_AMG(A,ite):
         return levels
     tic1 = perf_counter()
     Ps = build_Ps(A)
-    print(f"build_Ps time: {perf_counter()-tic1:.4f}s")
+    # print(f"build_Ps time: {perf_counter()-tic1:.4f}s")
     tic2 = perf_counter()
     levels = build_levels(A, Ps)
     logging.info(f"number of levels: {len(levels)}")
     for i in range(len(levels)):
         logging.info(f"level {i} shape: {levels[i].A.shape}")
 
-    print(f"build_levels time: {perf_counter()-tic2:.4f}s")
+    # print(f"build_levels time: {perf_counter()-tic2:.4f}s")
     tic3 = perf_counter()
     setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
-    print(f"setup_chebyshev time: {perf_counter()-tic3:.4f}s")
+    # print(f"setup_chebyshev time: {perf_counter()-tic3:.4f}s")
     return levels
 
 
@@ -996,7 +996,7 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
         z = psolve(r)
         toc_vcycle = perf_counter()
         t_vcycle += toc_vcycle - tic_vcycle
-        print(f"Once V_cycle time: {toc_vcycle - tic_vcycle:.4f}s")
+        # print(f"Once V_cycle time: {toc_vcycle - tic_vcycle:.4f}s")
         rho_cur = np.dot(r, z)
         if iteration > 0:
             beta = rho_cur / rho_prev
@@ -1015,9 +1015,9 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     residuals = residuals[:iteration+1]
     toc_amgcg = perf_counter()
     t_amgcg = toc_amgcg - tic_amgcg
-    print(f"Total V_cycle time in one amg_cg_solve: {t_vcycle:.4f}s")
-    print(f"Total time of amg_cg_solve: {t_amgcg:.4f}s")
-    print(f"Time of CG(exclude v-cycle): {t_amgcg - t_vcycle:.4f}s")
+    # print(f"Total V_cycle time in one amg_cg_solve: {t_vcycle:.4f}s")
+    # print(f"Total time of amg_cg_solve: {t_amgcg:.4f}s")
+    # print(f"Time of CG(exclude v-cycle): {t_amgcg - t_vcycle:.4f}s")
     return (x),  residuals  
 
 
@@ -1069,29 +1069,29 @@ def V_cycle(levels,lvl,x,b):
     presmoother(A,x,b)
     toc = perf_counter()
     t_smoother += toc-tic
-    print(f"lvl {lvl} presmoother time: {toc-tic:.4f}s")
+    # print(f"lvl {lvl} presmoother time: {toc-tic:.4f}s")
     tic = perf_counter()
     residual = b - A @ x
     coarse_b = levels[lvl].R @ residual
     toc = perf_counter()
-    print(f"lvl {lvl} restriction time: {toc-tic:.4f}s")
+    # print(f"lvl {lvl} restriction time: {toc-tic:.4f}s")
     coarse_x = np.zeros_like(coarse_b)
     if lvl == len(levels)-2:
         tic = perf_counter()
         coarse_x = coarse_solver(levels[lvl+1].A, coarse_b)
         toc = perf_counter()
-        print(f"lvl {lvl} coarse_solver time: {toc-tic:.4f}s")
+        # print(f"lvl {lvl} coarse_solver time: {toc-tic:.4f}s")
     else:
         V_cycle(levels, lvl+1, coarse_x, coarse_b)
     tic = perf_counter()
     x += levels[lvl].P @ coarse_x
     toc = perf_counter()
-    print(f"lvl {lvl} interpolation time: {toc-tic:.4f}s")
+    # print(f"lvl {lvl} interpolation time: {toc-tic:.4f}s")
     tic = perf_counter()
     postsmoother(A, x, b)
     toc = perf_counter()
     t_smoother += toc-tic
-    print(f"lvl {lvl} postsmoother time: {toc-tic:.4f}s")
+    # print(f"lvl {lvl} postsmoother time: {toc-tic:.4f}s")
 
 
 

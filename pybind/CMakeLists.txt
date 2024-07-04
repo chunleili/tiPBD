@@ -3,11 +3,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-project(AmgPybind)
+project(rigid_body_modes)
 
 add_subdirectory(pybind11)
 # pybind11_add_module(amg_cg_solve_bind amg_cg_solve_bind.cpp)
-pybind11_add_module(AmgPybind relaxation.cpp)
+pybind11_add_module(rigid_body_modes rigid_body_modes.cpp)
 
 
 

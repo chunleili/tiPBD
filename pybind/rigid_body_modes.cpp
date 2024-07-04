@@ -1,3 +1,5 @@
+// https://github.com/ddemidov/amgcl/blob/d1912a85a56d7540773c47e69bd3d06b68a94ab3/amgcl/coarsening/rigid_body_modes.hpp
+// https://amgcl.readthedocs.io/en/latest/tutorial/Nullspace.html
 # include <vector>
 # include <array>
 # include <cmath>

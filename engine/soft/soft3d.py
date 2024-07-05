@@ -45,7 +45,7 @@ export_mesh = True
 export_residual = True
 early_stop = True
 export_log = True
-smoother = "gauss_seidel"
+smoother = "sor"
 
 t_export_matrix = 0.0
 t_calc_residual = 0.0
@@ -705,7 +705,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         A = scipy.sparse.csr_matrix(A, dtype=np.float64)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
-        if export_matrix:
+        if export_matrix and meta.ite == 0:
             tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{meta.frame}-{meta.ite}")
             t_export_matrix = time.perf_counter()-tic
@@ -727,7 +727,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         #     x = solve_amg_SA(A, b, x0, ramg)
         #     r_Axb = ramg
         #     rgs = [None]
-        if solver_type == "AMG":
+        elif solver_type == "AMG":
             tic = time.perf_counter()
             levels = setup_AMG(A,meta.ite)
             ramg=[]
@@ -762,7 +762,6 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
             compute_potential_energy(ist.potential_energy, ist.alpha_tilde, ist.lagrangian)
             compute_inertial_energy(ist.inertial_energy, ist.inv_mass, ist.pos, ist.predict_pos, meta.h)
             robj = (ist.potential_energy[None]+ist.inertial_energy[None])
-            # print(f"{meta.frame}-{meta.ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             if export_log:
                 logging.info(f"{meta.frame}-{meta.ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, len(r_Axb), t_iter))
@@ -771,8 +770,10 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         x_prev = x.copy()
         # gradC_prev = gradC.to_numpy().copy()
 
-        if early_stop:
-            if rsys0 < tol_sim:
+        if early_stop and meta.ite>0:
+            # if rsys0 < tol_sim:
+            #     break
+            if r[-1].dual/r[0].dual < 0.1:
                 break
 
     if export_residual:

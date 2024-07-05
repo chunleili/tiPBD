@@ -103,7 +103,7 @@ def calc_near_nullspace_CG(A):
     return B
 
 
-def main(postfix='F10-0'):
+def main(postfix='F0-0'):
     import os, sys
     sys.path.append(os.getcwd())
     from utils.load_A_b import load_A_b
@@ -131,7 +131,7 @@ def main(postfix='F10-0'):
     print('Setup Time:', t1-t0)
 
 
-    A, b = load_A_b(postfix='F20-0')
+    A, b = load_A_b(postfix='F0-10')
     levels = build_levels(A, Ps)
 
 
@@ -154,8 +154,4 @@ def main(postfix='F10-0'):
 
 
 if __name__ == "__main__":
-    # for f in [10,20,30,40,50,60]:
-    for f in [10]:
-        postfix = f"F{f}-0"
-        print(f"Postfix: {postfix}")
-        main(postfix)
+    main()

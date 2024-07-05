@@ -45,6 +45,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-out_dir=result/soft3dBig",
         "-export_matrix=1",
+        "-auto_another_outdir=1",
         ]
 allargs.append(args)
 

@@ -42,7 +42,7 @@ def build_Ps(A, method='UA_NoImprove'):
     elif method == 'UA_NoImprove':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None)
     elif method == 'adaptive_SA':
-        ml = pyamg.aggregation.adaptive_sa_solver(A, max_coarse=400, smooth=None)[0]
+        ml = pyamg.aggregation.adaptive_sa_solver(A, max_coarse=400, smooth=None, num_candidates=3)[0]
     else:
         raise ValueError(f"Method {method} not recognized")
 
@@ -285,7 +285,7 @@ def compare_adaptive_SA(postfix='F10-0'):
     global smoother, chebyshev, levels
 
 
-    A, b = load_A_b(postfix,binary=False)
+    A, b = load_A_b(postfix)
 
     allres = []
 

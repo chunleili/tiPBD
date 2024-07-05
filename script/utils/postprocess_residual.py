@@ -31,6 +31,31 @@ def print_df_new(df_in, verbose=False):
         df = df.sort_values(by="time", ascending=True)
         print(df)
 
+
+def print_df_newnew(allres, verbose=False):
+    import numpy as np
+    import pandas as pd
+    print("\n\nDataframe of convergence factor and time taken for each solver")
+    pd.set_option("display.precision", 3)
+    df = pd.DataFrame(allres)
+
+
+    #calculate convergence factor and time
+    convs = np.zeros(len(allres))
+    for i in range(len(allres)):
+        convs[i] = calc_conv(allres[i].r)
+    labels = [ri.label for ri in allres]
+    times = [ri.t for ri in allres]
+
+    # put data into dataframe
+    df = pd.DataFrame({"label":labels, "conv_fac":convs, "time":times, "residual": [ri.r for ri in allres]})
+
+    df = df.drop(labels='residual',axis=1)
+    
+    print(df)
+
+
+
 def save_data(allres, postfix=""):
     import pandas as pd
     import os

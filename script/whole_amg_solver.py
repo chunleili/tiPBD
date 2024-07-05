@@ -145,11 +145,12 @@ def postsmoother(A,x,b):
 # 实现仅第一次进入coarse_solver时计算一次P
 # https://stackoverflow.com/a/279597/19253199
 def coarse_solver(A, b):
-    global update_coarse_solver
-    if not hasattr(coarse_solver, "P") or update_coarse_solver:
-        coarse_solver.P = pinv(A.toarray())
-        update_coarse_solver = False
-    res = np.dot(coarse_solver.P, b)
+    res = np.linalg.solve(A.toarray(), b)
+    # global update_coarse_solver
+    # if not hasattr(coarse_solver, "P") or update_coarse_solver:
+    #     coarse_solver.P = pinv(A.toarray())
+    #     update_coarse_solver = False
+    # res = np.dot(coarse_solver.P, b)
     return res
 
 def V_cycle(levels,lvl,x,b):
@@ -171,18 +172,22 @@ def main(postfix='F10-0'):
     import os, sys
     sys.path.append(os.getcwd())
     from utils.load_A_b import load_A_b
-    from utils.solvers import UA_CG, UA_CG_chebyshev, UA_CG_jacobi, CG
+    from utils.solvers import UA_CG, UA_CG_chebyshev, UA_CG_jacobi, CG, diagCG
     from collections import namedtuple
     from utils.plot_residuals import plot_residuals_all
-    from utils.postprocess_residual import print_allres_time, calc_conv
+    from utils.postprocess_residual import print_allres_time, calc_conv, print_df_newnew
     from utils.parms import maxiter
     Residual = namedtuple('Residual', ['label','r', 't'])
     global smoother, chebyshev, levels
 
 
     A, b = load_A_b(postfix)
+    x0 = np.zeros_like(b)
 
     allres = []
+
+    diagCG(A,b,x0,allres)
+
 
     t0= perf_counter()
     Ps = build_Ps(A, method='UA')
@@ -207,9 +212,12 @@ def main(postfix='F10-0'):
     conv = calc_conv(residuals)
     print("conv:", conv)
 
-    print_allres_time(allres, draw=True)
+    print_df_newnew(allres)
     plot_residuals_all(allres,use_markers=True)
 
 
 if __name__ == "__main__":
-    main()
+    for f in [10,20,30,40,50,60]:
+        postfix = f"F{f}-0"
+        print(f"Postfix: {postfix}")
+        main(postfix)

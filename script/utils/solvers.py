@@ -68,6 +68,8 @@ def UA_CG(A, b, x0, allres):
     print("UA_CG Solve Time:", toc2-tic2)
     allres.append(Residual(label, r, toc2-tic1))
     print("len(level)=", len(ml17.levels))
+    print("iterations:", len(r)-1)
+
 
 
 def UA_CG_chebyshev(A, b, x0, allres):

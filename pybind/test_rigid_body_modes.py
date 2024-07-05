@@ -1,7 +1,11 @@
 import sys
-sys.path.append('./build/Release')  # 添加模块搜索路径
-sys.path.append('./build/Debug')  # 添加模块搜索路径
-
+import os
+from pathlib import Path
+sys.path.append(os.getcwd())
+thisdir = Path(__file__).resolve().parent
+print(thisdir/'build/Release')
+sys.path.append(str(thisdir/'build/Release'))  # 添加模块搜索路径
+sys.path.append(str(thisdir/'build/Debug'))  # 添加模块搜索路径
 
 import rigid_body_modes
 import numpy as np

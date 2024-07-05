@@ -2,13 +2,7 @@ import numpy as np
 from pyamg.relaxation.relaxation import gauss_seidel
 from time import perf_counter
 from .coarse_solver import coarse_solver
-
-def presmoother(A,x,b):
-    gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
-
-def postsmoother(A,x,b):
-    gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
-
+from .smoothers import presmoother, postsmoother
 
 def V_cycle(levels,lvl,x,b):
     A = levels[lvl].A

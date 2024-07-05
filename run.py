@@ -39,7 +39,7 @@ args = ["engine/cloth/cloth3d.py",
         "-auto_another_outdir=1",]
 allargs.append(args)
 
-# case5: soft3dBig Bunny
+# case4: soft3dBig Bunny
 args = ["engine/soft/soft3d.py",
         "-model_path=data/model/bunnyBig/bunnyBig.node",
         "-solver_type=AMG",

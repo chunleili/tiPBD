@@ -35,6 +35,7 @@ parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
 parser.add_argument("-export_matrix", type=int, default=False)
+parser.add_argument("-auto_another_outdir", type=int, default=False)
 
 args = parser.parse_args()
 
@@ -707,7 +708,11 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
         if export_matrix and meta.ite == 0:
             tic = time.perf_counter()
-            export_A_b(A,b,postfix=f"F{meta.frame}-{meta.ite}")
+            postfix=f"F{meta.frame}-{meta.ite}"
+            export_A_b(A,b,postfix=postfix)
+            dir = out_dir + "/A/"
+            scipy.sparse.save_npz(dir + f"G_{postfix}.npz", G)
+            scipy.sparse.save_npz(dir + f"Minv_{postfix}.npz", M_inv)
             t_export_matrix = time.perf_counter()-tic
 
         # -------------------------------- solve Ax=b -------------------------------- #
@@ -1264,11 +1269,34 @@ def export_A_b(A,b,postfix="", binary=True):
         scipy.io.mmwrite(dir + f"A_{postfix}.mtx", A, symmetry='symmetric')
         np.savetxt(dir + f"b_{postfix}.txt", b)
 
+
+def create_another_outdir(out_dir):
+    path = Path(out_dir)
+    if path.exists():
+        # add a number to the end of the folder name
+        path = path.parent / (path.name + "_1")
+        if path.exists():
+            i = 2
+            while True:
+                path = path.parent / (path.name[:-2] + f"_{i}")
+                if not path.exists():
+                    break
+                i += 1
+    path.mkdir(parents=True, exist_ok=True)
+    out_dir = str(path)
+    print(f"\ncreate another outdir: {out_dir}\n")
+    return out_dir
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
 def main():
-    make_and_clean_dirs(out_dir)
+    global out_dir
+    if args.auto_another_outdir:
+        out_dir = create_another_outdir(out_dir)
+        make_and_clean_dirs(out_dir)
+    else:
+        make_and_clean_dirs(out_dir)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -1280,6 +1308,8 @@ def main():
     ist = SoftBody(meta.args.model_path)
     ist.initialize()
 
+    if export_mesh:
+        write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
     while True:
         info("\n\n----------------------")
@@ -1291,8 +1321,8 @@ def main():
         if export_mesh:
             write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
         
-        meta.frame += 1
         info(f"step time: {perf_counter() - t:.2f} s")
+        meta.frame += 1
             
         if meta.frame == meta.args.end_frame:
             exit()

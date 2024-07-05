@@ -1,13 +1,15 @@
 import pyamg
 import numpy as np
+import scipy
 from scipy.sparse.linalg import LinearOperator
 from scipy.sparse.linalg import cg
-from pyamg.krylov import cg
+from scipy.sparse.linalg import bicgstab
 from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
 from pyamg.relaxation.smoothing import approximate_spectral_radius, chebyshev_polynomial_coefficients
 from pyamg.relaxation.relaxation import polynomial
 from time import perf_counter
 from scipy.linalg import pinv
+from scipy.io import mmread
 
 smoother = 'gauss_seidel'
 update_coarse_solver = False
@@ -17,19 +19,21 @@ from utils.build_levels import build_levels
 from utils.smoothers import presmoother, postsmoother, chebyshev
 from utils.coarse_solver import coarse_solver
 from utils.amg_cg_solve import amg_cg_solve
+from utils.calc_RBM import calc_RBM3d
 
 
 def mesh_to_coo(readpath):
     import meshio
     mesh = meshio.read(readpath)
     p = mesh.points
-    p = p.ravel(order='F')
+    # p = p.ravel(order='F')
+    p = p.ravel()
     coo = p.reshape((p.size, 1))
     return coo
 
 
 def calc_rigidbodymodes():
-    # coo mesh grid point coordinates in [x0,x1,x2,...,xn,y0,y1,y2,...,yn,z0,z1,z2,...,zn]
+    # coo mesh grid point coordinates in [x1,y1,z1,x2,y2,z2,...,xn,yn,zn] format
     import sys
     import os
     from pathlib import Path
@@ -41,7 +45,7 @@ def calc_rigidbodymodes():
 
 
     from utils.define_to_read_dir import prj_dir, case_name
-    meshpath = prj_dir + f"result/{case_name}/mesh/0010.ply"
+    meshpath = prj_dir + f"result/{case_name}/mesh/0000.ply"
     coo = mesh_to_coo(meshpath)
 
     import rigid_body_modes # type: ignore
@@ -50,7 +54,28 @@ def calc_rigidbodymodes():
     transpose = False 
     ndim = 3
     B = rigid_body_modes.rigid_body_modes(ndim, coo, B, transpose)
-    return B
+    return np.array(B)
+
+
+def RBM_from_dx_to_dlam(G, invM, B):
+    # dx = invM @ G.T @ dlam
+    # we need to solve a linear system to get dlam
+    # invM @ G.T @ dlam = dx_RBM
+    # Ax=b, where A = invM @ G.T, b = dx_RBM
+    # But for easier to solve, we need to make A square, so we multiply by G
+    # A = G @ invM @ G.T , b = G @ dx_RBM
+    n = B.shape[1]
+    newB = []
+    for i in range(n):
+        dx_RBM = B[:,i]
+        A_ = G @ invM @ G.T
+        A_ = A_.astype(np.float64)
+        b_ = G@dx_RBM 
+        # use GS to solve Ax=b
+        dlam = np.zeros_like(b_)
+        gauss_seidel(A_, dlam, b_, iterations=20, sweep='forward')
+        newB.append(dlam)
+    return np.array(newB).T
 
 
 def calc_near_nullspace_GS(A):
@@ -107,6 +132,7 @@ def main(postfix='F0-0'):
     import os, sys
     sys.path.append(os.getcwd())
     from utils.load_A_b import load_A_b
+    from utils.define_to_read_dir import to_read_dir
     from utils.define_to_read_dir import prj_dir, case_name
     from utils.solvers import UA_CG, UA_CG_chebyshev, UA_CG_jacobi, CG, diagCG
     from collections import namedtuple
@@ -115,7 +141,13 @@ def main(postfix='F0-0'):
     from utils.parms import maxiter
     Residual = namedtuple('Residual', ['label','r', 't'])
     global smoother, chebyshev, levels
-
+    
+    # calc B by transfer back RBM to dlam
+    # G = scipy.sparse.load_npz(to_read_dir+f"G_{postfix}.npz")
+    # M_inv = scipy.sparse.load_npz(to_read_dir+f"Minv_{postfix}.npz")
+    # B = calc_RBM3d()
+    # B[:,:] += np.random.rand(B.shape[0], B.shape[1])*1e-4
+    # B = RBM_from_dx_to_dlam(G, M_inv, B)
 
     A, b = load_A_b(postfix)
     x0 = np.zeros_like(b)
@@ -129,10 +161,6 @@ def main(postfix='F0-0'):
     levels = build_levels(A, Ps)
     t1 = perf_counter()
     print('Setup Time:', t1-t0)
-
-
-    A, b = load_A_b(postfix='F0-10')
-    levels = build_levels(A, Ps)
 
 
     # solve phase

@@ -33,7 +33,7 @@ def sparse_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_ste
         if diag != 0.0:
             x[i] = (b[i] - rsum) / diag
 
-
+@ti.kernel
 def sparse_gauss_seidel_kernel(Ap: ti.types.ndarray(dtype=int),
                                  Aj: ti.types.ndarray(dtype=int),
                                  Ax: ti.types.ndarray(dtype=float),

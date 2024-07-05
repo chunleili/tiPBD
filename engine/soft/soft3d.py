@@ -13,36 +13,39 @@ import meshio
 from collections import namedtuple
 import json
 from functools import singledispatch
+from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
+from pyamg.relaxation.smoothing import approximate_spectral_radius, chebyshev_polynomial_coefficients
+from pyamg.relaxation.relaxation import polynomial
+import pyamg
 
-
+proj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-m", "--max_frame", type=int, default=-1)
-parser.add_argument("--max_iter", type=int, default=30)
-parser.add_argument("--omega", type=float, default=0.1)
-parser.add_argument("--mu", type=float, default=1e6)
-parser.add_argument("--dt", type=float, default=3e-3)
-parser.add_argument("--damping_coeff", type=float, default=1.0)
-parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
-parser.add_argument("--total_mass", type=float, default=16000.0)
-parser.add_argument(
-    "--solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"]
-)
+parser.add_argument("-max_frame", type=int, default=-1)
+parser.add_argument("-max_iter", type=int, default=30)
+parser.add_argument("-omega", type=float, default=0.1)
+parser.add_argument("-mu", type=float, default=1e6)
+parser.add_argument("-dt", type=float, default=3e-3)
+parser.add_argument("-damping_coeff", type=float, default=1.0)
+parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
+parser.add_argument("-total_mass", type=float, default=16000.0)
+parser.add_argument("-solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"])
+parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunnyBig.node")# "cube" "bunny1k2k" "toy"
+parser.add_argument("-kmeans_k", type=int, default=1000)
+parser.add_argument("-end_frame", type=int, default=30)
+parser.add_argument("-out_dir", type=str, default="result/latest/")
+parser.add_argument("-export_matrix", type=int, default=False)
 
-default_model = "bunnyBig" # "cube" "bunny1k2k" "toy"
-model_extension = "node"
-parser.add_argument("--model_path", type=str, default=f"data/model/{default_model}/{default_model}"+f".{model_extension}")
-parser.add_argument("--kmeans_k", type=int, default=1000)
-parser.add_argument("--end_frame", type=int, default=30)
+args = parser.parse_args()
 
-export_mesh = True
-proj_dir_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = proj_dir_path + "/result/latest/"
+out_dir = args.out_dir
 Path(out_dir).mkdir(parents=True, exist_ok=True)
-export_matrix = True
+export_matrix = args.out_dir
+export_mesh = True
 export_residual = True
 early_stop = True
 export_log = True
+smoother = "gauss_seidel"
 
 t_export_matrix = 0.0
 t_calc_residual = 0.0
@@ -57,7 +60,7 @@ ti.init(arch=ti.cpu)
 class Meta:
     def __init__(self) -> None:
         # control parameters
-        self.args = parser.parse_args()
+        self.args = args
         self.frame = 0
         self.ite = 0
 
@@ -685,10 +688,10 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
     alpha_tilde_np = ist.alpha_tilde.to_numpy()
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
-    t_iter_start = perf_counter()
     r=[]
     tol_sim = 1e-6
     for meta.ite in range(max_iter):
+        t_iter_start = perf_counter()
         # ----------------------------- prepare matrices ----------------------------- #
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
@@ -699,7 +702,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
         # assemble A and b
         A = G @ M_inv @ G.transpose() + ALPHA
-        A = scipy.sparse.csr_matrix(A)
+        A = scipy.sparse.csr_matrix(A, dtype=np.float64)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
         if export_matrix and meta.ite==0:
@@ -709,7 +712,6 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
         # -------------------------------- solve Ax=b -------------------------------- #
         x0 = np.zeros_like(b)
-        A = scipy.sparse.csr_matrix(A)
         rsys0 = np.linalg.norm(b-A @ x0)
 
         if solver_type == "GaussSeidel":
@@ -720,11 +722,25 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
                 print(f"{meta.ite} r:{r_norm:.2g}")
         elif solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
-        elif solver_type == "AMG":
-            ramg = []
-            x = solve_amg_SA(A, b, x0, ramg)
+        # elif solver_type == "AMG":
+        #     ramg = []
+        #     x = solve_amg_SA(A, b, x0, ramg)
+        #     r_Axb = ramg
+        #     rgs = [None]
+        if solver_type == "AMG":
+            tic = time.perf_counter()
+            levels = setup_AMG(A,meta.ite)
+            ramg=[]
+            x0 = np.zeros_like(b,dtype=np.float64)
+            tic2 = time.perf_counter()
+            global update_coarse_solver
+            update_coarse_solver = True
+            x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=100, tol=1e-6)
+            toc2 = time.perf_counter()
+            logging.info(f"amg_cg_solve time {toc2-tic2}")
+            rgs=[None,None]
+            ramg = residuals
             r_Axb = ramg
-            rgs = [None]
 
         dlambda = x
         ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
@@ -783,70 +799,238 @@ def solve_amg_SA(A,b,x0,residuals=[],tol_Axb=1e-6, max_iter_Axb=150):
     x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="V")
     return x5
 
-def solve_pyamg_my2(A, b, x0, R, P):
-    tol = 1e-3
-    # residuals = r_norm_list
-    residuals = []
-    maxiter = 1
-
-    A2 = R @ A @ P
-
-    x = x0
-
-    normb = np.linalg.norm(b)
-    if normb == 0.0:
-        normb = 1.0  # set so that we have an absolute tolerance
-    normr = np.linalg.norm(b - A @ x)
-    if residuals is not None:
-        residuals[:] = [normr]  # initial residual
-
-    b = np.ravel(b)
-    x = np.ravel(x)
-
-    it = 0
-    while True:  # it <= maxiter and normr >= tol:
-        gauss_seidel(A, x, b, iterations=1)  # presmoother
-
-        residual = b - A @ x
-
-        coarse_b = R @ residual  # restriction
-
-        coarse_x = np.zeros_like(coarse_b)
-
-        coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
-
-        x += P @ coarse_x  # coarse grid correction
-
-        gauss_seidel(A, x, b, iterations=1)  # postsmoother
-
-        it += 1
-
-        normr = np.linalg.norm(b - A @ x)
-        if residuals is not None:
-            residuals.append(normr)
-        if normr < tol * normb:
-            return x
-        if it == maxiter:
-            return x
 
 
-def gauss_seidel(A, x, b, iterations=1):
-    if not sparse.isspmatrix_csr(A):
-        raise ValueError("A must be csr matrix!")
+def chebyshev(A, x, b):
+    polynomial(A, x, b, coefficients=chebyshev_coeff, iterations=1)
 
-    for _iter in range(iterations):
-        # forward sweep
-        print("forward sweeping")
-        for _ in range(iterations):
-            amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
 
-        # backward sweep
-        print("backward sweeping")
-        for _ in range(iterations):
-            amg_core_gauss_seidel(
-                A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
-            )
-    return x
+def setup_chebyshev(lvl, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
+                    iterations=1):
+    global chebyshev_coeff # FIXME: later we should store this in the level
+    """Set up Chebyshev."""
+    rho = approximate_spectral_radius(lvl.A)
+    a = rho * lower_bound
+    b = rho * upper_bound
+    # drop the constant coefficient
+    coefficients = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
+    chebyshev_coeff = coefficients
+    return coefficients
+
+
+def build_Ps(A, method='UA', B=None):
+    """Build a list of prolongation matrices Ps from A """
+    if method == 'UA':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
+    elif method == 'SA' :
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400,symmetry='symmetric')
+    elif method == 'CAMG':
+        ml = pyamg.ruge_stuben_solver(A, max_coarse=400,symmetry='symmetric')
+    elif method == 'adaptive_SA':
+        ml = pyamg.aggregation.adaptive_sa_solver(A, max_coarse=400, smooth=None, num_candidates=6)[0]
+    elif method == 'nullspace':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B)
+    else:
+        raise ValueError(f"Method {method} not recognized")
+
+    Ps = []
+    for i in range(len(ml.levels)-1):
+        Ps.append(ml.levels[i].P)
+
+    return Ps
+
+
+class MultiLevel:
+    A = None
+    P = None
+    R = None
+
+
+def build_levels(A, Ps=[]):
+    '''Give A and a list of prolongation matrices Ps, return a list of levels'''
+    lvl = len(Ps) + 1 # number of levels
+
+    levels = [MultiLevel() for i in range(lvl)]
+
+    levels[0].A = A
+
+    for i in range(lvl-1):
+        levels[i].P = Ps[i]
+        levels[i].R = Ps[i].T
+        levels[i+1].A = Ps[i].T @ levels[i].A @ Ps[i]
+
+    return levels
+
+def setup_AMG(A,ite):
+    global levels, Ps
+    if not (((meta.frame%10==0) or (meta.frame==1)) and (ite==0)):
+        levels = build_levels(A, Ps)
+        return levels
+    tic1 = perf_counter()
+    B = calc_near_nullspace_GS(A)
+    Ps = build_Ps(A, method='nullspace', B=B)
+    levels = build_levels(A, Ps)
+    if smoother == 'chebyshev':
+        setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    toc = perf_counter()
+    print(f"AMG setup time: {toc-tic1:.4f}s")
+    return levels
+
+
+def calc_near_nullspace_GS(A):
+    n=6
+    tic = perf_counter()
+    B = np.zeros((A.shape[0],n), dtype=np.float64)
+    from pyamg.relaxation.relaxation import gauss_seidel
+    for i in range(n):
+        x = np.ones(A.shape[0], dtype=np.float64) + 1e-2*np.random.rand(A.shape[0])
+        b = np.zeros(A.shape[0], dtype=np.float64) 
+        gauss_seidel(A,x,b,iterations=20, sweep='forward')
+        B[:,i] = x
+    toc = perf_counter()
+    print("Calculating near nullspace Time:", toc-tic)
+    return B
+
+
+def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
+    tic_amgcg = perf_counter()
+    x = x0.copy()
+    A = levels[0].A
+    residuals = np.zeros(maxiter+1)
+    t_vcycle = 0.0
+    def psolve(b):
+        x = x0.copy()
+        V_cycle(levels, 0, x, b)
+        return x
+    bnrm2 = np.linalg.norm(b)
+    atol = tol * bnrm2
+    r = b - A@(x)
+    rho_prev, p = None, None
+    normr = np.linalg.norm(r)
+    residuals[0] = normr
+    for iteration in range(maxiter):
+        if normr < atol:  # Are we done?
+            break
+        tic_vcycle = perf_counter()
+        z = psolve(r)
+        toc_vcycle = perf_counter()
+        t_vcycle += toc_vcycle - tic_vcycle
+        # print(f"Once V_cycle time: {toc_vcycle - tic_vcycle:.4f}s")
+        rho_cur = np.dot(r, z)
+        if iteration > 0:
+            beta = rho_cur / rho_prev
+            p *= beta
+            p += z
+        else:  # First spin
+            p = np.empty_like(r)
+            p[:] = z[:]
+        q = A@(p)
+        alpha = rho_cur / np.dot(p, q)
+        x += alpha*p
+        r -= alpha*q
+        rho_prev = rho_cur
+        normr = np.linalg.norm(r)
+        residuals[iteration+1] = normr
+    residuals = residuals[:iteration+1]
+    toc_amgcg = perf_counter()
+    t_amgcg = toc_amgcg - tic_amgcg
+    # print(f"Total V_cycle time in one amg_cg_solve: {t_vcycle:.4f}s")
+    # print(f"Total time of amg_cg_solve: {t_amgcg:.4f}s")
+    # print(f"Time of CG(exclude v-cycle): {t_amgcg - t_vcycle:.4f}s")
+    return (x),  residuals  
+
+
+def diag_sweep(A,x,b,iterations=1):
+    diag = A.diagonal()
+    diag = np.where(diag==0, 1, diag)
+    x[:] = b / diag
+
+def presmoother(A,x,b):
+    from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
+    if smoother == 'gauss_seidel':
+        gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
+    elif smoother == 'jacobi':
+        jacobi(A,x,b,iterations=10)
+    elif smoother == 'sor_vanek':
+        for _ in range(1):
+            sor(A,x,b,omega=1.0,iterations=1,sweep='forward')
+            sor(A,x,b,omega=1.85,iterations=1,sweep='backward')
+    elif smoother == 'sor':
+        sor(A,x,b,omega=1.33,sweep='symmetric',iterations=1)
+    elif smoother == 'diag_sweep':
+        diag_sweep(A,x,b,iterations=1)
+    elif smoother == 'chebyshev':
+        chebyshev(A,x,b)
+
+
+def postsmoother(A,x,b):
+    presmoother(A,x,b)
+
+
+# 实现仅第一次进入coarse_solver时计算一次P, 但每个新的A都要重新计算
+# https://stackoverflow.com/a/279597/19253199
+def coarse_solver(A, b):
+    # global update_coarse_solver
+    # if not hasattr(coarse_solver, "P") or update_coarse_solver:
+    #     coarse_solver.P = pinv(A.toarray())
+    #     update_coarse_solver = False
+    # res = np.dot(coarse_solver.P, b)
+    # # res = scipy.sparse.linalg.spsolve(A, b)
+    res = np.linalg.solve(A.toarray(), b)
+    return res
+
+t_smoother = 0.0
+
+def V_cycle(levels,lvl,x,b):
+    global t_smoother
+    A = levels[lvl].A
+    tic = perf_counter()
+    presmoother(A,x,b)
+    toc = perf_counter()
+    t_smoother += toc-tic
+    # print(f"lvl {lvl} presmoother time: {toc-tic:.4f}s")
+    tic = perf_counter()
+    residual = b - A @ x
+    coarse_b = levels[lvl].R @ residual
+    toc = perf_counter()
+    # print(f"lvl {lvl} restriction time: {toc-tic:.4f}s")
+    coarse_x = np.zeros_like(coarse_b)
+    if lvl == len(levels)-2:
+        tic = perf_counter()
+        coarse_x = coarse_solver(levels[lvl+1].A, coarse_b)
+        toc = perf_counter()
+        # print(f"lvl {lvl} coarse_solver time: {toc-tic:.4f}s")
+    else:
+        V_cycle(levels, lvl+1, coarse_x, coarse_b)
+    tic = perf_counter()
+    x += levels[lvl].P @ coarse_x
+    toc = perf_counter()
+    # print(f"lvl {lvl} interpolation time: {toc-tic:.4f}s")
+    tic = perf_counter()
+    postsmoother(A, x, b)
+    toc = perf_counter()
+    t_smoother += toc-tic
+    # print(f"lvl {lvl} postsmoother time: {toc-tic:.4f}s")
+
+
+
+# def gauss_seidel(A, x, b, iterations=1):
+#     if not sparse.isspmatrix_csr(A):
+#         raise ValueError("A must be csr matrix!")
+
+#     for _iter in range(iterations):
+#         # forward sweep
+#         print("forward sweeping")
+#         for _ in range(iterations):
+#             amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
+
+#         # backward sweep
+#         print("backward sweeping")
+#         for _ in range(iterations):
+#             amg_core_gauss_seidel(
+#                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
+#             )
+#     return x
 
 
 def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
@@ -1107,7 +1291,7 @@ def main():
             write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
         
         meta.frame += 1
-        info(f"step time: {perf_counter() - t:.2g} s")
+        info(f"step time: {perf_counter() - t:.2f} s")
             
         if meta.frame == meta.args.end_frame:
             exit()

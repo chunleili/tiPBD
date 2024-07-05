@@ -867,34 +867,6 @@ def solve_amg_SA(A,b,x0,residuals=[]):
     x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="V")
     return x5
 
-def solve_amg(A, b, x0, R, P, residuals=[], maxiter = 1, tol = 1e-6):
-    A2 = R @ A @ P
-    x = x0.copy()
-    normb = np.linalg.norm(b)
-    if normb == 0.0:
-        normb = 1.0  # set so that we have an absolute tolerance
-    normr = np.linalg.norm(b - A @ x)
-    if residuals is not None:
-        residuals[:] = [normr]  # initial residual
-    b = np.ravel(b)
-    x = np.ravel(x)
-    it = 0
-    while True:  # it <= maxiter and normr >= tol:
-        gauss_seidel(A, x, b, iterations=8)  # presmoother
-        residual = b - A @ x
-        coarse_b = R @ residual  # restriction
-        coarse_x = np.zeros_like(coarse_b)
-        coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
-        x += P @ coarse_x 
-        gauss_seidel(A, x, b, iterations=2)
-        it += 1
-        normr = np.linalg.norm(b - A @ x)
-        if residuals is not None:
-            residuals.append(normr)
-        if normr < tol * normb:
-            return x
-        if it == maxiter:
-            return x
         
 def chebyshev(A, x, b):
     polynomial(A, x, b, coefficients=chebyshev_coeff, iterations=1)

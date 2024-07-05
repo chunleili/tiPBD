@@ -136,6 +136,16 @@ args = ["snakeviz", f"{pyfileBaseNameNoextention}.prof"]
 allargs.append(args)
 
 
+# case11: soft3dBig Bunny
+args = [pythonExe, "engine/soft/soft3d.py",
+        "-model_path=data/model/bunnyBig/bunnyBig.node",
+        "-solver_type=AMG",
+        "-out_dir=result/soft3dBig",
+        "-export_matrix=1",
+        ]
+allargs.append(args)
+
+
 def run_case(case_num:int):
     args = allargs[case_num]
     log_args(args)

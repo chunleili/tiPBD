@@ -122,14 +122,18 @@ def main(postfix='F10-0'):
 
     allres = []
 
-    B = calc_near_nullspace_GS(A)
-
     # setup phase
     t0= perf_counter()
+    B = calc_near_nullspace_GS(A)
     Ps = build_Ps(A, method='nullspace', B=B)
     levels = build_levels(A, Ps)
     t1 = perf_counter()
     print('Setup Time:', t1-t0)
+
+
+    A, b = load_A_b(postfix='F20-0')
+    levels = build_levels(A, Ps)
+
 
     # solve phase
     smoother = 'gauss_seidel'

@@ -51,7 +51,7 @@ allargs.append(args)
 
 def run_case(case_num:int):
     args = allargs[case_num]
-    if True:
+    if parser.parse_args().profile:
         print("Running with cProfile. Output to 'profile' file. Use 'snakeviz profile' to view the result.")
         args = [pythonExe,"-m","cProfile", "-o", "profile", *args]
     else:

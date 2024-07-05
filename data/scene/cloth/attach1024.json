@@ -6,8 +6,5 @@
     "end_frame":30,
     "max_iter":100,
     "max_iter_Axb":100,
-    "out_dir":"result/attach1024",
-    "auto_another_outdir":1,
-    "export_matrix":1,
-    "export_matrix_binary":1
+    "out_dir":"result/attach1024"
 }

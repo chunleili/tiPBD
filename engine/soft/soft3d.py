@@ -705,7 +705,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         A = scipy.sparse.csr_matrix(A, dtype=np.float64)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
-        if export_matrix and meta.ite==0:
+        if export_matrix:
             tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{meta.frame}-{meta.ite}")
             t_export_matrix = time.perf_counter()-tic
@@ -1253,7 +1253,7 @@ def make_and_clean_dirs(out_dir):
     Path(out_dir + "/mesh/").mkdir(parents=True, exist_ok=True)
 
 
-def export_A_b(A,b,postfix="", binary=False):
+def export_A_b(A,b,postfix="", binary=True):
     dir = out_dir + "/A/"
     if binary:
         scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)

@@ -95,13 +95,13 @@ std::vector<double> rigid_body_modes(int ndim, const std::vector<double> &coo, s
     }
 
 
-    // print B
-    for(size_t i = 0; i < n; ++i) {
-        for(int j = 0; j < nmodes; ++j) {
-            std::cout << B[i * stride1 + j * stride2] << " ";
-        }
-        std::cout << std::endl;
-    }
+    // // print B
+    // for(size_t i = 0; i < n; ++i) {
+    //     for(int j = 0; j < nmodes; ++j) {
+    //         std::cout << B[i * stride1 + j * stride2] << " ";
+    //     }
+    //     std::cout << std::endl;
+    // }
 
     return B;
 }

@@ -1,6 +1,6 @@
 import pyamg
 
-def build_Ps(A, method='UA'):
+def build_Ps(A, method='UA', B=None):
     """Build a list of prolongation matrices Ps from A """
     if method == 'UA':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
@@ -10,8 +10,8 @@ def build_Ps(A, method='UA'):
         ml = pyamg.ruge_stuben_solver(A, max_coarse=400,symmetry='symmetric')
     elif method == 'adaptive_SA':
         ml = pyamg.aggregation.adaptive_sa_solver(A, max_coarse=400, smooth=None, num_candidates=6)[0]
-    elif method == 'rigidbodymodes':
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric')
+    elif method == 'nullspace':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B)
     else:
         raise ValueError(f"Method {method} not recognized")
 

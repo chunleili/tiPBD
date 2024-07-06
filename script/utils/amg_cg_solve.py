@@ -1,5 +1,5 @@
 import numpy as np
-from .V_cycle import V_cycle
+from .V_cycle import V_cycle, V_cycle2
 
 
 def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
@@ -9,6 +9,7 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     def psolve(b):
         x = x0.copy()
         V_cycle(levels, 0, x, b)
+        # x = V_cycle2(levels, x0, b)
         return x
     bnrm2 = np.linalg.norm(b)
     atol = tol * bnrm2

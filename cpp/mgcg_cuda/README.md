@@ -15,7 +15,7 @@ python cloth3d.py -N 1024
 
 
 # Generate dlls
-1. Install CUDA 12.5
+1. Install CUDA 12.5, VS2022
 2. Change set(CMAKE_CUDA_ARCHITECTURES 89) in CMakeLists.txt
 3. Run cmake from cmd(Not powershell! Powershell does not work for `set(CMAKE_CUDA_ARCHITECTURES 89).`)
 4. We need 7 dlls in `cpp\mgcg_cuda\lib`:

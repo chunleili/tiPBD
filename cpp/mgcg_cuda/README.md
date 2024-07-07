@@ -33,3 +33,9 @@ Extra Notes:
   - Either copy the four cuda dlls to `cpp\mgcg_cuda\lib` or use `os.add_dll_directory("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")`.
 
   - In Windows, use dumpbin /dependents to check the dependencies of a dll. For example, `dumpbin /dependents fast-vcycle-gpu.dll` will show the dependencies of fast-vcycle-gpu.dll.
+
+
+Download(600MB): 
+https://bhpan.buaa.edu.cn/link/AA1B784714F4D846E59851D1B12E83196D
+or
+https://www.dropbox.com/scl/fi/tvpr3g3btjca0maaz6gfl/dlls.zip?rlkey=68u687oghe5i7tddvedggcy7l&st=eo8dg8cd&dl=0

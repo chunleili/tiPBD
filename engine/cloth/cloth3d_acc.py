@@ -113,9 +113,9 @@ if vcycle_type == 'test':
     # print(mat.shape)
     # out = mat @ x
     # print(out)
-    path = './build/Release/libfast-vcycle-gpu.so'
+    path = './build/libfast-vcycle-gpu.so'
     if sys.platform == 'win32':
-        path = '.\\build\\Release\\fast-vcycle-gpu.dll'
+        path = '.\\build\\fast-vcycle-gpu.dll'
     vcycle = ctypes.cdll.LoadLibrary(path)
     vcycle.fastmg_test()
     exit(1)
@@ -1191,7 +1191,10 @@ def init_g_vcycle(levels):
     global g_vcycle_cached_levels
 
     if g_vcycle is None:
-        g_vcycle = ctypes.cdll.LoadLibrary('D:\\Dev\\tiPBD\\cpp\\amgcg_vcycle_cuda\\build\\Release\\fast-vcycle-gpu.dll')
+        os.add_dll_directory("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
+        g_vcycle = ctypes.cdll.LoadLibrary('./cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll')
+        
+        
         g_vcycle.fastmg_copy_outer2init_x.argtypes = []
         g_vcycle.fastmg_set_outer_x.argtypes = [ctypes.c_size_t] * 2
         g_vcycle.fastmg_set_outer_b.argtypes = [ctypes.c_size_t] * 2

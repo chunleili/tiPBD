@@ -41,43 +41,28 @@ def calc_RBM2d():
 
 
 def calc_RBM3d():
-    coo = mesh_to_coo('data/model/bunnyBig/bunnyBig.node')
-    coo = coo.flatten()
+    import meshio
+    mesh = meshio.read('data/model/bunnyBig/bunnyBig.node')
+    coo = mesh.points
+    coo = coo.flatten() ## coo is the coordinates of the mesh in [x1,y1,z1,x2,y2,z2,...,xn,yn,zn] format
     x = coo[0::3]
     y = coo[1::3]
     z = coo[2::3]
-
     v = zeros((coo.shape[0],6))
-
     n = coo.shape[0]/3
     v[0::3, 0] = 1./sqrt(n)
     v[1::3, 1] = 1./sqrt(n)
     v[0::3, 2] = 1./sqrt(n)
-
-    # v[0::3, 3] = -z
-    # v[1::3, 3] = y
-
-    # v[0::3, 4] = z
-    # v[1::3, 4] = -x
-
-    # v[0::3, 5] = -y
-    # v[1::3, 5] = x
-
     v[0::3, 3] = y
     v[1::3, 3] = -x
-
     v[1::3, 4] = -z
     v[2::3, 4] = y
-
     v[0::3, 5] = z
     v[2::3, 5] = -x
-
-
     # orthonormalize
     for i in range(3, 6):
         for j in range(0, i):
             v[:, i] -= dot(v[:, i], v[:, j]) * v[:, j]
         v[:, i] /= linalg.norm(v[:, i])
-
     return v
 

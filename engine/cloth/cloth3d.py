@@ -1,3 +1,4 @@
+import ctypes
 import scipy.sparse
 import taichi as ti
 import numpy as np
@@ -52,7 +53,7 @@ parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-export_matrix_interval", type=int, default=1)
-parser.add_argument("-export_matrix_binary", type=int, default=True)
+parser.add_argument("-export_matrix_binary", type=int, default=False)
 parser.add_argument("-export_state", type=int, default=True)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
@@ -71,6 +72,8 @@ parser.add_argument("-use_json", type=int, default=0, help="json configs will ov
 parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
 parser.add_argument("-auto_complete_path", type=int, default=0, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
+parser.add_argument("-vcycle", type=str, default="new", help="old or new")
+parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin")
 
 
 args = parser.parse_args()
@@ -82,6 +85,8 @@ export_matrix_interval = args.export_matrix_interval
 export_matrix_binary = args.export_matrix_binary
 export_state = bool(args.export_state)
 setup_num = args.setup_num
+vcycle_type = args.vcycle
+cuda_dir = args.cuda_dir
 if setup_num==1: gravity = [0.0, 0.0, 0.0]
 else : gravity = [0.0, -9.8, 0.0]
 end_frame = args.end_frame
@@ -100,6 +105,22 @@ use_json = bool(args.use_json)
 json_path = prj_path + args.json_path
 auto_complete_path = bool(args.auto_complete_path)
 arch = args.arch
+
+if vcycle_type == 'test':
+    # mat = scipy.sparse.csr_matrix(([1, 2, 3, 4], [0, 1, 2, 3], [0, 2, 4]), dtype=np.float32)
+    # x = np.array([4, 5, 6, 7])
+    # print(mat.data)
+    # print(mat.indices)
+    # print(mat.indptr)
+    # print(mat.shape)
+    # out = mat @ x
+    # print(out)
+    path = './build/libfast-vcycle-gpu.so'
+    if sys.platform == 'win32':
+        path = '.\\build\\fast-vcycle-gpu.dll'
+    vcycle = ctypes.cdll.LoadLibrary(path)
+    vcycle.fastmg_test()
+    exit(1)
 
 def parse_json_params(path, vars_to_overwrite):
     if not os.path.exists(path):
@@ -867,16 +888,57 @@ def solve_amg_SA(A,b,x0,residuals=[]):
     x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="V")
     return x5
 
-        
+def solve_amg(A, b, x0, R, P, residuals=[], maxiter = 1, tol = 1e-6):
+    A2 = R @ A @ P
+    x = x0.copy()
+    normb = np.linalg.norm(b)
+    if normb == 0.0:
+        normb = 1.0  # set so that we have an absolute tolerance
+    normr = np.linalg.norm(b - A @ x)
+    if residuals is not None:
+        residuals[:] = [normr]  # initial residual
+    b = np.ravel(b)
+    x = np.ravel(x)
+    it = 0
+    while True:  # it <= maxiter and normr >= tol:
+        gauss_seidel(A, x, b, iterations=8)  # presmoother
+        residual = b - A @ x
+        coarse_b = R @ residual  # restriction
+        coarse_x = np.zeros_like(coarse_b)
+        coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
+        x += P @ coarse_x 
+        gauss_seidel(A, x, b, iterations=2)
+        it += 1
+        normr = np.linalg.norm(b - A @ x)
+        if residuals is not None:
+            residuals.append(normr)
+        if normr < tol * normb:
+            return x
+        if it == maxiter:
+            return x
+
+times = 0
+
+def calc_poly(A, x, b, coefficients, iterations):
+    assert iterations == 1
+    x = np.ravel(x)
+    b = np.ravel(b)
+    for _i in range(iterations):
+        residual = b - A*x
+        h = coefficients[0]*residual
+        for c in coefficients[1:]:
+            h = c*residual + A*h
+        x += h
+
 def chebyshev(A, x, b):
-    polynomial(A, x, b, coefficients=chebyshev_coeff, iterations=1)
+    calc_poly(A, x, b, coefficients=chebyshev_coeff, iterations=1)
 
 
-def setup_chebyshev(lvl, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
+def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
                     iterations=1):
     global chebyshev_coeff # FIXME: later we should store this in the level
     """Set up Chebyshev."""
-    rho = approximate_spectral_radius(lvl.A)
+    rho = approximate_spectral_radius(A)
     a = rho * lower_bound
     b = rho * upper_bound
     # drop the constant coefficient
@@ -924,28 +986,16 @@ def build_levels(A, Ps=[]):
 
     return levels
 
-def setup_AMG(A,ite):
-    global levels, Ps
-    if not (((frame%10==0) or (frame==1)) and (ite==0)):
-        levels = build_levels(A, Ps)
-        return levels
-    tic1 = perf_counter()
+def setup_AMG(A):
+    global chebyshev_coeff
     Ps = build_Ps(A)
-    # print(f"build_Ps time: {perf_counter()-tic1:.4f}s")
-    tic2 = perf_counter()
-    levels = build_levels(A, Ps)
-    # logging.info(f"number of levels: {len(levels)}")
-    # for i in range(len(levels)):
-        # logging.info(f"level {i} shape: {levels[i].A.shape}")
-
-    # print(f"build_levels time: {perf_counter()-tic2:.4f}s")
-    tic3 = perf_counter()
-    setup_chebyshev(levels[0], lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
-    # print(f"setup_chebyshev time: {perf_counter()-tic3:.4f}s")
-    return levels
+    if smoother == 'chebyshev':
+        setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    return Ps
 
 
-def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
+def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
+    assert x0 is not None
     tic_amgcg = perf_counter()
     x = x0.copy()
     A = levels[0].A
@@ -953,7 +1003,7 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     t_vcycle = 0.0
     def psolve(b):
         x = x0.copy()
-        V_cycle(levels, 0, x, b)
+        old_V_cycle(levels, 0, x, b)
         return x
     bnrm2 = np.linalg.norm(b)
     atol = tol * bnrm2
@@ -961,6 +1011,7 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     rho_prev, p = None, None
     normr = np.linalg.norm(r)
     residuals[0] = normr
+    iteration = 0
     for iteration in range(maxiter):
         if normr < atol:  # Are we done?
             break
@@ -984,6 +1035,43 @@ def amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
         rho_prev = rho_cur
         normr = np.linalg.norm(r)
         residuals[iteration+1] = normr
+    residuals = residuals[:iteration+1]
+    toc_amgcg = perf_counter()
+    t_amgcg = toc_amgcg - tic_amgcg
+    # print(f"Total V_cycle time in one amg_cg_solve: {t_vcycle:.4f}s")
+    # print(f"Total time of amg_cg_solve: {t_amgcg:.4f}s")
+    # print(f"Time of CG(exclude v-cycle): {t_amgcg - t_vcycle:.4f}s")
+    return (x),  residuals  
+
+def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
+    init_g_vcycle(levels)
+    assert g_vcycle
+
+    assert x0 is not None
+    tic_amgcg = perf_counter()
+    x0_contig = np.ascontiguousarray(x0, dtype=np.float32)
+    g_vcycle.fastmg_set_outer_x(x0_contig.ctypes.data, x0_contig.shape[0])
+    t_vcycle = 0.0
+    b_contig = np.ascontiguousarray(b, dtype=np.float32)
+    g_vcycle.fastmg_set_outer_b(b_contig.ctypes.data, b.shape[0])
+    residuals_empty = np.empty(shape=(maxiter+1,), dtype=np.float32)
+    residuals = np.ascontiguousarray(residuals_empty, dtype=np.float32)
+    bnrm2 = g_vcycle.fastmg_init_cg_iter0(residuals.ctypes.data) # init_b = r = b - A@x; residuals[0] = normr
+    atol = bnrm2 * tol
+    iteration = 0
+    for iteration in range(maxiter):
+        if residuals[iteration] < atol:
+            break
+        tic_vcycle = perf_counter()
+        g_vcycle.fastmg_copy_outer2init_x()
+        new_V_cycle(levels)
+        toc_vcycle = perf_counter()
+        t_vcycle += toc_vcycle - tic_vcycle
+        # print(f"Once V_cycle time: {toc_vcycle - tic_vcycle:.4f}s")
+        g_vcycle.fastmg_do_cg_itern(residuals.ctypes.data, iteration)
+    x_empty = np.empty_like(x0, dtype=np.float32)
+    x = np.ascontiguousarray(x_empty, dtype=np.float32)
+    g_vcycle.fastmg_fetch_cg_final_x(x.ctypes.data)
     residuals = residuals[:iteration+1]
     toc_amgcg = perf_counter()
     t_amgcg = toc_amgcg - tic_amgcg
@@ -1023,48 +1111,100 @@ def postsmoother(A,x,b):
 # 实现仅第一次进入coarse_solver时计算一次P, 但每个新的A都要重新计算
 # https://stackoverflow.com/a/279597/19253199
 def coarse_solver(A, b):
-    global update_coarse_solver
-    if not hasattr(coarse_solver, "P") or update_coarse_solver:
-        coarse_solver.P = pinv(A.toarray())
-        update_coarse_solver = False
-    res = np.dot(coarse_solver.P, b)
+    # global update_coarse_solver
+    # if not hasattr(coarse_solver, "P") or update_coarse_solver:
+    #     coarse_solver.P = pinv(A.toarray())
+    #     update_coarse_solver = False
+    # res = np.dot(coarse_solver.P, b)
     # res = scipy.sparse.linalg.spsolve(A, b)
-    # res = np.linalg.solve(A.toarray(), b)
+    res = np.linalg.solve(A.toarray(), b)
     return res
 
 t_smoother = 0.0
 
-def V_cycle(levels,lvl,x,b):
+def old_V_cycle(levels,lvl,x,b):
     global t_smoother
     A = levels[lvl].A
-    tic = perf_counter()
     presmoother(A,x,b)
-    toc = perf_counter()
-    t_smoother += toc-tic
-    # print(f"lvl {lvl} presmoother time: {toc-tic:.4f}s")
-    tic = perf_counter()
     residual = b - A @ x
     coarse_b = levels[lvl].R @ residual
-    toc = perf_counter()
-    # print(f"lvl {lvl} restriction time: {toc-tic:.4f}s")
     coarse_x = np.zeros_like(coarse_b)
     if lvl == len(levels)-2:
-        tic = perf_counter()
         coarse_x = coarse_solver(levels[lvl+1].A, coarse_b)
-        toc = perf_counter()
-        # print(f"lvl {lvl} coarse_solver time: {toc-tic:.4f}s")
     else:
-        V_cycle(levels, lvl+1, coarse_x, coarse_b)
-    tic = perf_counter()
+        old_V_cycle(levels, lvl+1, coarse_x, coarse_b)
     x += levels[lvl].P @ coarse_x
-    toc = perf_counter()
-    # print(f"lvl {lvl} interpolation time: {toc-tic:.4f}s")
-    tic = perf_counter()
     postsmoother(A, x, b)
-    toc = perf_counter()
-    t_smoother += toc-tic
-    # print(f"lvl {lvl} postsmoother time: {toc-tic:.4f}s")
 
+g_vcycle = None
+g_vcycle_cached_levels = None
+vcycle_has_course_solve = False
+
+def init_g_vcycle(levels):
+    global g_vcycle
+    global g_vcycle_cached_levels
+
+    if g_vcycle is None:
+        if not Path(cuda_dir).exists():
+            raise FileNotFoundError(f"Please ensure cuda_dir which contains the following dlls exists:1. cublas64_12.dll 2. cublasLt64_12.dll 3. cusparse64_12.dll 4. nvJitLink_120_0.dll")
+        if not Path("./cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll").exists():
+            raise FileNotFoundError(f"Please compile the fast-vcycle-gpu.dll in the cpp/mgcg_cuda/lib directory.")
+        os.add_dll_directory(cuda_dir)
+        g_vcycle = ctypes.cdll.LoadLibrary('./cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll')
+        g_vcycle.fastmg_copy_outer2init_x.argtypes = []
+        g_vcycle.fastmg_set_outer_x.argtypes = [ctypes.c_size_t] * 2
+        g_vcycle.fastmg_set_outer_b.argtypes = [ctypes.c_size_t] * 2
+        g_vcycle.fastmg_init_cg_iter0.argtypes = [ctypes.c_size_t]
+        g_vcycle.fastmg_init_cg_iter0.restype = ctypes.c_float
+        g_vcycle.fastmg_do_cg_itern.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
+        g_vcycle.fastmg_fetch_cg_final_x.argtypes = [ctypes.c_size_t]
+        g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
+        g_vcycle.fastmg_set_coeff.argtypes = [ctypes.c_size_t] * 2
+        g_vcycle.fastmg_set_init_x.argtypes = [ctypes.c_size_t] * 2
+        g_vcycle.fastmg_set_init_b.argtypes = [ctypes.c_size_t] * 2
+        g_vcycle.fastmg_get_coarsist_size.argtypes = []
+        g_vcycle.fastmg_get_coarsist_size.restype = ctypes.c_size_t
+        g_vcycle.fastmg_get_coarsist_b.argtypes = [ctypes.c_size_t]
+        g_vcycle.fastmg_set_coarsist_x.argtypes = [ctypes.c_size_t]
+        g_vcycle.fastmg_get_finest_x.argtypes = [ctypes.c_size_t]
+        g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
+        g_vcycle.fastmg_vcycle_down.argtypes = []
+        g_vcycle.fastmg_coarse_solve.argtypes = []
+        g_vcycle.fastmg_vcycle_up.argtypes = []
+
+    if g_vcycle_cached_levels != id(levels):
+        # print('Setup detected! reuploading A, R, P matrices')
+        g_vcycle_cached_levels = id(levels)
+        assert chebyshev_coeff is not None
+        coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
+        g_vcycle.fastmg_setup(len(levels))
+        g_vcycle.fastmg_set_coeff(coeff_contig.ctypes.data, coeff_contig.shape[0])
+        for lv in range(len(levels)):
+            for which, matname in zip([1, 2, 3], ['A', 'R', 'P']):
+                mat = getattr(levels[lv], matname)
+                if mat is not None:
+                    data_contig = np.ascontiguousarray(mat.data, dtype=np.float32)
+                    indices_contig = np.ascontiguousarray(mat.indices, dtype=np.int32)
+                    indptr_contig = np.ascontiguousarray(mat.indptr, dtype=np.int32)
+                    g_vcycle.fastmg_set_lv_csrmat(lv, which, data_contig.ctypes.data, data_contig.shape[0],
+                                                  indices_contig.ctypes.data, indices_contig.shape[0],
+                                                  indptr_contig.ctypes.data, indptr_contig.shape[0],
+                                                  mat.shape[0], mat.shape[1], mat.nnz)
+
+def new_V_cycle(levels):
+    assert g_vcycle
+    g_vcycle.fastmg_vcycle_down()
+    if vcycle_has_course_solve:
+        g_vcycle.fastmg_coarse_solve()
+    else:
+        coarsist_size = g_vcycle.fastmg_get_coarsist_size()
+        coarsist_b_empty = np.empty(shape=(coarsist_size,), dtype=np.float32)
+        coarsist_b = np.ascontiguousarray(coarsist_b_empty, dtype=np.float32)
+        g_vcycle.fastmg_get_coarsist_b(coarsist_b.ctypes.data)
+        coarsist_x = coarse_solver(levels[len(levels) - 1].A, coarsist_b)
+        coarsist_x_contig = np.ascontiguousarray(coarsist_x, dtype=np.float32)
+        g_vcycle.fastmg_set_coarsist_x(coarsist_x_contig.ctypes.data)
+    g_vcycle.fastmg_vcycle_up()
 
 
 # @ti.kernel
@@ -1115,10 +1255,14 @@ def spy_A(A,b):
 
 # legacy
 def fill_A_by_spmm(M_inv, ALPHA):
+    tic = time.perf_counter()
     G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
     compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
+
+    print(f"fill_G: {time.perf_counter() - tic:.4f}s")
+    tic = time.perf_counter()
 
     if use_geometric_stiffness:
         # Geometric Stiffness: K = NCONS - H, we only use diagonal of H and then replace M_inv with K_inv
@@ -1133,6 +1277,7 @@ def fill_A_by_spmm(M_inv, ALPHA):
 
     A = G @ M_inv @ G.transpose() + ALPHA
     A = scipy.sparse.csr_matrix(A)
+    print("spmm GMG time: ", time.perf_counter() - tic)
     return A, G
 
 def calc_num_nonz():
@@ -1372,7 +1517,9 @@ def substep_all_solver(max_iter=1):
     x = x0.copy()
     r = []
     t_calc_residual = 0.0
+    global ite
     for ite in range(max_iter):
+        tic_assemble = perf_counter()
         t_iter_start = time.time()
         copy_field(pos_mid, pos)
 
@@ -1393,6 +1540,8 @@ def substep_all_solver(max_iter=1):
 
         rsys0 = (np.linalg.norm(b-A@x))
 
+        print(f"Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
+        tic_linsys = perf_counter()
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
         if solver_type == "GS":
@@ -1402,30 +1551,42 @@ def substep_all_solver(max_iter=1):
             ramg = [None,None]
             r_Axb = rgs
         if solver_type == "AMG":
+            global Ps
+            if (((frame%10==0) or (frame==1)) and (ite==0)):
+                tic = time.perf_counter()
+                Ps = setup_AMG(A)
+                logging.info(f"setup AMG time:{perf_counter()-tic}")
             tic = time.perf_counter()
-            levels = setup_AMG(A,ite)
-            toc1 = time.perf_counter()
-            # logging.info(f"setup AMG time:{toc1-tic}")
+            levels = build_levels(A, Ps)
+            logging.info(f"build_levels time:{time.perf_counter()-tic}")
             ramg=[]
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()
-            global update_coarse_solver
-            update_coarse_solver = True
-            x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=max_iter_Axb, tol=1e-6)
+            if vcycle_type == 'old':
+                amg_cg_solve = old_amg_cg_solve
+            elif vcycle_type == 'new':
+                amg_cg_solve = new_amg_cg_solve
+            else:
+                assert False
+            x,residuals = amg_cg_solve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
             toc2 = time.perf_counter()
             logging.info(f"amg_cg_solve time {toc2-tic2}")
             rgs=[None,None]
             ramg = residuals
             r_Axb = ramg
 
+        print(f"Linear system solve time: {perf_counter()-tic_linsys:.4f}s")
+        
+        tic = time.perf_counter()
         rsys2 = np.linalg.norm(b-A@x)
         if use_primary_residual:
             transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
         else:
-            # transfer_back_to_pos_mfree(x) #XPBD
-            transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) 
+            transfer_back_to_pos_mfree(x) #XPBD
+            # transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) 
+        print(f"dlam to dpos time: {perf_counter()-tic:.4f}s")
 
-
+        tic_export = perf_counter()
         if export_residual:
             t_iter = time.time()-t_iter_start
             t_calc_residual_start = time.perf_counter()
@@ -1444,7 +1605,7 @@ def substep_all_solver(max_iter=1):
             if export_log:
                 logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{t_calc_residual_end-t_calc_residual_start:.2f}s")
             r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, len(r_Axb), t_iter))
-
+        print(f"Export residual time: {perf_counter()-tic_export:.4f}s")
 
         x_prev = x.copy()
         # gradC_prev = gradC.to_numpy().copy()

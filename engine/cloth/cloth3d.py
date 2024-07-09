@@ -35,6 +35,7 @@ save_P, load_P = False, False
 use_viewer = False
 export_mesh = True
 export_residual = True
+calc_r = True
 use_offdiag = True
 gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
@@ -64,7 +65,7 @@ parser.add_argument("-restart_dir", type=str, default="latest/state")
 parser.add_argument("-restart_from_last_frame", type=int, default=True)
 parser.add_argument("-tol_sim", type=float, default=1e-6)
 parser.add_argument("-tol_Axb", type=float, default=1e-6)
-parser.add_argument("-max_iter", type=int, default=100)
+parser.add_argument("-max_iter", type=int, default=300)
 parser.add_argument("-max_iter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
@@ -595,21 +596,47 @@ def calc_primary_residual(G,M_inv):
     primary_residual = np.delete(primary_residual, where_zeros)
     return primary_residual
 
+ResidualLess = namedtuple('ResidualLess', ['dual', 'obj', 't']) 
+
 def step_xpbd(max_iter):
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
 
-    residual = np.zeros((max_iter+1),float)
+    dualrs = np.zeros((max_iter+1),float)
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-    residual[0] = np.linalg.norm(dual_residual.to_numpy())
+    dualrs[0] = np.linalg.norm(dual_residual.to_numpy())
 
-    for i in range(max_iter):
+    r = []
+    for ite in range(max_iter):
+        tic_iter = perf_counter()
         reset_dpos(dpos)
         solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
         update_pos(inv_mass, dpos, pos)
 
-        residual[i+1] = np.linalg.norm(dual_residual.to_numpy())
-    np.savetxt(out_dir + f"/r/dual_residual_{frame}.txt",residual)
+        if calc_r:
+            tic_calcr = perf_counter()
+            t_iter = perf_counter()-tic_iter
+            calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+            dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
+            compute_potential_energy()
+            compute_inertial_energy()
+            robj = (potential_energy[None]+inertial_energy[None])
+            # r_Axb = r_Axb.tolist()
+            if export_log:
+                logging.info(f"{frame}-{ite}  dual:{dual_r:.2e} object:{robj:.2e}  t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
+            r.append(ResidualLess(dual_r, robj, t_iter))
+
+        if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
+            break
+
+    if export_residual:
+        global t_export_residual
+        tic = time.perf_counter()
+        serialized_r = [r[i]._asdict() for i in range(len(r))]
+        r_json = json.dumps(serialized_r)
+        with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
+            file.write(r_json)
+        t_export_residual = time.perf_counter()-tic
 
     update_vel(old_pos, inv_mass, vel, pos)
 
@@ -1277,7 +1304,7 @@ def fill_A_by_spmm(M_inv, ALPHA):
 
     A = G @ M_inv @ G.transpose() + ALPHA
     A = scipy.sparse.csr_matrix(A)
-    print("spmm GMG time: ", time.perf_counter() - tic)
+    # print("spmm GMG time: ", time.perf_counter() - tic)
     return A, G
 
 def calc_num_nonz():
@@ -1389,12 +1416,26 @@ def csr_is_equal(A, B):
     return True
 
 def fill_A_ti():
-    fill_A_offdiag_ijv_kernel(spMatA.ii, spMatA.jj, spMatA.data)
-    A_offdiag = scipy.sparse.coo_matrix((spMatA.data, (spMatA.ii, spMatA.jj)), shape=(NE, NE))
+    # fill diagonal
+    # tic = perf_counter()
+    diags = np.zeros(NE, np.float32)
+    fill_A_diag_kernel(diags)
+    A_diag = scipy.sparse.diags(diags)
+    A_diag = A_diag.tocsr()
+    # print(f"fill_A_diag time: {perf_counter()-tic:.3f}s")
 
-    A_offdiag.setdiag(spMatA.diags)
-    A = A_offdiag.tocsr()
-    # A.eliminate_zeros()
+    # fill off-diagonal
+    tic = perf_counter()
+    OFF_ii, OFF_jj, OFF_vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
+    fill_A_offdiag_ijv_kernel(OFF_ii, OFF_jj, OFF_vv)
+    A_off_diag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
+    print(f"fill_A_offdiag_ijv_kernel time: {perf_counter()-tic:.3f}s")
+
+    # tic = perf_counter()
+    A_off_diag = A_off_diag.tocsr()
+    A = A_diag + A_off_diag
+    A = A.tocsr()
+    # print(f"fill_A plus time: {perf_counter()-tic:.3f}s")
     return A
 
 
@@ -1417,13 +1458,13 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
             g_ab = (pos[a] - pos[b]).normalized()
             g_ac = (pos[a] - pos[c]).normalized()
             offdiag = inv_mass[a] * g_ab.dot(g_ac)
-            # if offdiag > 0:
-            #     offdiag = 0
+            if offdiag == 0:
+                continue
             ii[n] = i
             jj[n] = ia
             vv[n] = offdiag
             n += 1
-        n += 1 # diag placeholder
+        # n += 1 # diag placeholder
 
 
 def export_A_b(A,b,postfix="", binary=export_matrix_binary):
@@ -1500,7 +1541,7 @@ def substep_GaussNewton():
     update_vel(old_pos, inv_mass, vel, pos)
 
 
-Residual = namedtuple('residual', ['sys', 'primary', 'dual', 'obj', 'amg', 'gs','iters','t'])
+Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb','niters','t'])
 
 def substep_all_solver(max_iter=1):
     global pos, lagrangian
@@ -1520,17 +1561,18 @@ def substep_all_solver(max_iter=1):
     global ite
     for ite in range(max_iter):
         tic_assemble = perf_counter()
-        t_iter_start = time.time()
+        t_iter_start = perf_counter()
         copy_field(pos_mid, pos)
 
         A,G = fill_A_by_spmm(M_inv, ALPHA)
+        # A = fill_A_ti()
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
-        #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
-        if use_primary_residual:
-            Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
-            b += G @ Minv_gg
+        # #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
+        # if use_primary_residual:
+        #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
+        #     b += G @ Minv_gg
 
         # if export_matrix and (ite==0 or ite==1) and frame%export_matrix_interval==0:
         if export_matrix:
@@ -1546,20 +1588,16 @@ def substep_all_solver(max_iter=1):
             x = scipy.sparse.linalg.spsolve(A, b)
         if solver_type == "GS":
             x = x.copy()
-            rgs=[]
-            gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=rgs)
-            ramg = [None,None]
-            r_Axb = rgs
+            gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
         if solver_type == "AMG":
             global Ps
-            if (((frame%10==0) or (frame==1)) and (ite==0)):
+            if (((frame%20==0) or (frame==1)) and (ite==0)):
                 tic = time.perf_counter()
                 Ps = setup_AMG(A)
                 logging.info(f"setup AMG time:{perf_counter()-tic}")
             tic = time.perf_counter()
             levels = build_levels(A, Ps)
             logging.info(f"build_levels time:{time.perf_counter()-tic}")
-            ramg=[]
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()
             if vcycle_type == 'old':
@@ -1571,48 +1609,41 @@ def substep_all_solver(max_iter=1):
             x,residuals = amg_cg_solve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
             toc2 = time.perf_counter()
             logging.info(f"amg_cg_solve time {toc2-tic2}")
-            rgs=[None,None]
-            ramg = residuals
-            r_Axb = ramg
+            r_Axb = residuals
 
         print(f"Linear system solve time: {perf_counter()-tic_linsys:.4f}s")
         
         tic = time.perf_counter()
         rsys2 = np.linalg.norm(b-A@x)
-        if use_primary_residual:
-            transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
-        else:
-            transfer_back_to_pos_mfree(x) #XPBD
-            # transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) 
+        transfer_back_to_pos_mfree(x)
+        # if use_primary_residual:
+        #     transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
+        # else:
+        #     transfer_back_to_pos_mfree(x) #XPBD
+        #     # transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) 
         print(f"dlam to dpos time: {perf_counter()-tic:.4f}s")
 
-        tic_export = perf_counter()
-        if export_residual:
-            t_iter = time.time()-t_iter_start
-            t_calc_residual_start = time.perf_counter()
+        if calc_r:
+            tic_calcr = perf_counter()
+            t_iter = perf_counter()-t_iter_start
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
             # if use_primary_residual:
-            primary_residual = calc_primary_residual(G, M_inv)
-            primary_r = np.linalg.norm(primary_residual).astype(float)
+            #     primary_residual = calc_primary_residual(G, M_inv)
+            #     primary_r = np.linalg.norm(primary_residual).astype(float)
             # else: primary_r = 0.0
             dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
             compute_potential_energy()
             compute_inertial_energy()
             robj = (potential_energy[None]+inertial_energy[None])
-            ramg = ramg.tolist()
-            t_calc_residual_end = time.perf_counter()
-            t_calc_residual += t_calc_residual_end-t_calc_residual_start
+            r_Axb = r_Axb.tolist()
             if export_log:
-                logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e} primary:{primary_r:.2e} dual_r:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{t_calc_residual_end-t_calc_residual_start:.2f}s")
-            r.append(Residual([rsys0,rsys2], primary_r, dual_r, robj, ramg, rgs, len(r_Axb), t_iter))
-        print(f"Export residual time: {perf_counter()-tic_export:.4f}s")
+                logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
+            r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb, len(r_Axb), t_iter))
 
         x_prev = x.copy()
-        # gradC_prev = gradC.to_numpy().copy()
 
-        if early_stop:
-            if rsys0 < tol_sim:
-                break
+        if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
+            break
         
 
     if export_residual:
@@ -1801,12 +1832,15 @@ if setup_num == 1:
 
 use_direct_fill_A = False
 if use_direct_fill_A:
-    tic = time.time()
+    tic1 = perf_counter()
     print("Initializing adjacent edge and abc...")
     init_adjacent_edge_kernel(adjacent_edge, num_adjacent_edge, edge)
+    print(f"init_adjacent_edge time: {perf_counter()-tic1:.3f}s")
+    tic2 = perf_counter()
     adjacent_edge_abc.fill(-1)
     init_adjacent_edge_abc_kernel()
-    print(f"init_adjacent_edge and abc time: {time.time()-tic:.3f}s")
+    print(f"init_adjacent_edge_abc time: {perf_counter()-tic2:.3f}s")
+    print(f"init_adjacent_edge and abc time: {perf_counter()-tic1:.3f}s")
 
     #calculate number of nonzeros by counting number of adjacent edges
     num_nonz = calc_num_nonz() 

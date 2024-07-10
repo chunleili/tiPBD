@@ -115,4 +115,59 @@ def test_pass_eigen_by_ref():
     print(a)
 
 
-test_spGMGT_plus_alpha()
+def test_spGMGT_plus_alpha_large():
+    from scipy.io import mmread
+    from time import perf_counter
+    A = mmread("G.mtx").tocsr()
+    nrows, ncols = A.shape
+    nnz = A.nnz
+
+    M = diags(np.ones(ncols, dtype=np.float32), format='csr')
+    nrows2, ncols2 = M.shape
+    nnz2 = M.nnz
+    val2 = M.data
+    indptr2 = M.indptr
+    col2 = M.indices
+
+    print("python:")
+    tic = perf_counter()
+    print(A.shape)
+    print(M.shape)
+    C_ = A @ M @ A.transpose()
+    # diag + 0.01
+    alpha_diag = diags(np.ones(nrows, dtype=np.float32)*1e-3, format='csr')
+    print("alpha_diag shape:", alpha_diag.shape)
+    print("C_ shape:", C_.shape)
+    C_ = C_ + alpha_diag
+    C_ = C_.tocsr()
+    print("C_ nnz:", C_.nnz)
+    toc = perf_counter()
+    print("time:", toc-tic)
+
+    print("\nC++:")
+    tic = perf_counter()
+    tic1 = perf_counter()
+    C = csr_matrix((nrows, nrows), dtype=np.float32)
+    C.indptr, C.indices, C.data = np.zeros(nrows+1, dtype=np.int32), np.zeros(nnz*3, dtype=np.int32), np.zeros(nnz*3, dtype=np.float32)
+    toc1 = perf_counter()
+    print("time constr:", toc1-tic1)
+    print("input nnz3:", nnz*3)
+    tic2 = perf_counter()
+    fillA.spGMGT_plus_alpha(nrows, ncols, nnz, A.indptr, A.indices, A.data,
+                nrows2, ncols2, nnz2, indptr2, col2, val2,
+                C.nnz,
+                C.indptr, C.indices, C.data, 1e-3)
+    toc2 = perf_counter()
+    print("time spGMGT_plus_alpha:", toc2-tic2)
+    C = C.tocsr()
+    toc = perf_counter()
+    print("time:", toc-tic)
+
+
+    print("back in python:")
+    print("C shape:", C.shape)
+    print("C.nnz:", C.nnz)
+    diff = C_ - C
+    print("diff:", diff.argmax(), diff.max(), diff.min())
+
+test_spGMGT_plus_alpha_large()

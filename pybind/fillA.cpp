@@ -90,7 +90,7 @@ void spgemm(int nrows, int ncols, int nnz,
                 std::vector<int> & indptr, std::vector<int> & indices, std::vector<float> & data,
                 int nrow2, int ncol2, int nnz2,
                 std::vector<int> & indptr2, std::vector<int> & indices2, std::vector<float> & data2,
-                std::vector<int> & indptr3, std::vector<int> & indices3, std::vector<float> & data3)
+                py::array_t<int> & indptr3, py::array_t<int> & indices3, py::array_t<float> & data3)
 {
     SpMat m1 = fill_csr(nrows, ncols, nnz, indptr, indices, data);
     SpMat m2 = fill_csr(nrow2, ncol2, nnz2, indptr2, indices2, data2);
@@ -105,7 +105,7 @@ void spGMGT_plus_alpha(int nrows, int ncols, int nnz,
                 std::vector<int> & indptr, std::vector<int> & indices, std::vector<float> & data,
                 int nrow2, int ncol2, int nnz2,
                 std::vector<int> & indptr2, std::vector<int> & indices2, std::vector<float> & data2,
-                std::vector<int> & indptr3, std::vector<int> & indices3, std::vector<float> & data3,
+                py::array_t<int> & indptr3, py::array_t<int> & indices3, py::array_t<float> & data3,
                 float alpha)
 {
     SpMat m1 = fill_csr(nrows, ncols, nnz, indptr, indices, data);
@@ -113,19 +113,44 @@ void spGMGT_plus_alpha(int nrows, int ncols, int nnz,
     SpMat m3 = m1 * m2 * m1.transpose();
     m3.diagonal().array() += alpha;
     std::cout << m3 << std::endl;
+}
 
-    // https://stackoverflow.com/a/51939595/19253199
-    // Eigen::Map<Eigen::SparseMatrix<float>> sparse_map(num_rows, num_cols, num_non_zeros,
-                            //  original_outer_index_ptr, original_inner_index_ptr,
-                            //  original_values_ptr);
+
+// use py::array_t<float> to pass by reference
+// CAUTION: if data type is not consistent, it will pass by value automatically. 
+// So adding py::arg().noconvert() to make it an error.
+// https://pybind11.readthedocs.io/en/stable/advanced/pycpp/numpy.html#direct-access
+void pass_by_ref(py::array_t<float> v)
+{
+    auto r = v.mutable_unchecked();
+    for (py::ssize_t i = 0; i < r.shape(0); i++)
+    {
+        r(i) = 2.0;
+    }
+}
+
+// Eigen Matrix is passed by reference by default.
+// This is simple and efficient.
+// https://stackoverflow.com/a/69831354
+void pass_eigen_by_ref(Eigen::Ref<Eigen::MatrixXf> v)
+{
+    for (int i = 0; i < v.rows(); i++)
+    {
+        for (int j = 0; j < v.cols(); j++)
+        {
+            v(i, j) += 1.5;
+        }
+    }
 }
 
 
 PYBIND11_MODULE(fillA, m) {
-    m.def("fill_csr", &fill_csr, " ");
-    m.def("pass_vec3f", &pass_vec3f, " ");
-    m.def("pass_vec2i", &pass_vec2i, " ");
-    m.def("compute_C_and_gradC", &compute_C_and_gradC, " ");
-    m.def("spgemm", &spgemm, " ");
-    m.def("spGMGT_plus_alpha", &spGMGT_plus_alpha, " ");
+    m.def("fill_csr", &fill_csr);
+    m.def("pass_vec3f", &pass_vec3f);
+    m.def("pass_vec2i", &pass_vec2i);
+    m.def("compute_C_and_gradC", &compute_C_and_gradC);
+    m.def("spgemm", &spgemm);
+    m.def("spGMGT_plus_alpha", &spGMGT_plus_alpha);
+    m.def("pass_by_ref", &pass_by_ref, py::arg().noconvert()); //noconvert() to make implicit type conversion an error.
+    m.def("pass_eigen_by_ref", &pass_eigen_by_ref);
 }

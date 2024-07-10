@@ -97,7 +97,19 @@ def test_spGMGT_plus_alpha():
     fillA.spGMGT_plus_alpha(nrows, ncols, nnz, indptr, col, val,
                 nrows2, ncols2, nnz2, indptr2, col2, val2,
                 C.data, C.indices, C.indptr, 0.01)
+    print("back in python:")
     print(C.toarray())
 
 
-test_spGMGT_plus_alpha()
+def test_pass_by_ref():
+    a = np.ones((10), dtype=np.float32)
+    fillA.pass_by_ref(a)
+    print(a)
+    
+def test_pass_eigen_by_ref():
+    a = np.ones((10), dtype=np.float32)
+    fillA.pass_eigen_by_ref(a)
+    print(a)
+
+
+test_pass_by_ref()

@@ -110,6 +110,6 @@ std::vector<double> rigid_body_modes(int ndim, const std::vector<double> &coo, s
 
 
 
-PYBIND11_MODULE(pymgpbd, m) {
+PYBIND11_MODULE(rigid_body_modes, m) {
     m.def("rigid_body_modes", &rigid_body_modes, "rigid_body_modes");
 }

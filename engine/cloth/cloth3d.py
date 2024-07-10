@@ -1177,7 +1177,7 @@ def init_g_vcycle(levels):
         if not Path("./cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll").exists():
             raise FileNotFoundError(f"Please compile the fast-vcycle-gpu.dll in the cpp/mgcg_cuda/lib directory.")
         os.add_dll_directory(cuda_dir)
-        g_vcycle = ctypes.cdll.LoadLibrary('./cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll')
+        g_vcycle = ctypes.cdll.LoadLibrary(prj_path+'/cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll')
         g_vcycle.fastmg_copy_outer2init_x.argtypes = []
         g_vcycle.fastmg_set_outer_x.argtypes = [ctypes.c_size_t] * 2
         g_vcycle.fastmg_set_outer_b.argtypes = [ctypes.c_size_t] * 2
@@ -1287,6 +1287,9 @@ def fill_A_by_spmm(M_inv, ALPHA):
     compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
+
+    # mmwrite("G.mtx", G)
+    # exit()
 
     print(f"fill_G: {time.perf_counter() - tic:.4f}s")
     tic = time.perf_counter()

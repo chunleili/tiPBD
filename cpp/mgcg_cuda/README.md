@@ -39,3 +39,11 @@ Download(600MB):
 https://bhpan.buaa.edu.cn/link/AA1B784714F4D846E59851D1B12E83196D
 or
 https://www.dropbox.com/scl/fi/tvpr3g3btjca0maaz6gfl/dlls.zip?rlkey=68u687oghe5i7tddvedggcy7l&st=eo8dg8cd&dl=0
+
+
+git clone https://gitlab.com/libeigen/eigen.git --depth 1
+
+
+Run from "x64 Native Tools Command Prompt for VS 2022"
+
+nvcc -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2/include" -I"." spgemm.cu -o spgemm -lcusparse

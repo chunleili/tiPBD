@@ -1,2 +1,10 @@
 build
 amgcl
+*.exe
+*.so
+*.exp
+*.lib
+Eigen
+spgemm2.cu
+spgemm3.cu
+spgemm31.cu

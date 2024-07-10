@@ -91,14 +91,17 @@ def test_spGMGT_plus_alpha():
     C_ = C_ + alpha_diag
     print(C_.toarray())
 
-    print("C++:")
+    print("\nC++:")
     C = csr_matrix((nrows, nrows), dtype=np.float32)
-
+    C.indptr, C.indices, C.data = np.zeros(nrows+1, dtype=np.int32), np.zeros(nnz, dtype=np.int32), np.zeros(nnz*3, dtype=np.float32)
+    print("input nnz3:", nnz*3)
     fillA.spGMGT_plus_alpha(nrows, ncols, nnz, indptr, col, val,
                 nrows2, ncols2, nnz2, indptr2, col2, val2,
-                C.data, C.indices, C.indptr, 0.01)
+                C.nnz,
+                C.indptr, C.indices, C.data, 0.01)
     print("back in python:")
     print(C.toarray())
+    print("C.nnz:", C.nnz)
 
 
 def test_pass_by_ref():
@@ -112,4 +115,4 @@ def test_pass_eigen_by_ref():
     print(a)
 
 
-test_pass_by_ref()
+test_spGMGT_plus_alpha()

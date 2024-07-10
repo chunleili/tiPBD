@@ -105,6 +105,7 @@ void spGMGT_plus_alpha(int nrows, int ncols, int nnz,
                 std::vector<int> & indptr, std::vector<int> & indices, std::vector<float> & data,
                 int nrow2, int ncol2, int nnz2,
                 std::vector<int> & indptr2, std::vector<int> & indices2, std::vector<float> & data2,
+                int &nnz3,
                 py::array_t<int> & indptr3, py::array_t<int> & indices3, py::array_t<float> & data3,
                 float alpha)
 {
@@ -112,7 +113,14 @@ void spGMGT_plus_alpha(int nrows, int ncols, int nnz,
     SpMat m2 = fill_csr(nrow2, ncol2, nnz2, indptr2, indices2, data2);
     SpMat m3 = m1 * m2 * m1.transpose();
     m3.diagonal().array() += alpha;
+    m3.makeCompressed();
+    nnz3 = m3.nonZeros();
+    std::cout <<"nnz3:" <<m3.nonZeros() << std::endl;
     std::cout << m3 << std::endl;
+
+    std::copy(m3.outerIndexPtr(), m3.outerIndexPtr() + m3.outerSize() + 1, indptr3.mutable_data());
+    std::copy(m3.innerIndexPtr(), m3.innerIndexPtr() + m3.nonZeros(), indices3.mutable_data());
+    std::copy(m3.valuePtr(), m3.valuePtr() + m3.nonZeros(), data3.mutable_data());
 }
 
 

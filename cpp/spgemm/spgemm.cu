@@ -7,7 +7,11 @@
 #include <cusparse.h>         // cusparseSpGEMM
 #include <stdio.h>            // printf
 #include <stdlib.h>           // EXIT_FAILURE
+#include <chrono>  
+#include <string>          
 // #include "eigen/unsupported/Eigen/SparseExtra" // Eigen::loadMarket
+
+using std::string;
 
 #if __GNUC__ && __linux__
 #include <sys/ptrace.h>
@@ -140,10 +144,70 @@ void savetxt(std::string filename, std::vector<T> &field)
     myfile.close();
 }
 
+/// @brief Usage: Timer t("timer_name");
+///               t.start();
+///               //do something
+///               t.end();
+class Timer
+{
+public:
+    std::chrono::time_point<std::chrono::steady_clock> m_start;
+    std::chrono::time_point<std::chrono::steady_clock> m_end;
+    std::chrono::duration<double, std::milli> elapsed_ms;
+    std::chrono::duration<double> elapsed_s;
+    std::string name = "";
+
+    Timer(std::string name = "") : name(name){};
+    inline void start()
+    {
+        m_start = std::chrono::steady_clock::now();
+    };
+    inline void end(string msg = "", string unit = "ms", bool verbose=true, string endsep = "\n")
+    {
+        m_end = std::chrono::steady_clock::now();
+        if (unit == "s")
+        {
+            elapsed_s = m_end - m_start;
+            if(verbose)
+                printf("%s(%s): %.0f(s)", msg.c_str(), name.c_str(), elapsed_s.count());
+            else
+                printf("%.0f(s)", elapsed_s.count());
+        }
+        else //else if(unit == "ms")
+        {
+            elapsed_ms = m_end - m_start;
+            if(verbose)
+                printf("%s(%s): %.0f(ms)", msg.c_str(), name.c_str(), elapsed_ms.count());
+            else
+                printf("%.0f(ms)", elapsed_ms.count());
+        }
+        printf("%s", endsep.c_str());
+    }
+    inline void reset()
+    {
+        m_start = std::chrono::steady_clock::now();
+        m_end = std::chrono::steady_clock::now();
+    };
+};
+Timer global_timer("global");
+
+// caution: the tic toc cannot be nested
+inline void tic()
+{
+    global_timer.reset();
+    global_timer.start();
+}
+
+inline void toc(string message = "")
+{
+    global_timer.end(message);
+    global_timer.reset();
+}
 
 
 int main(void) {
     // // Host problem definition
+    tic();
     int A_num_rows ;
     int A_num_cols ;
     int A_nnz      ;
@@ -159,6 +223,8 @@ int main(void) {
     readCSR("A", hA_csrOffsets, hA_columns, hA_values);
     readCSR("B", hB_csrOffsets, hB_columns, hB_values);
 
+    toc("read data");
+    tic();
 
     float               alpha       = 1.0f;
     float               beta        = 0.0f;
@@ -220,6 +286,9 @@ int main(void) {
                                       dC_csrOffsets, NULL, NULL,
                                       CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
                                       CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F) )
+
+    toc("memcpy and create descriptors");
+    tic();
     //--------------------------------------------------------------------------
     // SpGEMM Computation
     cusparseSpGEMMDescr_t spgemmDesc;
@@ -253,6 +322,9 @@ int main(void) {
                                            &alpha, matA, matB, &beta, matC,
                                            computeType, CUSPARSE_SPGEMM_DEFAULT,
                                            spgemmDesc, &bufferSize2, dBuffer2) )
+    toc("spgemm computation");
+    tic();
+
     // get matrix C non-zero entries C_nnz1
     int64_t C_num_rows1, C_num_cols1, C_nnz1;
     CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &C_num_rows1, &C_num_cols1,
@@ -290,7 +362,8 @@ int main(void) {
                            cudaMemcpyDeviceToHost) )
     CHECK_CUDA( cudaMemcpy(hC_values_tmp.data(), dC_values, C_nnz1 * sizeof(float),
                            cudaMemcpyDeviceToHost) )
-
+    toc("memcpy back");
+    tic();
     std::cout << "spgemm_example test PASSED" << std::endl;
     std::cout << "C_nnz: " << C_nnz1 << std::endl;
     std::cout << "save C in txt" << std::endl;
@@ -301,6 +374,7 @@ int main(void) {
     //     std::cout << hC_values_tmp[i] << " ";
     // }
     std::cout << "save C done" << std::endl;
+    toc("save C");
     //--------------------------------------------------------------------------
     // destroy matrix/vector descriptors
     CHECK_CUSPARSE( cusparseSpGEMM_destroyDescr(spgemmDesc) )

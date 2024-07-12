@@ -128,6 +128,19 @@ void printArr(int *values, int size) {
     std::cout << std::endl;
 }
 
+template<typename T=float>
+void savetxt(std::string filename, std::vector<T> &field)
+{
+    std::ofstream myfile;
+    myfile.open(filename);
+    for(auto &i:field)
+    {
+        myfile << i << '\n';
+    }
+    myfile.close();
+}
+
+
 
 int main(void) {
     // // Host problem definition
@@ -280,9 +293,14 @@ int main(void) {
 
     std::cout << "spgemm_example test PASSED" << std::endl;
     std::cout << "C_nnz: " << C_nnz1 << std::endl;
-    for(int i = 0; i < C_nnz1; i++) {
-        std::cout << hC_values_tmp[i] << " ";
-    }
+    std::cout << "save C in txt" << std::endl;
+    savetxt("C.data.txt", hC_values_tmp);
+    savetxt<int>("C.indptr.txt", hC_csrOffsets_tmp);
+    savetxt<int>("C.indices.txt", hC_columns_tmp);
+    // for(int i = 0; i < C_nnz1; i++) {
+    //     std::cout << hC_values_tmp[i] << " ";
+    // }
+    std::cout << "save C done" << std::endl;
     //--------------------------------------------------------------------------
     // destroy matrix/vector descriptors
     CHECK_CUSPARSE( cusparseSpGEMM_destroyDescr(spgemmDesc) )

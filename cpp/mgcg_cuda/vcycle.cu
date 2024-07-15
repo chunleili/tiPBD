@@ -6,6 +6,7 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cusparse.h>
+#include <iostream>
 
 #if __GNUC__ && __linux__
 #include <sys/ptrace.h>
@@ -454,80 +455,155 @@ struct Kernels {
                                     CUSPARSE_SPMV_ALG_DEFAULT, buffer.data()));
     }
 
-    // // C = A * B
-    // void spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_) {
-    //     // https://github.com/NVIDIA/CUDALibrarySamples/blob/ade391a17672d26e55429035450bc44afd277d34/cuSPARSE/spgemm/spgemm_example.c#L161
-    //     // https://docs.nvidia.com/cuda/cusparse/#cusparsespgemm
-    //     //--------------------------------------------------------------------------
-    //     const float alpha = 1.0f;
-    //     const float beta = 0.0f;
-    //     void*  dBuffer1    = NULL, *dBuffer2   = NULL;
-    //     size_t bufferSize1 = 0,    bufferSize2 = 0;
-    //     cudaDataType  computeType = CUDA_R_32F;
+    // C = A * B
+    void spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_) 
+    {
 
-    //     opA     = CUSPARSE_OPERATION_NON_TRANSPOSE; 
-    //     opB     = CUSPARSE_OPERATION_NON_TRANSPOSE; // transpose B
+        ConstSpMat dA(matA_);
+        ConstSpMat dB(matB_);
+        SpMat dC(matC_);
 
-    //     // SpGEMM Computation
-    //     cusparseSpGEMMDescr_t spgemmDesc;
-    //     CHECK_CUSPARSE( cusparseSpGEMM_createDescr(&spgemmDesc) )
+        // https://github.com/NVIDIA/CUDALibrarySamples/blob/ade391a17672d26e55429035450bc44afd277d34/cuSPARSE/spgemm/spgemm_example.c#L161
+        // https://docs.nvidia.com/cuda/cusparse/#cusparsespgemm
+        //--------------------------------------------------------------------------
+        // Host problem definition
+        int A_num_rows = matA_.nrows;
+        int A_num_cols = matA_.ncols;
+        int A_nnz      = matA_.numnonz;
+        int B_num_rows = matB_.nrows;
+        int B_num_cols = matB_.ncols;
+        int B_nnz      = matB_.numnonz;
 
-    //     ConstSpMat matA(matA_);
-    //     ConstSpMat matB(matB_);
-    //     ConstSpMat matC(matC_);
+        float               alpha       = 1.0f;
+        float               beta        = 0.0f;
+        cusparseOperation_t opA         = CUSPARSE_OPERATION_NON_TRANSPOSE;
+        cusparseOperation_t opB         = CUSPARSE_OPERATION_NON_TRANSPOSE;
+        cudaDataType        computeType = CUDA_R_32F;
+        //--------------------------------------------------------------------------
+        // Device memory management: Allocate and copy A, B
+        int   *dA_csrOffsets, *dA_columns, *dB_csrOffsets, *dB_columns,
+            *dC_csrOffsets, *dC_columns;
+        float *dA_values, *dB_values, *dC_values;
+        // allocate A
+        CHECK_CUDA( cudaMalloc((void**) &dA_csrOffsets,
+                            (A_num_rows + 1) * sizeof(int)) )
+        CHECK_CUDA( cudaMalloc((void**) &dA_columns, A_nnz * sizeof(int))   )
+        CHECK_CUDA( cudaMalloc((void**) &dA_values,  A_nnz * sizeof(float)) )
+        // allocate B
+        CHECK_CUDA( cudaMalloc((void**) &dB_csrOffsets,
+                            (B_num_rows + 1) * sizeof(int)) )
+        CHECK_CUDA( cudaMalloc((void**) &dB_columns, B_nnz * sizeof(int))   )
+        CHECK_CUDA( cudaMalloc((void**) &dB_values,  B_nnz * sizeof(float)) )
+        // allocate C offsets
+        CHECK_CUDA( cudaMalloc((void**) &dC_csrOffsets,
+                            (A_num_rows + 1) * sizeof(int)) )
 
-    //     // ask bufferSize1 bytes for external memory
-    //     CHECK_CUSPARSE(
-    //         cusparseSpGEMM_workEstimation(handle, opA, opB,
-    //                                     &alpha, matA, matB, &beta, matC,
-    //                                     computeType, CUSPARSE_SPGEMM_DEFAULT,
-    //                                     spgemmDesc, &bufferSize1, NULL) )
-    //     CHECK_CUDA( cudaMalloc((void**) &dBuffer1, bufferSize1) )
-    //     // inspect the matrices A and B to understand the memory requirement for
-    //     // the next step
-    //     CHECK_CUSPARSE(
-    //         cusparseSpGEMM_workEstimation(handle, opA, opB,
-    //                                     &alpha, matA, matB, &beta, matC,
-    //                                     computeType, CUSPARSE_SPGEMM_DEFAULT,
-    //                                     spgemmDesc, &bufferSize1, dBuffer1) )
+        // copy A
+        CHECK_CUDA( cudaMemcpy(dA_csrOffsets, matA_.indptr.data(),
+                            (A_num_rows + 1) * sizeof(int),
+                            cudaMemcpyHostToDevice) )
+        CHECK_CUDA( cudaMemcpy(dA_columns, matA_.indices.data(), A_nnz * sizeof(int),
+                            cudaMemcpyHostToDevice) )
+        CHECK_CUDA( cudaMemcpy(dA_values, matA_.data.data(),
+                            A_nnz * sizeof(float), cudaMemcpyHostToDevice) )
+        // copy B
+        CHECK_CUDA( cudaMemcpy(dB_csrOffsets, matB_.indptr.data(),
+                            (B_num_rows + 1) * sizeof(int),
+                            cudaMemcpyHostToDevice) )
+        CHECK_CUDA( cudaMemcpy(dB_columns, matB_.indices.data(), B_nnz * sizeof(int),
+                            cudaMemcpyHostToDevice) )
+        CHECK_CUDA( cudaMemcpy(dB_values, matB_.data.data(),
+                            B_nnz * sizeof(float), cudaMemcpyHostToDevice) )
+        //--------------------------------------------------------------------------
+        // CUSPARSE APIs
+        cusparseHandle_t     handle = NULL;
+        cusparseSpMatDescr_t matA, matB, matC;
+        void*  dBuffer1    = NULL, *dBuffer2   = NULL;
+        size_t bufferSize1 = 0,    bufferSize2 = 0;
+        CHECK_CUSPARSE( cusparseCreate(&handle) )
+        // Create sparse matrix A in CSR format
+        CHECK_CUSPARSE( cusparseCreateCsr(&matA, A_num_rows, A_num_cols, A_nnz,
+                                        dA_csrOffsets, dA_columns, dA_values,
+                                        CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+                                        CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F) )
+        CHECK_CUSPARSE( cusparseCreateCsr(&matB, B_num_rows, B_num_cols, B_nnz,
+                                        dB_csrOffsets, dB_columns, dB_values,
+                                        CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+                                        CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F) )
+        CHECK_CUSPARSE( cusparseCreateCsr(&matC, A_num_rows, B_num_cols, 0,
+                                        dC_csrOffsets, NULL, NULL,
+                                        CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+                                        CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F) )
 
-    //     // ask bufferSize2 bytes for external memory
-    //     CHECK_CUSPARSE(
-    //         cusparseSpGEMM_compute(handle, opA, opB,
-    //                             &alpha, matA, matB, &beta, matC,
-    //                             computeType, CUSPARSE_SPGEMM_DEFAULT,
-    //                             spgemmDesc, &bufferSize2, NULL) )
-    //     CHECK_CUDA( cudaMalloc((void**) &dBuffer2, bufferSize2) )
+        //--------------------------------------------------------------------------
+        // SpGEMM Computation
+        cusparseSpGEMMDescr_t spgemmDesc;
+        CHECK_CUSPARSE( cusparseSpGEMM_createDescr(&spgemmDesc) )
 
-    //     // compute the intermediate product of A * B
-    //     CHECK_CUSPARSE( cusparseSpGEMM_compute(handle, opA, opB,
-    //                                         &alpha, matA, matB, &beta, matC,
-    //                                         computeType, CUSPARSE_SPGEMM_DEFAULT,
-    //                                         spgemmDesc, &bufferSize2, dBuffer2) )
-    //     // get matrix C non-zero entries C_nnz1
-    //     int64_t C_num_rows1, C_num_cols1, C_nnz1;
-    //     CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &C_num_rows1, &C_num_cols1,
-    //                                         &C_nnz1) )
-    //     // allocate matrix C
-    //     CHECK_CUDA( cudaMalloc((void**) &dC_columns, C_nnz1 * sizeof(int))   )
-    //     CHECK_CUDA( cudaMalloc((void**) &dC_values,  C_nnz1 * sizeof(float)) )
+        // ask bufferSize1 bytes for external memory
+        CHECK_CUSPARSE(
+            cusparseSpGEMM_workEstimation(handle, opA, opB,
+                                        &alpha, matA, matB, &beta, matC,
+                                        computeType, CUSPARSE_SPGEMM_DEFAULT,
+                                        spgemmDesc, &bufferSize1, NULL) )
+        CHECK_CUDA( cudaMalloc((void**) &dBuffer1, bufferSize1) )
+        // inspect the matrices A and B to understand the memory requirement for
+        // the next step
+        CHECK_CUSPARSE(
+            cusparseSpGEMM_workEstimation(handle, opA, opB,
+                                        &alpha, matA, matB, &beta, matC,
+                                        computeType, CUSPARSE_SPGEMM_DEFAULT,
+                                        spgemmDesc, &bufferSize1, dBuffer1) )
 
-    //     // NOTE: if 'beta' != 0, the values of C must be update after the allocation
-    //     //       of dC_values, and before the call of cusparseSpGEMM_copy
+        // ask bufferSize2 bytes for external memory
+        CHECK_CUSPARSE(
+            cusparseSpGEMM_compute(handle, opA, opB,
+                                &alpha, matA, matB, &beta, matC,
+                                computeType, CUSPARSE_SPGEMM_DEFAULT,
+                                spgemmDesc, &bufferSize2, NULL) )
+        CHECK_CUDA( cudaMalloc((void**) &dBuffer2, bufferSize2) )
 
-    //     // update matC with the new pointers
-    //     CHECK_CUSPARSE(
-    //         cusparseCsrSetPointers(matC, dC_csrOffsets, dC_columns, dC_values) )
+        // compute the intermediate product of A * B
+        CHECK_CUSPARSE( cusparseSpGEMM_compute(handle, opA, opB,
+                                            &alpha, matA, matB, &beta, matC,
+                                            computeType, CUSPARSE_SPGEMM_DEFAULT,
+                                            spgemmDesc, &bufferSize2, dBuffer2) )
 
-    //     // if beta != 0, cusparseSpGEMM_copy reuses/updates the values of dC_values
+        // get matrix C non-zero entries C_nnz1
+        int64_t C_num_rows1, C_num_cols1, C_nnz1;
+        CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &C_num_rows1, &C_num_cols1,
+                                            &C_nnz1) )
+        // allocate matrix C
+        CHECK_CUDA( cudaMalloc((void**) &dC_columns, C_nnz1 * sizeof(int))   )
+        CHECK_CUDA( cudaMalloc((void**) &dC_values,  C_nnz1 * sizeof(float)) )
 
-    //     // copy the final products to the matrix C
-    //     CHECK_CUSPARSE(
-    //         cusparseSpGEMM_copy(handle, opA, opB,
-    //                             &alpha, matA, matB, &beta, matC,
-    //                             computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
+        // NOTE: if 'beta' != 0, the values of C must be update after the allocation
+        //       of dC_values, and before the call of cusparseSpGEMM_copy
 
-    // }
+        // update matC with the new pointers
+        CHECK_CUSPARSE(
+            cusparseCsrSetPointers(matC, dC_csrOffsets, dC_columns, dC_values) )
+
+        // if beta != 0, cusparseSpGEMM_copy reuses/updates the values of dC_values
+
+        // copy the final products to the matrix C
+        CHECK_CUSPARSE(
+            cusparseSpGEMM_copy(handle, opA, opB,
+                                &alpha, matA, matB, &beta, matC,
+                                computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
+
+
+        //--------------------------------------------------------------------------
+        CHECK_CUDA( cudaMemcpy(matC_.indptr.data(), dC_csrOffsets,
+                            (A_num_rows + 1) * sizeof(int),
+                            cudaMemcpyDeviceToHost) )
+        CHECK_CUDA( cudaMemcpy(matC_.indices.data(), dC_columns, C_nnz1 * sizeof(int),
+                            cudaMemcpyDeviceToHost) )
+        CHECK_CUDA( cudaMemcpy(matC_.data.data(), dC_values, C_nnz1 * sizeof(float),
+                            cudaMemcpyDeviceToHost) )
+        // nnz3[0] = C_nnz1;
+        matC_.numnonz = C_nnz1;
+    }
 
 
     // dst = src + alpha * dst
@@ -757,15 +833,23 @@ struct VCycle : Kernels {
         CHECK_CUDA(cudaMemcpy(x, alter_x.data(), alter_x.size() * sizeof(float), cudaMemcpyDeviceToHost));
     }
 
-    // void GGT(float *G, float *M) {
-    //     CSR<float> *mat = nullptr;
-    //     mat = &levels.at(lv).A;
-    //     if (mat) {
-    //         mat->assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
-    //     }
-    //     spgemm(G,G,out);
-    //     CHECK_CUDA(cudaMemcpy(outer_x.data(), x, n * sizeof(float), cudaMemcpyHostToDevice));
-    // }
+    void compute_RAP(size_t lv) {
+            CSR<float> &A = levels.at(lv).A;
+            CSR<float> &R = levels.at(lv).R;
+            CSR<float> &P = levels.at(lv).P;
+            CSR<float> AP;
+            CSR<float> &RAP = levels.at(lv).A;
+            using namespace std;
+            cout<<"A: "<<A.nrows<<" "<<A.ncols<<" "<<A.numnonz<<endl;
+            cout<<"R: "<<R.nrows<<" "<<R.ncols<<" "<<R.numnonz<<endl;
+            cout<<"P: "<<P.nrows<<" "<<P.ncols<<" "<<P.numnonz<<endl;
+            cout<<"Doing AP"<<endl;
+            spgemm(A, P, AP) ;
+            cout<<"Done AP"<<endl;
+            cout<<"Doing RAP"<<endl;
+            spgemm(R, AP, RAP);
+            cout<<"Done RAP"<<endl;
+    }
 };
 
 }
@@ -852,6 +936,6 @@ extern "C" DLLEXPORT void fastmg_fetch_cg_final_x(float *x) {
     fastmg->fetch_cg_final_x(x);
 }
 
-// extern "C" DLLEXPORT void fastmg_GGT(float *x) {
-//     fastmg->GGT(x);
-// }
+extern "C" DLLEXPORT void fastmg_RAP(size_t lv) {
+    fastmg->compute_RAP(lv);
+}

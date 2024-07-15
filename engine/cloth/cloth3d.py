@@ -74,7 +74,7 @@ parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.jso
 parser.add_argument("-auto_complete_path", type=int, default=0, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
 parser.add_argument("-vcycle", type=str, default="new", help="old or new")
-parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin")
+parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 
 
 args = parser.parse_args()
@@ -1171,13 +1171,15 @@ def init_g_vcycle(levels):
     global g_vcycle
     global g_vcycle_cached_levels
 
+    dll_dir = prj_path+'/cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll'
+
     if g_vcycle is None:
         if not Path(cuda_dir).exists():
             raise FileNotFoundError(f"Please ensure cuda_dir which contains the following dlls exists:1. cublas64_12.dll 2. cublasLt64_12.dll 3. cusparse64_12.dll 4. nvJitLink_120_0.dll")
-        if not Path("./cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll").exists():
+        if not Path(dll_dir).exists():
             raise FileNotFoundError(f"Please compile the fast-vcycle-gpu.dll in the cpp/mgcg_cuda/lib directory.")
         os.add_dll_directory(cuda_dir)
-        g_vcycle = ctypes.cdll.LoadLibrary(prj_path+'/cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll')
+        g_vcycle = ctypes.cdll.LoadLibrary(dll_dir)
         g_vcycle.fastmg_copy_outer2init_x.argtypes = []
         g_vcycle.fastmg_set_outer_x.argtypes = [ctypes.c_size_t] * 2
         g_vcycle.fastmg_set_outer_b.argtypes = [ctypes.c_size_t] * 2
@@ -1198,6 +1200,7 @@ def init_g_vcycle(levels):
         g_vcycle.fastmg_vcycle_down.argtypes = []
         g_vcycle.fastmg_coarse_solve.argtypes = []
         g_vcycle.fastmg_vcycle_up.argtypes = []
+        g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
 
     if g_vcycle_cached_levels != id(levels):
         # print('Setup detected! reuploading A, R, P matrices')
@@ -1217,6 +1220,10 @@ def init_g_vcycle(levels):
                                                   indices_contig.ctypes.data, indices_contig.shape[0],
                                                   indptr_contig.ctypes.data, indptr_contig.shape[0],
                                                   mat.shape[0], mat.shape[1], mat.nnz)
+            print(f"Done set_lv_csrmat {lv}")
+            print(f"Doning RAP at level {lv}")
+            g_vcycle.fastmg_RAP(lv)
+            print(f"Done RAP at level {lv}")
 
 def new_V_cycle(levels):
     assert g_vcycle

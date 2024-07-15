@@ -405,6 +405,10 @@ int main(void) {
 #define DLLEXPORT
 #endif
 
-extern "C" DLLEXPORT void fastmg_GMG(float *G) {
-    // GMG(G);
+
+extern "C" DLLEXPORT void change_spmat(int* indptr, int* indices, double* data, int nrows, int ncols, int nnz)
+{
+    for (int i=0; i<nrows; i++) 
+        for (int j=indptr[i]; j<indptr[i+1]; j++)
+            data[j] += 1;
 }

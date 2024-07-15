@@ -69,17 +69,7 @@ using std::string;
 }
 
 
-// void assign(T const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
-//     data.resize(ndat);
-//     CHECK_CUDA(cudaMemcpy(data.data(), datap, data.size() * sizeof(T), cudaMemcpyHostToDevice));
-//     indices.resize(nind);
-//     CHECK_CUDA(cudaMemcpy(indices.data(), indicesp, indices.size() * sizeof(int), cudaMemcpyHostToDevice));
-//     indptr.resize(nptr);
-//     CHECK_CUDA(cudaMemcpy(indptr.data(), indptrp, indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
-//     nrows = rows;
-//     ncols = cols;
-//     numnonz = nnz;
-// }
+
 
 #include <fstream>
 #include <iostream>
@@ -124,9 +114,6 @@ void readInfo(int &nrows, int &ncols, int &nnz, std::string filename) {
 }
 
 void readCSR(std::string filename, std::vector<int>& hA_csrOffsets, std::vector<int>& hA_columns, std::vector<float>& hA_values) {
-    // auto indptr = readTxt(filename+"indptr.txt");
-    // auto indices = readTxt(filename+"indices.txt");
-    // auto data = readTxt<float>(filename+"data.txt");
     hA_csrOffsets = readTxt<int>(filename+"indptr.txt");
     hA_columns = readTxt<int>(filename+"indices.txt");
     hA_values = readTxt<float>(filename+"data.txt");
@@ -213,7 +200,8 @@ inline void toc(string message = "")
 
 
 extern "C" DLLEXPORT int spgemm(int* indptr, int* indices, float* data, int nrows, int ncols, int nnz,
-int* indptr2, int* indices2, float* data2, int nrows2, int ncols2, int nnz2)
+int* indptr2, int* indices2, float* data2, int nrows2, int ncols2, int nnz2,
+int* indptr3, int* indices3, float* data3, int* nnz3)
 {
     // Host problem definition
     int A_num_rows = nrows;
@@ -348,31 +336,32 @@ int* indptr2, int* indices2, float* data2, int nrows2, int ncols2, int nnz2)
 
 
     //--------------------------------------------------------------------------
+    tic();
     // // device result check
-    std::vector<int> hC_csrOffsets_tmp(C_num_rows1 + 1);
-    std::vector<int> hC_columns_tmp(C_nnz1);
-    std::vector<float> hC_values_tmp(C_nnz1);
-
-    CHECK_CUDA( cudaMemcpy(hC_csrOffsets_tmp.data(), dC_csrOffsets,
+    // std::vector<int> hC_csrOffsets_tmp(C_num_rows1 + 1);
+    // std::vector<int> hC_columns_tmp(C_nnz1);
+    // std::vector<float> hC_values_tmp(C_nnz1);
+    CHECK_CUDA( cudaMemcpy(indptr3, dC_csrOffsets,
                            (A_num_rows + 1) * sizeof(int),
                            cudaMemcpyDeviceToHost) )
-    CHECK_CUDA( cudaMemcpy(hC_columns_tmp.data(), dC_columns, C_nnz1 * sizeof(int),
+    CHECK_CUDA( cudaMemcpy(indices3, dC_columns, C_nnz1 * sizeof(int),
                            cudaMemcpyDeviceToHost) )
-    CHECK_CUDA( cudaMemcpy(hC_values_tmp.data(), dC_values, C_nnz1 * sizeof(float),
+    CHECK_CUDA( cudaMemcpy(data3, dC_values, C_nnz1 * sizeof(float),
                            cudaMemcpyDeviceToHost) )
+    nnz3[0] = C_nnz1;
     toc("memcpy back");
-    tic();
-    std::cout << "spgemm_example test PASSED" << std::endl;
-    std::cout << "C_nnz: " << C_nnz1 << std::endl;
-    std::cout << "save C in txt" << std::endl;
-    savetxt("C.data.txt", hC_values_tmp);
-    savetxt<int>("C.indptr.txt", hC_csrOffsets_tmp);
-    savetxt<int>("C.indices.txt", hC_columns_tmp);
-    // for(int i = 0; i < C_nnz1; i++) {
-    //     std::cout << hC_values_tmp[i] << " ";
-    // }
-    std::cout << "save C done" << std::endl;
-    toc("save C");
+    // tic();
+    // std::cout << "spgemm_example test PASSED" << std::endl;
+    // std::cout << "C_nnz: " << C_nnz1 << std::endl;
+    // std::cout << "save C in txt" << std::endl;
+    // savetxt("C.data.txt", hC_values_tmp);
+    // savetxt<int>("C.indptr.txt", hC_csrOffsets_tmp);
+    // savetxt<int>("C.indices.txt", hC_columns_tmp);
+    // // for(int i = 0; i < C_nnz1; i++) {
+    // //     std::cout << hC_values_tmp[i] << " ";
+    // // }
+    // std::cout << "save C done" << std::endl;
+    // toc("save C");
     //--------------------------------------------------------------------------
     // destroy matrix/vector descriptors
     CHECK_CUSPARSE( cusparseSpGEMM_destroyDescr(spgemmDesc) )

@@ -148,17 +148,45 @@ def test_spgemm_new():
                                 ctypes.c_int,
                                 ctypes.c_int,
                                 ctypes.c_int,
+                                ctl.ndpointer(np.int32, 
+                                            flags='aligned, c_contiguous'),  # indptr
+                                ctl.ndpointer(np.int32,
+                                            flags='aligned, c_contiguous'),  # indices
+                                ctl.ndpointer(np.float32,
+                                            flags='aligned, c_contiguous'),    # data
+                                ctl.ndpointer(np.int32, 
+                                            flags='aligned, c_contiguous'),  # C_nnz            
                                 ]
     
 
     A = load_npz('G.npz').tocsr().astype(np.float32)
-    print("A in scipy:")
-    A_ = A @ A.T
-    print(A_)
+    print("C in scipy:")
+    tic = perf_counter()
+    C_ = A @ A.T
+    toc = perf_counter()
+    print("time:", toc-tic)
+    print(C_)
+
+
+    print("C in c++:")
     B = A.T.copy().tocsr().astype(np.float32)
-    lib.spgemm(A.indptr, A.indices, A.data, A.shape[0], A.shape[1], A.nnz, B.indptr, B.indices, B.data, B.shape[0], B.shape[1], B.nnz)
-    A = csr_matrix((A.data, A.indices, A.indptr), shape=A.shape)
-    print("A in c++:")
-    print(A)
+    # C = csr_matrix((A.shape[0], B.shape[1]), dtype=np.float32)
+    C_nnz = np.array([A.nnz * 3], dtype=np.int32)
+    C_indptr = np.zeros(A.shape[0]+1, dtype=np.int32)
+    C_indices = np.zeros(C_nnz[0], dtype=np.int32)
+    C_data = np.zeros(C_nnz[0], dtype=np.float32)
+    tic = perf_counter()
+    lib.spgemm(A.indptr, A.indices, A.data, A.shape[0], A.shape[1], A.nnz, 
+               B.indptr, B.indices, B.data, B.shape[0], B.shape[1], B.nnz, 
+               C_indptr, C_indices, C_data, C_nnz)
+    toc = perf_counter()
+    print("time:", toc-tic)
+    C = csr_matrix((C_data, C_indices, C_indptr), shape=(A.shape[0], B.shape[1]))
+    print(C)
+
+
+    diff = C - C_
+    diff_data = np.abs(diff.data)
+    print("max diff:", diff_data.max())
 
 test_spgemm_new()

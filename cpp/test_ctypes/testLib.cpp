@@ -33,3 +33,9 @@ extern "C" DLLEXPORT void change_spmat(int* indptr, int* indices, double* data, 
         for (int j=indptr[i]; j<indptr[i+1]; j++)
             data[j] += 1;
 }
+
+
+extern "C" DLLEXPORT void change_scalar(int* val)
+{
+    val[0] += 1;
+}

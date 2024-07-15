@@ -91,6 +91,7 @@ def test_ctypes():
 
     libname = 'spgemm.dll'
     libdir = './build/Release'
+    os.add_dll_directory("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
     lib=ctl.load_library(libname, libdir)
 
     py_change_spmat = lib.change_spmat
@@ -103,17 +104,61 @@ def test_ctypes():
                                 ctypes.c_int,
                                 ctypes.c_int,
                                 ctypes.c_int]
-    # small scale data
-    A_offsets = np.array([0, 3, 4, 7, 9], dtype=np.int32)
-    A_columns = np.array([0, 2, 3, 1, 0, 2, 3, 1, 3], dtype=np.int32)
-    A_values = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], dtype=np.float64)
-    A_ = csr_matrix((A_values, A_columns, A_offsets), shape=(4, 4))
+    
+
+    A = load_npz('G.npz').tocsr().astype(np.float64)
     print("A in scipy:")
+    A_ = A.copy()
     print(A_)
-    Ainfo = np.array([4, 4, 9], dtype=np.int32) # row, col, nnz
-    py_change_spmat(A_offsets, A_columns, A_values, Ainfo[0], Ainfo[1], Ainfo[2])
-    A = csr_matrix((A_values, A_columns, A_offsets), shape=(Ainfo[0], Ainfo[1]))
+    py_change_spmat(A.indptr, A.indices, A.data, A.shape[0], A.shape[1], A.nnz)
+    A = csr_matrix((A.data, A.indices, A.indptr), shape=A.shape)
     print("A in c++:")
     print(A)
 
-test_ctypes()
+
+def test_spgemm_new():
+    import numpy.ctypeslib as ctl
+    import ctypes
+    import numpy as np
+    from scipy.sparse import csr_matrix
+
+    cuda_dir = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin"
+    os.add_dll_directory(cuda_dir)
+    libname = 'spgemm.dll'
+    libdir = './build/Release'
+    # lib=ctl.load_library(libname, libdir)
+    lib = ctypes.cdll.LoadLibrary('./build/Release/spgemm.dll')
+
+
+    lib.spgemm.argtypes = [     ctl.ndpointer(np.int32, 
+                                            flags='aligned, c_contiguous'),  # indptr
+                                ctl.ndpointer(np.int32,
+                                            flags='aligned, c_contiguous'),  # indices
+                                ctl.ndpointer(np.float32,
+                                            flags='aligned, c_contiguous'),    # data
+                                ctypes.c_int,
+                                ctypes.c_int,
+                                ctypes.c_int,
+                                ctl.ndpointer(np.int32, 
+                                            flags='aligned, c_contiguous'),  # indptr
+                                ctl.ndpointer(np.int32,
+                                            flags='aligned, c_contiguous'),  # indices
+                                ctl.ndpointer(np.float32,
+                                            flags='aligned, c_contiguous'),    # data
+                                ctypes.c_int,
+                                ctypes.c_int,
+                                ctypes.c_int,
+                                ]
+    
+
+    A = load_npz('G.npz').tocsr().astype(np.float32)
+    print("A in scipy:")
+    A_ = A @ A.T
+    print(A_)
+    B = A.T.copy().tocsr().astype(np.float32)
+    lib.spgemm(A.indptr, A.indices, A.data, A.shape[0], A.shape[1], A.nnz, B.indptr, B.indices, B.data, B.shape[0], B.shape[1], B.nnz)
+    A = csr_matrix((A.data, A.indices, A.indptr), shape=A.shape)
+    print("A in c++:")
+    print(A)
+
+test_spgemm_new()

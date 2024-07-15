@@ -13,6 +13,13 @@
 
 using std::string;
 
+#if _WIN32
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+
+
 #if __GNUC__ && __linux__
 #include <sys/ptrace.h>
 
@@ -205,26 +212,16 @@ inline void toc(string message = "")
 }
 
 
-int main(void) {
-    // // Host problem definition
-    tic();
-    int A_num_rows ;
-    int A_num_cols ;
-    int A_nnz      ;
-    int B_num_rows ;
-    int B_num_cols ;
-    int B_nnz      ;
-    std::vector<int> hA_csrOffsets, hA_columns, hB_csrOffsets, hB_columns;
-    std::vector<float> hA_values, hB_values;
-
-    readInfo(A_num_rows, A_num_cols, A_nnz, "Ainfo.txt");
-    readInfo(B_num_rows, B_num_cols, B_nnz, "Binfo.txt");
-
-    readCSR("A", hA_csrOffsets, hA_columns, hA_values);
-    readCSR("B", hB_csrOffsets, hB_columns, hB_values);
-
-    toc("read data");
-    tic();
+extern "C" DLLEXPORT int spgemm(int* indptr, int* indices, float* data, int nrows, int ncols, int nnz,
+int* indptr2, int* indices2, float* data2, int nrows2, int ncols2, int nnz2)
+{
+    // Host problem definition
+    int A_num_rows = nrows;
+    int A_num_cols = ncols;
+    int A_nnz      = nnz;
+    int B_num_rows = nrows2;
+    int B_num_cols = ncols2;
+    int B_nnz      = nnz2;
 
     float               alpha       = 1.0f;
     float               beta        = 0.0f;
@@ -232,6 +229,7 @@ int main(void) {
     cusparseOperation_t opB         = CUSPARSE_OPERATION_NON_TRANSPOSE;
     cudaDataType        computeType = CUDA_R_32F;
     //--------------------------------------------------------------------------
+    tic();
     // Device memory management: Allocate and copy A, B
     int   *dA_csrOffsets, *dA_columns, *dB_csrOffsets, *dB_columns,
           *dC_csrOffsets, *dC_columns;
@@ -251,20 +249,20 @@ int main(void) {
                            (A_num_rows + 1) * sizeof(int)) )
 
     // copy A
-    CHECK_CUDA( cudaMemcpy(dA_csrOffsets, hA_csrOffsets.data(),
+    CHECK_CUDA( cudaMemcpy(dA_csrOffsets, indptr,
                            (A_num_rows + 1) * sizeof(int),
                            cudaMemcpyHostToDevice) )
-    CHECK_CUDA( cudaMemcpy(dA_columns, hA_columns.data(), A_nnz * sizeof(int),
+    CHECK_CUDA( cudaMemcpy(dA_columns, indices, A_nnz * sizeof(int),
                            cudaMemcpyHostToDevice) )
-    CHECK_CUDA( cudaMemcpy(dA_values, hA_values.data(),
+    CHECK_CUDA( cudaMemcpy(dA_values, data,
                            A_nnz * sizeof(float), cudaMemcpyHostToDevice) )
     // copy B
-    CHECK_CUDA( cudaMemcpy(dB_csrOffsets, hB_csrOffsets.data(),
+    CHECK_CUDA( cudaMemcpy(dB_csrOffsets, indptr2,
                            (B_num_rows + 1) * sizeof(int),
                            cudaMemcpyHostToDevice) )
-    CHECK_CUDA( cudaMemcpy(dB_columns, hB_columns.data(), B_nnz * sizeof(int),
+    CHECK_CUDA( cudaMemcpy(dB_columns, indices2, B_nnz * sizeof(int),
                            cudaMemcpyHostToDevice) )
-    CHECK_CUDA( cudaMemcpy(dB_values, hB_values.data(),
+    CHECK_CUDA( cudaMemcpy(dB_values, data2,
                            B_nnz * sizeof(float), cudaMemcpyHostToDevice) )
     //--------------------------------------------------------------------------
     // CUSPARSE APIs
@@ -396,14 +394,6 @@ int main(void) {
     CHECK_CUDA( cudaFree(dC_values) )
     return EXIT_SUCCESS;
 }
-
-
-
-#if _WIN32
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
 
 
 extern "C" DLLEXPORT void change_spmat(int* indptr, int* indices, double* data, int nrows, int ncols, int nnz)

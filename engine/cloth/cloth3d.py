@@ -54,7 +54,7 @@ parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-export_matrix_interval", type=int, default=1)
-parser.add_argument("-export_matrix_binary", type=int, default=False)
+parser.add_argument("-export_matrix_binary", type=int, default=True)
 parser.add_argument("-export_state", type=int, default=True)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
@@ -596,7 +596,7 @@ def calc_primary_residual(G,M_inv):
     primary_residual = np.delete(primary_residual, where_zeros)
     return primary_residual
 
-ResidualLess = namedtuple('ResidualLess', ['dual', 'obj', 't']) 
+ResidualLess = namedtuple('ResidualLess', ['dual', 'obj','fulldual', 't']) 
 
 def step_xpbd(max_iter):
     semi_euler(old_pos, inv_mass, vel, pos)
@@ -624,7 +624,7 @@ def step_xpbd(max_iter):
             # r_Axb = r_Axb.tolist()
             if export_log:
                 logging.info(f"{frame}-{ite}  dual:{dual_r:.2e} object:{robj:.2e}  t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
-            r.append(ResidualLess(dual_r, robj, t_iter))
+            r.append(ResidualLess(dual_r, robj, dual_residual.to_numpy().tolist(), t_iter))
 
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
@@ -1544,7 +1544,7 @@ def substep_GaussNewton():
     update_vel(old_pos, inv_mass, vel, pos)
 
 
-Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb','niters','t'])
+Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb','fulldual', 'niters','t'])
 
 def substep_all_solver(max_iter=1):
     global pos, lagrangian
@@ -1641,7 +1641,7 @@ def substep_all_solver(max_iter=1):
             r_Axb = r_Axb.tolist()
             if export_log:
                 logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
-            r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb, len(r_Axb), t_iter))
+            r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb,dual_residual.to_numpy().tolist(), len(r_Axb), t_iter))
 
         x_prev = x.copy()
 

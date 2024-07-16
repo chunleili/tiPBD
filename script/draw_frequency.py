@@ -230,10 +230,11 @@ def draw_frequency(r_before, r_after):
     plt.xlabel('Frequency (Hz)')
     plt.ylabel('Power Spectral Density')
     plt.title('Power Spectrum r_before')
-    plt.show()
+    # plt.show()
 
-
+    fig, axes = plt.subplots(1)
     frequencies, spectrum = scipy.signal.periodogram(r_after)
+    print("frequencies:", frequencies)
     plt.plot(frequencies, spectrum, color="green")
     plt.xlabel('Frequency (Hz)')
     plt.ylabel('Power Spectral Density')
@@ -241,7 +242,22 @@ def draw_frequency(r_before, r_after):
     plt.show()
 
 
+def load_r(filename='20.json'):
+    import json, os
+    import pandas as pd
+    from pathlib import Path
+    path = Path('result/attach1024/r/'+filename) 
+    df = pd.read_json(path)
+    print("len:", len(df))
+    get_col = lambda data, col: [d[col] for d in data]
+    get_col0 = lambda data: get_col(data, 0)
+    get_col1 = lambda data: get_col(data, 1)
+    r_before = df['amg'][0]
+    r_after = df['amg'].iloc[-1]
+    return r_before, r_after
+
 
 if __name__ == "__main__":
-    r_before, r_after= main()
+    r_before, r_after= main("F20-0")
+    # r_before, r_after = load_r()
     draw_frequency(r_before, r_after)

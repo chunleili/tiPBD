@@ -552,14 +552,14 @@ struct Kernels {
         matC_.indptr.assign2(dC_csrOffsets, matC_.nrows + 1);
         matC_.data.assign2(dC_values, matC_.numnonz);
 
-        using namespace std;
-        cout<<"A: "<<matA_.nrows<<" "<<matA_.ncols<<" "<<matA_.numnonz<<endl;
-        cout<<"B: "<<matB_.nrows<<" "<<matB_.ncols<<" "<<matB_.numnonz<<endl;
-        cout<<"C: "<<matC_.nrows<<" "<<matC_.ncols<<" "<<matC_.numnonz<<endl;
-        for (int i = 0; i < 10; ++i) {
+        // using namespace std;
+        // cout<<"A: "<<matA_.nrows<<" "<<matA_.ncols<<" "<<matA_.numnonz<<endl;
+        // cout<<"B: "<<matB_.nrows<<" "<<matB_.ncols<<" "<<matB_.numnonz<<endl;
+        // cout<<"C: "<<matC_.nrows<<" "<<matC_.ncols<<" "<<matC_.numnonz<<endl;
+        // for (int i = 0; i < 10; ++i) {
             // std::cout<<matC_.data<<" ";
-        }
-        std::cout<<"Done"<<std::endl;
+        // }
+        // std::cout<<"Done"<<std::endl;
     }
 
 
@@ -796,20 +796,28 @@ struct VCycle : Kernels {
             CSR<float> &P = levels.at(lv).P;
             CSR<float> AP;
             CSR<float> &RAP = levels.at(lv+1).A;
-            using namespace std;
-            cout<<"A: "<<A.nrows<<" "<<A.ncols<<" "<<A.numnonz<<endl;
-            cout<<"R: "<<R.nrows<<" "<<R.ncols<<" "<<R.numnonz<<endl;
-            cout<<"P: "<<P.nrows<<" "<<P.ncols<<" "<<P.numnonz<<endl;
-            cout<<"Doing AP"<<endl;
+            // using namespace std;
+            // cout<<"A: "<<A.nrows<<" "<<A.ncols<<" "<<A.numnonz<<endl;
+            // cout<<"R: "<<R.nrows<<" "<<R.ncols<<" "<<R.numnonz<<endl;
+            // cout<<"P: "<<P.nrows<<" "<<P.ncols<<" "<<P.numnonz<<endl;
+            // cout<<"Doing AP"<<endl;
             spgemm(A, P, AP) ;
-            cout<<"Done AP"<<endl;
-            cout<<"Doing RAP"<<endl;
+            // cout<<"Done AP"<<endl;
+            // cout<<"Doing RAP"<<endl;
             spgemm(R, AP, RAP);
-            cout<<"Done RAP"<<endl;
+            // cout<<"Done RAP"<<endl;
     }
+
+    void fetch_A(size_t lv, float *data, int *indices, int *indptr) {
+        CSR<float> &A = levels.at(lv).A;
+        CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indices, A.indices.data(), A.indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
+    }
+    
 };
 
-}
+} // namespace
 
 static VCycle *fastmg = nullptr;
 
@@ -895,4 +903,8 @@ extern "C" DLLEXPORT void fastmg_fetch_cg_final_x(float *x) {
 
 extern "C" DLLEXPORT void fastmg_RAP(size_t lv) {
     fastmg->compute_RAP(lv);
+}
+
+extern "C" DLLEXPORT void fastmg_fetch_A(size_t lv, float* data, int* indices, int* indptr) {
+    fastmg->fetch_A(lv, data, indices, indptr);
 }

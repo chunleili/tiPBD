@@ -921,6 +921,7 @@ def build_levels_new(A, Ps=[]):
     for i in range(lvl-1):
         levels[i].P = Ps[i]
         levels[i].R = Ps[i].T
+        levels[i+1].A = scipy.sparse.csr_matrix((levels[i].P.shape[1], levels[i].P.shape[1]), dtype=np.float32)
     return levels
 
 
@@ -1082,6 +1083,14 @@ def init_g_vcycle(levels):
         g_vcycle.fastmg_coarse_solve.argtypes = []
         g_vcycle.fastmg_vcycle_up.argtypes = []
         g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
+        import numpy.ctypeslib as ctl
+        g_vcycle.fastmg_fetch_A.argtypes = [ctypes.c_size_t, ctl.ndpointer(np.float32, 
+                                            flags='aligned, c_contiguous'),  # data
+                                            ctl.ndpointer(np.int32,
+                                            flags='aligned, c_contiguous'),  # indices
+                                            ctl.ndpointer(np.int32,
+                                            flags='aligned, c_contiguous'),    # indptr
+                                            ]
 
     if g_vcycle_cached_levels != id(levels):
         # print('Setup detected! reuploading A, R, P matrices')
@@ -1104,13 +1113,18 @@ def init_g_vcycle(levels):
                                                   indptr_contig.ctypes.data, indptr_contig.shape[0],
                                                   mat.shape[0], mat.shape[1], mat.nnz)
             if lv < len(levels) - 1:
-                # print("-----------------")
-                # print(f"Done set_lv_csrmat {lv}")
-                # print(f"Doning RAP at level {lv}")
-                # print(f"NNZ from py: {levels[lv+1].A.nnz}")
+                # tic1 = perf_counter()
                 g_vcycle.fastmg_RAP(lv)
-                # print(f"Done RAP at level {lv}")
-            # exit()
+                mat = levels[lv+1].A
+                # print(f"RAP time: {perf_counter()-tic1:f}s")
+                # tic2 = perf_counter()
+                from scipy.sparse import csr_matrix
+                mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
+                mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
+                g_vcycle.fastmg_fetch_A(lv+1, mat.data, mat.indices, mat.indptr)
+                mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
+                # print(f"Fetch A time: {perf_counter()-tic2:f}s")
+                # print(f"total RAP time: {perf_counter()-tic1:f}s")
 
 def new_V_cycle(levels):
     assert g_vcycle

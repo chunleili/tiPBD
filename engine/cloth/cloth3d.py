@@ -46,6 +46,7 @@ dont_clean_results = False
 report_time = True
 smoother = 'chebyshev'
 chebyshev_coeff = None
+export_fullr = False
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
@@ -622,7 +623,7 @@ def step_xpbd(max_iter):
             robj = (potential_energy[None]+inertial_energy[None])
             # r_Axb = r_Axb.tolist()
             
-            if ite % 10 == 0:
+            if export_fullr:
                 np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
 
             r.append(ResidualLess(dual_r, robj, t_iter))
@@ -1655,8 +1656,9 @@ def substep_all_solver(max_iter=1):
             robj = (potential_energy[None]+inertial_energy[None])
             r_Axb = r_Axb.tolist()
 
-            fulldual_final = dual_residual.to_numpy()
-            np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
+            if export_fullr:
+                fulldual_final = dual_residual.to_numpy()
+                np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
 
             if export_log:
                 logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")

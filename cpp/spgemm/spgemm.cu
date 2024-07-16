@@ -7,7 +7,18 @@
 #include <cusparse.h>         // cusparseSpGEMM
 #include <stdio.h>            // printf
 #include <stdlib.h>           // EXIT_FAILURE
+#include <chrono>  
+#include <string>          
 // #include "eigen/unsupported/Eigen/SparseExtra" // Eigen::loadMarket
+
+using std::string;
+
+#if _WIN32
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+
 
 #if __GNUC__ && __linux__
 #include <sys/ptrace.h>
@@ -58,17 +69,7 @@
 }
 
 
-// void assign(T const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
-//     data.resize(ndat);
-//     CHECK_CUDA(cudaMemcpy(data.data(), datap, data.size() * sizeof(T), cudaMemcpyHostToDevice));
-//     indices.resize(nind);
-//     CHECK_CUDA(cudaMemcpy(indices.data(), indicesp, indices.size() * sizeof(int), cudaMemcpyHostToDevice));
-//     indptr.resize(nptr);
-//     CHECK_CUDA(cudaMemcpy(indptr.data(), indptrp, indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
-//     nrows = rows;
-//     ncols = cols;
-//     numnonz = nnz;
-// }
+
 
 #include <fstream>
 #include <iostream>
@@ -113,9 +114,6 @@ void readInfo(int &nrows, int &ncols, int &nnz, std::string filename) {
 }
 
 void readCSR(std::string filename, std::vector<int>& hA_csrOffsets, std::vector<int>& hA_columns, std::vector<float>& hA_values) {
-    // auto indptr = readTxt(filename+"indptr.txt");
-    // auto indices = readTxt(filename+"indices.txt");
-    // auto data = readTxt<float>(filename+"data.txt");
     hA_csrOffsets = readTxt<int>(filename+"indptr.txt");
     hA_columns = readTxt<int>(filename+"indices.txt");
     hA_values = readTxt<float>(filename+"data.txt");
@@ -128,24 +126,90 @@ void printArr(int *values, int size) {
     std::cout << std::endl;
 }
 
+template<typename T=float>
+void savetxt(std::string filename, std::vector<T> &field)
+{
+    std::ofstream myfile;
+    myfile.open(filename);
+    for(auto &i:field)
+    {
+        myfile << i << '\n';
+    }
+    myfile.close();
+}
 
-int main(void) {
-    // // Host problem definition
-    int A_num_rows ;
-    int A_num_cols ;
-    int A_nnz      ;
-    int B_num_rows ;
-    int B_num_cols ;
-    int B_nnz      ;
-    std::vector<int> hA_csrOffsets, hA_columns, hB_csrOffsets, hB_columns;
-    std::vector<float> hA_values, hB_values;
+/// @brief Usage: Timer t("timer_name");
+///               t.start();
+///               //do something
+///               t.end();
+class Timer
+{
+public:
+    std::chrono::time_point<std::chrono::steady_clock> m_start;
+    std::chrono::time_point<std::chrono::steady_clock> m_end;
+    std::chrono::duration<double, std::milli> elapsed_ms;
+    std::chrono::duration<double> elapsed_s;
+    std::string name = "";
 
-    readInfo(A_num_rows, A_num_cols, A_nnz, "Ainfo.txt");
-    readInfo(B_num_rows, B_num_cols, B_nnz, "Binfo.txt");
+    Timer(std::string name = "") : name(name){};
+    inline void start()
+    {
+        m_start = std::chrono::steady_clock::now();
+    };
+    inline void end(string msg = "", string unit = "ms", bool verbose=true, string endsep = "\n")
+    {
+        m_end = std::chrono::steady_clock::now();
+        if (unit == "s")
+        {
+            elapsed_s = m_end - m_start;
+            if(verbose)
+                printf("%s(%s): %.0f(s)", msg.c_str(), name.c_str(), elapsed_s.count());
+            else
+                printf("%.0f(s)", elapsed_s.count());
+        }
+        else //else if(unit == "ms")
+        {
+            elapsed_ms = m_end - m_start;
+            if(verbose)
+                printf("%s(%s): %.0f(ms)", msg.c_str(), name.c_str(), elapsed_ms.count());
+            else
+                printf("%.0f(ms)", elapsed_ms.count());
+        }
+        printf("%s", endsep.c_str());
+    }
+    inline void reset()
+    {
+        m_start = std::chrono::steady_clock::now();
+        m_end = std::chrono::steady_clock::now();
+    };
+};
+Timer global_timer("global");
 
-    readCSR("A", hA_csrOffsets, hA_columns, hA_values);
-    readCSR("B", hB_csrOffsets, hB_columns, hB_values);
+// caution: the tic toc cannot be nested
+inline void tic()
+{
+    global_timer.reset();
+    global_timer.start();
+}
 
+inline void toc(string message = "")
+{
+    global_timer.end(message);
+    global_timer.reset();
+}
+
+
+extern "C" DLLEXPORT int spgemm(int* indptr, int* indices, float* data, int nrows, int ncols, int nnz,
+int* indptr2, int* indices2, float* data2, int nrows2, int ncols2, int nnz2,
+int* indptr3, int* indices3, float* data3, int* nnz3)
+{
+    // Host problem definition
+    int A_num_rows = nrows;
+    int A_num_cols = ncols;
+    int A_nnz      = nnz;
+    int B_num_rows = nrows2;
+    int B_num_cols = ncols2;
+    int B_nnz      = nnz2;
 
     float               alpha       = 1.0f;
     float               beta        = 0.0f;
@@ -153,6 +217,7 @@ int main(void) {
     cusparseOperation_t opB         = CUSPARSE_OPERATION_NON_TRANSPOSE;
     cudaDataType        computeType = CUDA_R_32F;
     //--------------------------------------------------------------------------
+    tic();
     // Device memory management: Allocate and copy A, B
     int   *dA_csrOffsets, *dA_columns, *dB_csrOffsets, *dB_columns,
           *dC_csrOffsets, *dC_columns;
@@ -172,20 +237,20 @@ int main(void) {
                            (A_num_rows + 1) * sizeof(int)) )
 
     // copy A
-    CHECK_CUDA( cudaMemcpy(dA_csrOffsets, hA_csrOffsets.data(),
+    CHECK_CUDA( cudaMemcpy(dA_csrOffsets, indptr,
                            (A_num_rows + 1) * sizeof(int),
                            cudaMemcpyHostToDevice) )
-    CHECK_CUDA( cudaMemcpy(dA_columns, hA_columns.data(), A_nnz * sizeof(int),
+    CHECK_CUDA( cudaMemcpy(dA_columns, indices, A_nnz * sizeof(int),
                            cudaMemcpyHostToDevice) )
-    CHECK_CUDA( cudaMemcpy(dA_values, hA_values.data(),
+    CHECK_CUDA( cudaMemcpy(dA_values, data,
                            A_nnz * sizeof(float), cudaMemcpyHostToDevice) )
     // copy B
-    CHECK_CUDA( cudaMemcpy(dB_csrOffsets, hB_csrOffsets.data(),
+    CHECK_CUDA( cudaMemcpy(dB_csrOffsets, indptr2,
                            (B_num_rows + 1) * sizeof(int),
                            cudaMemcpyHostToDevice) )
-    CHECK_CUDA( cudaMemcpy(dB_columns, hB_columns.data(), B_nnz * sizeof(int),
+    CHECK_CUDA( cudaMemcpy(dB_columns, indices2, B_nnz * sizeof(int),
                            cudaMemcpyHostToDevice) )
-    CHECK_CUDA( cudaMemcpy(dB_values, hB_values.data(),
+    CHECK_CUDA( cudaMemcpy(dB_values, data2,
                            B_nnz * sizeof(float), cudaMemcpyHostToDevice) )
     //--------------------------------------------------------------------------
     // CUSPARSE APIs
@@ -207,6 +272,9 @@ int main(void) {
                                       dC_csrOffsets, NULL, NULL,
                                       CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
                                       CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F) )
+
+    toc("memcpy and create descriptors");
+    tic();
     //--------------------------------------------------------------------------
     // SpGEMM Computation
     cusparseSpGEMMDescr_t spgemmDesc;
@@ -240,6 +308,9 @@ int main(void) {
                                            &alpha, matA, matB, &beta, matC,
                                            computeType, CUSPARSE_SPGEMM_DEFAULT,
                                            spgemmDesc, &bufferSize2, dBuffer2) )
+    toc("spgemm computation");
+    tic();
+
     // get matrix C non-zero entries C_nnz1
     int64_t C_num_rows1, C_num_cols1, C_nnz1;
     CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &C_num_rows1, &C_num_cols1,
@@ -265,24 +336,32 @@ int main(void) {
 
 
     //--------------------------------------------------------------------------
+    tic();
     // // device result check
-    std::vector<int> hC_csrOffsets_tmp(C_num_rows1 + 1);
-    std::vector<int> hC_columns_tmp(C_nnz1);
-    std::vector<float> hC_values_tmp(C_nnz1);
-
-    CHECK_CUDA( cudaMemcpy(hC_csrOffsets_tmp.data(), dC_csrOffsets,
+    // std::vector<int> hC_csrOffsets_tmp(C_num_rows1 + 1);
+    // std::vector<int> hC_columns_tmp(C_nnz1);
+    // std::vector<float> hC_values_tmp(C_nnz1);
+    CHECK_CUDA( cudaMemcpy(indptr3, dC_csrOffsets,
                            (A_num_rows + 1) * sizeof(int),
                            cudaMemcpyDeviceToHost) )
-    CHECK_CUDA( cudaMemcpy(hC_columns_tmp.data(), dC_columns, C_nnz1 * sizeof(int),
+    CHECK_CUDA( cudaMemcpy(indices3, dC_columns, C_nnz1 * sizeof(int),
                            cudaMemcpyDeviceToHost) )
-    CHECK_CUDA( cudaMemcpy(hC_values_tmp.data(), dC_values, C_nnz1 * sizeof(float),
+    CHECK_CUDA( cudaMemcpy(data3, dC_values, C_nnz1 * sizeof(float),
                            cudaMemcpyDeviceToHost) )
-
-    std::cout << "spgemm_example test PASSED" << std::endl;
-    std::cout << "C_nnz: " << C_nnz1 << std::endl;
-    for(int i = 0; i < C_nnz1; i++) {
-        std::cout << hC_values_tmp[i] << " ";
-    }
+    nnz3[0] = C_nnz1;
+    toc("memcpy back");
+    // tic();
+    // std::cout << "spgemm_example test PASSED" << std::endl;
+    // std::cout << "C_nnz: " << C_nnz1 << std::endl;
+    // std::cout << "save C in txt" << std::endl;
+    // savetxt("C.data.txt", hC_values_tmp);
+    // savetxt<int>("C.indptr.txt", hC_csrOffsets_tmp);
+    // savetxt<int>("C.indices.txt", hC_columns_tmp);
+    // // for(int i = 0; i < C_nnz1; i++) {
+    // //     std::cout << hC_values_tmp[i] << " ";
+    // // }
+    // std::cout << "save C done" << std::endl;
+    // toc("save C");
     //--------------------------------------------------------------------------
     // destroy matrix/vector descriptors
     CHECK_CUSPARSE( cusparseSpGEMM_destroyDescr(spgemmDesc) )
@@ -306,13 +385,9 @@ int main(void) {
 }
 
 
-
-#if _WIN32
-#define DLLEXPORT __declspec(dllexport)
-#else
-#define DLLEXPORT
-#endif
-
-extern "C" DLLEXPORT void fastmg_GMG(float *G) {
-    // GMG(G);
+extern "C" DLLEXPORT void change_spmat(int* indptr, int* indices, double* data, int nrows, int ncols, int nnz)
+{
+    for (int i=0; i<nrows; i++) 
+        for (int j=indptr[i]; j<indptr[i+1]; j++)
+            data[j] += 1;
 }

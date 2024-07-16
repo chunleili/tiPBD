@@ -330,9 +330,9 @@ struct CSR {
     Vec<T> data;
     Vec<int> indices;
     Vec<int> indptr;
-    size_t nrows;
-    size_t ncols;
-    size_t numnonz;
+    int64_t nrows;
+    int64_t ncols;
+    int64_t numnonz;
 
     CSR() noexcept : nrows(0), ncols(0), numnonz(0) {}
 
@@ -346,6 +346,15 @@ struct CSR {
         nrows = rows;
         ncols = cols;
         numnonz = nnz;
+    }
+
+    void resize(size_t rows, size_t cols, size_t nnz) {
+        nrows = rows;
+        ncols = cols;
+        numnonz = nnz;
+        data.resize(nnz);
+        indices.resize(nnz);
+        indptr.resize(rows + 1);
     }
 };
 
@@ -458,84 +467,31 @@ struct Kernels {
     // C = A * B
     void spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_) 
     {
-
-        ConstSpMat dA(matA_);
-        ConstSpMat dB(matB_);
-        SpMat dC(matC_);
-
+        ConstSpMat matA(matA_);
+        ConstSpMat matB(matB_);
+        matC_.resize(matA_.nrows, matB_.ncols, 0);
+        SpMat matC(matC_);
         // https://github.com/NVIDIA/CUDALibrarySamples/blob/ade391a17672d26e55429035450bc44afd277d34/cuSPARSE/spgemm/spgemm_example.c#L161
         // https://docs.nvidia.com/cuda/cusparse/#cusparsespgemm
         //--------------------------------------------------------------------------
-        // Host problem definition
-        int A_num_rows = matA_.nrows;
-        int A_num_cols = matA_.ncols;
-        int A_nnz      = matA_.numnonz;
-        int B_num_rows = matB_.nrows;
-        int B_num_cols = matB_.ncols;
-        int B_nnz      = matB_.numnonz;
-
         float               alpha       = 1.0f;
         float               beta        = 0.0f;
         cusparseOperation_t opA         = CUSPARSE_OPERATION_NON_TRANSPOSE;
         cusparseOperation_t opB         = CUSPARSE_OPERATION_NON_TRANSPOSE;
         cudaDataType        computeType = CUDA_R_32F;
         //--------------------------------------------------------------------------
-        // Device memory management: Allocate and copy A, B
-        int   *dA_csrOffsets, *dA_columns, *dB_csrOffsets, *dB_columns,
-            *dC_csrOffsets, *dC_columns;
-        float *dA_values, *dB_values, *dC_values;
-        // allocate A
-        CHECK_CUDA( cudaMalloc((void**) &dA_csrOffsets,
-                            (A_num_rows + 1) * sizeof(int)) )
-        CHECK_CUDA( cudaMalloc((void**) &dA_columns, A_nnz * sizeof(int))   )
-        CHECK_CUDA( cudaMalloc((void**) &dA_values,  A_nnz * sizeof(float)) )
-        // allocate B
-        CHECK_CUDA( cudaMalloc((void**) &dB_csrOffsets,
-                            (B_num_rows + 1) * sizeof(int)) )
-        CHECK_CUDA( cudaMalloc((void**) &dB_columns, B_nnz * sizeof(int))   )
-        CHECK_CUDA( cudaMalloc((void**) &dB_values,  B_nnz * sizeof(float)) )
-        // allocate C offsets
-        CHECK_CUDA( cudaMalloc((void**) &dC_csrOffsets,
-                            (A_num_rows + 1) * sizeof(int)) )
-
-        // copy A
-        CHECK_CUDA( cudaMemcpy(dA_csrOffsets, matA_.indptr.data(),
-                            (A_num_rows + 1) * sizeof(int),
-                            cudaMemcpyHostToDevice) )
-        CHECK_CUDA( cudaMemcpy(dA_columns, matA_.indices.data(), A_nnz * sizeof(int),
-                            cudaMemcpyHostToDevice) )
-        CHECK_CUDA( cudaMemcpy(dA_values, matA_.data.data(),
-                            A_nnz * sizeof(float), cudaMemcpyHostToDevice) )
-        // copy B
-        CHECK_CUDA( cudaMemcpy(dB_csrOffsets, matB_.indptr.data(),
-                            (B_num_rows + 1) * sizeof(int),
-                            cudaMemcpyHostToDevice) )
-        CHECK_CUDA( cudaMemcpy(dB_columns, matB_.indices.data(), B_nnz * sizeof(int),
-                            cudaMemcpyHostToDevice) )
-        CHECK_CUDA( cudaMemcpy(dB_values, matB_.data.data(),
-                            B_nnz * sizeof(float), cudaMemcpyHostToDevice) )
-        //--------------------------------------------------------------------------
         // CUSPARSE APIs
         cusparseHandle_t     handle = NULL;
-        cusparseSpMatDescr_t matA, matB, matC;
         void*  dBuffer1    = NULL, *dBuffer2   = NULL;
         size_t bufferSize1 = 0,    bufferSize2 = 0;
         CHECK_CUSPARSE( cusparseCreate(&handle) )
-        // Create sparse matrix A in CSR format
-        CHECK_CUSPARSE( cusparseCreateCsr(&matA, A_num_rows, A_num_cols, A_nnz,
-                                        dA_csrOffsets, dA_columns, dA_values,
-                                        CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-                                        CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F) )
-        CHECK_CUSPARSE( cusparseCreateCsr(&matB, B_num_rows, B_num_cols, B_nnz,
-                                        dB_csrOffsets, dB_columns, dB_values,
-                                        CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-                                        CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F) )
-        CHECK_CUSPARSE( cusparseCreateCsr(&matC, A_num_rows, B_num_cols, 0,
-                                        dC_csrOffsets, NULL, NULL,
-                                        CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-                                        CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F) )
-
         //--------------------------------------------------------------------------
+        int*    dC_csrOffsets, *dC_columns;
+        float*  dC_values;
+
+        CHECK_CUDA( cudaMalloc((void**) &dC_csrOffsets,
+                            (matA_.nrows + 1) * sizeof(int)) )
+
         // SpGEMM Computation
         cusparseSpGEMMDescr_t spgemmDesc;
         CHECK_CUSPARSE( cusparseSpGEMM_createDescr(&spgemmDesc) )
@@ -570,21 +526,14 @@ struct Kernels {
                                             spgemmDesc, &bufferSize2, dBuffer2) )
 
         // get matrix C non-zero entries C_nnz1
-        int64_t C_num_rows1, C_num_cols1, C_nnz1;
-        CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &C_num_rows1, &C_num_cols1,
-                                            &C_nnz1) )
+        CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &matC_.nrows, &matC_.ncols, &matC_.numnonz) )
         // allocate matrix C
-        CHECK_CUDA( cudaMalloc((void**) &dC_columns, C_nnz1 * sizeof(int))   )
-        CHECK_CUDA( cudaMalloc((void**) &dC_values,  C_nnz1 * sizeof(float)) )
-
-        // NOTE: if 'beta' != 0, the values of C must be update after the allocation
-        //       of dC_values, and before the call of cusparseSpGEMM_copy
+        CHECK_CUDA( cudaMalloc((void**) &dC_columns, matC_.numnonz * sizeof(int))   )
+        CHECK_CUDA( cudaMalloc((void**) &dC_values,  matC_.numnonz * sizeof(float)) )
 
         // update matC with the new pointers
         CHECK_CUSPARSE(
             cusparseCsrSetPointers(matC, dC_csrOffsets, dC_columns, dC_values) )
-
-        // if beta != 0, cusparseSpGEMM_copy reuses/updates the values of dC_values
 
         // copy the final products to the matrix C
         CHECK_CUSPARSE(
@@ -592,17 +541,18 @@ struct Kernels {
                                 &alpha, matA, matB, &beta, matC,
                                 computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
 
+        matC_.data.assign(dC_values, matC_.numnonz);
+        matC_.indices.assign(dC_columns, matC_.numnonz);
+        matC_.indptr.assign(dC_csrOffsets, matC_.nrows + 1);
 
-        //--------------------------------------------------------------------------
-        CHECK_CUDA( cudaMemcpy(matC_.indptr.data(), dC_csrOffsets,
-                            (A_num_rows + 1) * sizeof(int),
-                            cudaMemcpyDeviceToHost) )
-        CHECK_CUDA( cudaMemcpy(matC_.indices.data(), dC_columns, C_nnz1 * sizeof(int),
-                            cudaMemcpyDeviceToHost) )
-        CHECK_CUDA( cudaMemcpy(matC_.data.data(), dC_values, C_nnz1 * sizeof(float),
-                            cudaMemcpyDeviceToHost) )
-        // nnz3[0] = C_nnz1;
-        matC_.numnonz = C_nnz1;
+        using namespace std;
+        cout<<"A: "<<matA_.nrows<<" "<<matA_.ncols<<" "<<matA_.numnonz<<endl;
+        cout<<"B: "<<matB_.nrows<<" "<<matB_.ncols<<" "<<matB_.numnonz<<endl;
+        cout<<"C: "<<matC_.nrows<<" "<<matC_.ncols<<" "<<matC_.numnonz<<endl;
+        for (int i = 0; i < 10; ++i) {
+            // std::cout<<matC_.data<<" ";
+        }
+        std::cout<<"Done"<<std::endl;
     }
 
 

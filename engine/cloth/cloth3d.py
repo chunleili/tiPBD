@@ -1079,6 +1079,8 @@ def init_g_vcycle(levels):
         for lv in range(len(levels)):
             for which, matname in zip([1, 2, 3], ['A', 'R', 'P']):
                 mat = getattr(levels[lv], matname)
+                if matname == 'A' and lv != 0:
+                    continue
                 if mat is not None:
                     data_contig = np.ascontiguousarray(mat.data, dtype=np.float32)
                     indices_contig = np.ascontiguousarray(mat.indices, dtype=np.int32)
@@ -1087,10 +1089,13 @@ def init_g_vcycle(levels):
                                                   indices_contig.ctypes.data, indices_contig.shape[0],
                                                   indptr_contig.ctypes.data, indptr_contig.shape[0],
                                                   mat.shape[0], mat.shape[1], mat.nnz)
+            print("-----------------")
             print(f"Done set_lv_csrmat {lv}")
             print(f"Doning RAP at level {lv}")
+            print(f"NNZ from py: {levels[lv+1].A.nnz}")
             g_vcycle.fastmg_RAP(lv)
             print(f"Done RAP at level {lv}")
+            # exit()
 
 def new_V_cycle(levels):
     assert g_vcycle

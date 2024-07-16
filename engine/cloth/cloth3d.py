@@ -75,7 +75,7 @@ parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.jso
 parser.add_argument("-auto_complete_path", type=int, default=0, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
 parser.add_argument("-vcycle", type=str, default="new", help="old or new")
-parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
+parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin")
 
 
 args = parser.parse_args()
@@ -108,21 +108,6 @@ json_path = prj_path + args.json_path
 auto_complete_path = bool(args.auto_complete_path)
 arch = args.arch
 
-if vcycle_type == 'test':
-    # mat = scipy.sparse.csr_matrix(([1, 2, 3, 4], [0, 1, 2, 3], [0, 2, 4]), dtype=np.float32)
-    # x = np.array([4, 5, 6, 7])
-    # print(mat.data)
-    # print(mat.indices)
-    # print(mat.indptr)
-    # print(mat.shape)
-    # out = mat @ x
-    # print(out)
-    path = './build/libfast-vcycle-gpu.so'
-    if sys.platform == 'win32':
-        path = '.\\build\\fast-vcycle-gpu.dll'
-    vcycle = ctypes.cdll.LoadLibrary(path)
-    vcycle.fastmg_test()
-    exit(1)
 
 def parse_json_params(path, vars_to_overwrite):
     if not os.path.exists(path):
@@ -858,99 +843,6 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
             x[i] = (b[i] - rsum) / diag
 
 
-def gauss_seidel(A, x, b, iterations=1, residuals = []):
-    # if not scipy.sparse.isspmatrix_csr(A):
-    #     raise ValueError("A must be csr matrix!")
-
-    for _iter in range(iterations):
-        # forward sweep
-        for _ in range(2):
-            amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
-
-        # backward sweep
-        for _ in range(2):
-            amg_core_gauss_seidel_kernel(
-                A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
-            )
-        
-        normr = np.linalg.norm(b - A @ x)
-        residuals.append(normr)
-        if early_stop:
-            if normr < 1e-6:
-                break
-    return x
-
-
-def construct_ml_manually(A,Ps=[]):
-    from pyamg.multilevel import MultilevelSolver
-    from pyamg.relaxation.smoothing import change_smoothers
-
-    lvl = len(Ps) + 1 # number of levels
-
-    levels = []
-    for i in range(lvl):
-        levels.append(MultilevelSolver.Level())
-
-    levels[0].A = A
-
-    for i in range(lvl-1):
-        levels[i].P = Ps[i]
-        levels[i].R = Ps[i].T
-        levels[i+1].A = Ps[i].T @ levels[i].A @ Ps[i]
-
-    ml = MultilevelSolver(levels, coarse_solver='pinv')
-
-    presmoother=('block_gauss_seidel',{'sweep': 'symmetric'})
-    postsmoother=('block_gauss_seidel',{'sweep': 'symmetric'})
-    change_smoothers(ml, presmoother, postsmoother)
-    return ml
-
-
-def solve_amg_SA_solve(ml,b,x0,residuals=[]):
-    x = ml.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="V")
-    return x
-
-
-def solve_amg_SA(A,b,x0,residuals=[]):
-    import pyamg
-    ml5 = pyamg.smoothed_aggregation_solver(A,
-        smooth=None,
-        max_coarse=400,
-        coarse_solver="pinv")
-    x5 = ml5.solve(b, x0=x0.copy(), tol=tol_Axb, residuals=residuals, accel='cg', maxiter=max_iter_Axb, cycle="V")
-    return x5
-
-def solve_amg(A, b, x0, R, P, residuals=[], maxiter = 1, tol = 1e-6):
-    A2 = R @ A @ P
-    x = x0.copy()
-    normb = np.linalg.norm(b)
-    if normb == 0.0:
-        normb = 1.0  # set so that we have an absolute tolerance
-    normr = np.linalg.norm(b - A @ x)
-    if residuals is not None:
-        residuals[:] = [normr]  # initial residual
-    b = np.ravel(b)
-    x = np.ravel(x)
-    it = 0
-    while True:  # it <= maxiter and normr >= tol:
-        gauss_seidel(A, x, b, iterations=8)  # presmoother
-        residual = b - A @ x
-        coarse_b = R @ residual  # restriction
-        coarse_x = np.zeros_like(coarse_b)
-        coarse_x[:] = scipy.sparse.linalg.spsolve(A2, coarse_b)
-        x += P @ coarse_x 
-        gauss_seidel(A, x, b, iterations=2)
-        it += 1
-        normr = np.linalg.norm(b - A @ x)
-        if residuals is not None:
-            residuals.append(normr)
-        if normr < tol * normb:
-            return x
-        if it == maxiter:
-            return x
-
-times = 0
-
 def calc_poly(A, x, b, coefficients, iterations):
     assert iterations == 1
     x = np.ravel(x)
@@ -1028,11 +920,9 @@ def setup_AMG(A):
 
 def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     assert x0 is not None
-    tic_amgcg = perf_counter()
     x = x0.copy()
     A = levels[0].A
     residuals = np.zeros(maxiter+1)
-    t_vcycle = 0.0
     def psolve(b):
         x = x0.copy()
         old_V_cycle(levels, 0, x, b)
@@ -1047,11 +937,7 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     for iteration in range(maxiter):
         if normr < atol:  # Are we done?
             break
-        tic_vcycle = perf_counter()
         z = psolve(r)
-        toc_vcycle = perf_counter()
-        t_vcycle += toc_vcycle - tic_vcycle
-        # print(f"Once V_cycle time: {toc_vcycle - tic_vcycle:.4f}s")
         rho_cur = np.dot(r, z)
         if iteration > 0:
             beta = rho_cur / rho_prev
@@ -1068,11 +954,6 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
         normr = np.linalg.norm(r)
         residuals[iteration+1] = normr
     residuals = residuals[:iteration+1]
-    toc_amgcg = perf_counter()
-    t_amgcg = toc_amgcg - tic_amgcg
-    # print(f"Total V_cycle time in one amg_cg_solve: {t_vcycle:.4f}s")
-    # print(f"Total time of amg_cg_solve: {t_amgcg:.4f}s")
-    # print(f"Time of CG(exclude v-cycle): {t_amgcg - t_vcycle:.4f}s")
     return (x),  residuals  
 
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
@@ -1080,10 +961,8 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     assert g_vcycle
 
     assert x0 is not None
-    tic_amgcg = perf_counter()
     x0_contig = np.ascontiguousarray(x0, dtype=np.float32)
     g_vcycle.fastmg_set_outer_x(x0_contig.ctypes.data, x0_contig.shape[0])
-    t_vcycle = 0.0
     b_contig = np.ascontiguousarray(b, dtype=np.float32)
     g_vcycle.fastmg_set_outer_b(b_contig.ctypes.data, b.shape[0])
     residuals_empty = np.empty(shape=(maxiter+1,), dtype=np.float32)
@@ -1094,22 +973,13 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     for iteration in range(maxiter):
         if residuals[iteration] < atol:
             break
-        tic_vcycle = perf_counter()
         g_vcycle.fastmg_copy_outer2init_x()
         new_V_cycle(levels)
-        toc_vcycle = perf_counter()
-        t_vcycle += toc_vcycle - tic_vcycle
-        # print(f"Once V_cycle time: {toc_vcycle - tic_vcycle:.4f}s")
         g_vcycle.fastmg_do_cg_itern(residuals.ctypes.data, iteration)
     x_empty = np.empty_like(x0, dtype=np.float32)
     x = np.ascontiguousarray(x_empty, dtype=np.float32)
     g_vcycle.fastmg_fetch_cg_final_x(x.ctypes.data)
     residuals = residuals[:iteration+1]
-    toc_amgcg = perf_counter()
-    t_amgcg = toc_amgcg - tic_amgcg
-    # print(f"Total V_cycle time in one amg_cg_solve: {t_vcycle:.4f}s")
-    # print(f"Total time of amg_cg_solve: {t_amgcg:.4f}s")
-    # print(f"Time of CG(exclude v-cycle): {t_amgcg - t_vcycle:.4f}s")
     return (x),  residuals  
 
 
@@ -1140,15 +1010,7 @@ def postsmoother(A,x,b):
     presmoother(A,x,b)
 
 
-# 实现仅第一次进入coarse_solver时计算一次P, 但每个新的A都要重新计算
-# https://stackoverflow.com/a/279597/19253199
 def coarse_solver(A, b):
-    # global update_coarse_solver
-    # if not hasattr(coarse_solver, "P") or update_coarse_solver:
-    #     coarse_solver.P = pinv(A.toarray())
-    #     update_coarse_solver = False
-    # res = np.dot(coarse_solver.P, b)
-    # res = scipy.sparse.linalg.spsolve(A, b)
     res = np.linalg.solve(A.toarray(), b)
     return res
 

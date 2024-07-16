@@ -257,6 +257,13 @@ struct Vec {
     T *data() noexcept {
         return m_data;
     }
+
+    void assign2(T* d, size_t n)
+    {
+        m_data = d;
+        m_size = n;
+        m_cap = n;
+    }
 };
 
 struct DnVec {
@@ -541,9 +548,9 @@ struct Kernels {
                                 &alpha, matA, matB, &beta, matC,
                                 computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
 
-        matC_.data.assign(dC_values, matC_.numnonz);
-        matC_.indices.assign(dC_columns, matC_.numnonz);
-        matC_.indptr.assign(dC_csrOffsets, matC_.nrows + 1);
+        matC_.indices.assign2(dC_columns, matC_.numnonz);
+        matC_.indptr.assign2(dC_csrOffsets, matC_.nrows + 1);
+        matC_.data.assign2(dC_values, matC_.numnonz);
 
         using namespace std;
         cout<<"A: "<<matA_.nrows<<" "<<matA_.ncols<<" "<<matA_.numnonz<<endl;
@@ -788,7 +795,7 @@ struct VCycle : Kernels {
             CSR<float> &R = levels.at(lv).R;
             CSR<float> &P = levels.at(lv).P;
             CSR<float> AP;
-            CSR<float> &RAP = levels.at(lv).A;
+            CSR<float> &RAP = levels.at(lv+1).A;
             using namespace std;
             cout<<"A: "<<A.nrows<<" "<<A.ncols<<" "<<A.numnonz<<endl;
             cout<<"R: "<<R.nrows<<" "<<R.ncols<<" "<<R.numnonz<<endl;

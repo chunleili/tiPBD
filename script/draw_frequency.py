@@ -242,22 +242,24 @@ def draw_frequency(r_before, r_after):
     plt.show()
 
 
-def load_r(filename='20.json'):
+def load_fulldual(frame=11):
     import json, os
     import pandas as pd
     from pathlib import Path
-    path = Path('result/attach1024/r/'+filename) 
-    df = pd.read_json(path)
-    print("len:", len(df))
-    get_col = lambda data, col: [d[col] for d in data]
-    get_col0 = lambda data: get_col(data, 0)
-    get_col1 = lambda data: get_col(data, 1)
-    r_before = df['amg'][0]
-    r_after = df['amg'].iloc[-1]
+    import numpy as np
+    print("loading...")
+    path = Path(f'result/attach1024_xpbd/r/fulldual_{frame}-{0}.npz') 
+    file = np.load(path)
+    r_before = file['arr_0']
+
+    path = Path(f'result/attach1024_xpbd/r/fulldual_{frame}-{299}.npz') 
+    file = np.load(path)
+    r_after = file['arr_1']
+    print("load done")
     return r_before, r_after
 
 
 if __name__ == "__main__":
-    r_before, r_after= main("F20-0")
-    # r_before, r_after = load_r()
+    # r_before, r_after= main("F20-0")
+    r_before, r_after = load_fulldual()
     draw_frequency(r_before, r_after)

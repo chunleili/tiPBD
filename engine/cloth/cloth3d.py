@@ -596,15 +596,14 @@ def calc_primary_residual(G,M_inv):
     primary_residual = np.delete(primary_residual, where_zeros)
     return primary_residual
 
-ResidualLess = namedtuple('ResidualLess', ['dual', 'obj','fulldual', 't']) 
+ResidualLess = namedtuple('ResidualLess', ['dual', 'obj', 't']) 
 
 def step_xpbd(max_iter):
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
 
-    dualrs = np.zeros((max_iter+1),float)
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-    dualrs[0] = np.linalg.norm(dual_residual.to_numpy())
+    fulldual0 = dual_residual.to_numpy()
 
     r = []
     for ite in range(max_iter):
@@ -622,9 +621,14 @@ def step_xpbd(max_iter):
             compute_inertial_energy()
             robj = (potential_energy[None]+inertial_energy[None])
             # r_Axb = r_Axb.tolist()
+            
+            if ite % 10 == 0:
+                np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
+
+            r.append(ResidualLess(dual_r, robj, t_iter))
             if export_log:
                 logging.info(f"{frame}-{ite}  dual:{dual_r:.2e} object:{robj:.2e}  t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
-            r.append(ResidualLess(dual_r, robj, dual_residual.to_numpy().tolist(), t_iter))
+
 
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
@@ -1544,7 +1548,7 @@ def substep_GaussNewton():
     update_vel(old_pos, inv_mass, vel, pos)
 
 
-Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb','fulldual', 'niters','t'])
+Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])
 
 def substep_all_solver(max_iter=1):
     global pos, lagrangian
@@ -1556,6 +1560,7 @@ def substep_all_solver(max_iter=1):
     alpha_tilde_np = np.array([alpha] * NCONS)
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
+
     x0 = np.random.rand(NE)
     x_prev = x0.copy()
     x = x0.copy()
@@ -1563,6 +1568,9 @@ def substep_all_solver(max_iter=1):
     t_calc_residual = 0.0
     global ite
     for ite in range(max_iter):
+        calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+        fulldual0 = dual_residual.to_numpy()
+
         tic_assemble = perf_counter()
         t_iter_start = perf_counter()
         copy_field(pos_mid, pos)
@@ -1639,9 +1647,13 @@ def substep_all_solver(max_iter=1):
             compute_inertial_energy()
             robj = (potential_energy[None]+inertial_energy[None])
             r_Axb = r_Axb.tolist()
+
+            fulldual_final = dual_residual.to_numpy()
+            np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
+
             if export_log:
                 logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
-            r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb,dual_residual.to_numpy().tolist(), len(r_Axb), t_iter))
+            r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb, len(r_Axb), t_iter))
 
         x_prev = x.copy()
 

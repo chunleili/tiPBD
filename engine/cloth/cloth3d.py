@@ -1102,8 +1102,8 @@ def init_g_vcycle(levels):
         for lv in range(len(levels)):
             for which, matname in zip([1, 2, 3], ['A', 'R', 'P']):
                 mat = getattr(levels[lv], matname)
-                # if matname == 'A' and lv != 0:
-                #     continue
+                if matname == 'A' and lv != 0:
+                    continue
                 if mat is not None:
                     data_contig = np.ascontiguousarray(mat.data, dtype=np.float32)
                     indices_contig = np.ascontiguousarray(mat.indices, dtype=np.int32)

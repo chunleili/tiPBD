@@ -1113,18 +1113,8 @@ def init_g_vcycle(levels):
                                                   indptr_contig.ctypes.data, indptr_contig.shape[0],
                                                   mat.shape[0], mat.shape[1], mat.nnz)
             if lv < len(levels) - 1:
-                # tic1 = perf_counter()
                 g_vcycle.fastmg_RAP(lv)
-                mat = levels[lv+1].A
-                # print(f"RAP time: {perf_counter()-tic1:f}s")
-                # tic2 = perf_counter()
-                from scipy.sparse import csr_matrix
-                mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
-                mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
-                g_vcycle.fastmg_fetch_A(lv+1, mat.data, mat.indices, mat.indptr)
-                mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
-                # print(f"Fetch A time: {perf_counter()-tic2:f}s")
-                # print(f"total RAP time: {perf_counter()-tic1:f}s")
+
 
 def new_V_cycle(levels):
     assert g_vcycle
@@ -1136,7 +1126,15 @@ def new_V_cycle(levels):
         coarsist_b_empty = np.empty(shape=(coarsist_size,), dtype=np.float32)
         coarsist_b = np.ascontiguousarray(coarsist_b_empty, dtype=np.float32)
         g_vcycle.fastmg_get_coarsist_b(coarsist_b.ctypes.data)
-        coarsist_x = coarse_solver(levels[len(levels) - 1].A, coarsist_b)
+
+        from scipy.sparse import csr_matrix
+        mat = levels[len(levels) - 1].A
+        mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
+        mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
+        g_vcycle.fastmg_fetch_A(len(levels) - 1, mat.data, mat.indices, mat.indptr)
+        mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
+
+        coarsist_x = coarse_solver(mat, coarsist_b)
         coarsist_x_contig = np.ascontiguousarray(coarsist_x, dtype=np.float32)
         g_vcycle.fastmg_set_coarsist_x(coarsist_x_contig.ctypes.data)
     g_vcycle.fastmg_vcycle_up()

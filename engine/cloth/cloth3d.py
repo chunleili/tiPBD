@@ -56,7 +56,7 @@ parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", 
 parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-export_matrix_interval", type=int, default=1)
 parser.add_argument("-export_matrix_binary", type=int, default=True)
-parser.add_argument("-export_state", type=int, default=True)
+parser.add_argument("-export_state", type=int, default=False)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
 parser.add_argument("-auto_another_outdir", type=int, default=False)
@@ -1079,8 +1079,8 @@ def init_g_vcycle(levels):
         for lv in range(len(levels)):
             for which, matname in zip([1, 2, 3], ['A', 'R', 'P']):
                 mat = getattr(levels[lv], matname)
-                if matname == 'A' and lv != 0:
-                    continue
+                # if matname == 'A' and lv != 0:
+                #     continue
                 if mat is not None:
                     data_contig = np.ascontiguousarray(mat.data, dtype=np.float32)
                     indices_contig = np.ascontiguousarray(mat.indices, dtype=np.int32)
@@ -1089,13 +1089,13 @@ def init_g_vcycle(levels):
                                                   indices_contig.ctypes.data, indices_contig.shape[0],
                                                   indptr_contig.ctypes.data, indptr_contig.shape[0],
                                                   mat.shape[0], mat.shape[1], mat.nnz)
-            print("-----------------")
-            print(f"Done set_lv_csrmat {lv}")
-            print(f"Doning RAP at level {lv}")
-            print(f"NNZ from py: {levels[lv+1].A.nnz}")
-            g_vcycle.fastmg_RAP(lv)
-            print(f"Done RAP at level {lv}")
-            # exit()
+            # print("-----------------")
+            # print(f"Done set_lv_csrmat {lv}")
+            # print(f"Doning RAP at level {lv}")
+            # print(f"NNZ from py: {levels[lv+1].A.nnz}")
+            # g_vcycle.fastmg_RAP(lv)
+            # print(f"Done RAP at level {lv}")
+            # # exit()
 
 def new_V_cycle(levels):
     assert g_vcycle
@@ -1789,55 +1789,64 @@ viewer = Viewer()
 
 initial_frame = frame
 step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
-while True:
-    step_pbar.update(1)
-    # print()
-    logging.info("")
-    t_one_frame_start = time.perf_counter()
-    frame += 1
-    if use_viewer:
-        for e in viewer.window.get_events(ti.ui.PRESS):
-            if e.key in [ti.ui.ESCAPE]:
-                exit()
-            if e.key == ti.ui.SPACE:
-                paused = not paused
-                print("paused:",paused)
-    if not paused:
-        if solver_type == "XPBD":
-            step_xpbd(max_iter)
-        else:
-            substep_all_solver(max_iter)
-        if export_mesh:
-            tic = time.perf_counter()
-            write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
-            t_export_mesh = time.perf_counter()-tic
-        if export_state:
-            tic = time.perf_counter()
-            save_state(out_dir+'/state/' + f"{frame:04d}.npz")
-            t_save_state = time.perf_counter()-tic
-        if report_time:
-            total_export_time = t_export_mesh+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
-            t_frame = time.perf_counter()-t_one_frame_start
+try:
+    while True:
+        step_pbar.update(1)
+        # print()
+        logging.info("")
+        t_one_frame_start = time.perf_counter()
+        frame += 1
+        if use_viewer:
+            for e in viewer.window.get_events(ti.ui.PRESS):
+                if e.key in [ti.ui.ESCAPE]:
+                    exit()
+                if e.key == ti.ui.SPACE:
+                    paused = not paused
+                    print("paused:",paused)
+        if not paused:
+            if solver_type == "XPBD":
+                step_xpbd(max_iter)
+            else:
+                substep_all_solver(max_iter)
+            if export_mesh:
+                tic = time.perf_counter()
+                write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
+                t_export_mesh = time.perf_counter()-tic
+            if export_state:
+                tic = time.perf_counter()
+                save_state(out_dir+'/state/' + f"{frame:04d}.npz")
+                t_save_state = time.perf_counter()-tic
+            if report_time:
+                total_export_time = t_export_mesh+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
+                t_frame = time.perf_counter()-t_one_frame_start
+                if export_log:
+                    logging.info(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
+                    logging.info(f"Time of frame-{frame}: {t_frame:.2f}s")
+        if frame == end_frame:
+            t_all = time.perf_counter() - timer_all
+            end_wall_time = datetime.datetime.now()
+            s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_wall_time}, end at {end_wall_time}."
             if export_log:
-                logging.info(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
-                logging.info(f"Time of frame-{frame}: {t_frame:.2f}s")
-    
-    if frame == end_frame:
-        t_all = time.perf_counter() - timer_all
-        end_wall_time = datetime.datetime.now()
-        s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_wall_time}, end at {end_wall_time}."
-        if export_log:
-            logging.info(s)
-        exit()
-    if use_viewer:
-        viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
-        viewer.scene.set_camera(viewer.camera)
-        viewer.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
-        viewer.scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
-        viewer.canvas.scene(viewer.scene)
-        # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
-        viewer.window.show()
-        if save_image:
-            file_path = out_dir + f"{frame:04d}.png"
-            viewer.window.save_image(file_path)  # export and show in GUI
-    print()
+                logging.info(s)
+            exit()
+        if use_viewer:
+            viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
+            viewer.scene.set_camera(viewer.camera)
+            viewer.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
+            viewer.scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
+            viewer.canvas.scene(viewer.scene)
+            # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
+            viewer.window.show()
+            if save_image:
+                file_path = out_dir + f"{frame:04d}.png"
+                viewer.window.save_image(file_path)  # export and show in GUI
+        print()
+except KeyboardInterrupt:
+    print("\n\n------KeyboardInterrupt-----")
+    print(f"frame: {frame}")
+    t_all = time.perf_counter() - timer_all
+    end_wall_time = datetime.datetime.now()
+    s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {frame}, total {frame-initial_frame} frames. \nAvg time per frame: {t_all/(frame-initial_frame):.2f}s. \nStart at {start_wall_time}, end at {end_wall_time}."
+    if export_log:
+        logging.info(s)
+    exit()

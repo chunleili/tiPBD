@@ -257,6 +257,13 @@ struct Vec {
     T *data() noexcept {
         return m_data;
     }
+
+    void assign2(T* d, size_t n)
+    {
+        m_data = d;
+        m_size = n;
+        m_cap = n;
+    }
 };
 
 struct DnVec {
@@ -541,18 +548,18 @@ struct Kernels {
                                 &alpha, matA, matB, &beta, matC,
                                 computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
 
-        matC_.data.assign(dC_values, matC_.numnonz);
-        matC_.indices.assign(dC_columns, matC_.numnonz);
-        matC_.indptr.assign(dC_csrOffsets, matC_.nrows + 1);
+        matC_.indices.assign2(dC_columns, matC_.numnonz);
+        matC_.indptr.assign2(dC_csrOffsets, matC_.nrows + 1);
+        matC_.data.assign2(dC_values, matC_.numnonz);
 
-        using namespace std;
-        cout<<"A: "<<matA_.nrows<<" "<<matA_.ncols<<" "<<matA_.numnonz<<endl;
-        cout<<"B: "<<matB_.nrows<<" "<<matB_.ncols<<" "<<matB_.numnonz<<endl;
-        cout<<"C: "<<matC_.nrows<<" "<<matC_.ncols<<" "<<matC_.numnonz<<endl;
-        for (int i = 0; i < 10; ++i) {
+        // using namespace std;
+        // cout<<"A: "<<matA_.nrows<<" "<<matA_.ncols<<" "<<matA_.numnonz<<endl;
+        // cout<<"B: "<<matB_.nrows<<" "<<matB_.ncols<<" "<<matB_.numnonz<<endl;
+        // cout<<"C: "<<matC_.nrows<<" "<<matC_.ncols<<" "<<matC_.numnonz<<endl;
+        // for (int i = 0; i < 10; ++i) {
             // std::cout<<matC_.data<<" ";
-        }
-        std::cout<<"Done"<<std::endl;
+        // }
+        // std::cout<<"Done"<<std::endl;
     }
 
 
@@ -788,23 +795,60 @@ struct VCycle : Kernels {
             CSR<float> &R = levels.at(lv).R;
             CSR<float> &P = levels.at(lv).P;
             CSR<float> AP;
-            CSR<float> &RAP = levels.at(lv).A;
-            using namespace std;
-            cout<<"A: "<<A.nrows<<" "<<A.ncols<<" "<<A.numnonz<<endl;
-            cout<<"R: "<<R.nrows<<" "<<R.ncols<<" "<<R.numnonz<<endl;
-            cout<<"P: "<<P.nrows<<" "<<P.ncols<<" "<<P.numnonz<<endl;
-            cout<<"Doing AP"<<endl;
+            CSR<float> &RAP = levels.at(lv+1).A;
+            // using namespace std;
+            // cout<<"A: "<<A.nrows<<" "<<A.ncols<<" "<<A.numnonz<<endl;
+            // cout<<"R: "<<R.nrows<<" "<<R.ncols<<" "<<R.numnonz<<endl;
+            // cout<<"P: "<<P.nrows<<" "<<P.ncols<<" "<<P.numnonz<<endl;
+            // cout<<"Doing AP"<<endl;
             spgemm(A, P, AP) ;
-            cout<<"Done AP"<<endl;
-            cout<<"Doing RAP"<<endl;
+            // cout<<"Done AP"<<endl;
+            // cout<<"Doing RAP"<<endl;
             spgemm(R, AP, RAP);
-            cout<<"Done RAP"<<endl;
+            // cout<<"Done RAP"<<endl;
+    }
+
+    void fetch_A(size_t lv, float *data, int *indices, int *indptr) {
+        CSR<float> &A = levels.at(lv).A;
+        CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indices, A.indices.data(), A.indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
+    }
+    
+};
+
+struct AssembleMatrix : Kernels {
+    CSR<float> A;
+    CSR<float> G;
+    CSR<float> M;
+    Vec<float> alpha_tilde;
+
+    void fetch_A(float *data, int *indices, int *indptr) {
+        CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indices, A.indices.data(), A.indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
+    }
+
+    void set_G_M(float const *Gp, size_t nG, int const *Gindicesp, size_t nGindices, int const *Gindptrp, size_t nGptr, size_t Grows, size_t Gcols, size_t Gnnz, float const *Mp, size_t nM, int const *Mindicesp, size_t nMindices, int const *Mindptrp, size_t nMptr, size_t Mrows, size_t Mcols, size_t Mnnz) {
+        G.assign(Gp, nG, Gindicesp, nGindices, Gindptrp, nGptr, Grows, Gcols, Gnnz);
+        M.assign(Mp, nM, Mindicesp, nMindices, Mindptrp, nMptr, Mrows, Mcols, Mnnz);
+    }
+
+    void set_alpha_tilde(float *a, size_t n) {
+        alpha_tilde.assign(a, n);
+    }
+
+    void compute_GMG() {
+        CSR<float> GM;
+        spgemm(G, M, GM);
+        spgemm(GM, G, A);
     }
 };
 
-}
+} // namespace
 
 static VCycle *fastmg = nullptr;
+static AssembleMatrix *fastA = nullptr;
 
 #if _WIN32
 #define DLLEXPORT __declspec(dllexport)
@@ -888,4 +932,24 @@ extern "C" DLLEXPORT void fastmg_fetch_cg_final_x(float *x) {
 
 extern "C" DLLEXPORT void fastmg_RAP(size_t lv) {
     fastmg->compute_RAP(lv);
+}
+
+extern "C" DLLEXPORT void fastmg_fetch_A(size_t lv, float* data, int* indices, int* indptr) {
+    fastmg->fetch_A(lv, data, indices, indptr);
+}
+
+extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) {
+    fastA->fetch_A(data, indices, indptr);
+}
+
+extern "C" DLLEXPORT void fastA_set_G_M(float const *Gp, size_t nG, int const *Gindicesp, size_t nGindices, int const *Gindptrp, size_t nGptr, size_t Grows, size_t Gcols, size_t Gnnz, float const *Mp, size_t nM, int const *Mindicesp, size_t nMindices, int const *Mindptrp, size_t nMptr, size_t Mrows, size_t Mcols, size_t Mnnz) {
+    fastA->set_G_M(Gp, nG, Gindicesp, nGindices, Gindptrp, nGptr, Grows, Gcols, Gnnz, Mp, nM, Mindicesp, nMindices, Mindptrp, nMptr, Mrows, Mcols, Mnnz);
+}
+
+extern "C" DLLEXPORT void fastA_set_alpha_tilde(float *alpha_tilde, size_t n) {
+    fastA->set_alpha_tilde(alpha_tilde, n);
+}
+
+extern "C" DLLEXPORT void fastA_compute_GMG() {
+    fastA->compute_GMG();
 }

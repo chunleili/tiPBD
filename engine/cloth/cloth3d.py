@@ -75,7 +75,7 @@ parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.jso
 parser.add_argument("-auto_complete_path", type=int, default=0, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
 parser.add_argument("-vcycle", type=str, default="new", help="old or new")
-parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin")
+parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 
 
 args = parser.parse_args()
@@ -910,6 +910,21 @@ def build_levels(A, Ps=[]):
 
     return levels
 
+def build_levels_new(A, Ps=[]):
+    '''Give A and a list of prolongation matrices Ps, return a list of levels'''
+    lvl = len(Ps) + 1 # number of levels
+
+    levels = [MultiLevel() for i in range(lvl)]
+
+    levels[0].A = A
+
+    for i in range(lvl-1):
+        levels[i].P = Ps[i]
+        levels[i].R = Ps[i].T
+        levels[i+1].A = scipy.sparse.csr_matrix((levels[i].P.shape[1], levels[i].P.shape[1]), dtype=np.float32)
+    return levels
+
+
 def setup_AMG(A):
     global chebyshev_coeff
     Ps = build_Ps(A)
@@ -1068,6 +1083,14 @@ def init_g_vcycle(levels):
         g_vcycle.fastmg_coarse_solve.argtypes = []
         g_vcycle.fastmg_vcycle_up.argtypes = []
         g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
+        import numpy.ctypeslib as ctl
+        g_vcycle.fastmg_fetch_A.argtypes = [ctypes.c_size_t, ctl.ndpointer(np.float32, 
+                                            flags='aligned, c_contiguous'),  # data
+                                            ctl.ndpointer(np.int32,
+                                            flags='aligned, c_contiguous'),  # indices
+                                            ctl.ndpointer(np.int32,
+                                            flags='aligned, c_contiguous'),    # indptr
+                                            ]
 
     if g_vcycle_cached_levels != id(levels):
         # print('Setup detected! reuploading A, R, P matrices')
@@ -1089,13 +1112,19 @@ def init_g_vcycle(levels):
                                                   indices_contig.ctypes.data, indices_contig.shape[0],
                                                   indptr_contig.ctypes.data, indptr_contig.shape[0],
                                                   mat.shape[0], mat.shape[1], mat.nnz)
-            # print("-----------------")
-            # print(f"Done set_lv_csrmat {lv}")
-            # print(f"Doning RAP at level {lv}")
-            # print(f"NNZ from py: {levels[lv+1].A.nnz}")
-            # g_vcycle.fastmg_RAP(lv)
-            # print(f"Done RAP at level {lv}")
-            # # exit()
+            if lv < len(levels) - 1:
+                # tic1 = perf_counter()
+                g_vcycle.fastmg_RAP(lv)
+                mat = levels[lv+1].A
+                # print(f"RAP time: {perf_counter()-tic1:f}s")
+                # tic2 = perf_counter()
+                from scipy.sparse import csr_matrix
+                mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
+                mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
+                g_vcycle.fastmg_fetch_A(lv+1, mat.data, mat.indices, mat.indptr)
+                mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
+                # print(f"Fetch A time: {perf_counter()-tic2:f}s")
+                # print(f"total RAP time: {perf_counter()-tic1:f}s")
 
 def new_V_cycle(levels):
     assert g_vcycle
@@ -1482,7 +1511,7 @@ def substep_all_solver(max_iter=1):
                 Ps = setup_AMG(A)
                 logging.info(f"setup AMG time:{perf_counter()-tic}")
             tic = time.perf_counter()
-            levels = build_levels(A, Ps)
+            levels = build_levels_new(A, Ps)
             logging.info(f"build_levels time:{time.perf_counter()-tic}")
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()

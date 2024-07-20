@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.23)
 
+set(CMAKE_CXX_STANDARD 17)
+
 set(CMAKE_CUDA_ARCHITECTURES 89)
 
 # compile to mgcg_cuda/lib
@@ -15,3 +17,7 @@ project(my_project LANGUAGES CXX CUDA)
 add_library(fast-vcycle-gpu SHARED vcycle.cu)
 target_link_libraries(fast-vcycle-gpu PRIVATE cusparse cublas)
 target_include_directories(fast-vcycle-gpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
+
+
+add_executable(mgxpbd mgxpbd.cpp)
+target_include_directories(mgxpbd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)

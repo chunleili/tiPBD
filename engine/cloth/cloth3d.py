@@ -1412,8 +1412,8 @@ def fill_A_ti():
     print(f"fill_A_offdiag_ijv_kernel time: {perf_counter()-tic2:.3f}s")
 
     # tic = perf_counter()
-    A_off_diag = A_off_diag.tocsr()
-    A = A_diag + A_off_diag
+    A = A_off_diag.tocsr()
+    A.setdiag(A_diag.diagonal())
     A = A.tocsr()
     print(f"fill_A_ti time: {perf_counter()-tic1:.3f}s")
     return A
@@ -1548,8 +1548,8 @@ def substep_all_solver(max_iter=1):
         t_iter_start = perf_counter()
         copy_field(pos_mid, pos)
 
-        # A,G = fill_A_by_spmm(M_inv, ALPHA)
-        A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
+        A,G = fill_A_by_spmm(M_inv, ALPHA)
+        # A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
         # A_ = fill_A_ti()
         # flag =  csr_is_equal(A, A_)
         update_constraints_kernel(pos, edge, rest_len, constraints)
@@ -1794,6 +1794,50 @@ if auto_another_outdir:
     out_dir = create_another_outdir(out_dir)
     dont_clean_results = True
 
+
+def init_set_P_R_manually():
+    if solver_type=="AMG":
+        # init_edge_center(edge_center, edge, pos)
+        if save_P:
+            R, P, labels, new_M = compute_R_and_P_kmeans()
+            scipy.io.mmwrite(misc_dir_path + "R.mtx", R)
+            scipy.io.mmwrite(misc_dir_path + "P.mtx", P)
+            np.savetxt(misc_dir_path + "labels.txt", labels, fmt="%d")
+        if load_P:
+            R = scipy.io.mmread(misc_dir_path+ "R.mtx")
+            P = scipy.io.mmread(misc_dir_path+ "P.mtx")
+            # labels = np.loadtxt( "labels.txt", dtype=np.int32)
+
+
+def init_direct_fill_A():
+    tic1 = perf_counter()
+    print("Initializing adjacent edge and abc...")
+    adjacent_edge = init_adj_edge(edges=edge.to_numpy())
+    adjacent_edge,num_adjacent_edge = dict_to_ndarr(adjacent_edge)
+    print(f"init_adjacent_edge time: {perf_counter()-tic1:.3f}s")
+
+    tic2 = perf_counter()
+    adjacent_edge_abc = np.empty((NE, 20), dtype=np.int32)
+    adjacent_edge_abc.fill(-1)
+    init_adjacent_edge_abc_kernel(NE,edge,adjacent_edge,num_adjacent_edge,adjacent_edge_abc)
+
+    print(f"init_adjacent_edge_abc time: {perf_counter()-tic2:.3f}s")
+    print(f"init_adjacent_edge and abc time: {perf_counter()-tic1:.3f}s")
+    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc
+
+    # #calculate number of nonzeros by counting number of adjacent edges
+    # num_nonz = calc_num_nonz() 
+    # nnz_each_row = calc_nnz_each_row()
+
+    # # init csr pattern. In the future we will replace all ijv pattern with csr
+    # data, indices, indptr = init_A_CSR_pattern()
+    # coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
+
+    # spMatA = SpMat(num_nonz, NE)
+    # spMatA._init_pattern()
+    # fill_A_diag_kernel(spMatA.diags)
+
+
 misc_dir_path = prj_path + "/data/misc/"
 mkdir_if_not_exist(out_dir)
 mkdir_if_not_exist(out_dir + "/r/")
@@ -1830,45 +1874,7 @@ print("Initializing edge done")
 if setup_num == 1:
     init_scale()
 
-use_direct_fill_A = False
-if use_direct_fill_A:
-    tic1 = perf_counter()
-    print("Initializing adjacent edge and abc...")
-    adjacent_edge = init_adj_edge(edges=edge.to_numpy())
-    adjacent_edge,num_adjacent_edge = dict_to_ndarr(adjacent_edge)
-    print(f"init_adjacent_edge time: {perf_counter()-tic1:.3f}s")
-
-    tic2 = perf_counter()
-    adjacent_edge_abc = np.empty((NE, 20), dtype=np.int32)
-    adjacent_edge_abc.fill(-1)
-    init_adjacent_edge_abc_kernel(NE,edge,adjacent_edge,num_adjacent_edge,adjacent_edge_abc)
-
-    print(f"init_adjacent_edge_abc time: {perf_counter()-tic2:.3f}s")
-    print(f"init_adjacent_edge and abc time: {perf_counter()-tic1:.3f}s")
-
-    # #calculate number of nonzeros by counting number of adjacent edges
-    # num_nonz = calc_num_nonz() 
-    # nnz_each_row = calc_nnz_each_row()
-
-    # # init csr pattern. In the future we will replace all ijv pattern with csr
-    # data, indices, indptr = init_A_CSR_pattern()
-    # coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
-
-    # spMatA = SpMat(num_nonz, NE)
-    # spMatA._init_pattern()
-    # fill_A_diag_kernel(spMatA.diags)
-
-# if solver_type=="AMG":
-#     # init_edge_center(edge_center, edge, pos)
-#     if save_P:
-#         R, P, labels, new_M = compute_R_and_P_kmeans()
-#         scipy.io.mmwrite(misc_dir_path + "R.mtx", R)
-#         scipy.io.mmwrite(misc_dir_path + "P.mtx", P)
-#         np.savetxt(misc_dir_path + "labels.txt", labels, fmt="%d")
-#     if load_P:
-#         R = scipy.io.mmread(misc_dir_path+ "R.mtx")
-#         P = scipy.io.mmread(misc_dir_path+ "P.mtx")
-#         # labels = np.loadtxt( "labels.txt", dtype=np.int32)
+# adjacent_edge, num_adjacent_edge, adjacent_edge_abc = init_direct_fill_A()
 
 if restart:
     if restart_from_last_frame :

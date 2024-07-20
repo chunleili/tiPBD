@@ -66,7 +66,7 @@ bool report_iter_residual = true;
 std::filesystem::path p(__FILE__);
 std::filesystem::path prj_path = p.parent_path().parent_path();
 auto proj_dir_path = prj_path.string();
-std::string result_dir = proj_dir_path + "/result/";
+std::string result_dir = proj_dir_path + "/result/lastest/";
 
 // typedefs
 using Vec3f = Eigen::Vector3f;
@@ -424,7 +424,7 @@ void remove_duplicate(std::vector<int> &vec)
 
 void clean_result_dir()
 {
-    std::string path = proj_dir_path + "/result/";
+    std::string path = result_dir;
 
     for (const auto& entry : std::filesystem::directory_iterator(path)) 
     {
@@ -433,8 +433,14 @@ void clean_result_dir()
             std::filesystem::remove(entry.path());
         }
     }
-
     std::cout<<"clean result dir done."<<endl;
+}
+
+
+void create_result_dir()
+{
+    std::filesystem::create_directory(result_dir);
+    std::cout<<"create result dir done."<<endl;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1348,13 +1354,13 @@ void substep_all_solver()
         update_constraints();
         fill_b();   //-C-alpha*lagrangian
 
-        int stop_frame = 1000;
+        int stop_frame = 100;
         if(frame_num==stop_frame)
         {
-            auto filename_A = proj_dir_path + "/result/A_"+to_string(stop_frame)+"_N"+to_string(N)+".mtx";
-            auto filename_b = proj_dir_path + "/result/b_"+to_string(stop_frame)+"_N"+to_string(N)+".txt";
-            saveMatrix(A, filename_A);
-            saveVector(b, filename_b);
+            // auto filename_A = proj_dir_path + "/result/A_"+to_string(stop)+"_N"+to_string(N)+".mtx";
+            // auto filename_b = proj_dir_path + "/result/b_"+to_string(stop)+"_N"+to_string(N)+".txt";
+            // saveMatrix(A, filename_A);
+            // saveVector(b, filename_b);
             exit(0);
         }
 
@@ -1509,7 +1515,7 @@ void initialization()
     init_pos();
     init_edge();
     init_tri();
-    load_R_P();
+    // load_R_P();
     fill_M_inv();
     fill_ALPHA();
     init_v2e();
@@ -1561,8 +1567,8 @@ int main(int argc, char *argv[])
     #endif
     
     t_main.start();
-
-    clean_result_dir();
+    // create_result_dir();
+    // clean_result_dir();
 
     num_particles = NV;
     printf("num_particles = %d\n", num_particles);

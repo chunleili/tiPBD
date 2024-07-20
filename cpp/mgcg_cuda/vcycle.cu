@@ -7,6 +7,20 @@
 #include <cublas_v2.h>
 #include <cusparse.h>
 #include <iostream>
+#include <string>
+#include <sstream>
+#include <cstdio>
+#include <cmath>
+#include <chrono>
+#include <filesystem>
+#include <array>
+#include <unordered_set>
+
+#include "Eigen/Core"
+#include "Eigen/Dense"
+#include "Eigen/Sparse"
+#include "unsupported/Eigen/SparseExtra"
+using namespace std;
 
 #if __GNUC__ && __linux__
 #include <sys/ptrace.h>
@@ -63,6 +77,57 @@
         cuerr();                                                               \
     }                                                                          \
 }
+
+
+
+using namespace std;
+using Vec3f = Eigen::Vector3f;
+using EigenSpMat = Eigen::SparseMatrix<float>;
+using Eigen::Map;
+using Eigen::Vector3f;
+using Eigen::VectorXf;
+using Triplet = Eigen::Triplet<float>;
+using Vec3f = Eigen::Vector3f;
+using Vec2i = std::array<int, 2>; // using Vec2i = Eigen::Vector2i;
+using Vec3i = std::array<int, 3>; // using Vec3i = Eigen::Vector3i;
+using Field1f = vector<float>;
+using Field3f = vector<Vec3f>;
+using Field3i = vector<Vec3i>;
+using Field2i = vector<Vec2i>;
+using Field1i = vector<int>;
+using Field23f = vector<array<Vec3f, 2>>;
+using FieldXi = vector<vector<int>>;
+
+
+
+
+// utility functions
+#if defined(WIN32) || defined(_WIN32) || defined(WIN64)
+#define FORCE_INLINE __forceinline
+#else
+#define FORCE_INLINE __attribute__((always_inline))
+#endif
+
+FORCE_INLINE float length(const Vec3f &vec)
+{
+    // return glm::length(vec);
+    return vec.norm();
+}
+
+FORCE_INLINE Vec3f normalize(const Vec3f &vec)
+{
+    // return glm::normalize(vec);
+    return vec.normalized();
+}
+
+FORCE_INLINE float dot(const Vec3f &vec1, const Vec3f &vec2)
+{
+    // return glm::dot(vec1, vec2);
+    return vec1.dot(vec2);
+}
+
+
+
 
 namespace {
 
@@ -344,11 +409,11 @@ struct CSR {
     CSR() noexcept : nrows(0), ncols(0), numnonz(0) {}
 
     void assign(T const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
+        indices.resize(nind);
+        indptr.resize(nptr);
         data.resize(ndat);
         CHECK_CUDA(cudaMemcpy(data.data(), datap, data.size() * sizeof(T), cudaMemcpyHostToDevice));
-        indices.resize(nind);
         CHECK_CUDA(cudaMemcpy(indices.data(), indicesp, indices.size() * sizeof(int), cudaMemcpyHostToDevice));
-        indptr.resize(nptr);
         CHECK_CUDA(cudaMemcpy(indptr.data(), indptrp, indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
         nrows = rows;
         ncols = cols;
@@ -605,6 +670,38 @@ struct Kernels {
         CHECK_CUBLAS(cublasSnrm2_v2(cublas, x.size(), x.data(), 1, &result));
         return result;
     }
+
+
+    void transpose(CSR<float> const & A, CSR<float>& AT)
+    {
+        // https://docs.nvidia.com/cuda/cusparse/index.html?highlight=cusparseCsr2cscEx2#cusparsecsr2cscex2
+
+        // cusparseHandle_t     handle = NULL;
+        int m = A.nrows;
+        int n = A.ncols;
+        int nnz = A.numnonz;
+        const float *csrVal  = A.data.data();
+        const int *csrRowPtr = A.indptr.data();
+        const int *csrColInd = A.indices.data();
+        float *cscVal  = AT.data.data();
+        int *cscColPtr = AT.indptr.data();
+        int *cscRowInd = AT.indices.data();
+        cudaDataType  valType = CUDA_R_32F;
+        cusparseAction_t copyValues = CUSPARSE_ACTION_NUMERIC;
+        cusparseIndexBase_t idxBase = CUSPARSE_INDEX_BASE_ZERO;
+        cusparseCsr2CscAlg_t    alg = CUSPARSE_CSR2CSC_ALG_DEFAULT;
+        cusparseStatus_t status;
+        size_t bufferSize = 0;
+        Buffer buffer;
+
+        CHECK_CUSPARSE( cusparseCsr2cscEx2_bufferSize(cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, &bufferSize));
+        buffer.reserve(bufferSize);
+        CHECK_CUSPARSE( cusparseCsr2cscEx2(           cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, buffer.data()));                
+    }
+
+
+
+
 };
 
 struct MGLevel {
@@ -821,7 +918,17 @@ struct AssembleMatrix : Kernels {
     CSR<float> A;
     CSR<float> G;
     CSR<float> M;
-    Vec<float> alpha_tilde;
+    CSR<float> ALPHA;
+    float alpha;
+    int NE;
+    Field3f pos;
+    Field2i edge;
+    Field1f rest_len;
+    Field1f inv_mass;
+    Field1f constraints;
+    Field23f gradC;
+
+
 
     void fetch_A(float *data, int *indices, int *indptr) {
         CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
@@ -829,19 +936,145 @@ struct AssembleMatrix : Kernels {
         CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
     }
 
-    void set_G_M(float const *Gp, size_t nG, int const *Gindicesp, size_t nGindices, int const *Gindptrp, size_t nGptr, size_t Grows, size_t Gcols, size_t Gnnz, float const *Mp, size_t nM, int const *Mindicesp, size_t nMindices, int const *Mindptrp, size_t nMptr, size_t Mrows, size_t Mcols, size_t Mnnz) {
-        G.assign(Gp, nG, Gindicesp, nGindices, Gindptrp, nGptr, Grows, Gcols, Gnnz);
-        M.assign(Mp, nM, Mindicesp, nMindices, Mindptrp, nMptr, Mrows, Mcols, Mnnz);
+    void set_G(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
+        G.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
     }
 
-    void set_alpha_tilde(float *a, size_t n) {
-        alpha_tilde.assign(a, n);
+    void set_M(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
+        M.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
+    }
+
+    void set_ALPHA(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
+        ALPHA.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
     }
 
     void compute_GMG() {
+        cout<<"in GMG"<<endl;
         CSR<float> GM;
+        cout<<"G: "<<G.nrows<<" "<<G.ncols<<" "<<G.numnonz<<endl;
+        cout<<"M: "<<M.nrows<<" "<<M.ncols<<" "<<M.numnonz<<endl;
         spgemm(G, M, GM);
-        spgemm(GM, G, A);
+        cout<<"finish GM"<<endl;
+        cout<<"GM: "<<GM.nrows<<" "<<GM.ncols<<" "<<GM.numnonz<<endl;
+        CSR<float> GT;
+        GT.resize(G.ncols, G.nrows, G.numnonz);
+        cout<<"GT: "<<GT.nrows<<" "<<GT.ncols<<" "<<GT.numnonz<<endl;
+        transpose(G, GT);
+        cout<<"finish GT"<<endl;
+        cout<<"GT: "<<GT.nrows<<" "<<GT.ncols<<" "<<GT.numnonz<<endl;
+        spgemm(GM, GT, A);
+        cout<<"finish GMG"<<endl;
+
+        // plus ALPHA
+        
+
+    }
+
+
+
+
+    void fill_gradC_triplets(EigenSpMat& G)
+    {
+        std::vector<Triplet> gradC_triplets;
+        gradC_triplets.reserve(6 * NE);
+        int cnt = 0;
+        for (int j = 0; j < NE; j++)
+        {
+            auto ind = edge[j];
+            for (int p = 0; p < 2; p++)
+            {
+                for (int d = 0; d < 3; d++)
+                {
+                    int pid = ind[p];
+                    gradC_triplets.push_back(Triplet(j, 3 * pid + d, gradC[j][p][d]));
+                    cnt++;
+                }
+            }
+        }
+        // printf("cnt: %d", cnt);
+        G.setFromTriplets(gradC_triplets.begin(), gradC_triplets.end());
+        G.makeCompressed();
+    }
+
+
+    void compute_C_and_gradC()
+    {
+        for (int i = 0; i < NE; i++)
+        {
+            int idx0 = edge[i][0];
+            int idx1 = edge[i][1];
+            Vec3f dis = pos[idx0] - pos[idx1];
+            constraints[i] = length(dis) - rest_len[i];
+            Vec3f g = normalize(dis);
+
+            gradC[i][0] = g;
+            gradC[i][1] = -g;
+        }
+    }
+
+    void fill_A_by_spmm()
+    {
+        compute_C_and_gradC();
+        EigenSpMat G_;
+        fill_gradC_triplets(G_);
+        G_.makeCompressed();
+        // compute_GMG();
+        // fill_A_add_alpha();
+    }
+
+
+    void EigenSparseToCuSparseTranspose(
+        const Eigen::SparseMatrix<double> &mat, int *row, int *col, double *val)
+    {
+        const int num_non0  = mat.nonZeros();
+        const int num_outer = mat.cols() + 1;
+
+        cudaMemcpy(row,
+                    mat.outerIndexPtr(),
+                    sizeof(int) * num_outer,
+                    cudaMemcpyHostToDevice);
+
+        cudaMemcpy(
+            col, mat.innerIndexPtr(), sizeof(int) * num_non0, cudaMemcpyHostToDevice);
+
+        cudaMemcpy(
+            val, mat.valuePtr(), sizeof(double) * num_non0, cudaMemcpyHostToDevice);
+    }
+
+
+    void CuSparseTransposeToEigenSparse(
+        const int *row,
+        const int *col,
+        const double *val,
+        const int num_non0,
+        const int mat_row,
+        const int mat_col,
+        Eigen::SparseMatrix<double> &mat)
+    {
+        std::vector<int> outer(mat_col + 1);
+        std::vector<int> inner(num_non0);
+        std::vector<double> value(num_non0);
+
+        cudaMemcpy(
+            outer.data(), row, sizeof(int) * (mat_col + 1), cudaMemcpyDeviceToHost);
+
+        cudaMemcpy(inner.data(), col, sizeof(int) * num_non0, cudaMemcpyDeviceToHost);
+
+        cudaMemcpy(
+            value.data(), val, sizeof(double) * num_non0, cudaMemcpyDeviceToHost);
+
+        Eigen::Map<Eigen::SparseMatrix<double>> mat_map(
+            mat_row, mat_col, num_non0, outer.data(), inner.data(), value.data());
+
+        mat = mat_map.eval();
+    }
+
+    void fill_A_add_alpha(EigenSpMat &EigenA)
+    {
+        for(int i=0; i<NE; i++)
+        {
+            EigenA.coeffRef(i,i) += alpha;
+        }
     }
 };
 
@@ -938,18 +1171,33 @@ extern "C" DLLEXPORT void fastmg_fetch_A(size_t lv, float* data, int* indices, i
     fastmg->fetch_A(lv, data, indices, indptr);
 }
 
-extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) {
-    fastA->fetch_A(data, indices, indptr);
+
+
+// ------------------------------------------------------------------------------
+extern "C" DLLEXPORT void fastA_setup() {
+    if (!fastA)
+        fastA = new AssembleMatrix{};
 }
 
-extern "C" DLLEXPORT void fastA_set_G_M(float const *Gp, size_t nG, int const *Gindicesp, size_t nGindices, int const *Gindptrp, size_t nGptr, size_t Grows, size_t Gcols, size_t Gnnz, float const *Mp, size_t nM, int const *Mindicesp, size_t nMindices, int const *Mindptrp, size_t nMptr, size_t Mrows, size_t Mcols, size_t Mnnz) {
-    fastA->set_G_M(Gp, nG, Gindicesp, nGindices, Gindptrp, nGptr, Grows, Gcols, Gnnz, Mp, nM, Mindicesp, nMindices, Mindptrp, nMptr, Mrows, Mcols, Mnnz);
+extern "C" DLLEXPORT void fastA_set_G(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
+{
+    fastA->set_G(data, indices, indptr, rows, cols, nnz);
 }
 
-extern "C" DLLEXPORT void fastA_set_alpha_tilde(float *alpha_tilde, size_t n) {
-    fastA->set_alpha_tilde(alpha_tilde, n);
+extern "C" DLLEXPORT void fastA_set_M(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
+{
+    fastA->set_M(data, indices, indptr, rows, cols, nnz);
+}
+
+extern "C" DLLEXPORT void fastA_set_ALPHA(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
+{
+    fastA->set_ALPHA(data, indices, indptr, rows, cols, nnz);
 }
 
 extern "C" DLLEXPORT void fastA_compute_GMG() {
     fastA->compute_GMG();
+}
+
+extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) {
+    fastA->fetch_A(data, indices, indptr);
 }

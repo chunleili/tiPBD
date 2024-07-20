@@ -50,7 +50,7 @@ export_fullr = False
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=64)
+parser.add_argument("-N", type=int, default=1024)
 parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
@@ -174,9 +174,9 @@ denominator = ti.field(dtype=float, shape=(NE))
 gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
 edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
-adjacent_edge = ti.field(dtype=int, shape=(NE, 20))
-num_adjacent_edge = ti.field(dtype=int, shape=(NE))
-adjacent_edge_abc = ti.field(dtype=int, shape=(NE, 100))
+# adjacent_edge = ti.field(dtype=int, shape=(NE, 20))
+# num_adjacent_edge = ti.field(dtype=int, shape=(NE))
+# adjacent_edge_abc = ti.field(dtype=int, shape=(NE, 100))
 num_nonz = 0
 nnz_each_row = np.zeros(NE, dtype=int)
 potential_energy = ti.field(dtype=float, shape=())
@@ -317,40 +317,9 @@ def init_edge_center(
         p1, p2 = pos[idx1], pos[idx2]
         edge_center[i] = (p1 + p2) / 2.0
 
-# for debug, please do not use in real simulation. Use init_adjacent_edge_kernel instead
-def init_adjacent_edge_abc():
-    adjacent_edge_abc = []
-    for i in range(NE):
-        ii0 = edge[i][0]
-        ii1 = edge[i][1]
-
-        adj = adjacent_edge.to_numpy()[i]
-        num_adj = num_adjacent_edge.to_numpy()[i]
-        abc = []
-        for j in range(num_adj):
-            ia = adj[j]
-            if ia == i:
-                continue
-            jj0 = edge[ia][0]
-            jj1 = edge[ia][1]
-
-            a, b, c = -1, -1, -1
-            if ii0 == jj0:
-                a, b, c = ii0, ii1, jj1
-            elif ii0 == jj1:
-                a, b, c = ii0, ii1, jj0
-            elif ii1 == jj0:
-                a, b, c = ii1, ii0, jj1
-            elif ii1 == jj1:
-                a, b, c = ii1, ii0, jj0
-            abc.append(a)
-            abc.append(b)
-            abc.append(c)
-        adjacent_edge_abc.append(abc)
-    return adjacent_edge_abc
 
 @ti.kernel
-def init_adjacent_edge_abc_kernel():
+def init_adjacent_edge_abc_kernel(NE:int, edge:ti.template(), adjacent_edge:ti.types.ndarray(), num_adjacent_edge:ti.types.ndarray(), adjacent_edge_abc:ti.types.ndarray()):
     for i in range(NE):
         ii0 = edge[i][0]
         ii1 = edge[i][1]
@@ -375,43 +344,61 @@ def init_adjacent_edge_abc_kernel():
             adjacent_edge_abc[i, j*3+2] = c
 
 
-@ti.kernel
-def init_adjacent_edge_kernel(adjacent_edge:ti.template(), num_adjacent_edge:ti.template(), edge:ti.template()):
-    for i in range(NE):
-        for j in range(adjacent_edge.shape[1]):
-            adjacent_edge[i,j] = -1
+# def init_adj_edge(edges:np.ndarray,):
+#     # 构建数据结构
+#     vertex_to_edges = {}
+#     for edge_index, (v1, v2) in enumerate(edges):
+#         if v1 not in vertex_to_edges:
+#             vertex_to_edges[v1] = set()
+#         if v2 not in vertex_to_edges:
+#             vertex_to_edges[v2] = set()
+        
+#         vertex_to_edges[v1].add(edge_index)
+#         vertex_to_edges[v2].add(edge_index)
 
-    ti.loop_config(serialize=True)
-    for i in range(NE):
-        a=edge[i][0]
-        b=edge[i][1]
-        for j in range(i+1, NE):
-            if j==i:
-                continue
-            a1=edge[j][0]
-            b1=edge[j][1]
-            if a==a1 or a==b1 or b==a1 or b==b1:
-                numi = num_adjacent_edge[i]
-                numj = num_adjacent_edge[j]
-                adjacent_edge[i,numi]=j
-                adjacent_edge[j,numj]=i
-                num_adjacent_edge[i]+=1
-                num_adjacent_edge[j]+=1 
+#     # 查找某条边相邻的边
+#     def find_adjacent_edges(edge_index):
+#         v1, v2 = edges[edge_index]
+#         adjacent_edges = vertex_to_edges[v1] | vertex_to_edges[v2]  # 合并两个集合
+#         adjacent_edges.remove(edge_index)  # 移除边本身
+#         return list(adjacent_edges)
 
-def init_adjacent_edge(adjacent_edge, num_adjacent_edge, edge):
-    for i in range(NE):
-        a=edge[i][0]
-        b=edge[i][1]
-        for j in range(i+1, NE):
-            if j==i:
-                continue
-            a1=edge[j][0]
-            b1=edge[j][1]
-            if a==a1 or a==b1 or b==a1 or b==b1:
-                adjacent_edge[i][num_adjacent_edge[i]]=j
-                adjacent_edge[j][num_adjacent_edge[j]]=i
-                num_adjacent_edge[i]+=1
-                num_adjacent_edge[j]+=1
+#     # 示例：查找第0条边的相邻边
+#     print(find_adjacent_edges(0))
+#     print(find_adjacent_edges(1))
+#     print(find_adjacent_edges(2))
+#     print(find_adjacent_edges(3))
+
+
+def init_adj_edge(edges: np.ndarray):
+    # 构建数据结构
+    vertex_to_edges = {}
+    for edge_index, (v1, v2) in enumerate(edges):
+        if v1 not in vertex_to_edges:
+            vertex_to_edges[v1] = set()
+        if v2 not in vertex_to_edges:
+            vertex_to_edges[v2] = set()
+        
+        vertex_to_edges[v1].add(edge_index)
+        vertex_to_edges[v2].add(edge_index)
+
+    # 初始化存储所有边的邻接边的字典
+    all_adjacent_edges = {}
+
+    # 查找并存储每条边的邻接边
+    for edge_index in range(len(edges)):
+        v1, v2 = edges[edge_index]
+        adjacent_edges = vertex_to_edges[v1] | vertex_to_edges[v2]  # 合并两个集合
+        adjacent_edges.remove(edge_index)  # 移除边本身
+        all_adjacent_edges[edge_index] = list(adjacent_edges)
+
+    return all_adjacent_edges
+
+# # 示例用法
+# edges = np.array([[0, 1], [1, 2], [2, 0], [1, 3]])
+# adjacent_edges_dict = init_adj_edge(edges)
+# print(adjacent_edges_dict)
+
 
 def read_tri_cloth(filename):
     edge_file_name = filename + ".edge"
@@ -1194,9 +1181,6 @@ def fill_A_by_spmm(M_inv, ALPHA):
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
 
-    # mmwrite("G.mtx", G)
-    # exit()
-
     print(f"fill_G: {time.perf_counter() - tic:.4f}s")
     tic = time.perf_counter()
 
@@ -1213,13 +1197,104 @@ def fill_A_by_spmm(M_inv, ALPHA):
 
     A = G @ M_inv @ G.transpose() + ALPHA
     A = scipy.sparse.csr_matrix(A)
-    # print("spmm GMG time: ", time.perf_counter() - tic)
+    print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
     return A, G
 
+
+
+
+
+def fill_A_by_spmm_dll(M_inv, ALPHA):
+    tic = time.perf_counter()
+    G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
+    compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
+    fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
+    G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
+
+    print(f"fill_G: {time.perf_counter() - tic:.4f}s")
+
+
+    tic = time.perf_counter()
+
+    import numpy.ctypeslib as ctl
+    def initialize_fastFill(M_inv, ALPHA):
+        global fastFillLib
+
+        os.add_dll_directory(cuda_dir)
+        fastFillLib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
+
+        fastFillLib.fastA_setup.argtypes = []
+        fastFillLib.fastA_setup()
+
+        M_inv = M_inv.tocsr()
+        ALPHA = ALPHA.tocsr().astype(np.float32)
+        fastFillLib.fastA_set_M.argtypes = [
+                                ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indices
+                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indptr
+                                ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                                ]
+        fastFillLib.fastA_set_ALPHA.argtypes = [
+                                ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indices
+                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indptr
+                                ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                                ]
+        fastFillLib.fastA_set_M(M_inv.data, M_inv.indices, M_inv.indptr, M_inv.shape[0], M_inv.shape[1], M_inv.nnz)
+        fastFillLib.fastA_set_ALPHA(ALPHA.data, ALPHA.indices, ALPHA.indptr, ALPHA.shape[0], ALPHA.shape[1], ALPHA.nnz)
+        return fastFillLib
+    
+
+    if 'fastFillLib' not in globals():
+        fastFillLib = initialize_fastFill(M_inv, ALPHA)
+
+
+    print("time of initialize_fastFill: ", time.perf_counter() - tic)
+    tic2 = time.perf_counter()  
+
+    fastFillLib.fastA_set_G.argtypes = [
+                            ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                            ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indices
+                            ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indptr
+                            ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                            ]
+    fastFillLib.fastA_set_G(G.data, G.indices, G.indptr, G.shape[0], G.shape[1], G.nnz) 
+
+    print("time of fastA_set_G: ", time.perf_counter() - tic2)
+    tic3 = time.perf_counter()
+    
+    fastFillLib.fastA_compute_GMG()
+
+    print("time of fastA_compute_GMG: ", time.perf_counter() - tic3)
+    tic4 = time.perf_counter()
+
+    from scipy.sparse import csr_matrix
+    mat = csr_matrix((G.shape[0],G.shape[0]), dtype=np.float32)
+    mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
+    mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
+    fastFillLib.fastA_fetch_A.argtypes = [
+                                ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indices
+                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indptr
+                                ]
+    fastFillLib.fastA_fetch_A(mat.data, mat.indices, mat.indptr)
+    mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
+
+    print("time of fastA_fetch_A: ", time.perf_counter() - tic4)
+    tic5 = time.perf_counter()
+
+    A = mat + ALPHA
+
+    print("time of A = mat + ALPHA: ", time.perf_counter() - tic5)
+
+    # A = G @ M_inv @ G.transpose() + ALPHA
+    # A = scipy.sparse.csr_matrix(A)
+    print("fill_A_by_spmm_dll time: ", time.perf_counter() - tic)
+    return A, G
+
+
 def calc_num_nonz():
-    global num_nonz
-    num_adj = num_adjacent_edge.to_numpy()
-    num_nonz = np.sum(num_adj)+NE
+    num_nonz = np.sum(num_adjacent_edge)+num_adjacent_edge.shape[0]
     return num_nonz
 
 def calc_nnz_each_row():
@@ -1297,16 +1372,6 @@ def fill_A_offdiag_CSR_2_kernel(data:ti.types.ndarray(dtype=ti.f32)):
         cnt += 1 # diag
 
 
-# give two edge number, return the shared vertex.
-def get_shared_vertex(edge1:int, edge2:int):
-    a, b = edge[edge1]
-    c, d = edge[edge2]
-    if a == c or a == d:
-        return a
-    if b == c or b == d:
-        return b
-    return -1 # no shared vertex
-
 def is_symmetric(A):
     AT = A.transpose()
     diff = A - AT
@@ -1317,48 +1382,52 @@ def is_symmetric(A):
 
 def csr_is_equal(A, B):
     if A.shape != B.shape:
+        print("shape not equal")
         return False
-    if A.nnz != B.nnz:
-        return False
-    if np.max(np.abs(A.data.sum() - B.data.sum())) > 1e-6:
+    diff = A - B
+    maxdiff = np.abs(diff.data).max()
+    print("maxdiff: ", maxdiff)
+    if maxdiff > 1e-6:
         return False
     return True
 
 def fill_A_ti():
+    tic1 = perf_counter()
     # fill diagonal
-    # tic = perf_counter()
     diags = np.zeros(NE, np.float32)
-    fill_A_diag_kernel(diags)
+    fill_A_diag_kernel(diags, alpha, inv_mass, edge)
     A_diag = scipy.sparse.diags(diags)
     A_diag = A_diag.tocsr()
     # print(f"fill_A_diag time: {perf_counter()-tic:.3f}s")
 
+    num_nonz = calc_num_nonz()
+
     # fill off-diagonal
-    tic = perf_counter()
+    tic2 = perf_counter()
     OFF_ii, OFF_jj, OFF_vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
-    fill_A_offdiag_ijv_kernel(OFF_ii, OFF_jj, OFF_vv)
+    fill_A_offdiag_ijv_kernel(OFF_ii, OFF_jj, OFF_vv, num_adjacent_edge, adjacent_edge, adjacent_edge_abc, inv_mass)
     A_off_diag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
-    print(f"fill_A_offdiag_ijv_kernel time: {perf_counter()-tic:.3f}s")
+    print(f"fill_A_offdiag_ijv_kernel time: {perf_counter()-tic2:.3f}s")
 
     # tic = perf_counter()
     A_off_diag = A_off_diag.tocsr()
     A = A_diag + A_off_diag
     A = A.tocsr()
-    # print(f"fill_A plus time: {perf_counter()-tic:.3f}s")
+    print(f"fill_A_ti time: {perf_counter()-tic1:.3f}s")
     return A
 
 
 @ti.kernel
-def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32)):
-    for i in range(NE):
+def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
+    for i in range(edge.shape[0]):
         diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
 
 
 @ti.kernel
-def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32)):
+def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template()):
     n = 0
     ti.loop_config(serialize=True)
-    for i in range(NE):
+    for i in range(adjacent_edge.shape[0]):
         for k in range(num_adjacent_edge[i]):
             ia = adjacent_edge[i,k]
             a = adjacent_edge_abc[i, k * 3]
@@ -1477,8 +1546,10 @@ def substep_all_solver(max_iter=1):
         t_iter_start = perf_counter()
         copy_field(pos_mid, pos)
 
-        A,G = fill_A_by_spmm(M_inv, ALPHA)
-        # A = fill_A_ti()
+        # A,G = fill_A_by_spmm(M_inv, ALPHA)
+        A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
+        # A_ = fill_A_ti()
+        # flag =  csr_is_equal(A, A_)
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
@@ -1708,6 +1779,15 @@ def find_last_frame(dir):
     return last_frame
 
 
+def dict_to_ndarr(d:dict)->np.ndarray:
+    lengths = np.array([len(v) for v in d.values()])
+
+    max_len = max(len(item) for item in d.values())
+    # 使用填充或截断的方式转换为NumPy数组
+    arr = np.array([item + [-1]*(max_len - len(item)) if len(item) < max_len else item[:max_len] for item in d.values()])
+    return arr, lengths
+
+
 if auto_another_outdir:
     out_dir = create_another_outdir(out_dir)
     dont_clean_results = True
@@ -1752,37 +1832,41 @@ use_direct_fill_A = False
 if use_direct_fill_A:
     tic1 = perf_counter()
     print("Initializing adjacent edge and abc...")
-    init_adjacent_edge_kernel(adjacent_edge, num_adjacent_edge, edge)
+    adjacent_edge = init_adj_edge(edges=edge.to_numpy())
+    adjacent_edge,num_adjacent_edge = dict_to_ndarr(adjacent_edge)
     print(f"init_adjacent_edge time: {perf_counter()-tic1:.3f}s")
+
     tic2 = perf_counter()
+    adjacent_edge_abc = np.empty((NE, 20), dtype=np.int32)
     adjacent_edge_abc.fill(-1)
-    init_adjacent_edge_abc_kernel()
+    init_adjacent_edge_abc_kernel(NE,edge,adjacent_edge,num_adjacent_edge,adjacent_edge_abc)
+
     print(f"init_adjacent_edge_abc time: {perf_counter()-tic2:.3f}s")
     print(f"init_adjacent_edge and abc time: {perf_counter()-tic1:.3f}s")
 
-    #calculate number of nonzeros by counting number of adjacent edges
-    num_nonz = calc_num_nonz() 
-    nnz_each_row = calc_nnz_each_row()
+    # #calculate number of nonzeros by counting number of adjacent edges
+    # num_nonz = calc_num_nonz() 
+    # nnz_each_row = calc_nnz_each_row()
 
-    # init csr pattern. In the future we will replace all ijv pattern with csr
-    data, indices, indptr = init_A_CSR_pattern()
-    coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
+    # # init csr pattern. In the future we will replace all ijv pattern with csr
+    # data, indices, indptr = init_A_CSR_pattern()
+    # coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
 
-    spMatA = SpMat(num_nonz, NE)
-    spMatA._init_pattern()
-    fill_A_diag_kernel(spMatA.diags)
+    # spMatA = SpMat(num_nonz, NE)
+    # spMatA._init_pattern()
+    # fill_A_diag_kernel(spMatA.diags)
 
-if solver_type=="AMG":
-    # init_edge_center(edge_center, edge, pos)
-    if save_P:
-        R, P, labels, new_M = compute_R_and_P_kmeans()
-        scipy.io.mmwrite(misc_dir_path + "R.mtx", R)
-        scipy.io.mmwrite(misc_dir_path + "P.mtx", P)
-        np.savetxt(misc_dir_path + "labels.txt", labels, fmt="%d")
-    if load_P:
-        R = scipy.io.mmread(misc_dir_path+ "R.mtx")
-        P = scipy.io.mmread(misc_dir_path+ "P.mtx")
-        # labels = np.loadtxt( "labels.txt", dtype=np.int32)
+# if solver_type=="AMG":
+#     # init_edge_center(edge_center, edge, pos)
+#     if save_P:
+#         R, P, labels, new_M = compute_R_and_P_kmeans()
+#         scipy.io.mmwrite(misc_dir_path + "R.mtx", R)
+#         scipy.io.mmwrite(misc_dir_path + "P.mtx", P)
+#         np.savetxt(misc_dir_path + "labels.txt", labels, fmt="%d")
+#     if load_P:
+#         R = scipy.io.mmread(misc_dir_path+ "R.mtx")
+#         P = scipy.io.mmread(misc_dir_path+ "P.mtx")
+#         # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 if restart:
     if restart_from_last_frame :

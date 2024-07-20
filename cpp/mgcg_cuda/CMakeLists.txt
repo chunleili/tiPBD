@@ -14,3 +14,4 @@ project(my_project LANGUAGES CXX CUDA)
 
 add_library(fast-vcycle-gpu SHARED vcycle.cu)
 target_link_libraries(fast-vcycle-gpu PRIVATE cusparse cublas)
+target_include_directories(fast-vcycle-gpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)

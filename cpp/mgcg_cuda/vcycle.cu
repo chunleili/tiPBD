@@ -949,25 +949,12 @@ struct AssembleMatrix : Kernels {
     }
 
     void compute_GMG() {
-        cout<<"in GMG"<<endl;
         CSR<float> GM;
-        cout<<"G: "<<G.nrows<<" "<<G.ncols<<" "<<G.numnonz<<endl;
-        cout<<"M: "<<M.nrows<<" "<<M.ncols<<" "<<M.numnonz<<endl;
         spgemm(G, M, GM);
-        cout<<"finish GM"<<endl;
-        cout<<"GM: "<<GM.nrows<<" "<<GM.ncols<<" "<<GM.numnonz<<endl;
         CSR<float> GT;
         GT.resize(G.ncols, G.nrows, G.numnonz);
-        cout<<"GT: "<<GT.nrows<<" "<<GT.ncols<<" "<<GT.numnonz<<endl;
         transpose(G, GT);
-        cout<<"finish GT"<<endl;
-        cout<<"GT: "<<GT.nrows<<" "<<GT.ncols<<" "<<GT.numnonz<<endl;
         spgemm(GM, GT, A);
-        cout<<"finish GMG"<<endl;
-
-        // plus ALPHA
-        
-
     }
 
 

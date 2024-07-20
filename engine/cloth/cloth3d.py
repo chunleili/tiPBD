@@ -1295,7 +1295,7 @@ def fill_A_by_spmm_dll(M_inv, ALPHA):
     return A, G
 
 
-def calc_num_nonz():
+def calc_num_nonz(num_adjacent_edge):
     num_nonz = np.sum(num_adjacent_edge)+num_adjacent_edge.shape[0]
     return num_nonz
 
@@ -1387,6 +1387,8 @@ def csr_is_equal(A, B):
         print("shape not equal")
         return False
     diff = A - B
+    if diff.nnz == 0:
+        return True
     maxdiff = np.abs(diff.data).max()
     print("maxdiff: ", maxdiff)
     if maxdiff > 1e-6:
@@ -1402,8 +1404,6 @@ def fill_A_ti():
     A_diag = A_diag.tocsr()
     # print(f"fill_A_diag time: {perf_counter()-tic:.3f}s")
 
-    num_nonz = calc_num_nonz()
-
     # fill off-diagonal
     tic2 = perf_counter()
     OFF_ii, OFF_jj, OFF_vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
@@ -1413,7 +1413,7 @@ def fill_A_ti():
 
     # tic = perf_counter()
     A = A_off_diag.tocsr()
-    A.setdiag(A_diag.diagonal())
+    A = A + A_diag
     A = A.tocsr()
     print(f"fill_A_ti time: {perf_counter()-tic1:.3f}s")
     return A
@@ -1548,10 +1548,22 @@ def substep_all_solver(max_iter=1):
         t_iter_start = perf_counter()
         copy_field(pos_mid, pos)
 
+        tic11 = perf_counter()
         A,G = fill_A_by_spmm(M_inv, ALPHA)
-        # A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
-        # A_ = fill_A_ti()
-        # flag =  csr_is_equal(A, A_)
+        print(f"fill_A_by_spmm time: {perf_counter()-tic11:.4f}s")
+        tic33 = perf_counter()
+        A2,G = fill_A_by_spmm_dll(M_inv, ALPHA)
+        print(f"fill_A_by_spmm_dll time: {perf_counter()-tic33:.4f}s")
+        tic22 = perf_counter()
+        A_ = fill_A_ti()
+        print(f"fill_A_ti time: {perf_counter()-tic22:.4f}s")
+
+        flag =  csr_is_equal(A, A_)
+        print("fill_A_by_spmm equals to fill_A_ti: ", flag)
+        flag2 = csr_is_equal(A, A2)
+        print("fill_A_by_spmm equals to dll: ", flag2)
+
+
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
@@ -1817,18 +1829,13 @@ def init_direct_fill_A():
     print(f"init_adjacent_edge time: {perf_counter()-tic1:.3f}s")
 
     tic2 = perf_counter()
-    adjacent_edge_abc = np.empty((NE, 20), dtype=np.int32)
+    adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
     adjacent_edge_abc.fill(-1)
     init_adjacent_edge_abc_kernel(NE,edge,adjacent_edge,num_adjacent_edge,adjacent_edge_abc)
 
-    print(f"init_adjacent_edge_abc time: {perf_counter()-tic2:.3f}s")
-    print(f"init_adjacent_edge and abc time: {perf_counter()-tic1:.3f}s")
-    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc
-
     # #calculate number of nonzeros by counting number of adjacent edges
-    # num_nonz = calc_num_nonz() 
+    num_nonz = calc_num_nonz(num_adjacent_edge) 
     # nnz_each_row = calc_nnz_each_row()
-
     # # init csr pattern. In the future we will replace all ijv pattern with csr
     # data, indices, indptr = init_A_CSR_pattern()
     # coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
@@ -1836,6 +1843,9 @@ def init_direct_fill_A():
     # spMatA = SpMat(num_nonz, NE)
     # spMatA._init_pattern()
     # fill_A_diag_kernel(spMatA.diags)
+
+    print(f"init_adjacent_edge and abc time: {perf_counter()-tic1:.3f}s")
+    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz
 
 
 misc_dir_path = prj_path + "/data/misc/"
@@ -1874,7 +1884,7 @@ print("Initializing edge done")
 if setup_num == 1:
     init_scale()
 
-# adjacent_edge, num_adjacent_edge, adjacent_edge_abc = init_direct_fill_A()
+adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz = init_direct_fill_A()
 
 if restart:
     if restart_from_last_frame :
@@ -1887,7 +1897,7 @@ if restart:
         # print(f"restart from last frame: {restart_frame}")
         logging.info(f"restart from last frame: {restart_frame}")
 
-print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.1g}s")
+print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.3f}s")
 
 
 class Viewer:
@@ -1944,7 +1954,7 @@ try:
         if frame == end_frame:
             t_all = time.perf_counter() - timer_all
             end_wall_time = datetime.datetime.now()
-            s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_wall_time}, end at {end_wall_time}."
+            s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_wall_time},\n end at {end_wall_time}."
             if export_log:
                 logging.info(s)
             exit()

@@ -1,4 +1,4 @@
-```bash
+```
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
@@ -6,15 +6,9 @@ cmake --build build --config Release
 - Linux 得到 `build/libfast-vcycle-gpu.so`。
 - Windows 得到 `build/Release/fast-vcycle-gpu.dll`。
 
-```
-python cloth3d.py -N 1024
-```
 
 
-
-
-
-# Generate dlls
+# Notes about generating dlls
 1. Install CUDA 12.5, VS2022
 2. Change set(CMAKE_CUDA_ARCHITECTURES 89) in CMakeLists.txt
 3. Run cmake from cmd(Not powershell! Powershell does not work for `set(CMAKE_CUDA_ARCHITECTURES 89).`)
@@ -41,9 +35,29 @@ or
 https://www.dropbox.com/scl/fi/tvpr3g3btjca0maaz6gfl/dlls.zip?rlkey=68u687oghe5i7tddvedggcy7l&st=eo8dg8cd&dl=0
 
 
+# download external libraries
+## eigen
+
+```
 git clone https://gitlab.com/libeigen/eigen.git --depth 1
+```
+## pybind11
+```
+git clone https://github.com/pybind/pybind11.git --depth=1
+```
 
+You must has the same version of python as the one used to build pybind11
+```
+conda activate py310
+```
 
+# misc
+## Remove build files in powershell
+```
+Remove-Item .\build\* -Recurse
+```
+
+## other 
 Run from "x64 Native Tools Command Prompt for VS 2022"
 
 nvcc -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2/include" -I"." spgemm.cu -o spgemm -lcusparse

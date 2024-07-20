@@ -1203,7 +1203,7 @@ def fill_A_by_spmm(M_inv, ALPHA):
 
 
 
-
+has_run_initialize_fastFill = False
 def fill_A_by_spmm_dll(M_inv, ALPHA):
     tic = time.perf_counter()
     G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
@@ -1218,8 +1218,9 @@ def fill_A_by_spmm_dll(M_inv, ALPHA):
 
     import numpy.ctypeslib as ctl
     def initialize_fastFill(M_inv, ALPHA):
-        global fastFillLib
-
+        global fastFillLib, has_run_initialize_fastFill
+        if has_run_initialize_fastFill:
+            return fastFillLib
         os.add_dll_directory(cuda_dir)
         fastFillLib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
@@ -1242,11 +1243,12 @@ def fill_A_by_spmm_dll(M_inv, ALPHA):
                                 ]
         fastFillLib.fastA_set_M(M_inv.data, M_inv.indices, M_inv.indptr, M_inv.shape[0], M_inv.shape[1], M_inv.nnz)
         fastFillLib.fastA_set_ALPHA(ALPHA.data, ALPHA.indices, ALPHA.indptr, ALPHA.shape[0], ALPHA.shape[1], ALPHA.nnz)
+        has_run_initialize_fastFill = True
         return fastFillLib
     
 
-    if 'fastFillLib' not in globals():
-        fastFillLib = initialize_fastFill(M_inv, ALPHA)
+    # if 'fastFillLib' not in globals():
+    fastFillLib = initialize_fastFill(M_inv, ALPHA)
 
 
     print("time of initialize_fastFill: ", time.perf_counter() - tic)

@@ -35,7 +35,6 @@ paused = False
 save_P, load_P = False, False
 use_viewer = False
 export_mesh = True
-export_residual = True
 calc_r = True
 use_offdiag = True
 gravity = [0.0, -9.8, 0.0]
@@ -58,6 +57,7 @@ parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-export_matrix_interval", type=int, default=1)
 parser.add_argument("-export_matrix_binary", type=int, default=True)
 parser.add_argument("-export_state", type=int, default=False)
+parser.add_argument("-export_residual", type=int, default=False)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
 parser.add_argument("-auto_another_outdir", type=int, default=False)
@@ -87,6 +87,7 @@ export_matrix = bool(args.export_matrix)
 export_matrix_interval = args.export_matrix_interval
 export_matrix_binary = args.export_matrix_binary
 export_state = bool(args.export_state)
+export_residual = bool(args.export_residual)
 setup_num = args.setup_num
 vcycle_type = args.vcycle
 cuda_dir = args.cuda_dir
@@ -1456,11 +1457,10 @@ def substep_all_solver(max_iter=1):
     x = x0.copy()
     r = []
     t_calc_residual = 0.0
+    calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+    fulldual0 = dual_residual.to_numpy()
     global ite
     for ite in range(max_iter):
-        calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-        fulldual0 = dual_residual.to_numpy()
-
         tic_assemble = perf_counter()
         t_iter_start = perf_counter()
         copy_field(pos_mid, pos)
@@ -1471,7 +1471,7 @@ def substep_all_solver(max_iter=1):
         # A,G = fill_A_by_spmm(M_inv, ALPHA)
         # A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
         A = fill_A_csr_ti()
-        print(f"fill_A_ti time: {perf_counter()-tic2:.4f}s")
+        print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
@@ -1486,9 +1486,9 @@ def substep_all_solver(max_iter=1):
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic
 
-        rsys0 = (np.linalg.norm(b-A@x))
+        # rsys0 = (np.linalg.norm(b-A@x))
 
-        print(f"Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
+        print(f"    Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
         tic_linsys = perf_counter()
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
@@ -1500,10 +1500,10 @@ def substep_all_solver(max_iter=1):
             if (((frame%20==0) or (frame==1)) and (ite==0)):
                 tic = time.perf_counter()
                 Ps = setup_AMG(A)
-                logging.info(f"setup AMG time:{perf_counter()-tic}")
+                logging.info(f"    setup AMG time:{perf_counter()-tic}")
             tic = time.perf_counter()
             levels = build_levels(A, Ps)
-            logging.info(f"build_levels time:{time.perf_counter()-tic}")
+            logging.info(f"    build_levels time:{time.perf_counter()-tic}")
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()
             if vcycle_type == 'old':
@@ -1514,42 +1514,41 @@ def substep_all_solver(max_iter=1):
                 assert False
             x,residuals = amg_cg_solve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
             toc2 = time.perf_counter()
-            logging.info(f"amg_cg_solve time {toc2-tic2}")
+            logging.info(f"    amg_cg_solve time {toc2-tic2}")
             r_Axb = residuals
 
-        print(f"Linear system solve time: {perf_counter()-tic_linsys:.4f}s")
+        # rsys1 = np.linalg.norm(b-A@x)
+        # print(f"    Linear system solve time: {perf_counter()-tic_linsys:.4f}s")
         
         tic = time.perf_counter()
-        rsys2 = np.linalg.norm(b-A@x)
         transfer_back_to_pos_mfree(x)
         # if use_primary_residual:
         #     transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
         # else:
         #     transfer_back_to_pos_mfree(x) #XPBD
-        #     # transfer_back_to_pos_matrix(x, M_inv, G, pos_mid) 
-        print(f"dlam to dpos time: {perf_counter()-tic:.4f}s")
+        print(f"    dlam to dpos time: {perf_counter()-tic:.4f}s")
 
         if calc_r:
             tic_calcr = perf_counter()
             t_iter = perf_counter()-t_iter_start
             calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-            # if use_primary_residual:
-            #     primary_residual = calc_primary_residual(G, M_inv)
-            #     primary_r = np.linalg.norm(primary_residual).astype(float)
-            # else: primary_r = 0.0
             dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
             compute_potential_energy()
             compute_inertial_energy()
             robj = (potential_energy[None]+inertial_energy[None])
             r_Axb = r_Axb.tolist()
+            # if use_primary_residual:
+            #     primary_residual = calc_primary_residual(G, M_inv)
+            #     primary_r = np.linalg.norm(primary_residual).astype(float)
 
             if export_fullr:
                 fulldual_final = dual_residual.to_numpy()
                 np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
 
+            print(f"    Calc r time: {perf_counter()-tic_calcr:.4f}s")
             if export_log:
-                logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
-            r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb, len(r_Axb), t_iter))
+                logging.info(f"{frame}-{ite} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
+            r.append(Residual([0.,0.], dual_r, robj, r_Axb, len(r_Axb), t_iter))
 
         x_prev = x.copy()
 

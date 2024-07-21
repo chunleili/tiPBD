@@ -178,7 +178,7 @@ dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha *
 # adjacent_edge = ti.field(dtype=int, shape=(NE, 20))
 # num_adjacent_edge = ti.field(dtype=int, shape=(NE))
 # adjacent_edge_abc = ti.field(dtype=int, shape=(NE, 100))
-num_nonz = 0
+# num_nonz = 0
 nnz_each_row = np.zeros(NE, dtype=int)
 potential_energy = ti.field(dtype=float, shape=())
 inertial_energy = ti.field(dtype=float, shape=())
@@ -1261,15 +1261,13 @@ def calc_num_nonz(num_adjacent_edge):
     num_nonz = np.sum(num_adjacent_edge)+num_adjacent_edge.shape[0]
     return num_nonz
 
-def calc_nnz_each_row():
-    global nnz_each_row
-    num_adj = num_adjacent_edge.to_numpy()
-    nnz_each_row = num_adj[:] + 1
+def calc_nnz_each_row(num_adjacent_edge):
+    nnz_each_row = num_adjacent_edge[:] + 1
     return nnz_each_row
 
-def init_A_CSR_pattern():
-    num_adj = num_adjacent_edge.to_numpy()
-    adj = adjacent_edge.to_numpy()
+def init_A_CSR_pattern(num_adjacent_edge, adjacent_edge):
+    num_adj = num_adjacent_edge
+    adj = adjacent_edge
     nonz = np.sum(num_adj)+NE
     indptr = np.zeros(NE+1, dtype=np.int32)
     indices = np.zeros(nonz, dtype=np.int32)
@@ -1295,12 +1293,15 @@ def csr_index_to_coo_index(indptr, indices):
     return ii, jj
 
 
-# for cnt version
+# for cnt version, require init_A_CSR_pattern() to be called first
 @ti.kernel
-def fill_A_offdiag_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
+def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
                               indptr:ti.types.ndarray(dtype=ti.i32), 
                               ii:ti.types.ndarray(dtype=ti.i32), 
-                              jj:ti.types.ndarray(dtype=ti.i32),):
+                              jj:ti.types.ndarray(dtype=ti.i32),
+                              adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
+                              num_nonz:ti.i32,
+                              alpha:ti.f32):
     for cnt in range(num_nonz):
         i = ii[cnt] # row index
         j = jj[cnt] # col index
@@ -1308,6 +1309,7 @@ def fill_A_offdiag_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
         # Because the diag is the final element of each row, 
         # it is also the k-th adjacent edge of i-th edge.
         if i == j: # diag
+            data[cnt] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
             continue
         a = adjacent_edge_abc[i, k * 3]
         b = adjacent_edge_abc[i, k * 3 + 1]
@@ -1357,12 +1359,20 @@ def csr_is_equal(A, B):
         return False
     return True
 
-def fill_A_ti():
+
+def fill_A_ijv_ti():
     ii, jj, vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
     fill_A_ijv_kernel(ii, jj, vv, num_adjacent_edge, adjacent_edge, adjacent_edge_abc, inv_mass, alpha)
     A = scipy.sparse.coo_array((vv, (ii, jj)), shape=(NE, NE))
     A.eliminate_zeros()
     A= A.tocsr()
+
+
+# fill A csr
+def fill_A_csr_ti():
+    fill_A_CSR_kernel(spmat_data, spmat_indptr, spmat_ii, spmat_jj, adjacent_edge_abc, num_nonz, alpha)
+    A = scipy.sparse.csr_matrix((spmat_data, spmat_indices, spmat_indptr), shape=(NE, NE))
+    # A.eliminate_zeros()
     return A
 
 
@@ -1460,7 +1470,7 @@ def substep_all_solver(max_iter=1):
         tic2 = perf_counter()
         # A,G = fill_A_by_spmm(M_inv, ALPHA)
         # A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
-        A = fill_A_ti()
+        A = fill_A_csr_ti()
         print(f"fill_A_ti time: {perf_counter()-tic2:.4f}s")
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
@@ -1538,7 +1548,7 @@ def substep_all_solver(max_iter=1):
                 np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
 
             if export_log:
-                logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
+                logging.info(f"{frame}-{ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s")
             r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb, len(r_Axb), t_iter))
 
         x_prev = x.copy()
@@ -1719,31 +1729,38 @@ def init_set_P_R_manually():
             # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 
+# SpMatData = namedtuple("SpMatData",['adj','nadj','adjabc','nnz','data','indices','indptr','ii','jj'])
+# spmatdata = None
 def init_direct_fill_A():
+    global spmatdata
     tic1 = perf_counter()
     print("Initializing adjacent edge and abc...")
     adjacent_edge = init_adj_edge(edges=edge.to_numpy())
     adjacent_edge,num_adjacent_edge = dict_to_ndarr(adjacent_edge)
     print(f"init_adjacent_edge time: {perf_counter()-tic1:.3f}s")
 
-    tic2 = perf_counter()
     adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
     adjacent_edge_abc.fill(-1)
     init_adjacent_edge_abc_kernel(NE,edge,adjacent_edge,num_adjacent_edge,adjacent_edge_abc)
+    # required by fill_A_csr_ti
 
-    # #calculate number of nonzeros by counting number of adjacent edges
+    tic2 = perf_counter()
+    #calculate number of nonzeros by counting number of adjacent edges
     num_nonz = calc_num_nonz(num_adjacent_edge) 
-    # nnz_each_row = calc_nnz_each_row()
-    # # init csr pattern. In the future we will replace all ijv pattern with csr
-    # data, indices, indptr = init_A_CSR_pattern()
-    # coo_ii, coo_jj = csr_index_to_coo_index(indptr, indices)
+    nnz_each_row = calc_nnz_each_row(num_adjacent_edge)
+
+    # init csr pattern. In the future we will replace all ijv pattern with csr
+    data, indices, indptr = init_A_CSR_pattern(num_adjacent_edge, adjacent_edge)
+    ii, jj = csr_index_to_coo_index(indptr, indices)
 
     # spMatA = SpMat(num_nonz, NE)
     # spMatA._init_pattern()
     # fill_A_diag_kernel(spMatA.diags)
 
-    print(f"init_adjacent_edge and abc time: {perf_counter()-tic1:.3f}s")
-    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz
+    print(f"init A CSR pattern time: {perf_counter()-tic2:.3f}s")
+    print(f"init_direct_fill_A time: {perf_counter()-tic1:.3f}s")
+    # spmatdata = SpMatData(adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj)
+    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj
 
 
 misc_dir_path = prj_path + "/data/misc/"
@@ -1782,7 +1799,7 @@ print("Initializing edge done")
 if setup_num == 1:
     init_scale()
 
-adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz = init_direct_fill_A()
+adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = init_direct_fill_A()
 
 if restart:
     if restart_from_last_frame :

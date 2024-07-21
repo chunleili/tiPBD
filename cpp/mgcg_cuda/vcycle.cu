@@ -290,7 +290,7 @@ struct Vec {
 
     void assign2(T* d, size_t n)
     {
-        m_data = d;
+        m_data = d; 
         m_size = n;
         m_cap = n;
     }
@@ -520,64 +520,62 @@ struct Kernels {
         cusparseOperation_t opB         = CUSPARSE_OPERATION_NON_TRANSPOSE;
         cudaDataType        computeType = CUDA_R_32F;
         //--------------------------------------------------------------------------
-        // CUSPARSE APIs
-        cusparseHandle_t     handle = NULL;
-        void*  dBuffer1    = NULL, *dBuffer2   = NULL;
+        // buffers
         size_t bufferSize1 = 0,    bufferSize2 = 0;
-        CHECK_CUSPARSE( cusparseCreate(&handle) )
+        Buffer dBuffer1, dBuffer2;
         //--------------------------------------------------------------------------
-        int*    dC_csrOffsets, *dC_columns;
-        float*  dC_values;
-
-        CHECK_CUDA( cudaMalloc((void**) &dC_csrOffsets,
-                            (matA_.nrows + 1) * sizeof(int)) )
-
         // SpGEMM Computation
         cusparseSpGEMMDescr_t spgemmDesc;
         CHECK_CUSPARSE( cusparseSpGEMM_createDescr(&spgemmDesc) )
 
         // ask bufferSize1 bytes for external memory
         CHECK_CUSPARSE(
-            cusparseSpGEMM_workEstimation(handle, opA, opB,
+            cusparseSpGEMM_workEstimation(cusparse, opA, opB,
                                         &alpha, matA, matB, &beta, matC,
                                         computeType, CUSPARSE_SPGEMM_DEFAULT,
                                         spgemmDesc, &bufferSize1, NULL) )
-        CHECK_CUDA( cudaMalloc((void**) &dBuffer1, bufferSize1) )
+        // CHECK_CUDA( cudaMalloc((void**) &dBuffer1, bufferSize1) )
+        dBuffer1.reserve(bufferSize1);
+
         // inspect the matrices A and B to understand the memory requirement for
         // the next step
         CHECK_CUSPARSE(
-            cusparseSpGEMM_workEstimation(handle, opA, opB,
+            cusparseSpGEMM_workEstimation(cusparse, opA, opB,
                                         &alpha, matA, matB, &beta, matC,
                                         computeType, CUSPARSE_SPGEMM_DEFAULT,
-                                        spgemmDesc, &bufferSize1, dBuffer1) )
+                                        spgemmDesc, &bufferSize1, dBuffer1.data()) )
 
         // ask bufferSize2 bytes for external memory
         CHECK_CUSPARSE(
-            cusparseSpGEMM_compute(handle, opA, opB,
+            cusparseSpGEMM_compute(cusparse, opA, opB,
                                 &alpha, matA, matB, &beta, matC,
                                 computeType, CUSPARSE_SPGEMM_DEFAULT,
                                 spgemmDesc, &bufferSize2, NULL) )
-        CHECK_CUDA( cudaMalloc((void**) &dBuffer2, bufferSize2) )
+        // CHECK_CUDA( cudaMalloc((void**) &dBuffer2, bufferSize2) )
+        dBuffer2.reserve(bufferSize2);
 
         // compute the intermediate product of A * B
-        CHECK_CUSPARSE( cusparseSpGEMM_compute(handle, opA, opB,
+        CHECK_CUSPARSE( cusparseSpGEMM_compute(cusparse, opA, opB,
                                             &alpha, matA, matB, &beta, matC,
                                             computeType, CUSPARSE_SPGEMM_DEFAULT,
-                                            spgemmDesc, &bufferSize2, dBuffer2) )
-
+                                            spgemmDesc, &bufferSize2, dBuffer2.data()) )
+        // --------------------------------------------------------------------------
         // get matrix C non-zero entries C_nnz1
         CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &matC_.nrows, &matC_.ncols, &matC_.numnonz) )
         // allocate matrix C
+        // FIXME: this will cause memory leak!
+        int*    dC_csrOffsets, *dC_columns;
+        float*  dC_values;
+        CHECK_CUDA( cudaMalloc((void**) &dC_csrOffsets,(matA_.nrows + 1) * sizeof(int)) )
         CHECK_CUDA( cudaMalloc((void**) &dC_columns, matC_.numnonz * sizeof(int))   )
         CHECK_CUDA( cudaMalloc((void**) &dC_values,  matC_.numnonz * sizeof(float)) )
 
         // update matC with the new pointers
-        CHECK_CUSPARSE(
-            cusparseCsrSetPointers(matC, dC_csrOffsets, dC_columns, dC_values) )
+        CHECK_CUSPARSE(cusparseCsrSetPointers(matC, dC_csrOffsets, dC_columns, dC_values) )
 
         // copy the final products to the matrix C
         CHECK_CUSPARSE(
-            cusparseSpGEMM_copy(handle, opA, opB,
+            cusparseSpGEMM_copy(cusparse, opA, opB,
                                 &alpha, matA, matB, &beta, matC,
                                 computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
 
@@ -585,14 +583,6 @@ struct Kernels {
         matC_.indptr.assign2(dC_csrOffsets, matC_.nrows + 1);
         matC_.data.assign2(dC_values, matC_.numnonz);
 
-        // using namespace std;
-        // cout<<"A: "<<matA_.nrows<<" "<<matA_.ncols<<" "<<matA_.numnonz<<endl;
-        // cout<<"B: "<<matB_.nrows<<" "<<matB_.ncols<<" "<<matB_.numnonz<<endl;
-        // cout<<"C: "<<matC_.nrows<<" "<<matC_.ncols<<" "<<matC_.numnonz<<endl;
-        // for (int i = 0; i < 10; ++i) {
-            // std::cout<<matC_.data<<" ";
-        // }
-        // std::cout<<"Done"<<std::endl;
     }
 
 

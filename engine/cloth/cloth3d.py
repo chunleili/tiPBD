@@ -1045,7 +1045,7 @@ def old_V_cycle(levels,lvl,x,b):
 
 g_vcycle = None
 g_vcycle_cached_levels = None
-vcycle_has_coarse_solve = False
+vcycle_has_coarse_solve = True
 
 def init_g_vcycle(levels):
     global g_vcycle

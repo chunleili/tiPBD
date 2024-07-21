@@ -6,6 +6,7 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cusparse.h>
+#include <cusolverSp.h>
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -78,6 +79,16 @@ using namespace std;
     }                                                                          \
 }
 
+
+// https://github.com/NVIDIA/CUDALibrarySamples/blob/ed19a07b6dd0900b7547b274a6ed9d7c22a6d431/cuSOLVER/utils/cusolver_utils.h#L55
+#define CHECK_CUSOLVER(err)                                                                        \
+    do {                                                                                           \
+        cusolverStatus_t err_ = (err);                                                             \
+        if (err_ != CUSOLVER_STATUS_SUCCESS) {                                                     \
+            printf("cusolver error %d at %s:%d\n", err_, __FILE__, __LINE__);                      \
+            throw std::runtime_error("cusolver error");                                            \
+        }                                                                                          \
+    } while (0)
 
 
 using namespace std;
@@ -505,10 +516,12 @@ struct ConstSpMat {
 struct Kernels {
     cublasHandle_t cublas;
     cusparseHandle_t cusparse;
+    cusolverSpHandle_t cusolverH;
 
     Kernels() {
         CHECK_CUSPARSE(cusparseCreate(&cusparse));
         CHECK_CUBLAS(cublasCreate_v2(&cublas));
+        CHECK_CUSOLVER(cusolverSpCreate(&cusolverH));
     }
 
     Kernels(Kernels &&) = delete;
@@ -516,6 +529,7 @@ struct Kernels {
     ~Kernels() {
         CHECK_CUSPARSE(cusparseDestroy(cusparse));
         CHECK_CUBLAS(cublasDestroy_v2(cublas));
+        CHECK_CUSOLVER(cusolverSpDestroy(cusolverH));
     }
 
     // out = alpha * A@x + beta * out
@@ -654,28 +668,16 @@ struct Kernels {
         CHECK_CUBLAS(cublasSscal_v2(cublas, dst.size(), &alpha, dst.data(), 1));
     }
 
-    // x = A^{-1} b
+    // x = A^{-1} b by cusolver cholesky
     void spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b) {
-        //data transfering to eigen format
-        EigenSpMat EigenA;
-        CuSparseToEigenSparse(A, EigenA);
-        Eigen::VectorXf Eigen_x(x.size());
-        Eigen::VectorXf Eigen_b(b.size());
-        CudaVecToEigenVec(b, Eigen_b);
+        // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csrlsvchol
+        cusparseMatDescr_t descrA = NULL;
+        CHECK_CUSPARSE(cusparseCreateMatDescr(&descrA));
+        CHECK_CUSPARSE(cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL));
+        CHECK_CUSPARSE(cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ZERO)); 
+        int singularity;
 
-        // cout<<"EigenA: "<<EigenA.rows()<<" "<<EigenA.cols()<<" "<<EigenA.nonZeros()<<endl;
-        // cout<<"A(0,0): "<<EigenA.coeff(0,0)<<endl;
-        // cout<<"A(0,1): "<<EigenA.coeff(0,1)<<endl;
-        // cout<<"Eigen_b: "<<Eigen_b.size()<<endl;
-        // cout<<"Eigen_b(0):"<<Eigen_b(0)<<endl;
-
-        // Eigen::SimplicialLLT<EigenSpMat> solver;
-        // solver.compute(EigenA);
-        // assert(solver.info() ==  Eigen::Success);
-        // Eigen_x = solver.solve(Eigen_b);
-        // assert(solver.info() ==  Eigen::Success);
-
-        cudaMemcpy(x.data(), Eigen_x.data(), sizeof(float) * x.size(), cudaMemcpyHostToDevice);
+        CHECK_CUSOLVER( cusolverSpScsrlsvchol(cusolverH, A.nrows, A.numnonz, descrA, A.data.data(), A.indptr.data(), A.indices.data(), b.data(), 1e-10, 0, x.data(), &singularity) );
     }
 
     float vdot(Vec<float> const &x, Vec<float> const &y) {

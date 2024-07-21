@@ -15,7 +15,7 @@ SET( CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_LIST_DIR}/lib")
 project(my_project LANGUAGES CXX CUDA)
 
 add_library(fast-vcycle-gpu SHARED vcycle.cu)
-target_link_libraries(fast-vcycle-gpu PRIVATE cusparse cublas)
+target_link_libraries(fast-vcycle-gpu PRIVATE cusparse cublas cusolver)
 target_include_directories(fast-vcycle-gpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
 set_target_properties(fast-vcycle-gpu PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 

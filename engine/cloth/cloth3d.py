@@ -23,6 +23,7 @@ from pyamg.relaxation.relaxation import polynomial
 from time import perf_counter
 from scipy.linalg import pinv
 import pyamg
+import numpy.ctypeslib as ctl
 
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
@@ -186,6 +187,15 @@ predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 # K = ti.Matrix.field(3, 3, float, (NV, NV)) 
 # geometric stiffness, only retain diagonal elements
 K_diag = np.zeros((NV*3), dtype=float)
+
+
+argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                 ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
+                 ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
+                 ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                ]
+os.add_dll_directory(cuda_dir)
+extlib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
 class SpMat():
     def __init__(self, nnz, nrow=NE):
@@ -1197,101 +1207,52 @@ def fill_A_by_spmm(M_inv, ALPHA):
 
     A = G @ M_inv @ G.transpose() + ALPHA
     A = scipy.sparse.csr_matrix(A)
-    print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
+    # print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
     return A, G
-
 
 
 
 has_run_initialize_fastFill = False
 def fill_A_by_spmm_dll(M_inv, ALPHA):
-    tic = time.perf_counter()
+    # -----------------initialize--------------
+    def initialize_fastFill(M_inv):
+        global extlib, has_run_initialize_fastFill, argtypes_of_csr
+        if has_run_initialize_fastFill:
+            return
+
+        extlib.fastA_setup() # new fastA instance
+
+        M_inv = M_inv.tocsr() # transfer M to cusparse
+        extlib.fastA_set_M.argtypes = argtypes_of_csr
+        extlib.fastA_set_M(M_inv.data, M_inv.indices, M_inv.indptr, M_inv.shape[0], M_inv.shape[1], M_inv.nnz)
+        has_run_initialize_fastFill = True
+    
+    initialize_fastFill(M_inv)
+    
+    # -----------------fill G--------------
     G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
     compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
 
-    print(f"fill_G: {time.perf_counter() - tic:.4f}s")
+    # transfer G to cusparse
+    extlib.fastA_set_G.argtypes = argtypes_of_csr
+    extlib.fastA_set_G(G.data, G.indices, G.indptr, G.shape[0], G.shape[1], G.nnz) 
 
+    # -----------------compute GMG by cusparse--------------
+    extlib.fastA_compute_GMG()
 
-    tic = time.perf_counter()
-
-    import numpy.ctypeslib as ctl
-    def initialize_fastFill(M_inv, ALPHA):
-        global fastFillLib, has_run_initialize_fastFill
-        if has_run_initialize_fastFill:
-            return fastFillLib
-        os.add_dll_directory(cuda_dir)
-        fastFillLib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
-
-        fastFillLib.fastA_setup.argtypes = []
-        fastFillLib.fastA_setup()
-
-        M_inv = M_inv.tocsr()
-        ALPHA = ALPHA.tocsr().astype(np.float32)
-        fastFillLib.fastA_set_M.argtypes = [
-                                ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indices
-                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indptr
-                                ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                                ]
-        fastFillLib.fastA_set_ALPHA.argtypes = [
-                                ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indices
-                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indptr
-                                ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                                ]
-        fastFillLib.fastA_set_M(M_inv.data, M_inv.indices, M_inv.indptr, M_inv.shape[0], M_inv.shape[1], M_inv.nnz)
-        fastFillLib.fastA_set_ALPHA(ALPHA.data, ALPHA.indices, ALPHA.indptr, ALPHA.shape[0], ALPHA.shape[1], ALPHA.nnz)
-        has_run_initialize_fastFill = True
-        return fastFillLib
-    
-
-    # if 'fastFillLib' not in globals():
-    fastFillLib = initialize_fastFill(M_inv, ALPHA)
-
-
-    print("time of initialize_fastFill: ", time.perf_counter() - tic)
-    tic2 = time.perf_counter()  
-
-    fastFillLib.fastA_set_G.argtypes = [
-                            ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                            ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indices
-                            ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indptr
-                            ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                            ]
-    fastFillLib.fastA_set_G(G.data, G.indices, G.indptr, G.shape[0], G.shape[1], G.nnz) 
-
-    print("time of fastA_set_G: ", time.perf_counter() - tic2)
-    tic3 = time.perf_counter()
-    
-    fastFillLib.fastA_compute_GMG()
-
-    print("time of fastA_compute_GMG: ", time.perf_counter() - tic3)
-    tic4 = time.perf_counter()
-
+    # fetch GMG
     from scipy.sparse import csr_matrix
     mat = csr_matrix((G.shape[0],G.shape[0]), dtype=np.float32)
     mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
     mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
-    fastFillLib.fastA_fetch_A.argtypes = [
-                                ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indices
-                                ctl.ndpointer(np.int32,flags='aligned, c_contiguous'),      # indptr
-                                ]
-    fastFillLib.fastA_fetch_A(mat.data, mat.indices, mat.indptr)
+    extlib.fastA_fetch_A.argtypes = argtypes_of_csr[:3]
+    extlib.fastA_fetch_A(mat.data, mat.indices, mat.indptr)
     mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
 
-    print("time of fastA_fetch_A: ", time.perf_counter() - tic4)
-    tic5 = time.perf_counter()
-
+    # -----------------plus alpha--------------
     A = mat + ALPHA
-
-    print("time of A = mat + ALPHA: ", time.perf_counter() - tic5)
-
-    # A = G @ M_inv @ G.transpose() + ALPHA
-    # A = scipy.sparse.csr_matrix(A)
-    print("fill_A_by_spmm_dll time: ", time.perf_counter() - tic)
     return A, G
 
 
@@ -1396,26 +1357,12 @@ def csr_is_equal(A, B):
     return True
 
 def fill_A_ti():
-    tic1 = perf_counter()
-    # fill diagonal
-    diags = np.zeros(NE, np.float32)
-    fill_A_diag_kernel(diags, alpha, inv_mass, edge)
-    A_diag = scipy.sparse.diags(diags)
-    A_diag = A_diag.tocsr()
-    # print(f"fill_A_diag time: {perf_counter()-tic:.3f}s")
+    tic = perf_counter()
+    ii, jj, vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
+    fill_A_ijv_kernel(ii, jj, vv, num_adjacent_edge, adjacent_edge, adjacent_edge_abc, inv_mass, alpha)
+    A = scipy.sparse.coo_array((vv, (ii, jj)), shape=(NE, NE))
 
-    # fill off-diagonal
-    tic2 = perf_counter()
-    OFF_ii, OFF_jj, OFF_vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
-    fill_A_offdiag_ijv_kernel(OFF_ii, OFF_jj, OFF_vv, num_adjacent_edge, adjacent_edge, adjacent_edge_abc, inv_mass)
-    A_off_diag = scipy.sparse.coo_array((OFF_vv, (OFF_ii, OFF_jj)), shape=(NE, NE))
-    print(f"fill_A_offdiag_ijv_kernel time: {perf_counter()-tic2:.3f}s")
-
-    # tic = perf_counter()
-    A = A_off_diag.tocsr()
-    A = A + A_diag
-    A = A.tocsr()
-    print(f"fill_A_ti time: {perf_counter()-tic1:.3f}s")
+    print(f"fill_A_ti time: {perf_counter()-tic:.3f}s")
     return A
 
 
@@ -1426,10 +1373,11 @@ def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_m
 
 
 @ti.kernel
-def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template()):
+def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha:ti.f32):
     n = 0
+    NE = adjacent_edge.shape[0]
     ti.loop_config(serialize=True)
-    for i in range(adjacent_edge.shape[0]):
+    for i in range(NE): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
         for k in range(num_adjacent_edge[i]):
             ia = adjacent_edge[i,k]
             a = adjacent_edge_abc[i, k * 3]
@@ -1444,7 +1392,12 @@ def fill_A_offdiag_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.nda
             jj[n] = ia
             vv[n] = offdiag
             n += 1
-        # n += 1 # diag placeholder
+        # diag
+        ii[n] = i
+        jj[n] = i
+        vv[n] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+        n += 1 
+
 
 
 def export_A_b(A,b,postfix="", binary=export_matrix_binary):
@@ -1473,52 +1426,6 @@ def compute_inertial_energy():
         if inv_mass[i] == 0.0:
             continue
         inertial_energy[None] += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
-
-
-def substep_GaussNewton():
-    MASS = scipy.sparse.diags(np.ones(3*NV, float))
-    alpha_tilde_np = np.array([alpha] * NCONS)
-    ALPHA_INV = scipy.sparse.diags(1.0 / alpha_tilde_np)
-    h2_inv = 1.0/(delta_t*delta_t)
-    linesarch_alpha = 1.0
-
-    semi_euler(old_pos, inv_mass, vel, pos)
-    x_n = pos.to_numpy().copy()
-    x_tilde = x_n.copy() + delta_t * vel.to_numpy().copy()
-
-    delta_x = (pos.to_numpy() - x_tilde).flatten()
-    total_energy_old = 0.5 * 1.0/alpha * np.dot(constraints.to_numpy(), constraints.to_numpy()) + 0.5 * h2_inv * delta_x @ MASS @ delta_x
-
-    for ite in range(max_iter):
-        G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
-        compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
-        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
-        G = scipy.sparse.csr_array((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
-        H = G.transpose() @ ALPHA_INV @ G + h2_inv * MASS
-        # H_inv = scipy.sparse.diags(1.0/H.diagonal())
-
-        # fill b
-        delta_x = (pos.to_numpy() - x_tilde).flatten()
-        gradF = G.transpose() @ ALPHA_INV @ constraints.to_numpy() + h2_inv * MASS @ delta_x
-
-        d_x = scipy.sparse.linalg.spsolve(H, -gradF)
-
-        pos.from_numpy((pos.to_numpy().flatten() + d_x * linesarch_alpha).reshape(-1, 3))
-
-        # line search
-        total_energy = 0.5 * 1.0/alpha * np.dot(constraints.to_numpy(), constraints.to_numpy()) + 0.5 * h2_inv * delta_x @ MASS @ delta_x
-        delta_energy = total_energy - total_energy_old
-        if delta_energy > 0:
-            linesarch_alpha *= 0.5
-            pos.from_numpy(x_n.reshape(-1, 3))
-            # continue
-        total_energy_old = total_energy.copy()
-
-        err = np.linalg.norm(d_x)
-        print(f"iter {ite}, err: {err:.1e}")
-        if err < 1e-4 and ite>1:
-            break
-    update_vel(old_pos, inv_mass, vel, pos)
 
 
 Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])

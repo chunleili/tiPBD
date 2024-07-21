@@ -21,7 +21,10 @@
 #include "Eigen/Dense"
 #include "Eigen/Sparse"
 #include "unsupported/Eigen/SparseExtra"
+
 using namespace std;
+using EigenSpMat = Eigen::SparseMatrix<float, Eigen::RowMajor>;
+
 
 #if __GNUC__ && __linux__
 #include <sys/ptrace.h>
@@ -89,55 +92,6 @@ using namespace std;
             throw std::runtime_error("cusolver error");                                            \
         }                                                                                          \
     } while (0)
-
-
-using namespace std;
-using Vec3f = Eigen::Vector3f;
-using EigenSpMat = Eigen::SparseMatrix<float, Eigen::RowMajor>;
-using Eigen::Map;
-using Eigen::Vector3f;
-using Eigen::VectorXf;
-using Triplet = Eigen::Triplet<float>;
-using Vec3f = Eigen::Vector3f;
-using Vec2i = std::array<int, 2>; // using Vec2i = Eigen::Vector2i;
-using Vec3i = std::array<int, 3>; // using Vec3i = Eigen::Vector3i;
-using Field1f = vector<float>;
-using Field3f = vector<Vec3f>;
-using Field3i = vector<Vec3i>;
-using Field2i = vector<Vec2i>;
-using Field1i = vector<int>;
-using Field23f = vector<array<Vec3f, 2>>;
-using FieldXi = vector<vector<int>>;
-
-
-
-
-// utility functions
-#if defined(WIN32) || defined(_WIN32) || defined(WIN64)
-#define FORCE_INLINE __forceinline
-#else
-#define FORCE_INLINE __attribute__((always_inline))
-#endif
-
-FORCE_INLINE float length(const Vec3f &vec)
-{
-    // return glm::length(vec);
-    return vec.norm();
-}
-
-FORCE_INLINE Vec3f normalize(const Vec3f &vec)
-{
-    // return glm::normalize(vec);
-    return vec.normalized();
-}
-
-FORCE_INLINE float dot(const Vec3f &vec1, const Vec3f &vec2)
-{
-    // return glm::dot(vec1, vec2);
-    return vec1.dot(vec2);
-}
-
-
 
 
 namespace {
@@ -989,14 +943,6 @@ struct AssembleMatrix : Kernels {
     CSR<float> ALPHA;
     float alpha;
     int NE;
-    Field3f pos;
-    Field2i edge;
-    Field1f rest_len;
-    Field1f inv_mass;
-    Field1f constraints;
-    Field23f gradC;
-
-
 
     void fetch_A(float *data, int *indices, int *indptr) {
         CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
@@ -1025,67 +971,6 @@ struct AssembleMatrix : Kernels {
         spgemm(GM, GT, A);
     }
 
-
-
-
-    void fill_gradC_triplets(EigenSpMat& G)
-    {
-        std::vector<Triplet> gradC_triplets;
-        gradC_triplets.reserve(6 * NE);
-        int cnt = 0;
-        for (int j = 0; j < NE; j++)
-        {
-            auto ind = edge[j];
-            for (int p = 0; p < 2; p++)
-            {
-                for (int d = 0; d < 3; d++)
-                {
-                    int pid = ind[p];
-                    gradC_triplets.push_back(Triplet(j, 3 * pid + d, gradC[j][p][d]));
-                    cnt++;
-                }
-            }
-        }
-        // printf("cnt: %d", cnt);
-        G.setFromTriplets(gradC_triplets.begin(), gradC_triplets.end());
-        G.makeCompressed();
-    }
-
-
-    void compute_C_and_gradC()
-    {
-        for (int i = 0; i < NE; i++)
-        {
-            int idx0 = edge[i][0];
-            int idx1 = edge[i][1];
-            Vec3f dis = pos[idx0] - pos[idx1];
-            constraints[i] = length(dis) - rest_len[i];
-            Vec3f g = normalize(dis);
-
-            gradC[i][0] = g;
-            gradC[i][1] = -g;
-        }
-    }
-
-    void fill_A_by_spmm()
-    {
-        compute_C_and_gradC();
-        EigenSpMat G_;
-        fill_gradC_triplets(G_);
-        G_.makeCompressed();
-        // compute_GMG();
-        // fill_A_add_alpha();
-    }
-
-
-
-    void fill_A_add_alpha(EigenSpMat &EigenA)
-    {
-        for(int i=0; i<NE; i++)
-        {
-            EigenA.coeffRef(i,i) += alpha;
-        }
-    }
 };
 
 } // namespace

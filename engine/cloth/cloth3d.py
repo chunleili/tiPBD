@@ -987,7 +987,7 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
         if residuals[iteration] < atol:
             break
         g_vcycle.fastmg_copy_outer2init_x()
-        new_V_cycle(levels)
+        new_V_cycle()
         g_vcycle.fastmg_do_cg_itern(residuals.ctypes.data, iteration)
     x_empty = np.empty_like(x0, dtype=np.float32)
     x = np.ascontiguousarray(x_empty, dtype=np.float32)
@@ -1114,27 +1114,10 @@ def init_g_vcycle(levels):
             #     g_vcycle.fastmg_RAP(lv)
 
 
-def new_V_cycle(levels):
+def new_V_cycle():
     assert g_vcycle
     g_vcycle.fastmg_vcycle_down()
-    if vcycle_has_coarse_solve:
-        g_vcycle.fastmg_coarse_solve()
-    else:
-        coarsist_size = g_vcycle.fastmg_get_coarsist_size()
-        coarsist_b_empty = np.empty(shape=(coarsist_size,), dtype=np.float32)
-        coarsist_b = np.ascontiguousarray(coarsist_b_empty, dtype=np.float32)
-        g_vcycle.fastmg_get_coarsist_b(coarsist_b.ctypes.data)
-
-        # from scipy.sparse import csr_matrix
-        # mat = levels[len(levels) - 1].A
-        # mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
-        # mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
-        # g_vcycle.fastmg_fetch_A(len(levels) - 1, mat.data, mat.indices, mat.indptr)
-        # mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
-
-        coarsist_x = coarse_solver(levels[len(levels) - 1].A, coarsist_b)
-        coarsist_x_contig = np.ascontiguousarray(coarsist_x, dtype=np.float32)
-        g_vcycle.fastmg_set_coarsist_x(coarsist_x_contig.ctypes.data)
+    g_vcycle.fastmg_coarse_solve()
     g_vcycle.fastmg_vcycle_up()
 
 

@@ -67,7 +67,7 @@ parser.add_argument("-restart_dir", type=str, default="latest/state")
 parser.add_argument("-restart_from_last_frame", type=int, default=True)
 parser.add_argument("-tol_sim", type=float, default=1e-6)
 parser.add_argument("-tol_Axb", type=float, default=1e-6)
-parser.add_argument("-max_iter", type=int, default=300)
+parser.add_argument("-max_iter", type=int, default=1000)
 parser.add_argument("-max_iter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
@@ -1099,8 +1099,8 @@ def init_g_vcycle(levels):
         for lv in range(len(levels)):
             for which, matname in zip([1, 2, 3], ['A', 'R', 'P']):
                 mat = getattr(levels[lv], matname)
-                if matname == 'A' and lv != 0:
-                    continue
+                # if matname == 'A' and lv != 0:
+                #     continue
                 if mat is not None:
                     data_contig = np.ascontiguousarray(mat.data, dtype=np.float32)
                     indices_contig = np.ascontiguousarray(mat.indices, dtype=np.int32)
@@ -1109,8 +1109,8 @@ def init_g_vcycle(levels):
                                                   indices_contig.ctypes.data, indices_contig.shape[0],
                                                   indptr_contig.ctypes.data, indptr_contig.shape[0],
                                                   mat.shape[0], mat.shape[1], mat.nnz)
-            if lv < len(levels) - 1:
-                g_vcycle.fastmg_RAP(lv)
+            # if lv < len(levels) - 1:
+            #     g_vcycle.fastmg_RAP(lv)
 
 
 def new_V_cycle(levels):
@@ -1124,14 +1124,14 @@ def new_V_cycle(levels):
         coarsist_b = np.ascontiguousarray(coarsist_b_empty, dtype=np.float32)
         g_vcycle.fastmg_get_coarsist_b(coarsist_b.ctypes.data)
 
-        from scipy.sparse import csr_matrix
-        mat = levels[len(levels) - 1].A
-        mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
-        mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
-        g_vcycle.fastmg_fetch_A(len(levels) - 1, mat.data, mat.indices, mat.indptr)
-        mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
+        # from scipy.sparse import csr_matrix
+        # mat = levels[len(levels) - 1].A
+        # mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
+        # mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
+        # g_vcycle.fastmg_fetch_A(len(levels) - 1, mat.data, mat.indices, mat.indptr)
+        # mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
 
-        coarsist_x = coarse_solver(mat, coarsist_b)
+        coarsist_x = coarse_solver(levels[len(levels) - 1].A, coarsist_b)
         coarsist_x_contig = np.ascontiguousarray(coarsist_x, dtype=np.float32)
         g_vcycle.fastmg_set_coarsist_x(coarsist_x_contig.ctypes.data)
     g_vcycle.fastmg_vcycle_up()
@@ -1187,7 +1187,6 @@ def spy_A(A,b):
 def fill_A_by_spmm(M_inv, ALPHA):
     tic = time.perf_counter()
     G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
-    compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
 
@@ -1240,7 +1239,9 @@ def fill_A_by_spmm_dll(M_inv, ALPHA):
     extlib.fastA_set_G(G.data, G.indices, G.indptr, G.shape[0], G.shape[1], G.nnz) 
 
     # -----------------compute GMG by cusparse--------------
+    tic = time.perf_counter()
     extlib.fastA_compute_GMG()
+    print(f"    GMG: {time.perf_counter() - tic:.4f}s")
 
     # fetch GMG
     from scipy.sparse import csr_matrix
@@ -1357,12 +1358,11 @@ def csr_is_equal(A, B):
     return True
 
 def fill_A_ti():
-    tic = perf_counter()
     ii, jj, vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
     fill_A_ijv_kernel(ii, jj, vv, num_adjacent_edge, adjacent_edge, adjacent_edge_abc, inv_mass, alpha)
     A = scipy.sparse.coo_array((vv, (ii, jj)), shape=(NE, NE))
-
-    print(f"fill_A_ti time: {perf_counter()-tic:.3f}s")
+    A.eliminate_zeros()
+    A= A.tocsr()
     return A
 
 
@@ -1455,21 +1455,13 @@ def substep_all_solver(max_iter=1):
         t_iter_start = perf_counter()
         copy_field(pos_mid, pos)
 
-        tic11 = perf_counter()
-        A,G = fill_A_by_spmm(M_inv, ALPHA)
-        print(f"fill_A_by_spmm time: {perf_counter()-tic11:.4f}s")
-        tic33 = perf_counter()
-        A2,G = fill_A_by_spmm_dll(M_inv, ALPHA)
-        print(f"fill_A_by_spmm_dll time: {perf_counter()-tic33:.4f}s")
-        tic22 = perf_counter()
-        A_ = fill_A_ti()
-        print(f"fill_A_ti time: {perf_counter()-tic22:.4f}s")
+        compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
 
-        flag =  csr_is_equal(A, A_)
-        print("fill_A_by_spmm equals to fill_A_ti: ", flag)
-        flag2 = csr_is_equal(A, A2)
-        print("fill_A_by_spmm equals to dll: ", flag2)
-
+        tic2 = perf_counter()
+        # A,G = fill_A_by_spmm(M_inv, ALPHA)
+        # A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
+        A = fill_A_ti()
+        print(f"fill_A_ti time: {perf_counter()-tic2:.4f}s")
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
@@ -1479,7 +1471,6 @@ def substep_all_solver(max_iter=1):
         #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
         #     b += G @ Minv_gg
 
-        # if export_matrix and (ite==0 or ite==1) and frame%export_matrix_interval==0:
         if export_matrix:
             tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
@@ -1501,7 +1492,7 @@ def substep_all_solver(max_iter=1):
                 Ps = setup_AMG(A)
                 logging.info(f"setup AMG time:{perf_counter()-tic}")
             tic = time.perf_counter()
-            levels = build_levels_new(A, Ps)
+            levels = build_levels(A, Ps)
             logging.info(f"build_levels time:{time.perf_counter()-tic}")
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()

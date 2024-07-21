@@ -1045,7 +1045,7 @@ def old_V_cycle(levels,lvl,x,b):
 
 g_vcycle = None
 g_vcycle_cached_levels = None
-vcycle_has_course_solve = False
+vcycle_has_coarse_solve = False
 
 def init_g_vcycle(levels):
     global g_vcycle
@@ -1117,7 +1117,7 @@ def init_g_vcycle(levels):
 def new_V_cycle(levels):
     assert g_vcycle
     g_vcycle.fastmg_vcycle_down()
-    if vcycle_has_course_solve:
+    if vcycle_has_coarse_solve:
         g_vcycle.fastmg_coarse_solve()
     else:
         coarsist_size = g_vcycle.fastmg_get_coarsist_size()
@@ -1731,7 +1731,7 @@ def init_set_P_R_manually():
 # SpMatData = namedtuple("SpMatData",['adj','nadj','adjabc','nnz','data','indices','indptr','ii','jj'])
 # spmatdata = None
 def init_direct_fill_A():
-    global spmatdata
+    # global spmatdata
     tic1 = perf_counter()
     print("Initializing adjacent edge and abc...")
     adjacent_edge = init_adj_edge(edges=edge.to_numpy())
@@ -1759,6 +1759,10 @@ def init_direct_fill_A():
     print(f"init A CSR pattern time: {perf_counter()-tic2:.3f}s")
     print(f"init_direct_fill_A time: {perf_counter()-tic1:.3f}s")
     # spmatdata = SpMatData(adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj)
+    print("caching init_direct_fill_A...")
+    tic = perf_counter() # savez_compressed will save 10x space(1.4G->140MB), but much slower(33s)
+    np.savez(f'cache_initFill_N{N}.npz', adjacent_edge=adjacent_edge, num_adjacent_edge=num_adjacent_edge, adjacent_edge_abc=adjacent_edge_abc, num_nonz=num_nonz, spmat_data=data, spmat_indices=indices, spmat_indptr=indptr, spmat_ii=ii, spmat_jj=jj)
+    print("time of caching:", perf_counter()-tic)
     return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj
 
 
@@ -1798,7 +1802,15 @@ print("Initializing edge done")
 if setup_num == 1:
     init_scale()
 
-adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = init_direct_fill_A()
+# cache init_direct_fill_A
+adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = (None,)*9
+if  os.path.exists(f'cache_initFill_N{N}.npz'):
+    npzfile= np.load(f'cache_initFill_N{N}.npz')
+    (adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj) = (npzfile[key] for key in ['adjacent_edge', 'num_adjacent_edge', 'adjacent_edge_abc', 'num_nonz', 'spmat_data', 'spmat_indices', 'spmat_indptr', 'spmat_ii', 'spmat_jj'])
+    num_nonz = int(num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
+    print(f"load cache_initFill_N{N}.npz")
+else:
+    adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = init_direct_fill_A()
 
 if restart:
     if restart_from_last_frame :

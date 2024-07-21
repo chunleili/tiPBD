@@ -31,3 +31,4 @@ profile*
 *.csv
 *.vtu
 !CMakeLists.txt
+cache*.npz

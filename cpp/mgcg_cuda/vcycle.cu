@@ -82,7 +82,7 @@ using namespace std;
 
 using namespace std;
 using Vec3f = Eigen::Vector3f;
-using EigenSpMat = Eigen::SparseMatrix<float>;
+using EigenSpMat = Eigen::SparseMatrix<float, Eigen::RowMajor>;
 using Eigen::Map;
 using Eigen::Vector3f;
 using Eigen::VectorXf;
@@ -655,8 +655,27 @@ struct Kernels {
     }
 
     // x = A^{-1} b
-    void spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> const &b) {
-        throw;
+    void spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b) {
+        //data transfering to eigen format
+        EigenSpMat EigenA;
+        CuSparseToEigenSparse(A, EigenA);
+        Eigen::VectorXf Eigen_x(x.size());
+        Eigen::VectorXf Eigen_b(b.size());
+        CudaVecToEigenVec(b, Eigen_b);
+
+        // cout<<"EigenA: "<<EigenA.rows()<<" "<<EigenA.cols()<<" "<<EigenA.nonZeros()<<endl;
+        // cout<<"A(0,0): "<<EigenA.coeff(0,0)<<endl;
+        // cout<<"A(0,1): "<<EigenA.coeff(0,1)<<endl;
+        // cout<<"Eigen_b: "<<Eigen_b.size()<<endl;
+        // cout<<"Eigen_b(0):"<<Eigen_b(0)<<endl;
+
+        // Eigen::SimplicialLLT<EigenSpMat> solver;
+        // solver.compute(EigenA);
+        // assert(solver.info() ==  Eigen::Success);
+        // Eigen_x = solver.solve(Eigen_b);
+        // assert(solver.info() ==  Eigen::Success);
+
+        cudaMemcpy(x.data(), Eigen_x.data(), sizeof(float) * x.size(), cudaMemcpyHostToDevice);
     }
 
     float vdot(Vec<float> const &x, Vec<float> const &y) {
@@ -699,8 +718,55 @@ struct Kernels {
         CHECK_CUSPARSE( cusparseCsr2cscEx2(           cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, buffer.data()));                
     }
 
+    
+    void EigenSparseToCuSparseTranspose(
+        const Eigen::SparseMatrix<double> &mat, int *row, int *col, double *val)
+    {
+        const int num_non0  = mat.nonZeros();
+        const int num_outer = mat.cols() + 1;
+
+        cudaMemcpy(row,
+                    mat.outerIndexPtr(),
+                    sizeof(int) * num_outer,
+                    cudaMemcpyHostToDevice);
+
+        cudaMemcpy(
+            col, mat.innerIndexPtr(), sizeof(int) * num_non0, cudaMemcpyHostToDevice);
+
+        cudaMemcpy(
+            val, mat.valuePtr(), sizeof(double) * num_non0, cudaMemcpyHostToDevice);
+    }
 
 
+    // https://stackoverflow.com/a/57382195/19253199
+    void CuSparseToEigenSparse(CSR<float> const &A, EigenSpMat &mat) 
+    {
+        //EigenSpMat is RowMajor, i.e. CSR
+        const int *indptr = A.indptr.data();
+        const int *indices = A.indices.data();
+        const float *data = A.data.data();
+        const int nnz = A.numnonz;
+        const int nrows = A.nrows;
+        const int ncols = A.ncols;
+        std::vector<int> inner(nnz);       // inner index is the column indices: indices
+        std::vector<int> outer(nrows + 1); // outer index is the rowStart: indptr
+        std::vector<float> value(nnz);    // value
+
+        cudaMemcpy(inner.data(), indices, sizeof(int) * nnz,         cudaMemcpyDeviceToHost);
+        cudaMemcpy(outer.data(), indptr,  sizeof(int) * (nrows + 1), cudaMemcpyDeviceToHost);
+        cudaMemcpy(value.data(), data,    sizeof(float) * nnz,       cudaMemcpyDeviceToHost);
+
+        Eigen::Map<EigenSpMat> mat_map(
+            nrows, ncols, nnz, outer.data(), inner.data(), value.data());
+
+        mat = mat_map.eval();
+    }
+
+
+    void CudaVecToEigenVec(Vec<float> const &vec, Eigen::VectorXf &eigen_vec)
+    {
+        cudaMemcpy(eigen_vec.data(), vec.data(), sizeof(float) * vec.size(), cudaMemcpyDeviceToHost);
+    }
 
 };
 
@@ -829,7 +895,7 @@ struct VCycle : Kernels {
     void coarse_solve() {
         auto const &A = levels.at(nlvs - 1).A;
         auto &x = levels.at(nlvs - 2).x;
-        auto const &b = levels.at(nlvs - 2).b;
+        auto &b = levels.at(nlvs - 2).b;
         spsolve(x, A, b);
     }
 
@@ -1010,51 +1076,6 @@ struct AssembleMatrix : Kernels {
     }
 
 
-    void EigenSparseToCuSparseTranspose(
-        const Eigen::SparseMatrix<double> &mat, int *row, int *col, double *val)
-    {
-        const int num_non0  = mat.nonZeros();
-        const int num_outer = mat.cols() + 1;
-
-        cudaMemcpy(row,
-                    mat.outerIndexPtr(),
-                    sizeof(int) * num_outer,
-                    cudaMemcpyHostToDevice);
-
-        cudaMemcpy(
-            col, mat.innerIndexPtr(), sizeof(int) * num_non0, cudaMemcpyHostToDevice);
-
-        cudaMemcpy(
-            val, mat.valuePtr(), sizeof(double) * num_non0, cudaMemcpyHostToDevice);
-    }
-
-
-    void CuSparseTransposeToEigenSparse(
-        const int *row,
-        const int *col,
-        const double *val,
-        const int num_non0,
-        const int mat_row,
-        const int mat_col,
-        Eigen::SparseMatrix<double> &mat)
-    {
-        std::vector<int> outer(mat_col + 1);
-        std::vector<int> inner(num_non0);
-        std::vector<double> value(num_non0);
-
-        cudaMemcpy(
-            outer.data(), row, sizeof(int) * (mat_col + 1), cudaMemcpyDeviceToHost);
-
-        cudaMemcpy(inner.data(), col, sizeof(int) * num_non0, cudaMemcpyDeviceToHost);
-
-        cudaMemcpy(
-            value.data(), val, sizeof(double) * num_non0, cudaMemcpyDeviceToHost);
-
-        Eigen::Map<Eigen::SparseMatrix<double>> mat_map(
-            mat_row, mat_col, num_non0, outer.data(), inner.data(), value.data());
-
-        mat = mat_map.eval();
-    }
 
     void fill_A_add_alpha(EigenSpMat &EigenA)
     {

@@ -1100,8 +1100,8 @@ def init_g_vcycle(levels):
         for lv in range(len(levels)):
             for which, matname in zip([1, 2, 3], ['A', 'R', 'P']):
                 mat = getattr(levels[lv], matname)
-                # if matname == 'A' and lv != 0:
-                #     continue
+                if matname == 'A' and lv != 0:
+                    continue
                 if mat is not None:
                     data_contig = np.ascontiguousarray(mat.data, dtype=np.float32)
                     indices_contig = np.ascontiguousarray(mat.indices, dtype=np.int32)
@@ -1110,8 +1110,8 @@ def init_g_vcycle(levels):
                                                   indices_contig.ctypes.data, indices_contig.shape[0],
                                                   indptr_contig.ctypes.data, indptr_contig.shape[0],
                                                   mat.shape[0], mat.shape[1], mat.nnz)
-            # if lv < len(levels) - 1:
-            #     g_vcycle.fastmg_RAP(lv)
+            if lv < len(levels) - 1:
+                g_vcycle.fastmg_RAP(lv)
 
 
 def new_V_cycle():
@@ -1485,7 +1485,7 @@ def substep_all_solver(max_iter=1):
                 Ps = setup_AMG(A)
                 logging.info(f"    setup AMG time:{perf_counter()-tic}")
             tic = time.perf_counter()
-            levels = build_levels(A, Ps)
+            levels = build_levels_new(A, Ps)
             logging.info(f"    build_levels time:{time.perf_counter()-tic}")
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()

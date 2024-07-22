@@ -287,13 +287,6 @@ struct Vec {
     T *data() noexcept {
         return m_data;
     }
-
-    void assign2(T* d, size_t n)
-    {
-        m_data = d; 
-        m_size = n;
-        m_cap = n;
-    }
 };
 
 struct DnVec {
@@ -563,26 +556,15 @@ struct Kernels {
         // get matrix C non-zero entries C_nnz1
         CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &matC_.nrows, &matC_.ncols, &matC_.numnonz) )
         // allocate matrix C
-        // FIXME: this will cause memory leak!
-        int*    dC_csrOffsets, *dC_columns;
-        float*  dC_values;
-        CHECK_CUDA( cudaMalloc((void**) &dC_csrOffsets,(matA_.nrows + 1) * sizeof(int)) )
-        CHECK_CUDA( cudaMalloc((void**) &dC_columns, matC_.numnonz * sizeof(int))   )
-        CHECK_CUDA( cudaMalloc((void**) &dC_values,  matC_.numnonz * sizeof(float)) )
-
+        matC_.resize(matC_.nrows, matC_.ncols, matC_.numnonz);
         // update matC with the new pointers
-        CHECK_CUSPARSE(cusparseCsrSetPointers(matC, dC_csrOffsets, dC_columns, dC_values) )
+        CHECK_CUSPARSE(cusparseCsrSetPointers(matC, matC_.indptr.data(), matC_.indices.data(), matC_.data.data()) )
 
         // copy the final products to the matrix C
         CHECK_CUSPARSE(
             cusparseSpGEMM_copy(cusparse, opA, opB,
                                 &alpha, matA, matB, &beta, matC,
                                 computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
-
-        matC_.indices.assign2(dC_columns, matC_.numnonz);
-        matC_.indptr.assign2(dC_csrOffsets, matC_.nrows + 1);
-        matC_.data.assign2(dC_values, matC_.numnonz);
-
     }
 
 

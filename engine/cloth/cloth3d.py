@@ -987,7 +987,7 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
         if residuals[iteration] < atol:
             break
         g_vcycle.fastmg_copy_outer2init_x()
-        new_V_cycle()
+        g_vcycle.fastmg_vcycle()
         g_vcycle.fastmg_do_cg_itern(residuals.ctypes.data, iteration)
     x_empty = np.empty_like(x0, dtype=np.float32)
     x = np.ascontiguousarray(x_empty, dtype=np.float32)
@@ -1045,8 +1045,6 @@ def old_V_cycle(levels,lvl,x,b):
 
 g_vcycle = None
 g_vcycle_cached_levels = None
-vcycle_has_coarse_solve = True
-
 def init_g_vcycle(levels):
     global g_vcycle
     global g_vcycle_cached_levels
@@ -1069,26 +1067,9 @@ def init_g_vcycle(levels):
         g_vcycle.fastmg_fetch_cg_final_x.argtypes = [ctypes.c_size_t]
         g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
         g_vcycle.fastmg_set_coeff.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_set_init_x.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_set_init_b.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_get_coarsist_size.argtypes = []
-        g_vcycle.fastmg_get_coarsist_size.restype = ctypes.c_size_t
-        g_vcycle.fastmg_get_coarsist_b.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_set_coarsist_x.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_get_finest_x.argtypes = [ctypes.c_size_t]
         g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
-        g_vcycle.fastmg_vcycle_down.argtypes = []
-        g_vcycle.fastmg_coarse_solve.argtypes = []
-        g_vcycle.fastmg_vcycle_up.argtypes = []
         g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
-        import numpy.ctypeslib as ctl
-        g_vcycle.fastmg_fetch_A.argtypes = [ctypes.c_size_t, ctl.ndpointer(np.float32, 
-                                            flags='aligned, c_contiguous'),  # data
-                                            ctl.ndpointer(np.int32,
-                                            flags='aligned, c_contiguous'),  # indices
-                                            ctl.ndpointer(np.int32,
-                                            flags='aligned, c_contiguous'),    # indptr
-                                            ]
+
 
     if g_vcycle_cached_levels != id(levels):
         # print('Setup detected! reuploading A, R, P matrices')
@@ -1113,12 +1094,6 @@ def init_g_vcycle(levels):
             if lv < len(levels) - 1:
                 g_vcycle.fastmg_RAP(lv)
 
-
-def new_V_cycle():
-    assert g_vcycle
-    g_vcycle.fastmg_vcycle_down()
-    g_vcycle.fastmg_coarse_solve()
-    g_vcycle.fastmg_vcycle_up()
 
 
 # @ti.kernel

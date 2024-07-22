@@ -646,26 +646,6 @@ struct Kernels {
         CHECK_CUSPARSE( cusparseCsr2cscEx2(           cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, buffer.data()));                
     }
 
-    
-    void EigenSparseToCuSparseTranspose(
-        const Eigen::SparseMatrix<double> &mat, int *row, int *col, double *val)
-    {
-        const int num_non0  = mat.nonZeros();
-        const int num_outer = mat.cols() + 1;
-
-        cudaMemcpy(row,
-                    mat.outerIndexPtr(),
-                    sizeof(int) * num_outer,
-                    cudaMemcpyHostToDevice);
-
-        cudaMemcpy(
-            col, mat.innerIndexPtr(), sizeof(int) * num_non0, cudaMemcpyHostToDevice);
-
-        cudaMemcpy(
-            val, mat.valuePtr(), sizeof(double) * num_non0, cudaMemcpyHostToDevice);
-    }
-
-
     // https://stackoverflow.com/a/57382195/19253199
     void CuSparseToEigenSparse(CSR<float> const &A, EigenSpMat &mat) 
     {
@@ -690,11 +670,6 @@ struct Kernels {
         mat = mat_map.eval();
     }
 
-
-    void CudaVecToEigenVec(Vec<float> const &vec, Eigen::VectorXf &eigen_vec)
-    {
-        cudaMemcpy(eigen_vec.data(), vec.data(), sizeof(float) * vec.size(), cudaMemcpyDeviceToHost);
-    }
 
 };
 
@@ -799,6 +774,12 @@ struct VCycle : Kernels {
         }
     }
 
+    void vcycle() {
+        vcycle_down();
+        coarse_solve();
+        vcycle_up();
+    }
+
     size_t get_coarsist_size() {
         auto const &this_b = levels.at(nlvs - 2).b;
         return this_b.size();
@@ -887,16 +868,8 @@ struct VCycle : Kernels {
             CSR<float> &P = levels.at(lv).P;
             CSR<float> AP;
             CSR<float> &RAP = levels.at(lv+1).A;
-            // using namespace std;
-            // cout<<"A: "<<A.nrows<<" "<<A.ncols<<" "<<A.numnonz<<endl;
-            // cout<<"R: "<<R.nrows<<" "<<R.ncols<<" "<<R.numnonz<<endl;
-            // cout<<"P: "<<P.nrows<<" "<<P.ncols<<" "<<P.numnonz<<endl;
-            // cout<<"Doing AP"<<endl;
             spgemm(A, P, AP) ;
-            // cout<<"Done AP"<<endl;
-            // cout<<"Doing RAP"<<endl;
             spgemm(R, AP, RAP);
-            // cout<<"Done RAP"<<endl;
     }
 
     void fetch_A(size_t lv, float *data, int *indices, int *indptr) {
@@ -906,6 +879,8 @@ struct VCycle : Kernels {
         CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
     }
     
+
+
 };
 
 struct AssembleMatrix : Kernels {
@@ -978,12 +953,16 @@ extern "C" DLLEXPORT void fastmg_set_init_b(float const *b, size_t n) {
     fastmg->set_init_b(b, n);
 }
 
-extern "C" DLLEXPORT void fastmg_vcycle_down() {
-    fastmg->vcycle_down();
-}
+// extern "C" DLLEXPORT void fastmg_vcycle_down() {
+//     fastmg->vcycle_down();
+// }
 
-extern "C" DLLEXPORT void fastmg_vcycle_up() {
-    fastmg->vcycle_up();
+// extern "C" DLLEXPORT void fastmg_vcycle_up() {
+//     fastmg->vcycle_up();
+// }
+
+extern "C" DLLEXPORT void fastmg_vcycle() {
+    fastmg->vcycle();
 }
 
 extern "C" DLLEXPORT size_t fastmg_get_coarsist_size() {

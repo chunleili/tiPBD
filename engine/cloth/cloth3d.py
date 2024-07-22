@@ -190,6 +190,11 @@ predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 K_diag = np.zeros((NV*3), dtype=float)
 
 
+
+arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='C_CONTIGUOUS')
+arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS')
+c_size_t = ctypes.c_size_t
+c_float = ctypes.c_float
 argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
                  ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
                  ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
@@ -197,6 +202,7 @@ argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # d
                 ]
 os.add_dll_directory(cuda_dir)
 extlib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
+
 
 class SpMat():
     def __init__(self, nnz, nrow=NE):
@@ -972,27 +978,20 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     init_g_vcycle(levels)
     assert g_vcycle
-
     assert x0 is not None
-    x0_contig = np.ascontiguousarray(x0, dtype=np.float32)
-    g_vcycle.fastmg_set_outer_x(x0_contig.ctypes.data, x0_contig.shape[0])
-    b_contig = np.ascontiguousarray(b, dtype=np.float32)
-    g_vcycle.fastmg_set_outer_b(b_contig.ctypes.data, b.shape[0])
-    residuals_empty = np.empty(shape=(maxiter+1,), dtype=np.float32)
-    residuals = np.ascontiguousarray(residuals_empty, dtype=np.float32)
-    bnrm2 = g_vcycle.fastmg_init_cg_iter0(residuals.ctypes.data) # init_b = r = b - A@x; residuals[0] = normr
-    atol = bnrm2 * tol
-    iteration = 0
-    for iteration in range(maxiter):
-        if residuals[iteration] < atol:
-            break
-        g_vcycle.fastmg_copy_outer2init_x()
-        g_vcycle.fastmg_vcycle()
-        g_vcycle.fastmg_do_cg_itern(residuals.ctypes.data, iteration)
-    x_empty = np.empty_like(x0, dtype=np.float32)
-    x = np.ascontiguousarray(x_empty, dtype=np.float32)
-    g_vcycle.fastmg_fetch_cg_final_x(x.ctypes.data)
-    residuals = residuals[:iteration+1]
+    # set data
+    x0 = x0.astype(np.float32)
+    b = b.astype(np.float32)
+    g_vcycle.fastmg_set_mgcg_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
+    
+    # solve
+    g_vcycle.fastmg_mgcg_solve()
+
+    # get result
+    x = np.empty_like(x0, dtype=np.float32)
+    residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
+    niter = g_vcycle.fastmg_get_mgcg_data(x, residuals)
+    residuals = residuals[:niter+1]
     return (x),  residuals  
 
 
@@ -1049,22 +1048,13 @@ def init_g_vcycle(levels):
     global g_vcycle
     global g_vcycle_cached_levels
 
-    dll_dir = prj_path+'/cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll'
-
     if g_vcycle is None:
-        if not Path(cuda_dir).exists():
-            raise FileNotFoundError(f"Please ensure cuda_dir which contains the following dlls exists:1. cublas64_12.dll 2. cublasLt64_12.dll 3. cusparse64_12.dll 4. nvJitLink_120_0.dll")
-        if not Path(dll_dir).exists():
-            raise FileNotFoundError(f"Please compile the fast-vcycle-gpu.dll in the cpp/mgcg_cuda/lib directory.")
-        os.add_dll_directory(cuda_dir)
-        g_vcycle = ctypes.cdll.LoadLibrary(dll_dir)
-        g_vcycle.fastmg_copy_outer2init_x.argtypes = []
-        g_vcycle.fastmg_set_outer_x.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_set_outer_b.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_init_cg_iter0.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_init_cg_iter0.restype = ctypes.c_float
-        g_vcycle.fastmg_do_cg_itern.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
-        g_vcycle.fastmg_fetch_cg_final_x.argtypes = [ctypes.c_size_t]
+        g_vcycle = extlib
+
+        g_vcycle.fastmg_set_mgcg_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
+        g_vcycle.fastmg_get_mgcg_data.argtypes = [arr_float]*2
+        g_vcycle.fastmg_get_mgcg_data.restype = c_size_t
+
         g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
         g_vcycle.fastmg_set_coeff.argtypes = [ctypes.c_size_t] * 2
         g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11

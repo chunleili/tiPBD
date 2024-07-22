@@ -697,6 +697,10 @@ struct VCycle : Kernels {
     Vec<float> save_p;
     Vec<float> save_q;
     Buffer buff;
+    float rtol;
+    size_t maxiter;
+    std::vector<float> residuals;
+    size_t niter; //final number of iterations to break the loop
 
     void setup(size_t numlvs) {
         if (levels.size() < numlvs) {
@@ -862,6 +866,11 @@ struct VCycle : Kernels {
         CHECK_CUDA(cudaMemcpy(x, alter_x.data(), alter_x.size() * sizeof(float), cudaMemcpyDeviceToHost));
     }
 
+    void fetch_cg_final_r(float *r) {
+        // CHECK_CUDA(cudaMemcpy(r, residuals.data(), residuals.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        std::copy(residuals.begin(), residuals.end(), r);
+    }
+
     void compute_RAP(size_t lv) {
             CSR<float> &A = levels.at(lv).A;
             CSR<float> &R = levels.at(lv).R;
@@ -879,6 +888,38 @@ struct VCycle : Kernels {
         CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
     }
     
+    void set_mgcg_data(const float* x, size_t nx, const float* b, size_t nb, float rtol_, size_t maxiter_)
+    {
+        set_outer_x(x, nx);
+        set_outer_b(b, nb);
+        rtol = rtol_;
+        maxiter = maxiter_;
+        residuals.resize(maxiter+1);
+    }
+
+    size_t get_mgcg_data(float* x_, float* r_)
+    {
+        fetch_cg_final_x(x_);
+        fetch_cg_final_r(r_);
+        return niter;
+    }
+
+    void mgcg_solve()
+    {
+        float bnrm2 = init_cg_iter0(residuals.data());
+        float atol = bnrm2 * rtol;
+        for (size_t iteration=0; iteration<maxiter; iteration++)
+        {   
+            if (residuals[iteration] < atol)
+            {
+                niter = iteration; //number of iter to break
+                break;
+            }
+            copy_outer2init_x();  //reset x to x0
+            vcycle();
+            do_cg_itern(residuals.data(), iteration); //first r is r[0], then r[iter+1]
+        }
+    }
 
 
 };
@@ -945,70 +986,6 @@ extern "C" DLLEXPORT void fastmg_set_lv_csrmat(size_t lv, size_t which, float co
     fastmg->set_lv_csrmat(lv, which, datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
 }
 
-extern "C" DLLEXPORT void fastmg_set_init_x(float const *x, size_t n) {
-    fastmg->set_init_x(x, n);
-}
-
-extern "C" DLLEXPORT void fastmg_set_init_b(float const *b, size_t n) {
-    fastmg->set_init_b(b, n);
-}
-
-// extern "C" DLLEXPORT void fastmg_vcycle_down() {
-//     fastmg->vcycle_down();
-// }
-
-// extern "C" DLLEXPORT void fastmg_vcycle_up() {
-//     fastmg->vcycle_up();
-// }
-
-extern "C" DLLEXPORT void fastmg_vcycle() {
-    fastmg->vcycle();
-}
-
-extern "C" DLLEXPORT size_t fastmg_get_coarsist_size() {
-    return fastmg->get_coarsist_size();
-}
-
-extern "C" DLLEXPORT void fastmg_get_coarsist_b(float *b) {
-    fastmg->get_coarsist_b(b);
-}
-
-extern "C" DLLEXPORT void fastmg_set_coarsist_x(float const *x) {
-    fastmg->set_coarsist_x(x);
-}
-
-extern "C" DLLEXPORT void fastmg_get_finest_x(float *x) {
-    fastmg->get_finest_x(x);
-}
-
-extern "C" DLLEXPORT void fastmg_coarse_solve() {
-    fastmg->coarse_solve();
-}
-
-extern "C" DLLEXPORT void fastmg_set_outer_x(float const *x, size_t n) {
-    fastmg->set_outer_x(x, n);
-}
-
-extern "C" DLLEXPORT void fastmg_copy_outer2init_x() {
-    fastmg->copy_outer2init_x();
-}
-
-extern "C" DLLEXPORT void fastmg_set_outer_b(float const *b, size_t n) {
-    fastmg->set_outer_b(b, n);
-}
-
-extern "C" DLLEXPORT float fastmg_init_cg_iter0(float *residuals) {
-    return fastmg->init_cg_iter0(residuals);
-}
-
-extern "C" DLLEXPORT void fastmg_do_cg_itern(float *residuals, size_t iteration) {
-    return fastmg->do_cg_itern(residuals, iteration);
-}
-
-extern "C" DLLEXPORT void fastmg_fetch_cg_final_x(float *x) {
-    fastmg->fetch_cg_final_x(x);
-}
-
 extern "C" DLLEXPORT void fastmg_RAP(size_t lv) {
     fastmg->compute_RAP(lv);
 }
@@ -1017,7 +994,22 @@ extern "C" DLLEXPORT void fastmg_fetch_A(size_t lv, float* data, int* indices, i
     fastmg->fetch_A(lv, data, indices, indptr);
 }
 
+extern "C" DLLEXPORT void fastmg_vcycle() {
+    fastmg->vcycle();
+}
 
+extern "C" DLLEXPORT void fastmg_mgcg_solve() {
+    fastmg->mgcg_solve();
+}
+
+extern "C" DLLEXPORT void fastmg_set_mgcg_data(const float* x, size_t nx, const float* b, size_t nb, float rtol, size_t maxiter) {
+    fastmg->set_mgcg_data(x, nx, b, nb, rtol, maxiter);
+}
+
+extern "C" DLLEXPORT size_t fastmg_get_mgcg_data(float *x, float *r) {
+    size_t niter = fastmg->get_mgcg_data(x, r);
+    return niter;
+}
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastA_setup() {

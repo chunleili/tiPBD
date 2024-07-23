@@ -684,6 +684,14 @@ struct VCycle : Kernels {
         }
     }
 
+    void set_P(size_t lv, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
+        levels.at(lv).P.assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
+    }
+
+    void set_A0(float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
+        levels.at(0).A.assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
+    }
+
     void set_coeff(float const *coeff, size_t ncoeffs) {
         coefficients.assign(coeff, coeff + ncoeffs);
     }
@@ -841,6 +849,8 @@ struct VCycle : Kernels {
             CSR<float> &P = levels.at(lv).P;
             CSR<float> AP;
             CSR<float> &RAP = levels.at(lv+1).A;
+            R.resize(P.ncols, P.nrows, P.numnonz);
+            transpose(P, R);            
             spgemm(A, P, AP) ;
             spgemm(R, AP, RAP);
     }
@@ -975,6 +985,18 @@ extern "C" DLLEXPORT size_t fastmg_get_mgcg_data(float *x, float *r) {
     return niter;
 }
 
+extern "C" DLLEXPORT void fastmg_set_A0(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
+{
+                // data, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz
+    fastmg->set_A0(data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
+}
+
+extern "C" DLLEXPORT void fastmg_set_P(int lv, float* data, int* indices, int* indptr, int rows, int cols, int nnz)
+{
+                //lv, data, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz
+    fastmg->set_P(lv, data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
+}
+
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastA_setup() {
     if (!fastA)
@@ -1003,3 +1025,4 @@ extern "C" DLLEXPORT void fastA_compute_GMG() {
 extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) {
     fastA->fetch_A(data, indices, indptr);
 }
+

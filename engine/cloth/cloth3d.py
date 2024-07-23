@@ -75,7 +75,7 @@ parser.add_argument("-use_json", type=int, default=0, help="json configs will ov
 parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
 parser.add_argument("-auto_complete_path", type=int, default=0, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
-parser.add_argument("-vcycle", type=str, default="new", help="old or new")
+parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 
 
@@ -89,7 +89,6 @@ export_matrix_binary = args.export_matrix_binary
 export_state = bool(args.export_state)
 export_residual = bool(args.export_residual)
 setup_num = args.setup_num
-vcycle_type = args.vcycle
 cuda_dir = args.cuda_dir
 if setup_num==1: gravity = [0.0, 0.0, 0.0]
 else : gravity = [0.0, -9.8, 0.0]
@@ -109,6 +108,7 @@ use_json = bool(args.use_json)
 json_path = prj_path + args.json_path
 auto_complete_path = bool(args.auto_complete_path)
 arch = args.arch
+use_cuda = args.use_cuda
 
 
 def parse_json_params(path, vars_to_overwrite):
@@ -190,18 +190,18 @@ predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 K_diag = np.zeros((NV*3), dtype=float)
 
 
-
-arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='C_CONTIGUOUS')
-arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS')
-c_size_t = ctypes.c_size_t
-c_float = ctypes.c_float
-argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                 ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
-                 ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
-                 ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                ]
-os.add_dll_directory(cuda_dir)
-extlib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
+if use_cuda:
+    arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='C_CONTIGUOUS')
+    arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS')
+    c_size_t = ctypes.c_size_t
+    c_float = ctypes.c_float
+    argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
+                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
+                    ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                    ]
+    os.add_dll_directory(cuda_dir)
+    extlib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
 
 class SpMat():
@@ -914,7 +914,7 @@ def build_levels(A, Ps=[]):
 
     return levels
 
-def build_levels_new(A, Ps=[]):
+def build_levels_cuda(A, Ps=[]):
     '''Give A and a list of prolongation matrices Ps, return a list of levels'''
     lvl = len(Ps) + 1 # number of levels
 
@@ -924,8 +924,6 @@ def build_levels_new(A, Ps=[]):
 
     for i in range(lvl-1):
         levels[i].P = Ps[i]
-        levels[i].R = Ps[i].T
-        levels[i+1].A = scipy.sparse.csr_matrix((levels[i].P.shape[1], levels[i].P.shape[1]), dtype=np.float32)
     return levels
 
 
@@ -975,10 +973,28 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     residuals = residuals[:iteration+1]
     return (x),  residuals  
 
+
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
+    tic1 = time.perf_counter()
     init_g_vcycle(levels)
+    print(f"    init_g_vcycle time: {time.perf_counter()-tic1:.2f}s")
     assert g_vcycle
-    assert x0 is not None
+
+    tic2 = time.perf_counter()
+    # set A0
+    g_vcycle.fastmg_set_A0(levels[0].A.data, levels[0].A.indices, levels[0].A.indptr, levels[0].A.shape[0], levels[0].A.shape[1], levels[0].A.nnz)
+    print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
+    
+    # compute RAP   (R=P.T)
+    tic3 = time.perf_counter()
+    for lv in range(len(levels)-1):
+        g_vcycle.fastmg_RAP(lv)
+    print(f"    compute RAP time: {time.perf_counter()-tic3:.2f}s")
+
+    if x0 is None:
+        x0 = np.zeros(b.shape[0], dtype=np.float32)
+
+    tic4 = time.perf_counter()
     # set data
     x0 = x0.astype(np.float32)
     b = b.astype(np.float32)
@@ -992,6 +1008,7 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
     niter = g_vcycle.fastmg_get_mgcg_data(x, residuals)
     residuals = residuals[:niter+1]
+    print(f"    solve time: {time.perf_counter()-tic4:.2f}s")
     return (x),  residuals  
 
 
@@ -1043,10 +1060,11 @@ def old_V_cycle(levels,lvl,x,b):
     postsmoother(A, x, b)
 
 g_vcycle = None
-g_vcycle_cached_levels = None
+cached_P_id = None
+cached_cheby_id = None
 def init_g_vcycle(levels):
     global g_vcycle
-    global g_vcycle_cached_levels
+    global cached_P_id, cached_cheby_id
 
     if g_vcycle is None:
         g_vcycle = extlib
@@ -1060,29 +1078,22 @@ def init_g_vcycle(levels):
         g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
         g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
 
+        g_vcycle.fastmg_set_A0.argtypes = argtypes_of_csr
+        g_vcycle.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
 
-    if g_vcycle_cached_levels != id(levels):
-        # print('Setup detected! reuploading A, R, P matrices')
-        g_vcycle_cached_levels = id(levels)
-        assert chebyshev_coeff is not None
+        g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
+
+    if cached_cheby_id != id(chebyshev_coeff):
+        cached_cheby_id = id(chebyshev_coeff)
         coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
-        g_vcycle.fastmg_setup(len(levels))
         g_vcycle.fastmg_set_coeff(coeff_contig.ctypes.data, coeff_contig.shape[0])
-        for lv in range(len(levels)):
-            for which, matname in zip([1, 2, 3], ['A', 'R', 'P']):
-                mat = getattr(levels[lv], matname)
-                if matname == 'A' and lv != 0:
-                    continue
-                if mat is not None:
-                    data_contig = np.ascontiguousarray(mat.data, dtype=np.float32)
-                    indices_contig = np.ascontiguousarray(mat.indices, dtype=np.int32)
-                    indptr_contig = np.ascontiguousarray(mat.indptr, dtype=np.int32)
-                    g_vcycle.fastmg_set_lv_csrmat(lv, which, data_contig.ctypes.data, data_contig.shape[0],
-                                                  indices_contig.ctypes.data, indices_contig.shape[0],
-                                                  indptr_contig.ctypes.data, indptr_contig.shape[0],
-                                                  mat.shape[0], mat.shape[1], mat.nnz)
-            if lv < len(levels) - 1:
-                g_vcycle.fastmg_RAP(lv)
+
+    # set P
+    if id(cached_P_id) != id(levels[0].P):
+        cached_P_id = levels[0].P
+        for lv in range(len(levels)-1):
+            P_ = levels[lv].P
+            g_vcycle.fastmg_set_P(lv, P_.data, P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
 
 
 
@@ -1450,19 +1461,20 @@ def substep_all_solver(max_iter=1):
                 Ps = setup_AMG(A)
                 logging.info(f"    setup AMG time:{perf_counter()-tic}")
             tic = time.perf_counter()
-            levels = build_levels_new(A, Ps)
+            if use_cuda:
+                levels = build_levels_cuda(A, Ps)
+            else:
+                levels = build_levels(A, Ps)
             logging.info(f"    build_levels time:{time.perf_counter()-tic}")
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()
-            if vcycle_type == 'old':
-                amg_cg_solve = old_amg_cg_solve
-            elif vcycle_type == 'new':
-                amg_cg_solve = new_amg_cg_solve
+            if use_cuda:
+                mgsolve = new_amg_cg_solve
             else:
-                assert False
-            x,residuals = amg_cg_solve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
+                mgsolve = old_amg_cg_solve
+            x,residuals = mgsolve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
             toc2 = time.perf_counter()
-            logging.info(f"    amg_cg_solve time {toc2-tic2}")
+            logging.info(f"    mgsolve time {toc2-tic2}")
             r_Axb = residuals
 
         # rsys1 = np.linalg.norm(b-A@x)
@@ -1794,9 +1806,6 @@ initial_frame = frame
 step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
 try:
     while True:
-        step_pbar.update(1)
-        # print()
-        logging.info("")
         t_one_frame_start = time.perf_counter()
         frame += 1
         if use_viewer:
@@ -1843,7 +1852,10 @@ try:
             if save_image:
                 file_path = out_dir + f"{frame:04d}.png"
                 viewer.window.save_image(file_path)  # export and show in GUI
-        print()
+        logging.info("\n")
+        step_pbar.update(1)
+        logging.info("")
+
 except KeyboardInterrupt:
     print("\n\n------KeyboardInterrupt-----")
     print(f"frame: {frame}")

@@ -199,6 +199,8 @@ inline void toc(string message = "")
 }
 
 
+// https://github.com/NVIDIA/CUDALibrarySamples/blob/ade391a17672d26e55429035450bc44afd277d34/cuSPARSE/spgemm/spgemm_example.c#L161
+// https://docs.nvidia.com/cuda/cusparse/#cusparsespgemm
 extern "C" DLLEXPORT int spgemm(int* indptr, int* indices, float* data, int nrows, int ncols, int nnz,
 int* indptr2, int* indices2, float* data2, int nrows2, int ncols2, int nnz2,
 int* indptr3, int* indices3, float* data3, int* nnz3)
@@ -310,11 +312,11 @@ int* indptr3, int* indices3, float* data3, int* nnz3)
                                            spgemmDesc, &bufferSize2, dBuffer2) )
     toc("spgemm computation");
     tic();
-
     // get matrix C non-zero entries C_nnz1
     int64_t C_num_rows1, C_num_cols1, C_nnz1;
     CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &C_num_rows1, &C_num_cols1,
                                          &C_nnz1) )
+    std::cout<<"C_num_rows1: "<<C_num_rows1<<" C_num_cols1: "<<C_num_cols1<<" C_nnz1: "<<C_nnz1<<std::endl;
     // allocate matrix C
     CHECK_CUDA( cudaMalloc((void**) &dC_columns, C_nnz1 * sizeof(int))   )
     CHECK_CUDA( cudaMalloc((void**) &dC_values,  C_nnz1 * sizeof(float)) )
@@ -333,14 +335,9 @@ int* indptr3, int* indices3, float* data3, int* nnz3)
         cusparseSpGEMM_copy(handle, opA, opB,
                             &alpha, matA, matB, &beta, matC,
                             computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
-
-
+    toc("malloc for C");
     //--------------------------------------------------------------------------
     tic();
-    // // device result check
-    // std::vector<int> hC_csrOffsets_tmp(C_num_rows1 + 1);
-    // std::vector<int> hC_columns_tmp(C_nnz1);
-    // std::vector<float> hC_values_tmp(C_nnz1);
     CHECK_CUDA( cudaMemcpy(indptr3, dC_csrOffsets,
                            (A_num_rows + 1) * sizeof(int),
                            cudaMemcpyDeviceToHost) )
@@ -349,19 +346,7 @@ int* indptr3, int* indices3, float* data3, int* nnz3)
     CHECK_CUDA( cudaMemcpy(data3, dC_values, C_nnz1 * sizeof(float),
                            cudaMemcpyDeviceToHost) )
     nnz3[0] = C_nnz1;
-    toc("memcpy back");
-    // tic();
-    // std::cout << "spgemm_example test PASSED" << std::endl;
-    // std::cout << "C_nnz: " << C_nnz1 << std::endl;
-    // std::cout << "save C in txt" << std::endl;
-    // savetxt("C.data.txt", hC_values_tmp);
-    // savetxt<int>("C.indptr.txt", hC_csrOffsets_tmp);
-    // savetxt<int>("C.indices.txt", hC_columns_tmp);
-    // // for(int i = 0; i < C_nnz1; i++) {
-    // //     std::cout << hC_values_tmp[i] << " ";
-    // // }
-    // std::cout << "save C done" << std::endl;
-    // toc("save C");
+    toc("memcpy back to host");
     //--------------------------------------------------------------------------
     // destroy matrix/vector descriptors
     CHECK_CUSPARSE( cusparseSpGEMM_destroyDescr(spgemmDesc) )
@@ -382,12 +367,4 @@ int* indptr3, int* indices3, float* data3, int* nnz3)
     CHECK_CUDA( cudaFree(dC_columns) )
     CHECK_CUDA( cudaFree(dC_values) )
     return EXIT_SUCCESS;
-}
-
-
-extern "C" DLLEXPORT void change_spmat(int* indptr, int* indices, double* data, int nrows, int ncols, int nnz)
-{
-    for (int i=0; i<nrows; i++) 
-        for (int j=indptr[i]; j<indptr[i+1]; j++)
-            data[j] += 1;
 }

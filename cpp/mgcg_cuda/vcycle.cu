@@ -17,14 +17,7 @@
 #include <array>
 #include <unordered_set>
 
-#include "Eigen/Core"
-#include "Eigen/Dense"
-#include "Eigen/Sparse"
-#include "unsupported/Eigen/SparseExtra"
-
 using namespace std;
-using EigenSpMat = Eigen::SparseMatrix<float, Eigen::RowMajor>;
-
 
 #if __GNUC__ && __linux__
 #include <sys/ptrace.h>
@@ -500,10 +493,10 @@ struct Kernels {
     // C = A * B
     void spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_) 
     {
-        ConstSpMat matA(matA_);
-        ConstSpMat matB(matB_);
+        ConstSpMat descA(matA_); //descriptor for A
+        ConstSpMat descB(matB_);
         matC_.resize(matA_.nrows, matB_.ncols, 0);
-        SpMat matC(matC_);
+        SpMat descC(matC_);
         // https://github.com/NVIDIA/CUDALibrarySamples/blob/ade391a17672d26e55429035450bc44afd277d34/cuSPARSE/spgemm/spgemm_example.c#L161
         // https://docs.nvidia.com/cuda/cusparse/#cusparsespgemm
         //--------------------------------------------------------------------------
@@ -524,7 +517,7 @@ struct Kernels {
         // ask bufferSize1 bytes for external memory
         CHECK_CUSPARSE(
             cusparseSpGEMM_workEstimation(cusparse, opA, opB,
-                                        &alpha, matA, matB, &beta, matC,
+                                        &alpha, descA, descB, &beta, descC,
                                         computeType, CUSPARSE_SPGEMM_DEFAULT,
                                         spgemmDesc, &bufferSize1, NULL) )
         // CHECK_CUDA( cudaMalloc((void**) &dBuffer1, bufferSize1) )
@@ -534,36 +527,35 @@ struct Kernels {
         // the next step
         CHECK_CUSPARSE(
             cusparseSpGEMM_workEstimation(cusparse, opA, opB,
-                                        &alpha, matA, matB, &beta, matC,
+                                        &alpha, descA, descB, &beta, descC,
                                         computeType, CUSPARSE_SPGEMM_DEFAULT,
                                         spgemmDesc, &bufferSize1, dBuffer1.data()) )
 
         // ask bufferSize2 bytes for external memory
         CHECK_CUSPARSE(
             cusparseSpGEMM_compute(cusparse, opA, opB,
-                                &alpha, matA, matB, &beta, matC,
+                                &alpha, descA, descB, &beta, descC,
                                 computeType, CUSPARSE_SPGEMM_DEFAULT,
                                 spgemmDesc, &bufferSize2, NULL) )
-        // CHECK_CUDA( cudaMalloc((void**) &dBuffer2, bufferSize2) )
         dBuffer2.reserve(bufferSize2);
 
         // compute the intermediate product of A * B
         CHECK_CUSPARSE( cusparseSpGEMM_compute(cusparse, opA, opB,
-                                            &alpha, matA, matB, &beta, matC,
+                                            &alpha, descA, descB, &beta, descC,
                                             computeType, CUSPARSE_SPGEMM_DEFAULT,
                                             spgemmDesc, &bufferSize2, dBuffer2.data()) )
         // --------------------------------------------------------------------------
         // get matrix C non-zero entries C_nnz1
-        CHECK_CUSPARSE( cusparseSpMatGetSize(matC, &matC_.nrows, &matC_.ncols, &matC_.numnonz) )
+        CHECK_CUSPARSE( cusparseSpMatGetSize(descC, &matC_.nrows, &matC_.ncols, &matC_.numnonz) )
         // allocate matrix C
         matC_.resize(matC_.nrows, matC_.ncols, matC_.numnonz);
         // update matC with the new pointers
-        CHECK_CUSPARSE(cusparseCsrSetPointers(matC, matC_.indptr.data(), matC_.indices.data(), matC_.data.data()) )
+        CHECK_CUSPARSE(cusparseCsrSetPointers(descC, matC_.indptr.data(), matC_.indices.data(), matC_.data.data()) )
 
         // copy the final products to the matrix C
         CHECK_CUSPARSE(
             cusparseSpGEMM_copy(cusparse, opA, opB,
-                                &alpha, matA, matB, &beta, matC,
+                                &alpha, descA, descB, &beta, descC,
                                 computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
     }
 
@@ -595,8 +587,8 @@ struct Kernels {
     }
 
     // x = A^{-1} b by cusolver cholesky
+    // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csrlsvchol
     void spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b) {
-        // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csrlsvchol
         cusparseMatDescr_t descrA = NULL;
         CHECK_CUSPARSE(cusparseCreateMatDescr(&descrA));
         CHECK_CUSPARSE(cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL));
@@ -618,12 +610,10 @@ struct Kernels {
         return result;
     }
 
-
+    // transpose csr matrix A to AT
+    // https://docs.nvidia.com/cuda/cusparse/index.html?highlight=cusparseCsr2cscEx2#cusparsecsr2cscex2
     void transpose(CSR<float> const & A, CSR<float>& AT)
     {
-        // https://docs.nvidia.com/cuda/cusparse/index.html?highlight=cusparseCsr2cscEx2#cusparsecsr2cscex2
-
-        // cusparseHandle_t     handle = NULL;
         int m = A.nrows;
         int n = A.ncols;
         int nnz = A.numnonz;
@@ -645,32 +635,6 @@ struct Kernels {
         buffer.reserve(bufferSize);
         CHECK_CUSPARSE( cusparseCsr2cscEx2(           cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, buffer.data()));                
     }
-
-    // https://stackoverflow.com/a/57382195/19253199
-    void CuSparseToEigenSparse(CSR<float> const &A, EigenSpMat &mat) 
-    {
-        //EigenSpMat is RowMajor, i.e. CSR
-        const int *indptr = A.indptr.data();
-        const int *indices = A.indices.data();
-        const float *data = A.data.data();
-        const int nnz = A.numnonz;
-        const int nrows = A.nrows;
-        const int ncols = A.ncols;
-        std::vector<int> inner(nnz);       // inner index is the column indices: indices
-        std::vector<int> outer(nrows + 1); // outer index is the rowStart: indptr
-        std::vector<float> value(nnz);    // value
-
-        cudaMemcpy(inner.data(), indices, sizeof(int) * nnz,         cudaMemcpyDeviceToHost);
-        cudaMemcpy(outer.data(), indptr,  sizeof(int) * (nrows + 1), cudaMemcpyDeviceToHost);
-        cudaMemcpy(value.data(), data,    sizeof(float) * nnz,       cudaMemcpyDeviceToHost);
-
-        Eigen::Map<EigenSpMat> mat_map(
-            nrows, ncols, nnz, outer.data(), inner.data(), value.data());
-
-        mat = mat_map.eval();
-    }
-
-
 };
 
 struct MGLevel {

@@ -44,7 +44,7 @@ use_primary_residual = False
 use_geometric_stiffness = False
 dont_clean_results = False
 report_time = True
-smoother = 'chebyshev'
+smoother = 'jacobi'
 chebyshev_coeff = None
 export_fullr = False
 
@@ -75,7 +75,7 @@ parser.add_argument("-use_json", type=int, default=0, help="json configs will ov
 parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
 parser.add_argument("-auto_complete_path", type=int, default=0, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
-parser.add_argument("-use_cuda", type=int, default=True)
+parser.add_argument("-use_cuda", type=int, default=False)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 
 
@@ -871,6 +871,14 @@ def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
     return coefficients
 
 
+def setup_jacobi(A):
+    from pyamg.relaxation.smoothing import rho_D_inv_A
+    global jacobi_omega
+    rho = rho_D_inv_A(A)
+    print("rho:", rho)
+    jacobi_omega = 2.0/(rho + 0.1)
+
+
 def build_Ps(A, method='UA'):
     """Build a list of prolongation matrices Ps from A """
     if method == 'UA':
@@ -928,6 +936,8 @@ def setup_AMG(A):
     Ps = build_Ps(A)
     if smoother == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    elif smoother == 'jacobi':
+        setup_jacobi(A)
     return Ps
 
 
@@ -1018,7 +1028,7 @@ def presmoother(A,x,b):
     if smoother == 'gauss_seidel':
         gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
     elif smoother == 'jacobi':
-        jacobi(A,x,b,iterations=10)
+        jacobi(A,x,b,iterations=10, omega=jacobi_omega)
     elif smoother == 'sor_vanek':
         for _ in range(1):
             sor(A,x,b,omega=1.0,iterations=1,sweep='forward')
@@ -1043,7 +1053,7 @@ t_smoother = 0.0
 
 def old_V_cycle(levels,lvl,x,b):
     global t_smoother
-    A = levels[lvl].A
+    A = levels[lvl].A.astype(np.float64)
     presmoother(A,x,b)
     residual = b - A @ x
     coarse_b = levels[lvl].R @ residual
@@ -1441,7 +1451,7 @@ def substep_all_solver(max_iter=1):
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic
 
-        # rsys0 = (np.linalg.norm(b-A@x))
+        rsys0 = (np.linalg.norm(b-A@x))
 
         print(f"    Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
         tic_linsys = perf_counter()
@@ -1473,7 +1483,7 @@ def substep_all_solver(max_iter=1):
             logging.info(f"    mgsolve time {toc2-tic2}")
             r_Axb = residuals
 
-        # rsys1 = np.linalg.norm(b-A@x)
+        rsys1 = np.linalg.norm(b-A@x)
         # print(f"    Linear system solve time: {perf_counter()-tic_linsys:.4f}s")
         
         tic = time.perf_counter()
@@ -1503,7 +1513,7 @@ def substep_all_solver(max_iter=1):
 
             print(f"    Calc r time: {perf_counter()-tic_calcr:.4f}s")
             if export_log:
-                logging.info(f"{frame}-{ite} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
+                logging.info(f"{frame}-{ite} rsys:{rsys0:.2e} {rsys1:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
             r.append(Residual([0.,0.], dual_r, robj, r_Axb, len(r_Axb), t_iter))
 
         x_prev = x.copy()

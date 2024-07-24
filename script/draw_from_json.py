@@ -6,7 +6,7 @@ import pandas as pd
 
 prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 out_dir = prj_path+f"/result/latest/r/"
-os.chdir(out_dir)
+# os.chdir(out_dir)
 
 # define get_col function
 get_col = lambda data, col: [d[col] for d in data]
@@ -64,6 +64,29 @@ def draw_primary_secondary_res(ax):
     ax[1].set_yscale('log')
     # plt.show()
 
+# %% draw dual
+def draw_dual():
+    fig,ax = plt.subplots(1)
+
+    frame=30
+
+    df= pd.read_json(prj_path + f"/result/latest/r/{frame}.json")
+
+    df2= pd.read_json(prj_path + f"/result/xpbd_1/r/{frame}.json")
+
+    ax.plot(df['dual'],linestyle='-')
+    ax.plot(df2['dual'],linestyle='--')
+    plt.tight_layout()
+
+    ax.legend(['ours'])
+    # set marker for each frame
+    ax.set_yscale('log')
+    ax.set_xlabel('iteration')
+    ax.set_ylabel('residual')
+    ax.set_title(f'dual residual')
+
+    plt.show()
+
 # %%
 if __name__ == "__main__":
-    draw_4_residuals([11])
+    draw_dual()

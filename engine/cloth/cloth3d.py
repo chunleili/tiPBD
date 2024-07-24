@@ -190,19 +190,15 @@ predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 K_diag = np.zeros((NV*3), dtype=float)
 
 
-if use_cuda:
-    arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='C_CONTIGUOUS')
-    arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='C_CONTIGUOUS')
-    c_size_t = ctypes.c_size_t
-    c_float = ctypes.c_float
-    argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
-                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
-                    ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                    ]
-    os.add_dll_directory(cuda_dir)
-    extlib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
-
+arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
+arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+c_size_t = ctypes.c_size_t
+c_float = ctypes.c_float
+argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
+                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
+                ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                ]
 
 class SpMat():
     def __init__(self, nnz, nrow=NE):
@@ -1752,6 +1748,11 @@ print_all_globals(global_vars)
 timer_all = time.perf_counter()
 start_wall_time = datetime.datetime.now()
 print("\nInitializing...")
+
+if use_cuda:
+    os.add_dll_directory(cuda_dir)
+    extlib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
+
 print("Initializing pos..")
 init_pos(inv_mass,pos)
 init_tri(tri)

@@ -32,4 +32,6 @@ profile*
 *.vtu
 !CMakeLists.txt
 cache*.npz
-.vscode/settings.json
+settings.json
+*.node
+*.ele

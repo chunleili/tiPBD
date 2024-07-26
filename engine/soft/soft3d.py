@@ -24,7 +24,6 @@ import datetime
 proj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-max_frame", type=int, default=-1)
 parser.add_argument("-max_iter", type=int, default=30)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
@@ -33,7 +32,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunnyBig.node")# "cube" "bunny1k2k" "toy"
+parser.add_argument("-model_path", type=str, default=f"data/model/cube/minicube.node")# "data/model/bunnyBig/bunnyBig.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
@@ -42,7 +41,7 @@ parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="jacobi")
-parser.add_argument("-build_P_method", type=str, default="nullspace")
+parser.add_argument("-build_P_method", type=str, default="UA")
 parser.add_argument("-max_iter_Axb", type=int, default=100)
 
 args = parser.parse_args()
@@ -190,6 +189,67 @@ def build_face_indices(tet_indices):
             for j in range(3):  # 3 vertices
                 face_indices[t * 4 + i][j] = tet_indices[t][ind[i][j]]
     return face_indices
+
+
+# write .node file
+def write_tet(filename, points, tet_indices):
+    import meshio
+
+    cells = [
+        ("tetra", tet_indices),
+    ]
+    mesh = meshio.Mesh(
+        points,
+        cells,
+    )
+    mesh.write(filename)
+    return mesh
+
+# Usage:
+# # original size: 0.1 and 0.5
+# coarse_points, coarse_tet_indices, coarse_tri_indices = generate_cube_mesh(1.0, 1.0)
+# write_tet("data/model/cube/minicube.node", coarse_points, coarse_tet_indices)
+def generate_cube_mesh(len, grid_dx=0.1):
+    num_grid = int(len // grid_dx)
+    points = np.zeros(((num_grid + 1) ** 3, 3), dtype=float)
+    for i in range(num_grid + 1):
+        for j in range(num_grid + 1):
+            for k in range(num_grid + 1):
+                points[i * (num_grid + 1) ** 2 + j * (num_grid + 1) + k] = [i * grid_dx, j * grid_dx, k * grid_dx]
+    tet_indices = np.zeros(((num_grid) ** 3 * 5, 4), dtype=int)
+    tri_indices = np.zeros(((num_grid) ** 3 * 12, 3), dtype=int)
+    for i in range(num_grid):
+        for j in range(num_grid):
+            for k in range(num_grid):
+                id0 = i * (num_grid + 1) ** 2 + j * (num_grid + 1) + k
+                id1 = i * (num_grid + 1) ** 2 + j * (num_grid + 1) + k + 1
+                id2 = i * (num_grid + 1) ** 2 + (j + 1) * (num_grid + 1) + k
+                id3 = i * (num_grid + 1) ** 2 + (j + 1) * (num_grid + 1) + k + 1
+                id4 = (i + 1) * (num_grid + 1) ** 2 + j * (num_grid + 1) + k
+                id5 = (i + 1) * (num_grid + 1) ** 2 + j * (num_grid + 1) + k + 1
+                id6 = (i + 1) * (num_grid + 1) ** 2 + (j + 1) * (num_grid + 1) + k
+                id7 = (i + 1) * (num_grid + 1) ** 2 + (j + 1) * (num_grid + 1) + k + 1
+                tet_start = (i * num_grid**2 + j * num_grid + k) * 5
+                tet_indices[tet_start] = [id0, id1, id2, id4]
+                tet_indices[tet_start + 1] = [id1, id4, id5, id7]
+                tet_indices[tet_start + 2] = [id2, id4, id6, id7]
+                tet_indices[tet_start + 3] = [id1, id2, id3, id7]
+                tet_indices[tet_start + 4] = [id1, id2, id4, id7]
+                tri_start = (i * num_grid**2 + j * num_grid + k) * 12
+                tri_indices[tri_start] = [id0, id2, id4]
+                tri_indices[tri_start + 1] = [id2, id4, id6]
+                tri_indices[tri_start + 2] = [id0, id1, id2]
+                tri_indices[tri_start + 3] = [id1, id2, id3]
+                tri_indices[tri_start + 4] = [id0, id1, id4]
+                tri_indices[tri_start + 5] = [id1, id4, id5]
+                tri_indices[tri_start + 6] = [id4, id5, id6]
+                tri_indices[tri_start + 7] = [id3, id6, id7]
+                tri_indices[tri_start + 8] = [id4, id5, id6]
+                tri_indices[tri_start + 9] = [id5, id6, id7]
+                tri_indices[tri_start + 10] = [id1, id3, id7]
+                tri_indices[tri_start + 11] = [id1, id5, id7]
+    write_tet("data/model/cube/coarse_new.node", points, tet_indices)
+    return points, tet_indices, tri_indices
 
 
 class SoftBody:
@@ -1389,6 +1449,217 @@ def ending(timer_all, start_date, initial_frame=0):
     if export_log:
         logging.info(s)
 
+
+def init_adj_ele(eles):
+    vertex_to_eles = {}
+    for ele_index, (v1, v2, v3, v4) in enumerate(eles):
+        if v1 not in vertex_to_eles:
+            vertex_to_eles[v1] = set()
+        if v2 not in vertex_to_eles:
+            vertex_to_eles[v2] = set()
+        if v3 not in vertex_to_eles:
+            vertex_to_eles[v3] = set()
+        if v4 not in vertex_to_eles:
+            vertex_to_eles[v4] = set()
+        
+        vertex_to_eles[v1].add(ele_index)
+        vertex_to_eles[v2].add(ele_index)
+        vertex_to_eles[v3].add(ele_index)
+        vertex_to_eles[v4].add(ele_index)
+
+    all_adjacent_eles = {}
+
+    for ele_index in range(len(eles)):
+        v1, v2, v3, v4 = eles[ele_index]
+        adjacent_eles = vertex_to_eles[v1] | vertex_to_eles[v2] | vertex_to_eles[v3] | vertex_to_eles[v4]
+        adjacent_eles.remove(ele_index)  # 移除本身
+        all_adjacent_eles[ele_index] = list(adjacent_eles)
+    return all_adjacent_eles
+
+
+def dict_to_ndarr(d:dict)->np.ndarray:
+    lengths = np.array([len(v) for v in d.values()])
+
+    max_len = max(len(item) for item in d.values())
+    # 使用填充或截断的方式转换为NumPy数组
+    arr = np.array([item + [-1]*(max_len - len(item)) if len(item) < max_len else item[:max_len] for item in d.values()])
+    return arr, lengths
+
+
+def init_A_CSR_pattern(num_adj, adj):
+    nrows = len(num_adj)
+    nonz = np.sum(num_adj)+nrows
+    indptr = np.zeros(nrows+1, dtype=np.int32)
+    indices = np.zeros(nonz, dtype=np.int32)
+    data = np.zeros(nonz, dtype=np.float32)
+    indptr[0] = 0
+    for i in range(0,nrows):
+        num_adj_i = num_adj[i]
+        indptr[i+1]=indptr[i] + num_adj_i + 1
+        indices[indptr[i]:indptr[i+1]-1]= adj[i][:num_adj_i]
+        indices[indptr[i+1]-1]=i
+    assert indptr[-1] == nonz
+    return data, indices, indptr
+
+
+def csr_index_to_coo_index(indptr, indices):
+    ii, jj = np.zeros_like(indices), np.zeros_like(indices)
+    nrows = len(indptr)-1
+    for i in range(nrows):
+        ii[indptr[i]:indptr[i+1]]=i
+        jj[indptr[i]:indptr[i+1]]=indices[indptr[i]:indptr[i+1]]
+    return ii, jj
+
+
+def init_direct_fill_A(ist):
+    tic1 = perf_counter()
+    print("Initializing adjacent elements and abc...")
+    adjacent = init_adj_ele(eles=ist.tet_indices.to_numpy())
+    adjacent,num_adjacent = dict_to_ndarr(adjacent)
+    print(f"init_adjacent time: {perf_counter()-tic1:.3f}s")
+
+    data, indices, indptr = init_A_CSR_pattern(num_adjacent, adjacent)
+    ii, jj = csr_index_to_coo_index(indptr, indices)
+    nnz = len(data)
+    nnz_each_row = num_adjacent[:] + 1
+
+    n_adj_shared = np.zeros_like(adjacent)
+    adj_shared_v = np.ones((adjacent.shape[0], adjacent.shape[1], 3), dtype=np.int32) * (-1)
+    init_adj_share_v(adjacent, num_adjacent, n_adj_shared, adj_shared_v, ist.tet_indices)
+    return adjacent, num_adjacent, data, indices, indptr, ii, jj, nnz, nnz_each_row, n_adj_shared, adj_shared_v
+
+
+def fill_A_csr():
+    fill_A_CSR_kernel()
+
+
+# for cnt version, require init_A_CSR_pattern() to be called first
+@ti.kernel
+def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
+                      indptr:ti.types.ndarray(dtype=ti.i32), 
+                      ii:ti.types.ndarray(dtype=ti.i32), 
+                      jj:ti.types.ndarray(dtype=ti.i32),
+                      num_nonz:ti.i32,
+                      alpha:ti.f32,
+                      inv_mass:ti.template(),
+                      pos: ti.template(),
+                      gradC:ti.template(),
+                      ele: ti.template(),
+                      adj: ti.types.ndarray(),
+                      nadj:ti.types.ndarray()
+                    ):
+    nrows = adj.shape[0]
+    for cnt in range(num_nonz):
+        i = ii[cnt] # row index
+        j = jj[cnt] # col index
+        k = cnt - indptr[i] #k-th non-zero element of i-th row. 
+        # Because the diag is the final element of each row, 
+        # it is also the k-th adjacent ele of i-th ele.
+        if i == j: # diag
+            data[cnt] = inv_mass[ele[i][0]] + inv_mass[ele[i][1]]+ inv_mass[ele[i][2]]+ inv_mass[ele[i][3]] + alpha
+            continue
+        FIXME: offdiag
+
+
+# 为四个顶点编号排序
+@ti.func
+def sort4int(a, b, c, d):
+    if a > b:
+        a, b = b, a
+    if a > c:
+        a, c = c, a
+    if a > d:
+        a, d = d, a
+    if b > c:
+        b, c = c, b
+    if b > d:
+        b, d = d, b
+    if c > d:
+        c, d = d, c
+    return a, b, c, d
+
+
+
+# get the adjacent element shared vertices
+# we have 6 situations after sorting the vertices of two elements
+# Let vi1,vi2,vi3,vi4 be the vertices of element i(the current element)
+# Let vj1,vj2,vj3,vj4 be the vertices of element j(the adjacent element)
+# After sorting, we have vi1<=vi2<=vi3<=vi4, vj1<=vj2<=vj3<=vj4
+# -----------------------------------
+# Situation 1: 
+# row i: [1] [2] [3] [4]
+# row j:     [1] [2] [3] [4]
+# In this situation, the shared vertices are vi2,vi3,vi4. 
+# And vi2=vj1, vi3=vj2, vi4=vj3
+# -----------------------------------
+# Situation 2:
+# row i: [1] [2] [3] [4]
+# row j:         [1] [2] [3] [4]
+# In this situation, the shared vertices are vi3,vi4. 
+# And vi3=vj1, vi4=vj2.
+# -----------------------------------
+# Situation 3:
+# row i: [1] [2] [3] [4]
+# row j:             [1] [2] [3] [4]
+# In this situation, the shared vertices are vi4. 
+# And vi4=vj1.
+# -----------------------------------
+# Situation 4:
+# row i:     [1] [2] [3] [4]
+# row j: [1] [2] [3] [4]
+# In this situation, the shared vertices are vi1,vi2,vi3. 
+# And vi1=vj2, vi2=vj3, vi3=vj4
+# -----------------------------------
+# Situation 5:
+# row i:         [1] [2] [3] [4]
+# row j: [1] [2] [3] [4]
+# In this situation, the shared vertices are vi1,vi2. 
+# And vi1=vj3, vi2=vj4.
+# -----------------------------------
+# Situation 6:
+# row i:             [1] [2] [3] [4]
+# row j: [1] [2] [3] [4]
+# In this situation, the shared vertices are vi1. 
+# And vi1=vj4.
+@ti.kernel
+def init_adj_share_v(   adj:ti.types.ndarray(),  # adjacent element id, 2d array
+                        nadj:ti.types.ndarray(), # number of adjacent elements, 1d array
+                        n_adj_shared:ti.types.ndarray(), # number of shared vertices, 2d array
+                        adj_shared_v:ti.types.ndarray(), # shared vertices id , 3d array
+                        ele:ti.template(),               # element vertex id, 2d array (nele, 4) 
+                        ): 
+    # FIXME:实际上中间有不连续的点，所以不止有6种情况
+    for i in range(nadj.shape[0]):
+        for j in range(nadj[i]):
+            vi1,vi2,vi3,vi4 = ele[i]
+            vj1,vj2,vj3,vj4 = ele[adj[i,j]]
+            vi1_,vi2_,vi3_,vi4_ = sort4int(vi1,vi2,vi3,vi4)
+            vj1_,vj2_,vj3_,vj4_ = sort4int(vj1,vj2,vj3,vj4)
+            if vi2_ == vj1_:                # situation 1
+                n_adj_shared[i,j] = 3
+                adj_shared_v[i,j, 0] = vi2_
+                adj_shared_v[i,j, 1] = vi3_
+                adj_shared_v[i,j, 2] = vi4_
+            elif vi3_ == vj1_:              # situation 2
+                n_adj_shared[i,j] = 2
+                adj_shared_v[i,j, 0] = vi3_
+                adj_shared_v[i,j, 1] = vi4_
+            elif vi4_ == vj1_:              # situation 3
+                n_adj_shared[i,j] = 1
+                adj_shared_v[i,j, 0] = vi4_
+            elif vi1_ == vj2_:              # situation 4
+                n_adj_shared[i,j] = 3
+                adj_shared_v[i,j, 0] = vi1_
+                adj_shared_v[i,j, 1] = vi2_
+                adj_shared_v[i,j, 2] = vi3_
+            elif vi1_ == vj3_:              # situation 5
+                n_adj_shared[i,j] = 2
+                adj_shared_v[i,j, 0] = vi1_
+                adj_shared_v[i,j, 1] = vi2_
+            elif vi1_ == vj4_:              # situation 6
+                n_adj_shared[i,j] = 1
+                adj_shared_v[i,j, 0] = vi1_
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1406,6 +1677,7 @@ def main():
 
     ist = SoftBody(meta.args.model_path)
     ist.initialize()
+    init_direct_fill_A(ist)
 
     if export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)

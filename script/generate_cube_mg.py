@@ -3,8 +3,13 @@
 import numpy as np
 import meshio
 
-
-def generate_mesh(len, grid_dx=0.1):
+# Usage:
+# # original size: 0.1 and 0.5
+# fine_points, fine_tet_indices, fine_tri_indices = generate_mesh(2.0, 0.1)
+# write_tet("data/model/cube/fine_new.node", fine_points, fine_tet_indices)
+# coarse_points, coarse_tet_indices, coarse_tri_indices = generate_mesh(2.0, 0.5)
+# write_tet("data/model/cube/coarse_new.node", coarse_points, coarse_tet_indices)
+def generate_cube_mesh(len, grid_dx=0.1):
     num_grid = int(len // grid_dx)
     points = np.zeros(((num_grid + 1) ** 3, 3), dtype=float)
     for i in range(num_grid + 1):
@@ -98,7 +103,10 @@ def write_tet(filename, points, tet_indices):
 
 
 # original size: 0.1 and 0.5
-fine_points, fine_tet_indices, fine_tri_indices = generate_mesh(2.0, 0.1)
-write_tet("data/model/cube/fine_new.node", fine_points, fine_tet_indices)
-coarse_points, coarse_tet_indices, coarse_tri_indices = generate_mesh(2.0, 0.5)
-write_tet("data/model/cube/coarse_new.node", coarse_points, coarse_tet_indices)
+# fine_points, fine_tet_indices, fine_tri_indices = generate_mesh(2.0, 0.1)
+# write_tet("data/model/cube/fine_new.node", fine_points, fine_tet_indices)
+# coarse_points, coarse_tet_indices, coarse_tri_indices = generate_mesh(2.0, 0.5)
+# write_tet("data/model/cube/coarse_new.node", coarse_points, coarse_tet_indices)
+
+coarse_points, coarse_tet_indices, coarse_tri_indices = generate_cube_mesh(1.0, 1.0)
+write_tet("data/model/cube/minicube.node", coarse_points, coarse_tet_indices)

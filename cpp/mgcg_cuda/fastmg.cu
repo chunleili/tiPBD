@@ -207,6 +207,8 @@ cudaDataType_t cudaDataTypeFor<double>() {
 
 // weighted Jacobi for csr matrix
 // https://en.wikipedia.org/wiki/Jacobi_method#Weighted_Jacobi_method
+// https://stackoverflow.com/questions/78057439/jacobi-algorithm-using-cuda
+// https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/amg_core/relaxation.h#L232
 // i: row index, j: col index, n: data/indices index
 // rsum: sum of off-diagonal elements
 __global__ void weighted_jacobi_kernel(float *x, const float *b, float *data, int *indices, int *indptr, int nrows, float omega) {
@@ -223,6 +225,7 @@ __global__ void weighted_jacobi_kernel(float *x, const float *b, float *data, in
                 diag = data[n];
             }
         }
+        // FIXME: should use x_new to avoid race condition
         x[i] =  omega / diag * (b[i] - rsum)  + (1 - omega) * x[i];
     }
 }

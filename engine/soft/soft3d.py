@@ -36,7 +36,7 @@ parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunny
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
-parser.add_argument("-export_matrix", type=int, default=False)
+parser.add_argument("-export_matrix", type=int, default=0)
 parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
@@ -47,7 +47,7 @@ args = parser.parse_args()
 
 out_dir = args.out_dir
 Path(out_dir).mkdir(parents=True, exist_ok=True)
-export_matrix = args.out_dir
+export_matrix = bool(args.export_matrix)
 export_mesh = True
 export_residual = True
 early_stop = True
@@ -698,7 +698,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
     alpha_tilde_np = ist.alpha_tilde.to_numpy()
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
+    
     r=[]
     tol_sim = 1e-6
     for meta.ite in range(max_iter):
@@ -716,13 +716,11 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         A = scipy.sparse.csr_matrix(A, dtype=np.float64)
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
-        if export_matrix and meta.ite == 0:
+        if export_matrix:
             tic = time.perf_counter()
             postfix=f"F{meta.frame}-{meta.ite}"
             export_A_b(A,b,postfix=postfix)
             dir = out_dir + "/A/"
-            scipy.sparse.save_npz(dir + f"G_{postfix}.npz", G)
-            scipy.sparse.save_npz(dir + f"Minv_{postfix}.npz", M_inv)
             t_export_matrix = time.perf_counter()-tic
 
         # -------------------------------- solve Ax=b -------------------------------- #

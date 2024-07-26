@@ -74,7 +74,7 @@ parser.add_argument("-use_json", type=int, default=0, help="json configs will ov
 parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
 parser.add_argument("-auto_complete_path", type=int, default=0, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
-parser.add_argument("-use_cuda", type=int, default=False)
+parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 

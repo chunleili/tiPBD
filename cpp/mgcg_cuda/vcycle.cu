@@ -675,7 +675,7 @@ struct VCycle : Kernels {
     std::vector<MGLevel> levels;
     size_t nlvs;
     std::vector<float> chebyshev_coeff;
-    size_t smoother_type = 2;
+    size_t smoother_type = 1;
     float jacobi_omega;
     int jacobi_niter;
     Vec<float> init_x;

@@ -310,11 +310,11 @@ def main():
     from script.utils.define_to_read_dir import to_read_dir
     from script.utils.load_A_b import load_A_b
 
-    A,b = load_A_b("F1-0")
+    A,b = load_A_b("F0-0")
     x0 = np.zeros(b.shape[0])
 
     global smoother_type
-    smoother_type = 'chebyshev'
+    smoother_type = 'jacobi'
 
     use_cuda = True
     if use_cuda:

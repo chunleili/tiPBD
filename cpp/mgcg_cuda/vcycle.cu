@@ -833,8 +833,8 @@ struct VCycle : Kernels {
         // cout<<"x_host[0]: "<<x_host[0]<<endl;
         // cout<<"x_host[1]: "<<x_host[1]<<endl;
         x.assign(x_host.data(), x_host.size());
-        auto r = calc_rnorm(b, x, levels.at(lv).A);
-        cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
+        // auto r = calc_rnorm(b, x, levels.at(lv).A);
+        // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
 
     void _smooth(int lv, Vec<float> &x, Vec<float> const &b) {
@@ -989,15 +989,16 @@ struct VCycle : Kernels {
         {   
             if (residuals[iteration] < atol)
             {
-                niter = iteration; //number of iter to break
+                niter = iteration; 
                 break;
             }
             copy_outer2init_x();  //reset x to x0
             vcycle();
             do_cg_itern(residuals.data(), iteration); //first r is r[0], then r[iter+1]
+            niter = iteration; 
 
-            // auto r = calc_rnorm(outer_b, final_x, levels.at(0).A);
-            // cout<<"iter: "<<iteration<<"   rnorm: "<<r<<endl;
+            auto r = calc_rnorm(outer_b, final_x, levels.at(0).A);
+            cout<<"iter: "<<iteration<<"   rnorm: "<<r<<endl;
         }
     }
 

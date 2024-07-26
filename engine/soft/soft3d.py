@@ -19,6 +19,7 @@ from pyamg.relaxation.relaxation import polynomial
 import pyamg
 import ctypes
 import numpy.ctypeslib as ctl
+import datetime
 
 proj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -36,11 +37,12 @@ parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunny
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
-parser.add_argument("-export_matrix", type=int, default=0)
+parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="jacobi")
+parser.add_argument("-build_P_method", type=str, default="nullspace")
 parser.add_argument("-max_iter_Axb", type=int, default=100)
 
 args = parser.parse_args()
@@ -52,10 +54,10 @@ export_mesh = True
 export_residual = True
 early_stop = True
 export_log = True
-smoother = "sor"
 cuda_dir = args.cuda_dir
 max_iter_Axb = args.max_iter_Axb
 smoother_type = args.smoother_type
+build_P_method = args.build_P_method
 use_cuda = args.use_cuda
 
 t_export_matrix = 0.0
@@ -698,7 +700,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
     alpha_tilde_np = ist.alpha_tilde.to_numpy()
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
-    
+
     r=[]
     tol_sim = 1e-6
     for meta.ite in range(max_iter):
@@ -706,6 +708,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         # ----------------------------- prepare matrices ----------------------------- #
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
+        tic1 = time.perf_counter()
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
         ii, jj, vv = np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.float32)
         fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
@@ -727,6 +730,8 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         x0 = np.zeros_like(b)
         rsys0 = np.linalg.norm(b-A @ x0)
 
+        print(f"    assemble matrix time:{time.perf_counter()-tic1}")
+
         if solver_type == "GaussSeidel":
             x = np.zeros_like(b)
             for _ in range(1):
@@ -737,7 +742,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
             x = scipy.sparse.linalg.spsolve(A, b)
         if solver_type == "AMG":
             global Ps
-            if (((meta.frame%20==0) or (meta.frame==1)) and (meta.ite==0)):
+            if (((meta.frame%20==0)) and (meta.ite==0)):
                 tic = time.perf_counter()
                 Ps = setup_AMG(A)
                 logging.info(f"    setup AMG time:{perf_counter()-tic}")
@@ -842,9 +847,25 @@ def setup_jacobi(A):
     jacobi_omega = 1.0/(rho)
     print("omega:", jacobi_omega)
 
+def calc_near_nullspace_GS(A):
+    n=6
+    print("Calculating near nullspace")
+    tic = perf_counter()
+    B = np.zeros((A.shape[0],n), dtype=np.float64)
+    from pyamg.relaxation.relaxation import gauss_seidel
+    for i in range(n):
+        x = np.ones(A.shape[0]) + 1e-2*np.random.rand(A.shape[0])
+        b = np.zeros(A.shape[0]) 
+        gauss_seidel(A,x,b,iterations=20, sweep='forward')
+        B[:,i] = x
+        print(f"norm B {i}: {np.linalg.norm(B[:,i])}")
+    toc = perf_counter()
+    print("Calculating near nullspace Time:", toc-tic)
+    return B
 
-def build_Ps(A, method='UA', B=None):
+def build_Ps(A, method='UA'):
     """Build a list of prolongation matrices Ps from A """
+    print("build P by method:", method)
     if method == 'UA':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
     elif method == 'SA' :
@@ -854,6 +875,9 @@ def build_Ps(A, method='UA', B=None):
     elif method == 'adaptive_SA':
         ml = pyamg.aggregation.adaptive_sa_solver(A, max_coarse=400, smooth=None, num_candidates=6)[0]
     elif method == 'nullspace':
+        B = calc_near_nullspace_GS(A)
+        print("B shape:", B.shape)
+        print(f"B: {B}")
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B)
     else:
         raise ValueError(f"Method {method} not recognized")
@@ -900,8 +924,8 @@ def build_levels_cuda(A, Ps=[]):
 
 
 def setup_AMG(A):
-    global chebyshev_coeff
-    Ps = build_Ps(A)
+    global chebyshev_coeff, build_P_method
+    Ps = build_Ps(A, method=build_P_method)
     if smoother_type == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
     elif smoother_type == 'jacobi':
@@ -1083,7 +1107,7 @@ def init_g_vcycle(levels):
     if id(cached_P_id) != id(levels[0].P):
         cached_P_id = levels[0].P
         for lv in range(len(levels)-1):
-            P_ = levels[lv].P
+            P_ = levels[lv].P.tocsr()
             g_vcycle.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
 
 # ---------------------------------------------------------------------------- #
@@ -1358,6 +1382,13 @@ def create_another_outdir(out_dir):
     print(f"\ncreate another outdir: {out_dir}\n")
     return out_dir
 
+def ending(timer_all, start_date, initial_frame=0):
+    t_all = time.perf_counter() - timer_all
+    end_date = datetime.datetime.now()
+    s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {meta.args.end_frame}, total {meta.args.end_frame-initial_frame} frames. Avg time per frame: {t_all/(meta.args.end_frame-initial_frame):.2f}s. Start at {start_date},\n end at {end_date}."
+    if export_log:
+        logging.info(s)
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1365,16 +1396,13 @@ def main():
     global out_dir
     if args.auto_another_outdir:
         out_dir = create_another_outdir(out_dir)
-        make_and_clean_dirs(out_dir)
-    else:
-        make_and_clean_dirs(out_dir)
+    make_and_clean_dirs(out_dir)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-    import datetime
-    date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    logging.info(date)
+    start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    logging.info(start_date)
 
     ist = SoftBody(meta.args.model_path)
     ist.initialize()
@@ -1382,21 +1410,27 @@ def main():
     if export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
-    while True:
-        info("\n\n----------------------")
-        info(f"frame {meta.frame}")
-        t = perf_counter()
+    timer_all = perf_counter()
+    try:
+        while True:
+            info("\n\n----------------------")
+            info(f"frame {meta.frame}")
+            t = perf_counter()
 
-        substep_all_solver(ist, meta.args.max_iter, meta.args.solver_type)
+            substep_all_solver(ist, meta.args.max_iter, meta.args.solver_type)
 
-        if export_mesh:
-            write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
-        
-        info(f"step time: {perf_counter() - t:.2f} s")
-        meta.frame += 1
+            if export_mesh:
+                write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
             
-        if meta.frame == meta.args.end_frame:
-            exit()
+            info(f"step time: {perf_counter() - t:.2f} s")
+            meta.frame += 1
+                
+            if meta.frame == meta.args.end_frame:
+                ending(timer_all, start_date)
+                exit()
+    except KeyboardInterrupt:
+        ending(timer_all, start_date)
+        exit()
 
 if __name__ == "__main__":
     main()

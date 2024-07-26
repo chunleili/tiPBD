@@ -44,7 +44,6 @@ use_primary_residual = False
 use_geometric_stiffness = False
 dont_clean_results = False
 report_time = True
-smoother = 'jacobi'
 chebyshev_coeff = None
 export_fullr = False
 
@@ -77,6 +76,7 @@ parser.add_argument("-auto_complete_path", type=int, default=0, help="Will autom
 parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
 parser.add_argument("-use_cuda", type=int, default=False)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
+parser.add_argument("-smoother_type", type=str, default="chebyshev")
 
 
 args = parser.parse_args()
@@ -109,6 +109,7 @@ json_path = prj_path + args.json_path
 auto_complete_path = bool(args.auto_complete_path)
 arch = args.arch
 use_cuda = args.use_cuda
+smoother_type = args.smoother_type
 
 
 def parse_json_params(path, vars_to_overwrite):
@@ -843,8 +844,7 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
             x[i] = (b[i] - rsum) / diag
 
 
-def calc_poly(A, x, b, coefficients, iterations):
-    assert iterations == 1
+def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
     x = np.ravel(x)
     b = np.ravel(b)
     for _i in range(iterations):
@@ -853,9 +853,6 @@ def calc_poly(A, x, b, coefficients, iterations):
         for c in coefficients[1:]:
             h = c*residual + A*h
         x += h
-
-def chebyshev(A, x, b):
-    calc_poly(A, x, b, coefficients=chebyshev_coeff, iterations=1)
 
 
 def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
@@ -876,7 +873,8 @@ def setup_jacobi(A):
     global jacobi_omega
     rho = rho_D_inv_A(A)
     print("rho:", rho)
-    jacobi_omega = 2.0/(rho + 0.1)
+    jacobi_omega = 1.0/(rho)
+    print("omega:", jacobi_omega)
 
 
 def build_Ps(A, method='UA'):
@@ -934,9 +932,9 @@ def build_levels_cuda(A, Ps=[]):
 def setup_AMG(A):
     global chebyshev_coeff
     Ps = build_Ps(A)
-    if smoother == 'chebyshev':
+    if smoother_type == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
-    elif smoother == 'jacobi':
+    elif smoother_type == 'jacobi':
         setup_jacobi(A)
     return Ps
 
@@ -1025,19 +1023,19 @@ def diag_sweep(A,x,b,iterations=1):
 
 def presmoother(A,x,b):
     from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
-    if smoother == 'gauss_seidel':
+    if smoother_type == 'gauss_seidel':
         gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
-    elif smoother == 'jacobi':
+    elif smoother_type == 'jacobi':
         jacobi(A,x,b,iterations=10, omega=jacobi_omega)
-    elif smoother == 'sor_vanek':
+    elif smoother_type == 'sor_vanek':
         for _ in range(1):
             sor(A,x,b,omega=1.0,iterations=1,sweep='forward')
             sor(A,x,b,omega=1.85,iterations=1,sweep='backward')
-    elif smoother == 'sor':
+    elif smoother_type == 'sor':
         sor(A,x,b,omega=1.33,sweep='symmetric',iterations=1)
-    elif smoother == 'diag_sweep':
+    elif smoother_type == 'diag_sweep':
         diag_sweep(A,x,b,iterations=1)
-    elif smoother == 'chebyshev':
+    elif smoother_type == 'chebyshev':
         chebyshev(A,x,b)
 
 
@@ -1080,7 +1078,7 @@ def init_g_vcycle(levels):
         g_vcycle.fastmg_get_mgcg_data.restype = c_size_t
 
         g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_set_coeff.argtypes = [ctypes.c_size_t] * 2
+        g_vcycle.fastmg_setup_chebyshev.argtypes = [ctypes.c_size_t] * 2
         g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
         g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
 
@@ -1092,7 +1090,7 @@ def init_g_vcycle(levels):
     if cached_cheby_id != id(chebyshev_coeff):
         cached_cheby_id = id(chebyshev_coeff)
         coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
-        g_vcycle.fastmg_set_coeff(coeff_contig.ctypes.data, coeff_contig.shape[0])
+        g_vcycle.fastmg_setup_chebyshev(coeff_contig.ctypes.data, coeff_contig.shape[0])
 
     # set P
     if id(cached_P_id) != id(levels[0].P):

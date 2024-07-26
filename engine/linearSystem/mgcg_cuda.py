@@ -1,122 +1,320 @@
 import ctypes
+import scipy.sparse
+import taichi as ti
 import numpy as np
-import os
+import time
+import scipy
+import scipy.sparse as sp
+from scipy.io import mmwrite, mmread
+from pathlib import Path
+import os,sys
+from matplotlib import pyplot as plt
+import shutil, glob
+import meshio
+import tqdm
+import argparse
+from collections import namedtuple
+import json
+import logging
+import datetime
+from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
+from pyamg.relaxation.smoothing import approximate_spectral_radius, chebyshev_polynomial_coefficients
+from pyamg.relaxation.relaxation import polynomial
 from time import perf_counter
+from scipy.linalg import pinv
+import pyamg
+import numpy.ctypeslib as ctl
 
-g_vcycle = None
-g_vcycle_cached_levels = None
-vcycle_has_course_solve = False
+sys.path.append(os.getcwd())
 
-def init_g_vcycle(levels, chebyshev_coeff=None):
-    global g_vcycle
-    global g_vcycle_cached_levels
+prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
+cuda_dir = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin"
+os.add_dll_directory(cuda_dir)
+extlib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
-    if g_vcycle is None:
-        os.add_dll_directory("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin")
-        g_vcycle = ctypes.cdll.LoadLibrary('./cpp/mgcg_cuda/lib/fast-vcycle-gpu.dll')
-        
-        
-        g_vcycle.fastmg_copy_outer2init_x.argtypes = []
-        g_vcycle.fastmg_set_outer_x.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_set_outer_b.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_init_cg_iter0.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_init_cg_iter0.restype = ctypes.c_float
-        g_vcycle.fastmg_do_cg_itern.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
-        g_vcycle.fastmg_fetch_cg_final_x.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_set_coeff.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_set_init_x.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_set_init_b.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_get_coarsist_size.argtypes = []
-        g_vcycle.fastmg_get_coarsist_size.restype = ctypes.c_size_t
-        g_vcycle.fastmg_get_coarsist_b.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_set_coarsist_x.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_get_finest_x.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
-        g_vcycle.fastmg_vcycle_down.argtypes = []
-        g_vcycle.fastmg_coarse_solve.argtypes = []
-        g_vcycle.fastmg_vcycle_up.argtypes = []
+smoother_type = 'chebyshev'
 
-    if g_vcycle_cached_levels != id(levels):
-        print('Setup detected! reuploading A, R, P matrices')
-        g_vcycle_cached_levels = id(levels)
-        assert chebyshev_coeff is not None
-        coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
-        g_vcycle.fastmg_setup(len(levels))
-        g_vcycle.fastmg_set_coeff(coeff_contig.ctypes.data, coeff_contig.shape[0])
-        for lv in range(len(levels)):
-            for which, matname in zip([1, 2, 3], ['A', 'R', 'P']):
-                mat = getattr(levels[lv], matname)
-                if mat is not None:
-                    data_contig = np.ascontiguousarray(mat.data, dtype=np.float32)
-                    indices_contig = np.ascontiguousarray(mat.indices, dtype=np.int32)
-                    indptr_contig = np.ascontiguousarray(mat.indptr, dtype=np.int32)
-                    # print(data_contig)
-                    # print(indices_contig)
-                    # if matname == 'A':
-                        # print('UUUO', lv, indices_contig[0], indices_contig[-1], indices_contig.shape)
-                    # print(indptr_contig)
-                    g_vcycle.fastmg_set_lv_csrmat(lv, which, data_contig.ctypes.data, data_contig.shape[0],
-                                                  indices_contig.ctypes.data, indices_contig.shape[0],
-                                                  indptr_contig.ctypes.data, indptr_contig.shape[0],
-                                                  mat.shape[0], mat.shape[1], mat.nnz)
+arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
+arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+c_size_t = ctypes.c_size_t
+c_float = ctypes.c_float
+argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
+                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
+                ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                ]
 
-def new_V_cycle(levels):
-    assert g_vcycle
-    g_vcycle.fastmg_vcycle_down()
-    if vcycle_has_course_solve:
-        g_vcycle.fastmg_coarse_solve()
+chebyshev_coeff = None
+def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
+                    iterations=1):
+    global chebyshev_coeff # FIXME: later we should store this in the level
+    """Set up Chebyshev."""
+    rho = approximate_spectral_radius(A)
+    a = rho * lower_bound
+    b = rho * upper_bound
+    # drop the constant coefficient
+    coefficients = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
+    chebyshev_coeff = coefficients
+    return coefficients
+
+def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
+    x = np.ravel(x)
+    b = np.ravel(b)
+    for _i in range(iterations):
+        residual = b - A*x
+        h = coefficients[0]*residual
+        for c in coefficients[1:]:
+            h = c*residual + A*h
+        x += h
+
+def setup_jacobi(A):
+    from pyamg.relaxation.smoothing import rho_D_inv_A
+    global jacobi_omega
+    rho = rho_D_inv_A(A)
+    print("rho:", rho)
+    jacobi_omega = 1.0/(rho)
+    print("omega:", jacobi_omega)
+
+
+def build_Ps(A, method='UA'):
+    """Build a list of prolongation matrices Ps from A """
+    if method == 'UA':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
+    elif method == 'SA' :
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400)
+    elif method == 'CAMG':
+        ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
     else:
-        coarsist_size = g_vcycle.fastmg_get_coarsist_size()
-        coarsist_b_empty = np.empty(shape=(coarsist_size,), dtype=np.float32)
-        coarsist_b = np.ascontiguousarray(coarsist_b_empty, dtype=np.float32)
-        g_vcycle.fastmg_get_coarsist_b(coarsist_b.ctypes.data)
-        # ##################33
-        # np.save(f'/tmp/new_b_{frame}-{bcnt}.npy', coarsist_b)
-        # ##################33
-        def coarse_solver(A, b):
-            res = np.linalg.solve(A.toarray(), b)
-            return res
-        coarsist_x = coarse_solver(levels[len(levels) - 1].A, coarsist_b)
-        coarsist_x_contig = np.ascontiguousarray(coarsist_x, dtype=np.float32)
-        g_vcycle.fastmg_set_coarsist_x(coarsist_x_contig.ctypes.data)
-    g_vcycle.fastmg_vcycle_up()
+        raise ValueError(f"Method {method} not recognized")
+
+    Ps = []
+    for i in range(len(ml.levels)-1):
+        Ps.append(ml.levels[i].P)
+
+    return Ps
+
+
+class MultiLevel:
+    A = None
+    P = None
+    R = None
+
+
+def build_levels(A, Ps=[]):
+    '''Give A and a list of prolongation matrices Ps, return a list of levels'''
+    lvl = len(Ps) + 1 # number of levels
+
+    levels = [MultiLevel() for i in range(lvl)]
+
+    levels[0].A = A
+
+    for i in range(lvl-1):
+        levels[i].P = Ps[i]
+        levels[i].R = Ps[i].T
+        levels[i+1].A = Ps[i].T @ levels[i].A @ Ps[i]
+
+    return levels
+
+def build_levels_cuda(A, Ps=[]):
+    '''Give A and a list of prolongation matrices Ps, return a list of levels'''
+    lvl = len(Ps) + 1 # number of levels
+
+    levels = [MultiLevel() for i in range(lvl)]
+
+    levels[0].A = A
+
+    for i in range(lvl-1):
+        levels[i].P = Ps[i]
+    return levels
+
+
+def setup_AMG(A):
+    global chebyshev_coeff
+    Ps = build_Ps(A)
+    if smoother_type == 'chebyshev':
+        setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+    elif smoother_type == 'jacobi':
+        setup_jacobi(A)
+    return Ps
+
+
+def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
+    assert x0 is not None
+    x = x0.copy()
+    A = levels[0].A
+    residuals = np.zeros(maxiter+1)
+    def psolve(b):
+        x = x0.copy()
+        old_V_cycle(levels, 0, x, b)
+        return x
+    bnrm2 = np.linalg.norm(b)
+    atol = tol * bnrm2
+    r = b - A@(x)
+    rho_prev, p = None, None
+    normr = np.linalg.norm(r)
+    residuals[0] = normr
+    iteration = 0
+    for iteration in range(maxiter):
+        if normr < atol:  # Are we done?
+            break
+        z = psolve(r)
+        rho_cur = np.dot(r, z)
+        if iteration > 0:
+            beta = rho_cur / rho_prev
+            p *= beta
+            p += z
+        else:  # First spin
+            p = np.empty_like(r)
+            p[:] = z[:]
+        q = A@(p)
+        alpha = rho_cur / np.dot(p, q)
+        x += alpha*p
+        r -= alpha*q
+        rho_prev = rho_cur
+        normr = np.linalg.norm(r)
+        residuals[iteration+1] = normr
+    residuals = residuals[:iteration+1]
+    return (x),  residuals  
 
 
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
+    tic1 = time.perf_counter()
     init_g_vcycle(levels)
+    print(f"    init_g_vcycle time: {time.perf_counter()-tic1:.2f}s")
     assert g_vcycle
 
-    assert x0 is not None
-    tic_amgcg = perf_counter()
-    x0_contig = np.ascontiguousarray(x0, dtype=np.float32)
-    g_vcycle.fastmg_set_outer_x(x0_contig.ctypes.data, x0_contig.shape[0])
-    t_vcycle = 0.0
-    b_contig = np.ascontiguousarray(b, dtype=np.float32)
-    g_vcycle.fastmg_set_outer_b(b_contig.ctypes.data, b.shape[0])
-    residuals_empty = np.empty(shape=(maxiter+1,), dtype=np.float32)
-    residuals = np.ascontiguousarray(residuals_empty, dtype=np.float32)
-    bnrm2 = g_vcycle.fastmg_init_cg_iter0(residuals.ctypes.data) # init_b = r = b - A@x; residuals[0] = normr
-    atol = bnrm2 * tol
-    iteration = 0
-    for iteration in range(maxiter):
-        if residuals[iteration] < atol:
-            break
-        tic_vcycle = perf_counter()
-        g_vcycle.fastmg_copy_outer2init_x()
-        new_V_cycle(levels)
-        toc_vcycle = perf_counter()
-        t_vcycle += toc_vcycle - tic_vcycle
-        # print(f"Once V_cycle time: {toc_vcycle - tic_vcycle:.4f}s")
-        g_vcycle.fastmg_do_cg_itern(residuals.ctypes.data, iteration)
-    x_empty = np.empty_like(x0, dtype=np.float32)
-    x = np.ascontiguousarray(x_empty, dtype=np.float32)
-    g_vcycle.fastmg_fetch_cg_final_x(x.ctypes.data)
-    residuals = residuals[:iteration+1]
-    toc_amgcg = perf_counter()
-    t_amgcg = toc_amgcg - tic_amgcg
-    print(f"Total V_cycle time in one amg_cg_solve: {t_vcycle:.4f}s")
-    print(f"Total time of amg_cg_solve: {t_amgcg:.4f}s")
-    print(f"Time of CG(exclude v-cycle): {t_amgcg - t_vcycle:.4f}s")
+    tic2 = time.perf_counter()
+    # set A0
+    g_vcycle.fastmg_set_A0(levels[0].A.data.astype(np.float32), levels[0].A.indices, levels[0].A.indptr, levels[0].A.shape[0], levels[0].A.shape[1], levels[0].A.nnz)
+    print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
+    
+    # compute RAP   (R=P.T)
+    tic3 = time.perf_counter()
+    for lv in range(len(levels)-1):
+        g_vcycle.fastmg_RAP(lv)
+    print(f"    compute RAP time: {time.perf_counter()-tic3:.2f}s")
+
+    if x0 is None:
+        x0 = np.zeros(b.shape[0], dtype=np.float32)
+
+    tic4 = time.perf_counter()
+    # set data
+    x0 = x0.astype(np.float32)
+    b = b.astype(np.float32)
+    g_vcycle.fastmg_set_mgcg_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
+    
+    # solve
+    g_vcycle.fastmg_mgcg_solve()
+
+    # get result
+    x = np.empty_like(x0, dtype=np.float32)
+    residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
+    niter = g_vcycle.fastmg_get_mgcg_data(x, residuals)
+    residuals = residuals[:niter+1]
+    print(f"    solve time: {time.perf_counter()-tic4:.2f}s")
     return (x),  residuals  
 
+
+def diag_sweep(A,x,b,iterations=1):
+    diag = A.diagonal()
+    diag = np.where(diag==0, 1, diag)
+    x[:] = b / diag
+
+def presmoother(A,x,b):
+    from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
+    if smoother_type == 'gauss_seidel':
+        gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
+    elif smoother_type == 'jacobi':
+        jacobi(A,x,b,iterations=10, omega=jacobi_omega)
+    elif smoother_type == 'sor_vanek':
+        for _ in range(1):
+            sor(A,x,b,omega=1.0,iterations=1,sweep='forward')
+            sor(A,x,b,omega=1.85,iterations=1,sweep='backward')
+    elif smoother_type == 'sor':
+        sor(A,x,b,omega=1.33,sweep='symmetric',iterations=1)
+    elif smoother_type == 'diag_sweep':
+        diag_sweep(A,x,b,iterations=1)
+    elif smoother_type == 'chebyshev':
+        chebyshev(A,x,b)
+
+
+def postsmoother(A,x,b):
+    presmoother(A,x,b)
+
+
+def coarse_solver(A, b):
+    res = np.linalg.solve(A.toarray(), b)
+    return res
+
+t_smoother = 0.0
+
+def old_V_cycle(levels,lvl,x,b):
+    global t_smoother
+    A = levels[lvl].A.astype(np.float64)
+    presmoother(A,x,b)
+    residual = b - A @ x
+    coarse_b = levels[lvl].R @ residual
+    coarse_x = np.zeros_like(coarse_b)
+    if lvl == len(levels)-2:
+        coarse_x = coarse_solver(levels[lvl+1].A, coarse_b)
+    else:
+        old_V_cycle(levels, lvl+1, coarse_x, coarse_b)
+    x += levels[lvl].P @ coarse_x
+    postsmoother(A, x, b)
+
+g_vcycle = None
+cached_P_id = None
+cached_cheby_id = None
+def init_g_vcycle(levels):
+    global g_vcycle
+    global cached_P_id, cached_cheby_id
+
+    if g_vcycle is None:
+        g_vcycle = extlib
+
+        g_vcycle.fastmg_set_mgcg_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
+        g_vcycle.fastmg_get_mgcg_data.argtypes = [arr_float]*2
+        g_vcycle.fastmg_get_mgcg_data.restype = c_size_t
+
+        g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
+        g_vcycle.fastmg_setup_chebyshev.argtypes = [ctypes.c_size_t] * 2
+        g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
+        g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
+
+        g_vcycle.fastmg_set_A0.argtypes = argtypes_of_csr
+        g_vcycle.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
+
+        g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
+
+    if cached_cheby_id != id(chebyshev_coeff):
+        cached_cheby_id = id(chebyshev_coeff)
+        coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
+        g_vcycle.fastmg_setup_chebyshev(coeff_contig.ctypes.data, coeff_contig.shape[0])
+
+    # set P
+    if id(cached_P_id) != id(levels[0].P):
+        cached_P_id = levels[0].P
+        for lv in range(len(levels)-1):
+            P_ = levels[lv].P
+            g_vcycle.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
+
+
+def main():
+    from script.utils.define_to_read_dir import to_read_dir
+    from script.utils.load_A_b import load_A_b
+
+    A,b = load_A_b("F0-0")
+    x0 = np.zeros(b.shape[0])
+
+    Ps = setup_AMG(A)
+    levels = build_levels_cuda(A, Ps)
+    x, r = new_amg_cg_solve(levels, b, x0=x0, tol=1e-6, maxiter=100)
+
+    print("r", r)
+    import matplotlib.pyplot as plt
+    plt.plot(r)
+    plt.yscale('log')
+    plt.show()
+
+if __name__ == "__main__":
+    main()

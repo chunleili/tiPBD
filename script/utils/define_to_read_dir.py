@@ -2,7 +2,7 @@ import os, sys
 import argparse
 
 prj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
-case_name = "attach1024"
+case_name = "soft3dBig"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-case_name", type=str, default=case_name)

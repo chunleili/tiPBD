@@ -205,6 +205,29 @@ cudaDataType_t cudaDataTypeFor<double>() {
     return CUDA_R_64F;
 }
 
+
+// weighted Jacobi for csr matrix
+// https://en.wikipedia.org/wiki/Jacobi_method#Weighted_Jacobi_method
+// i: row index, j: col index, n: data/indices index
+// rsum: sum of off-diagonal elements
+__global__ void weighted_jacobi_kernel(float *x, const float *b, float *data, int *indices, int *indptr, int nrows, float omega) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < nrows) {
+        float rsum = 0.0;
+        float diag = 0.0;
+        for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
+            size_t j = indices[n];
+            if (j != i) {
+                rsum += data[n] * x[j];
+            }
+            else {
+                diag = data[n];
+            }
+        }
+        x[i] =  omega / diag * (b[i] - rsum)  + (1 - omega) * x[i];
+    }
+}
+
 template <class T>
 struct Vec {
     T *m_data;
@@ -651,7 +674,10 @@ struct MGLevel {
 struct VCycle : Kernels {
     std::vector<MGLevel> levels;
     size_t nlvs;
-    std::vector<float> coefficients;
+    std::vector<float> chebyshev_coeff;
+    size_t smoother_type = 2;
+    float jacobi_omega;
+    int jacobi_niter;
     Vec<float> init_x;
     Vec<float> init_b;
     Vec<float> outer_x;
@@ -671,7 +697,7 @@ struct VCycle : Kernels {
             levels.resize(numlvs);
         }
         nlvs = numlvs;
-        coefficients.clear();
+        chebyshev_coeff.clear();
     }
 
     void set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
@@ -692,20 +718,20 @@ struct VCycle : Kernels {
         levels.at(0).A.assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
     }
 
-    void set_coeff(float const *coeff, size_t ncoeffs) {
-        coefficients.assign(coeff, coeff + ncoeffs);
+    void setup_chebyshev(float const *coeff, size_t ncoeffs) {
+        chebyshev_coeff.assign(coeff, coeff + ncoeffs);
     }
 
-    void _smooth(int lv, Vec<float> &x, Vec<float> const &b) {
+    void chebyshev(int lv, Vec<float> &x, Vec<float> const &b) {
         copy(levels.at(lv).residual, b);
         spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff); // residual = b - A@x
-        scal2(levels.at(lv).h, coefficients.at(0), levels.at(lv).residual); // h = c0 * residual
+        scal2(levels.at(lv).h, chebyshev_coeff.at(0), levels.at(lv).residual); // h = c0 * residual
 
 
-        for (int i = 1; i < coefficients.size(); ++i) {
+        for (int i = 1; i < chebyshev_coeff.size(); ++i) {
             // h' = ci * residual + A@h
             copy(levels.at(lv).outh, levels.at(lv).residual);
-            spmv(levels.at(lv).outh, 1, levels.at(lv).A, levels.at(lv).h, coefficients.at(i), buff);
+            spmv(levels.at(lv).outh, 1, levels.at(lv).A, levels.at(lv).h, chebyshev_coeff.at(i), buff);
 
             // copy(levels.at(lv).h, levels.at(lv).outh);
             levels.at(lv).h.swap(levels.at(lv).outh);
@@ -713,6 +739,23 @@ struct VCycle : Kernels {
 
         axpy(x, 1, levels.at(lv).h); // x += h
     }
+
+    void setup_jacobi(float const omega, int const niter) {
+        jacobi_omega = omega;
+        jacobi_niter = niter;
+    }
+
+    void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
+        weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
+    }
+
+    void _smooth(int lv, Vec<float> &x, Vec<float> const &b) {
+        if(smoother_type == 1)
+            chebyshev(lv, x, b);
+        else if (smoother_type == 2)
+            jacobi(lv, x, b);
+    }
+
 
     void set_init_x(float const *x, size_t n) {
         init_x.resize(n);
@@ -952,8 +995,8 @@ extern "C" DLLEXPORT void fastmg_setup(size_t numlvs) {
     fastmg->setup(numlvs);
 }
 
-extern "C" DLLEXPORT void fastmg_set_coeff(float const *coeff, size_t ncoeffs) {
-    fastmg->set_coeff(coeff, ncoeffs);
+extern "C" DLLEXPORT void fastmg_setup_chebyshev(float const *coeff, size_t ncoeffs) {
+    fastmg->setup_chebyshev(coeff, ncoeffs);
 }
 
 extern "C" DLLEXPORT void fastmg_set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {

@@ -4,7 +4,7 @@ If you want to use the CUDA version of the fast multigrid, your should use `-use
 # Compile CUDA code
 1. Install CUDA. My version is 12.5, VS2022
 2. Change set(CMAKE_CUDA_ARCHITECTURES 89) in CMakeLists.txt
-3. Run cmake from cmd(Not powershell! Powershell does not work for `set(CMAKE_CUDA_ARCHITECTURES 89).`)
+3. Run cmake from **cmd**(Not powershell! Powershell does not work for `set(CMAKE_CUDA_ARCHITECTURES 89).`)
 4. Compile vcycle.cu by cmake and generate dlls in `cpp\mgcg_cuda\lib`.
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -29,7 +29,7 @@ https://www.dropbox.com/scl/fi/tvpr3g3btjca0maaz6gfl/dlls.zip?rlkey=68u687oghe5i
 
 
 # download external libraries
-(This is not necessary, because we don't use them in fastmg.)
+(This is not necessary, because we don't use them in fastmg. I put them here just in case I need them in the future.)
 ## eigen
 
 ```

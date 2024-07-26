@@ -1,4 +1,1 @@
-https://github.com/ddemidov/amgcl
-
-
-python setup.py bdist_wheel sdist
+Check mgcg_cuda/README.md

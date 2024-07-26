@@ -211,6 +211,7 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
     niter = g_vcycle.fastmg_get_mgcg_data(x, residuals)
     residuals = residuals[:niter+1]
+    print(f"    niter", niter)
     print(f"    solve time: {time.perf_counter()-tic4:.2f}s")
     return (x),  residuals  
 
@@ -265,9 +266,10 @@ def old_V_cycle(levels,lvl,x,b):
 g_vcycle = None
 cached_P_id = None
 cached_cheby_id = None
+cached_jacobi_omega_id = None
 def init_g_vcycle(levels):
     global g_vcycle
-    global cached_P_id, cached_cheby_id
+    global cached_P_id, cached_cheby_id, cached_jacobi_omega_id
 
     if g_vcycle is None:
         g_vcycle = extlib
@@ -278,6 +280,7 @@ def init_g_vcycle(levels):
 
         g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
         g_vcycle.fastmg_setup_chebyshev.argtypes = [ctypes.c_size_t] * 2
+        g_vcycle.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
         g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
         g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
 
@@ -286,10 +289,14 @@ def init_g_vcycle(levels):
 
         g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
 
-    if cached_cheby_id != id(chebyshev_coeff):
+    if smoother_type == 'chebyshev' and cached_cheby_id != id(chebyshev_coeff):
         cached_cheby_id = id(chebyshev_coeff)
         coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
         g_vcycle.fastmg_setup_chebyshev(coeff_contig.ctypes.data, coeff_contig.shape[0])
+
+    if smoother_type == 'jacobi' and cached_jacobi_omega_id != id(jacobi_omega):
+        cached_jacobi_omega_id = id(jacobi_omega)
+        g_vcycle.fastmg_setup_jacobi(jacobi_omega, 10)
 
     # set P
     if id(cached_P_id) != id(levels[0].P):
@@ -303,12 +310,21 @@ def main():
     from script.utils.define_to_read_dir import to_read_dir
     from script.utils.load_A_b import load_A_b
 
-    A,b = load_A_b("F0-0")
+    A,b = load_A_b("F1-0")
     x0 = np.zeros(b.shape[0])
 
-    Ps = setup_AMG(A)
-    levels = build_levels_cuda(A, Ps)
-    x, r = new_amg_cg_solve(levels, b, x0=x0, tol=1e-6, maxiter=100)
+    global smoother_type
+    smoother_type = 'chebyshev'
+
+    use_cuda = True
+    if use_cuda:
+        Ps = setup_AMG(A)
+        levels = build_levels_cuda(A, Ps)
+        x, r = new_amg_cg_solve(levels, b, x0=x0, tol=1e-6, maxiter=100)
+    else:
+        Ps = setup_AMG(A)
+        levels = build_levels(A, Ps)
+        x, r = old_amg_cg_solve(levels, b, x0=x0, tol=1e-6, maxiter=100)
 
     print("r", r)
     import matplotlib.pyplot as plt

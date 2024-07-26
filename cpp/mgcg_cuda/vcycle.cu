@@ -227,6 +227,46 @@ __global__ void weighted_jacobi_kernel(float *x, const float *b, float *data, in
     }
 }
 
+
+template<class I, class T, class F>
+void jacobi_serial(const I Ap[], const int Ap_size,
+            const I Aj[], const int Aj_size,
+            const T Ax[], const int Ax_size,
+                  T  x[], const int  x_size,
+            const T  b[], const int  b_size,
+                  T temp[], const int temp_size,
+            const I row_start,
+            const I row_stop,
+            const I row_step,
+            const T omega[], const int omega_size)
+{
+    T one = 1.0;
+    T omega2 = omega[0];
+
+    for(I i = row_start; i != row_stop; i += row_step) {
+        temp[i] = x[i];
+    }
+
+    for(I i = row_start; i != row_stop; i += row_step) {
+        I start = Ap[i];
+        I end   = Ap[i+1];
+        T rsum = 0;
+        T diag = 0;
+
+        for(I jj = start; jj < end; jj++){
+            I j = Aj[jj];
+            if (i == j)
+                diag  = Ax[jj];
+            else
+                rsum += Ax[jj]*temp[j];
+        }
+
+        if (diag != (F) 0.0){
+            x[i] = (one - omega2) * temp[i] + omega2 * ((b[i] - rsum)/diag);
+        }
+    }
+}
+
 template <class T>
 struct Vec {
     T *m_data;
@@ -287,8 +327,9 @@ struct Vec {
         CHECK_CUDA(cudaMemcpy(m_data, data, sizeof(T) * size, cudaMemcpyHostToDevice));
     }
 
-    void store(T *data) const {
-        CHECK_CUDA(cudaMemcpy(data, m_data, sizeof(T) * size(), cudaMemcpyDeviceToHost));
+    void tohost(std::vector<T> &data_host) const{
+        data_host.resize(size());
+        CHECK_CUDA(cudaMemcpy(data_host.data(), m_data, sizeof(T) * size(), cudaMemcpyDeviceToHost));
     }
 
     size_t size() const noexcept {
@@ -400,6 +441,15 @@ struct CSR {
         data.resize(nnz);
         indices.resize(nnz);
         indptr.resize(rows + 1);
+    }
+
+    void tohost(std::vector<T> &data_host, std::vector<int> &indices_host, std::vector<int> &indptr_host) const {
+        data_host.resize(data.size());
+        indices_host.resize(indices.size());
+        indptr_host.resize(indptr.size());
+        CHECK_CUDA(cudaMemcpy(data_host.data(), data.data(), data.size() * sizeof(T), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indices_host.data(), indices.data(), indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indptr_host.data(), indptr.data(), indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
     }
 };
 
@@ -676,11 +726,11 @@ struct VCycle : Kernels {
     std::vector<float> chebyshev_coeff;
     size_t smoother_type = 1;
     float jacobi_omega;
-    int jacobi_niter;
+    size_t jacobi_niter;
     Vec<float> init_x;
     Vec<float> init_b;
     Vec<float> outer_x;
-    Vec<float> alter_x;
+    Vec<float> final_x;
     Vec<float> outer_b;
     float save_rho_prev;
     Vec<float> save_p;
@@ -691,12 +741,24 @@ struct VCycle : Kernels {
     std::vector<float> residuals;
     size_t niter; //final number of iterations to break the loop
 
+    float calc_rnorm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A) {
+        float rnorm = 0.0;
+        Vec<float> r;
+        r.resize(b.size());
+        copy(r, b);
+        spmv(r, -1, A, x, 1, buff);
+        rnorm = vnorm(r);
+        return rnorm;
+    }
+
+
     void setup(size_t numlvs) {
         if (levels.size() < numlvs) {
             levels.resize(numlvs);
         }
         nlvs = numlvs;
         chebyshev_coeff.clear();
+        jacobi_omega = 0.0;
     }
 
     void set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
@@ -718,6 +780,7 @@ struct VCycle : Kernels {
     }
 
     void setup_chebyshev(float const *coeff, size_t ncoeffs) {
+        smoother_type = 1;
         chebyshev_coeff.assign(coeff, coeff + ncoeffs);
     }
 
@@ -739,20 +802,48 @@ struct VCycle : Kernels {
         axpy(x, 1, levels.at(lv).h); // x += h
     }
 
-    void setup_jacobi(float const omega, int const niter) {
+    void setup_jacobi(float const omega, size_t const n) {
+        smoother_type = 2;
         jacobi_omega = omega;
-        jacobi_niter = niter;
+        jacobi_niter = n;
     }
 
     void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
-        weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
+        // weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
+        // levels.at(lv).A.fetch(levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data());
+        // cout << "x size: " << x.size() << endl;
+        // cout << "b size: " << b.size() << endl;
+        std::vector<float> x_host(x.size());
+        std::vector<float> b_host(b.size());
+        x.tohost(x_host);
+        b.tohost(b_host);
+        std::vector<float> data_host;
+        std::vector<int> indices_host, indptr_host;
+        levels.at(lv).A.tohost(data_host, indices_host, indptr_host);
+        // cout<<"omega: "<<jacobi_omega<<endl;
+        jacobi_serial<int, float, float>(
+            indptr_host.data(), indptr_host.size(),
+            indices_host.data(), indices_host.size(),
+            data_host.data(), data_host.size(),
+            x_host.data(), x_host.size(),
+            b_host.data(), b_host.size(),
+            x_host.data(), x_host.size(),
+            0, levels.at(lv).A.nrows, 1, &jacobi_omega, 1);
+
+        // cout<<"x_host[0]: "<<x_host[0]<<endl;
+        // cout<<"x_host[1]: "<<x_host[1]<<endl;
+        x.assign(x_host.data(), x_host.size());
+        auto r = calc_rnorm(b, x, levels.at(lv).A);
+        cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
 
     void _smooth(int lv, Vec<float> &x, Vec<float> const &b) {
         if(smoother_type == 1)
             chebyshev(lv, x, b);
         else if (smoother_type == 2)
+        {
             jacobi(lv, x, b);
+        }
     }
 
 
@@ -803,7 +894,7 @@ struct VCycle : Kernels {
     void set_outer_x(float const *x, size_t n) {
         outer_x.resize(n);
         CHECK_CUDA(cudaMemcpy(outer_x.data(), x, n * sizeof(float), cudaMemcpyHostToDevice));
-        copy(alter_x, outer_x);
+        copy(final_x, outer_x);
     }
 
     void set_outer_b(float const *b, size_t n) {
@@ -839,7 +930,7 @@ struct VCycle : Kernels {
         save_rho_prev = rho_cur;
         float alpha = rho_cur / vdot(save_p, save_q);
         // x += alpha*p
-        axpy(alter_x, alpha, save_p);
+        axpy(final_x, alpha, save_p);
         // r -= alpha*q
         axpy(init_b, -alpha, save_q);
         float normr = vnorm(init_b);
@@ -847,7 +938,7 @@ struct VCycle : Kernels {
     }
 
     void fetch_cg_final_x(float *x) {
-        CHECK_CUDA(cudaMemcpy(x, alter_x.data(), alter_x.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(x, final_x.data(), final_x.size() * sizeof(float), cudaMemcpyDeviceToHost));
     }
 
     void fetch_cg_final_r(float *r) {
@@ -904,6 +995,9 @@ struct VCycle : Kernels {
             copy_outer2init_x();  //reset x to x0
             vcycle();
             do_cg_itern(residuals.data(), iteration); //first r is r[0], then r[iter+1]
+
+            // auto r = calc_rnorm(outer_b, final_x, levels.at(0).A);
+            // cout<<"iter: "<<iteration<<"   rnorm: "<<r<<endl;
         }
     }
 
@@ -966,6 +1060,10 @@ extern "C" DLLEXPORT void fastmg_setup(size_t numlvs) {
 
 extern "C" DLLEXPORT void fastmg_setup_chebyshev(float const *coeff, size_t ncoeffs) {
     fastmg->setup_chebyshev(coeff, ncoeffs);
+}
+
+extern "C" DLLEXPORT void fastmg_setup_jacobi(float const omega, size_t const niter_jacobi) {
+    fastmg->setup_jacobi(omega, niter_jacobi);
 }
 
 extern "C" DLLEXPORT void fastmg_set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {

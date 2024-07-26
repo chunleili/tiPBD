@@ -76,14 +76,18 @@ def setup_jacobi(A):
     print("omega:", jacobi_omega)
 
 
-def build_Ps(A, method='UA'):
+def build_Ps(A, method='UA', B=None):
     """Build a list of prolongation matrices Ps from A """
     if method == 'UA':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
     elif method == 'SA' :
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400)
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400,symmetry='symmetric')
     elif method == 'CAMG':
-        ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
+        ml = pyamg.ruge_stuben_solver(A, max_coarse=400,symmetry='symmetric')
+    elif method == 'adaptive_SA':
+        ml = pyamg.aggregation.adaptive_sa_solver(A, max_coarse=400, smooth=None, num_candidates=6)[0]
+    elif method == 'nullspace':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B)
     else:
         raise ValueError(f"Method {method} not recognized")
 
@@ -247,10 +251,8 @@ def coarse_solver(A, b):
     res = np.linalg.solve(A.toarray(), b)
     return res
 
-t_smoother = 0.0
 
 def old_V_cycle(levels,lvl,x,b):
-    global t_smoother
     A = levels[lvl].A.astype(np.float64)
     presmoother(A,x,b)
     residual = b - A @ x

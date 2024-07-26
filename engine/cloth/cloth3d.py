@@ -1062,10 +1062,7 @@ def coarse_solver(A, b):
     res = np.linalg.solve(A.toarray(), b)
     return res
 
-t_smoother = 0.0
-
 def old_V_cycle(levels,lvl,x,b):
-    global t_smoother
     A = levels[lvl].A.astype(np.float64)
     presmoother(A,x,b)
     residual = b - A @ x

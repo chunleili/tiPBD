@@ -13,7 +13,6 @@
 #include <cstdio>
 #include <cmath>
 #include <chrono>
-#include <filesystem>
 #include <array>
 #include <unordered_set>
 
@@ -757,16 +756,6 @@ struct VCycle : Kernels {
     }
 
 
-    void set_init_x(float const *x, size_t n) {
-        init_x.resize(n);
-        CHECK_CUDA(cudaMemcpy(init_x.data(), x, n * sizeof(float), cudaMemcpyHostToDevice));
-    }
-
-    void set_init_b(float const *b, size_t n) {
-        init_b.resize(n);
-        CHECK_CUDA(cudaMemcpy(init_b.data(), b, n * sizeof(float), cudaMemcpyHostToDevice));
-    }
-
     void vcycle_down() {
         for (int lv = 0; lv < nlvs-1; ++lv) {
             Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : init_x;
@@ -799,26 +788,6 @@ struct VCycle : Kernels {
         vcycle_up();
     }
 
-    size_t get_coarsist_size() {
-        auto const &this_b = levels.at(nlvs - 2).b;
-        return this_b.size();
-    }
-
-    void get_coarsist_b(float *b) {
-        auto const &this_b = levels.at(nlvs - 2).b;
-        CHECK_CUDA(cudaMemcpy(b, this_b.data(), this_b.size() * sizeof(float), cudaMemcpyDeviceToHost));
-    }
-
-    void get_finest_x(float *x) {
-        CHECK_CUDA(cudaMemcpy(x, init_x.data(), init_x.size() * sizeof(float), cudaMemcpyDeviceToHost));
-    }
-
-    void set_coarsist_x(float const *x) {
-        auto const &this_b = levels.at(nlvs - 2).b;
-        auto &this_x = levels.at(nlvs - 2).x;
-        this_x.resize(this_b.size());
-        CHECK_CUDA(cudaMemcpy(this_x.data(), x, this_x.size() * sizeof(float), cudaMemcpyHostToDevice));
-    }
 
     void coarse_solve() {
         auto const &A = levels.at(nlvs - 1).A;

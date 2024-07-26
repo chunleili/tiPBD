@@ -809,30 +809,28 @@ struct VCycle : Kernels {
     }
 
     void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
-        // weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
-        // levels.at(lv).A.fetch(levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data());
-        // cout << "x size: " << x.size() << endl;
-        // cout << "b size: " << b.size() << endl;
-        std::vector<float> x_host(x.size());
-        std::vector<float> b_host(b.size());
-        x.tohost(x_host);
-        b.tohost(b_host);
-        std::vector<float> data_host;
-        std::vector<int> indices_host, indptr_host;
-        levels.at(lv).A.tohost(data_host, indices_host, indptr_host);
-        // cout<<"omega: "<<jacobi_omega<<endl;
-        jacobi_serial<int, float, float>(
-            indptr_host.data(), indptr_host.size(),
-            indices_host.data(), indices_host.size(),
-            data_host.data(), data_host.size(),
-            x_host.data(), x_host.size(),
-            b_host.data(), b_host.size(),
-            x_host.data(), x_host.size(),
-            0, levels.at(lv).A.nrows, 1, &jacobi_omega, 1);
+        for (int i = 0; i < jacobi_niter; ++i) {
+            weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
+        }
 
-        // cout<<"x_host[0]: "<<x_host[0]<<endl;
-        // cout<<"x_host[1]: "<<x_host[1]<<endl;
-        x.assign(x_host.data(), x_host.size());
+        // // serial jacobi
+        // std::vector<float> x_host(x.size());
+        // std::vector<float> b_host(b.size());
+        // x.tohost(x_host);
+        // b.tohost(b_host);
+        // std::vector<float> data_host;
+        // std::vector<int> indices_host, indptr_host;
+        // levels.at(lv).A.tohost(data_host, indices_host, indptr_host);
+        // // cout<<"omega: "<<jacobi_omega<<endl;
+        // jacobi_serial<int, float, float>(
+        //     indptr_host.data(), indptr_host.size(),
+        //     indices_host.data(), indices_host.size(),
+        //     data_host.data(), data_host.size(),
+        //     x_host.data(), x_host.size(),
+        //     b_host.data(), b_host.size(),
+        //     x_host.data(), x_host.size(),
+        //     0, levels.at(lv).A.nrows, 1, &jacobi_omega, 1);
+        // x.assign(x_host.data(), x_host.size());
         // auto r = calc_rnorm(b, x, levels.at(lv).A);
         // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }

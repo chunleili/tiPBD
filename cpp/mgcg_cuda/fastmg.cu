@@ -995,8 +995,8 @@ struct VCycle : Kernels {
             do_cg_itern(residuals.data(), iteration); //first r is r[0], then r[iter+1]
             niter = iteration; 
 
-            auto r = calc_rnorm(outer_b, final_x, levels.at(0).A);
-            cout<<"iter: "<<iteration<<"   rnorm: "<<r<<endl;
+            // auto r = calc_rnorm(outer_b, final_x, levels.at(0).A);
+            // cout<<"iter: "<<iteration<<"   rnorm: "<<r<<endl;
         }
     }
 

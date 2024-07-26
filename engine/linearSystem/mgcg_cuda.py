@@ -30,7 +30,7 @@ sys.path.append(os.getcwd())
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 cuda_dir = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin"
 os.add_dll_directory(cuda_dir)
-extlib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
+extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
 smoother_type = 'chebyshev'
 

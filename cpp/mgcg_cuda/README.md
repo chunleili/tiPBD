@@ -5,21 +5,21 @@ If you want to use the CUDA version of the fast multigrid, your should use `-use
 1. Install CUDA. My version is 12.5, VS2022
 2. Change set(CMAKE_CUDA_ARCHITECTURES 89) in CMakeLists.txt
 3. Run cmake from **cmd**(Not powershell! Powershell does not work for `set(CMAKE_CUDA_ARCHITECTURES 89).`)
-4. Compile vcycle.cu by cmake and generate dlls in `cpp\mgcg_cuda\lib`.
+4. Compile fastmg.cu by cmake and generate dlls in `cpp\mgcg_cuda\lib`.
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-- Linux get `build/libfast-vcycle-gpu.so`。
-- Windows get `build/Release/fast-vcycle-gpu.dll`。
+- Linux get `build/libfastmg.so`。
+- Windows get `build/Release/fastmg.dll`。
    
 `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5\bin`
 
 5. Change `os.add_dll_directory("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")` as your own path in python code.
 
 
-Note: In Windows, you can use `dumpbin /dependents` to check the dependencies of a dll. For example, `dumpbin /dependents fast-vcycle-gpu.dll` will show the dependencies of fast-vcycle-gpu.dll.
+Note: In Windows, you can use `dumpbin /dependents` to check the dependencies of a dll. For example, `dumpbin /dependents fastmg.dll` will show the dependencies of fastmg.dll.
 
 
 Download(600MB): 
@@ -54,4 +54,4 @@ Remove-Item .\build\* -Recurse
 ## other 
 Run directly from "x64 Native Tools Command Prompt for VS 2022"
 
-nvcc -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5/include" -I"." vcycle.cu -o fast-vcycle-gpu -lcusparse
+nvcc -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5/include" -I"." fastmg.cu -o fastmg -lcusparse

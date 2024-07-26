@@ -1779,7 +1779,7 @@ print("\nInitializing...")
 
 if use_cuda:
     os.add_dll_directory(cuda_dir)
-    extlib = ctl.load_library("fast-vcycle-gpu.dll", prj_path+'/cpp/mgcg_cuda/lib')
+    extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
 print("Initializing pos..")
 init_pos(inv_mass,pos)

@@ -1044,7 +1044,7 @@ def init_g_vcycle(levels):
 
     if g_vcycle is None:
         os.add_dll_directory(cuda_dir)
-        extlib = ctl.load_library("fast-vcycle-gpu.dll", proj_dir+'/cpp/mgcg_cuda/lib')
+        extlib = ctl.load_library("fastmg.dll", proj_dir+'/cpp/mgcg_cuda/lib')
         g_vcycle = extlib
 
         arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')

@@ -12,12 +12,12 @@ SET( CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_LIST_DIR}/lib")
 SET( CMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG "${CMAKE_CURRENT_LIST_DIR}/lib")
 SET( CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_LIST_DIR}/lib")
 
-project(my_project LANGUAGES CXX CUDA)
+project(fastmg LANGUAGES CXX CUDA)
 
-add_library(fast-vcycle-gpu SHARED vcycle.cu)
-target_link_libraries(fast-vcycle-gpu PRIVATE cusparse cublas cusolver)
-target_include_directories(fast-vcycle-gpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
-set_target_properties(fast-vcycle-gpu PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+add_library(fastmg SHARED fastmg.cu)
+target_link_libraries(fastmg PRIVATE cusparse cublas cusolver)
+target_include_directories(fastmg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
+set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 # add_executable(mgxpbd mgxpbd.cpp)
 # target_include_directories(mgxpbd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)

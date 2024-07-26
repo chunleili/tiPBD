@@ -34,16 +34,14 @@ def sparse_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_ste
             x[i] = (b[i] - rsum) / diag
 
 @ti.kernel
-def sparse_gauss_seidel_kernel(Ap: ti.types.ndarray(dtype=int),
-                                 Aj: ti.types.ndarray(dtype=int),
-                                 Ax: ti.types.ndarray(dtype=float),
+def sparse_gauss_seidel_kernel(  Ap: ti.types.ndarray(),
+                                 Aj: ti.types.ndarray(),
+                                 Ax: ti.types.ndarray(),
                                  x: ti.types.ndarray(),
                                  b: ti.types.ndarray(),
                                  row_start: int,
                                  row_stop: int,
                                  row_step: int):
-    if row_step < 0:
-        assert "row_step must be positive"
     for i in range(row_start, row_stop):
         if i%row_step != 0:
             continue
@@ -64,16 +62,18 @@ def sparse_gauss_seidel_kernel(Ap: ti.types.ndarray(dtype=int),
             x[i] = (b[i] - rsum) / diag
 
 def test_sparse_gs():
-    A = mmread('A.mtx')
+    from generate_spd import generate_A_b_spd
+    A,b = generate_A_b_spd(1000)
     A = A.tocsr()
     N,M = A.shape
     x0 = np.zeros(A.shape[0])
     b = np.ones(A.shape[0])
     x = x0.copy()
+    ti.init(arch=ti.cpu)
     for i in range(50):
         sparse_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
 
-    print(np.linalg.norm(b-A@x, np.inf))
+        print(np.linalg.norm(b-A@x, np.inf))
 
 if __name__ == '__main__':
     test_sparse_gs()

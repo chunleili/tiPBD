@@ -1550,11 +1550,9 @@ def init_direct_fill_A(ist):
     print(f"dict_to_ndarr time: {perf_counter()-tic:.3f}s")
 
     tic = perf_counter()
-    n_adj_shared, adj_shared_v = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
+    n_adj_shared, shared_v, shared_v_order_in_cur, shared_v_order_in_adj = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
     print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
 
-    write_mesh(ist, out_dir)
-    # init_adj_all_ti(ist.tet_indices)
 
     # for now, we save them to the instance
     ist.adjacent = adjacent
@@ -1567,8 +1565,10 @@ def init_direct_fill_A(ist):
     ist.nnz = nnz
     ist.nnz_each_row = nnz_each_row
     ist.n_adj_shared = n_adj_shared
-    ist.adj_shared_v = adj_shared_v
-    return adjacent, num_adjacent, data, indices, indptr, ii, jj, nnz, nnz_each_row, n_adj_shared, adj_shared_v
+    ist.shared_v = shared_v
+    ist.shared_v_order_in_cur = shared_v_order_in_cur
+    ist.shared_v_order_in_adj = shared_v_order_in_adj
+    return adjacent, num_adjacent, data, indices, indptr, ii, jj, nnz, nnz_each_row, n_adj_shared, shared_v, shared_v_order_in_cur, shared_v_order_in_adj
 
 
 def fill_A_csr():

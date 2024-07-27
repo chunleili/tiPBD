@@ -1521,12 +1521,13 @@ def init_direct_fill_A(ist):
     print(f"init_A_CSR_pattern time: {perf_counter()-tic:.3f}s")
     
     tic = perf_counter()
-    n_adj_shared, adj_shared_v = init_adj_share_v(adjacent, num_adjacent, ist.tet_indices.to_numpy())
-    print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
-
-    tic = perf_counter()
     adjacent,_ = dict_to_ndarr(adjacent)
     print(f"dict_to_ndarr time: {perf_counter()-tic:.3f}s")
+
+    tic = perf_counter()
+    n_adj_shared, adj_shared_v = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
+    print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
+
 
     # for now, we save them to the instance
     ist.adjacent = adjacent
@@ -1595,9 +1596,9 @@ def sort4int(a, b, c, d):
 
 
 # get the adjacent element shared vertices
-def init_adj_share_v(   adj,  # adjacent element id
+def init_adj_share_v(   adj,  # adjacent element id, 2d array
                         nadj, # number of adjacent elements, 1d array
-                        ele,          # element vertex id (nele, 4) 
+                        ele,  # element vertex id (nele, 4), 2d array
                         ): 
     nele = ele.shape[0]
     max_nadj = max(nadj)
@@ -1611,6 +1612,47 @@ def init_adj_share_v(   adj,  # adjacent element id
             n_shared_v[i,j] = n
             adj_shared_v[i, j, :n] = sharedv
     return n_shared_v, adj_shared_v
+
+
+# taichi version
+def init_adj_share_v_ti(adj, nadj, ele):
+    nele = ele.shape[0]
+    max_nadj = max(nadj)
+    adj_shared_v = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
+    n_shared_v = np.zeros((nele, max_nadj), dtype=np.int32)
+
+    # 求两个长度为4的数组的交集
+    @ti.func
+    def intersect(a,b):
+        k=0
+        c = ti.Vector([-1,-1,-1])
+        for i in ti.static(range(4)):
+            for j in ti.static(range(4)):
+                if a[i] == b[j]:
+                    c[k] = a[i]
+                    k += 1
+        return k, c
+
+    @ti.kernel
+    def init_adj_share_v_kernel(adj:ti.types.ndarray(), 
+                                nadj:ti.types.ndarray(), 
+                                ele:ti.template(),
+                                n_shared_v:ti.types.ndarray(), 
+                                adj_shared_v:ti.types.ndarray()):
+        nele = ele.shape[0]
+        for i in range(nele):
+            for j in range(nadj[i]):
+                adj_id = adj[i,j]
+                n, sharedv = intersect(ele[i], ele[adj_id])
+                n_shared_v[i,j] = n
+                for k in range(n):
+                    adj_shared_v[i,j, k] = sharedv[k]
+    
+    init_adj_share_v_kernel(adj, nadj, ele, n_shared_v, adj_shared_v)
+
+    return n_shared_v, adj_shared_v
+
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #

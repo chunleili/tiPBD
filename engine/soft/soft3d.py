@@ -1605,29 +1605,30 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
 
 
 
-# get the adjacent element shared vertices
-def init_adj_share_v(   adj,  # adjacent element id, 2d array
-                        nadj, # number of adjacent elements, 1d array
-                        ele,  # element vertex id (nele, 4), 2d array
-                        ): 
-    nele = ele.shape[0]
-    max_nadj = max(nadj)
-    adj_shared_v = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
-    n_shared_v = np.zeros((nele, max_nadj), dtype=np.int32)
-    for i in range(nele):
-        for j in range(nadj[i]):
-            adj_id = adj[i][j]
-            sharedv = np.intersect1d(ele[i],  ele[adj_id],assume_unique = True)
-            n = len(sharedv)
-            n_shared_v[i,j] = n
-            adj_shared_v[i, j, :n] = sharedv
-    return n_shared_v, adj_shared_v
+# # get the adjacent element shared vertices
+# def init_adj_share_v(   adj,  # adjacent element id, 2d array
+#                         nadj, # number of adjacent elements, 1d array
+#                         ele,  # element vertex id (nele, 4), 2d array
+#                         ): 
+#     nele = ele.shape[0]
+#     max_nadj = max(nadj)
+#     adj_shared_v = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
+#     n_shared_v = np.zeros((nele, max_nadj), dtype=np.int32)
+#     for i in range(nele):
+#         for j in range(nadj[i]):
+#             adj_id = adj[i][j]
+#             sharedv = np.intersect1d(ele[i],  ele[adj_id],assume_unique = True)
+#             n = len(sharedv)
+#             n_shared_v[i,j] = n
+#             adj_shared_v[i, j, :n] = sharedv
+#     return n_shared_v, adj_shared_v
 
 
-# taichi version
+# taichi version: get the adjacent element shared vertices
 def init_adj_share_v_ti(adj, nadj, ele):
     nele = ele.shape[0]
     max_nadj = max(nadj)
+    print("max number of shared elements: ", max_nadj)
     # 共享顶点编号， 用法:shared_v[i,j,:]表示第i个ele的第j个adj ele共享的顶点
     shared_v = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
     # 共享顶点的个数， 用法：n_shared_v[i,j]表示第i个ele的j个adj ele共享的顶点个数

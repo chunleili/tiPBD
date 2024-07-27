@@ -32,7 +32,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"])
-parser.add_argument("-model_path", type=str, default=f"data/model/cube/minicube.node")# "data/model/bunnyBig/bunnyBig.node"
+parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunnyBig.node")# "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
@@ -296,9 +296,6 @@ class SoftBody:
         self.state = [
             self.pos,
         ]
-
-        # for sparse matrix
-        ist.adjacent, num_adjacent, data, indices, indptr, ii, jj, nnz, nnz_each_row, n_adj_shared, adj_shared_v
 
         info(f"Creating {self.name} instance done")
 
@@ -1516,14 +1513,20 @@ def init_direct_fill_A(ist):
     num_adjacent = np.array([len(v) for v in adjacent.values()])
     print(f"init_adjacent time: {perf_counter()-tic1:.3f}s")
 
-    n_adj_shared, adj_shared_v = init_adj_share_v(adjacent, num_adjacent, ist.tet_indices.to_numpy())
-
+    tic = perf_counter()
     data, indices, indptr = init_A_CSR_pattern(num_adjacent, adjacent)
     ii, jj = csr_index_to_coo_index(indptr, indices)
     nnz = len(data)
     nnz_each_row = num_adjacent[:] + 1
+    print(f"init_A_CSR_pattern time: {perf_counter()-tic:.3f}s")
+    
+    tic = perf_counter()
+    n_adj_shared, adj_shared_v = init_adj_share_v(adjacent, num_adjacent, ist.tet_indices.to_numpy())
+    print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
 
+    tic = perf_counter()
     adjacent,_ = dict_to_ndarr(adjacent)
+    print(f"dict_to_ndarr time: {perf_counter()-tic:.3f}s")
 
     # for now, we save them to the instance
     ist.adjacent = adjacent
@@ -1597,8 +1600,9 @@ def init_adj_share_v(   adj,  # adjacent element id
                         ele,          # element vertex id (nele, 4) 
                         ): 
     nele = ele.shape[0]
-    adj_shared_v = np.ones((nele, 4, 3), dtype=np.int32) * (-1)
-    n_shared_v = np.zeros((nele, 4), dtype=np.int32)
+    max_nadj = max(nadj)
+    adj_shared_v = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
+    n_shared_v = np.zeros((nele, max_nadj), dtype=np.int32)
     for i in range(nele):
         for j in range(nadj[i]):
             adj_id = adj[i][j]

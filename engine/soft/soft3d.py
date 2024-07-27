@@ -298,11 +298,9 @@ class SoftBody:
         ]
 
         # for sparse matrix
-        self.M = self.NT
-        self.N = self.NV
-        self.A = ti.linalg.SparseMatrix(self.M, self.M)
+        ist.adjacent, num_adjacent, data, indices, indptr, ii, jj, nnz, nnz_each_row, n_adj_shared, adj_shared_v
 
-        info(f"Creating {self.name} instance")
+        info(f"Creating {self.name} instance done")
 
     def initialize(self, reinit_style="enlarge"):
         info(f"Initializing {self.name} mesh")
@@ -1479,10 +1477,10 @@ def init_adj_ele(eles):
 
 def dict_to_ndarr(d:dict)->np.ndarray:
     lengths = np.array([len(v) for v in d.values()])
-
-    max_len = max(len(item) for item in d.values())
-    # 使用填充或截断的方式转换为NumPy数组
-    arr = np.array([item + [-1]*(max_len - len(item)) if len(item) < max_len else item[:max_len] for item in d.values()])
+    max_len = max(lengths)
+    arr = np.ones((len(d), max_len), dtype=np.int32) * (-1)
+    for i, (k, v) in enumerate(d.items()):
+        arr[i, :len(v)] = v
     return arr, lengths
 
 
@@ -1515,17 +1513,30 @@ def init_direct_fill_A(ist):
     tic1 = perf_counter()
     print("Initializing adjacent elements and abc...")
     adjacent = init_adj_ele(eles=ist.tet_indices.to_numpy())
-    adjacent,num_adjacent = dict_to_ndarr(adjacent)
+    num_adjacent = np.array([len(v) for v in adjacent.values()])
     print(f"init_adjacent time: {perf_counter()-tic1:.3f}s")
+
+    n_adj_shared, adj_shared_v = init_adj_share_v(adjacent, num_adjacent, ist.tet_indices.to_numpy())
 
     data, indices, indptr = init_A_CSR_pattern(num_adjacent, adjacent)
     ii, jj = csr_index_to_coo_index(indptr, indices)
     nnz = len(data)
     nnz_each_row = num_adjacent[:] + 1
 
-    n_adj_shared = np.zeros_like(adjacent)
-    adj_shared_v = np.ones((adjacent.shape[0], adjacent.shape[1], 3), dtype=np.int32) * (-1)
-    init_adj_share_v(adjacent, num_adjacent, n_adj_shared, adj_shared_v, ist.tet_indices)
+    adjacent,_ = dict_to_ndarr(adjacent)
+
+    # for now, we save them to the instance
+    ist.adjacent = adjacent
+    ist.num_adjacent = num_adjacent
+    ist.data = data
+    ist.indices = indices
+    ist.indptr = indptr
+    ist.ii = ii
+    ist.jj = jj
+    ist.nnz = nnz
+    ist.nnz_each_row = nnz_each_row
+    ist.n_adj_shared = n_adj_shared
+    ist.adj_shared_v = adj_shared_v
     return adjacent, num_adjacent, data, indices, indptr, ii, jj, nnz, nnz_each_row, n_adj_shared, adj_shared_v
 
 
@@ -1581,85 +1592,21 @@ def sort4int(a, b, c, d):
 
 
 # get the adjacent element shared vertices
-# we have 6 situations after sorting the vertices of two elements
-# Let vi1,vi2,vi3,vi4 be the vertices of element i(the current element)
-# Let vj1,vj2,vj3,vj4 be the vertices of element j(the adjacent element)
-# After sorting, we have vi1<=vi2<=vi3<=vi4, vj1<=vj2<=vj3<=vj4
-# -----------------------------------
-# Situation 1: 
-# row i: [1] [2] [3] [4]
-# row j:     [1] [2] [3] [4]
-# In this situation, the shared vertices are vi2,vi3,vi4. 
-# And vi2=vj1, vi3=vj2, vi4=vj3
-# -----------------------------------
-# Situation 2:
-# row i: [1] [2] [3] [4]
-# row j:         [1] [2] [3] [4]
-# In this situation, the shared vertices are vi3,vi4. 
-# And vi3=vj1, vi4=vj2.
-# -----------------------------------
-# Situation 3:
-# row i: [1] [2] [3] [4]
-# row j:             [1] [2] [3] [4]
-# In this situation, the shared vertices are vi4. 
-# And vi4=vj1.
-# -----------------------------------
-# Situation 4:
-# row i:     [1] [2] [3] [4]
-# row j: [1] [2] [3] [4]
-# In this situation, the shared vertices are vi1,vi2,vi3. 
-# And vi1=vj2, vi2=vj3, vi3=vj4
-# -----------------------------------
-# Situation 5:
-# row i:         [1] [2] [3] [4]
-# row j: [1] [2] [3] [4]
-# In this situation, the shared vertices are vi1,vi2. 
-# And vi1=vj3, vi2=vj4.
-# -----------------------------------
-# Situation 6:
-# row i:             [1] [2] [3] [4]
-# row j: [1] [2] [3] [4]
-# In this situation, the shared vertices are vi1. 
-# And vi1=vj4.
-@ti.kernel
-def init_adj_share_v(   adj:ti.types.ndarray(),  # adjacent element id, 2d array
-                        nadj:ti.types.ndarray(), # number of adjacent elements, 1d array
-                        n_adj_shared:ti.types.ndarray(), # number of shared vertices, 2d array
-                        adj_shared_v:ti.types.ndarray(), # shared vertices id , 3d array
-                        ele:ti.template(),               # element vertex id, 2d array (nele, 4) 
+def init_adj_share_v(   adj,  # adjacent element id
+                        nadj, # number of adjacent elements, 1d array
+                        ele,          # element vertex id (nele, 4) 
                         ): 
-    # FIXME:实际上中间有不连续的点，所以不止有6种情况
-    for i in range(nadj.shape[0]):
+    nele = ele.shape[0]
+    adj_shared_v = np.ones((nele, 4, 3), dtype=np.int32) * (-1)
+    n_shared_v = np.zeros((nele, 4), dtype=np.int32)
+    for i in range(nele):
         for j in range(nadj[i]):
-            vi1,vi2,vi3,vi4 = ele[i]
-            vj1,vj2,vj3,vj4 = ele[adj[i,j]]
-            vi1_,vi2_,vi3_,vi4_ = sort4int(vi1,vi2,vi3,vi4)
-            vj1_,vj2_,vj3_,vj4_ = sort4int(vj1,vj2,vj3,vj4)
-            if vi2_ == vj1_:                # situation 1
-                n_adj_shared[i,j] = 3
-                adj_shared_v[i,j, 0] = vi2_
-                adj_shared_v[i,j, 1] = vi3_
-                adj_shared_v[i,j, 2] = vi4_
-            elif vi3_ == vj1_:              # situation 2
-                n_adj_shared[i,j] = 2
-                adj_shared_v[i,j, 0] = vi3_
-                adj_shared_v[i,j, 1] = vi4_
-            elif vi4_ == vj1_:              # situation 3
-                n_adj_shared[i,j] = 1
-                adj_shared_v[i,j, 0] = vi4_
-            elif vi1_ == vj2_:              # situation 4
-                n_adj_shared[i,j] = 3
-                adj_shared_v[i,j, 0] = vi1_
-                adj_shared_v[i,j, 1] = vi2_
-                adj_shared_v[i,j, 2] = vi3_
-            elif vi1_ == vj3_:              # situation 5
-                n_adj_shared[i,j] = 2
-                adj_shared_v[i,j, 0] = vi1_
-                adj_shared_v[i,j, 1] = vi2_
-            elif vi1_ == vj4_:              # situation 6
-                n_adj_shared[i,j] = 1
-                adj_shared_v[i,j, 0] = vi1_
-
+            adj_id = adj[i][j]
+            sharedv = np.intersect1d(ele[i],  ele[adj_id],assume_unique = True)
+            n = len(sharedv)
+            n_shared_v[i,j] = n
+            adj_shared_v[i, j, :n] = sharedv
+    return n_shared_v, adj_shared_v
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #

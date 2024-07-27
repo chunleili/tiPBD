@@ -32,7 +32,8 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunnyBig.node")# "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node"
+parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunnyBig.node")
+# "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
@@ -1506,6 +1507,30 @@ def csr_index_to_coo_index(indptr, indices):
     return ii, jj
 
 
+# def init_adj_all_ti(eles):
+#     eles = eles
+#     nele = eles.shape[0]
+#     v2e = ti.field(dtype=ti.i32, shape=(nele, 20))
+#     nv2e = ti.field(dtype=ti.i32, shape=nele)
+
+#     @ti.kernel
+#     def calc_vertex_to_eles_kernel(eles: ti.template(), v2e: ti.template(), nv2e: ti.template()):
+#         # v2e: vertex to element
+#         # nv2e: number of elements sharing the vertex
+#         for e in range(eles.shape[0]):
+#             v1, v2, v3, v4 = eles[e]
+#             for v in ti.static([v1, v2, v3, v4]):
+#                 k = nv2e[v]
+#                 v2e[v, k] = e
+#                 nv2e[v] += 1
+    
+#     calc_vertex_to_eles_kernel(eles, v2e, nv2e)
+#     v2e = v2e.to_numpy()
+#     nv2e = nv2e.to_numpy()
+#     ...
+
+
+
 def init_direct_fill_A(ist):
     tic1 = perf_counter()
     print("Initializing adjacent elements and abc...")
@@ -1528,6 +1553,8 @@ def init_direct_fill_A(ist):
     n_adj_shared, adj_shared_v = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
     print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
 
+    write_mesh(ist, out_dir)
+    # init_adj_all_ti(ist.tet_indices)
 
     # for now, we save them to the instance
     ist.adjacent = adjacent
@@ -1576,23 +1603,6 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
         FIXME: offdiag
 
 
-# 为四个顶点编号排序
-@ti.func
-def sort4int(a, b, c, d):
-    if a > b:
-        a, b = b, a
-    if a > c:
-        a, c = c, a
-    if a > d:
-        a, d = d, a
-    if b > c:
-        b, c = c, b
-    if b > d:
-        b, d = d, b
-    if c > d:
-        c, d = d, c
-    return a, b, c, d
-
 
 
 # get the adjacent element shared vertices
@@ -1618,39 +1628,56 @@ def init_adj_share_v(   adj,  # adjacent element id, 2d array
 def init_adj_share_v_ti(adj, nadj, ele):
     nele = ele.shape[0]
     max_nadj = max(nadj)
-    adj_shared_v = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
+    # 共享顶点编号， 用法:shared_v[i,j,:]表示第i个ele的第j个adj ele共享的顶点
+    shared_v = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
+    # 共享顶点的个数， 用法：n_shared_v[i,j]表示第i个ele的j个adj ele共享的顶点个数
     n_shared_v = np.zeros((nele, max_nadj), dtype=np.int32)
+    # 共享顶点在当前ele中是四面体的第几个(0-3)顶点, 用法：order_shared_v_in_cur[i,j,:] 表示第i个ele的第j个adj ele共享的顶点在当前ele中是第几个顶点。
+    shared_v_order_in_cur = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
+    # 共享顶点在邻接ele中是四面体的第几个(0-3)顶点, 用法：order_shared_v_in_adj[i,j,:] 表示第i个ele的第j个adj ele共享的顶点在邻接ele中是第几个顶点。
+    shared_v_order_in_adj = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
 
     # 求两个长度为4的数组的交集
     @ti.func
-    def intersect(a,b):
-        k=0
-        c = ti.Vector([-1,-1,-1])
-        for i in ti.static(range(4)):
-            for j in ti.static(range(4)):
+    def intersect(a, b):   
+        # a,b: 4个顶点的id, e:当前ele的id
+        k=0 # 第几个共享的顶点， 0, 1, 2, 3
+        c = ti.Vector([-1,-1,-1])         # 共享的顶点id存在c中
+        order = ti.Vector([-1,-1,-1])     # 共享的顶点是当前ele的第几个顶点
+        order2 = ti.Vector([-1,-1,-1])    # 共享的顶点是邻接ele的第几个顶点
+        for i in ti.static(range(4)):     # i:当前ele的第i个顶点
+            for j in ti.static(range(4)): # j:邻接ele的第j个顶点
                 if a[i] == b[j]:
-                    c[k] = a[i]
+                    c[k] = a[i]         
+                    order[k] = i          
+                    order2[k] = j
                     k += 1
-        return k, c
+        return k, c, order, order2
 
     @ti.kernel
     def init_adj_share_v_kernel(adj:ti.types.ndarray(), 
                                 nadj:ti.types.ndarray(), 
                                 ele:ti.template(),
                                 n_shared_v:ti.types.ndarray(), 
-                                adj_shared_v:ti.types.ndarray()):
+                                shared_v:ti.types.ndarray(),
+                                shared_v_order_in_cur:ti.types.ndarray(), 
+                                shared_v_order_in_adj:ti.types.ndarray()
+                                ):
         nele = ele.shape[0]
         for i in range(nele):
             for j in range(nadj[i]):
                 adj_id = adj[i,j]
-                n, sharedv = intersect(ele[i], ele[adj_id])
+                n, sharedv, order, order2 = intersect(ele[i], ele[adj_id])
                 n_shared_v[i,j] = n
                 for k in range(n):
-                    adj_shared_v[i,j, k] = sharedv[k]
-    
-    init_adj_share_v_kernel(adj, nadj, ele, n_shared_v, adj_shared_v)
+                    shared_v[i, j, k] = sharedv[k]
+                    shared_v_order_in_cur[i, j, k] = order[k]
+                    shared_v_order_in_adj[i, j, k] = order2[k]
 
-    return n_shared_v, adj_shared_v
+
+    init_adj_share_v_kernel(adj, nadj, ele, n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj)
+
+    return n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj
 
 
 # ---------------------------------------------------------------------------- #
@@ -1670,10 +1697,11 @@ def main():
 
     ist = SoftBody(meta.args.model_path)
     ist.initialize()
-    init_direct_fill_A(ist)
 
     if export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
+
+    init_direct_fill_A(ist)
 
     timer_all = perf_counter()
     try:

@@ -37,7 +37,7 @@ parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunny
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
-parser.add_argument("-export_matrix", type=int, default=True)
+parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
@@ -664,13 +664,42 @@ def collsion_response(pos: ti.template()):
             pos[i][1] = -1.3
 
 
+def reset_dpos(dpos):
+    dpos.fill(0.0)
 
-def transfer_back_to_pos_mfree(x,dLambda,dpos,pos):
-    dLambda.from_numpy(x)
-    reset_dpos(dpos)
-    transfer_back_to_pos_mfree_kernel()
-    update_pos(inv_mass, dpos, pos)
-    collision(pos)
+@ti.kernel
+def transfer_back_to_pos_mfree_kernel(gradC:ti.template(),
+                                      tet_indices:ti.template(),
+                                        inv_mass:ti.template(),
+                                        dlambda:ti.template(),
+                                        lagrangian:ti.template(),
+                                        dpos:ti.template()
+
+):
+    for i in range(tet_indices.shape[0]):
+        idx0, idx1, idx2, idx3 = tet_indices[i]
+        lagrangian[i] += dlambda[i]
+        dpos[idx0] += inv_mass[idx0] * dlambda[i] * gradC[i, 0]
+        dpos[idx1] += inv_mass[idx1] * dlambda[i] * gradC[i, 1]
+        dpos[idx2] += inv_mass[idx2] * dlambda[i] * gradC[i, 2]
+        dpos[idx3] += inv_mass[idx3] * dlambda[i] * gradC[i, 3]
+
+@ti.kernel
+def update_pos(
+    inv_mass:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+):
+    for i in range(inv_mass.shape[0]):
+        if inv_mass[i] != 0.0:
+            pos[i] += meta.omega * dpos[i]
+
+def transfer_back_to_pos_mfree(x, ist):
+    ist.dlambda.from_numpy(x)
+    reset_dpos(ist.dpos)
+    transfer_back_to_pos_mfree_kernel(ist.gradC, ist.tet_indices, ist.inv_mass, ist.dlambda, ist.lagrangian, ist.dpos)
+    update_pos(ist.inv_mass, ist.dpos, ist.pos)
+    collsion_response(ist.pos)
 
 @ti.kernel
 def compute_potential_energy(potential_energy:ti.template(),
@@ -784,15 +813,14 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
         A = fill_A_by_spmm(ist, M_inv, ALPHA)
         tic1 = time.perf_counter()
-        A2 = fill_A_csr(ist)
+        # A2 = fill_A_csr(ist)
         print(f"    assemble matrix time:{time.perf_counter()-tic1}")
-        csr_is_equal(A, A2, ist)
+        # csr_is_equal(A, A2, ist)
 
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
         if export_matrix:
             export_A_b(A,b,postfix=f"F{meta.frame}-{meta.ite}")
-            exit(0)
 
         # -------------------------------- solve Ax=b -------------------------------- #
         x0 = np.zeros_like(b)
@@ -834,6 +862,7 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
         # ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
         # dpos = M_inv @ G.transpose() @ dlambda
         # ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+        transfer_back_to_pos_mfree(x, ist)
 
         rsys2 = np.linalg.norm(b - A @ x)
         
@@ -895,7 +924,7 @@ def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
 
 def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
                     iterations=1):
-    global chebyshev_coeff # FIXME: later we should store this in the level
+    global chebyshev_coeff 
     """Set up Chebyshev."""
     rho = approximate_spectral_radius(A)
     a = rho * lower_bound
@@ -1394,7 +1423,6 @@ def compute_R_and_P_kmeans(ist):
     # 计算R 和 P
     R = np.zeros((k, N), dtype=np.float32)
 
-    # TODO
     compute_R_based_on_kmeans_label(labels, R)
 
     R = scipy.sparse.csr_matrix(R)

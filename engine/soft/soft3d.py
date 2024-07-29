@@ -32,12 +32,12 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"])
-parser.add_argument("-model_path", type=str, default=f"data/model/cube/minicube.node")
-# "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node"
+parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunnyBig.node")
+# "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=30)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
-parser.add_argument("-export_matrix", type=int, default=False)
+parser.add_argument("-export_matrix", type=int, default=True)
 parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
@@ -289,10 +289,11 @@ class SoftBody:
         self.residual = ti.field(ti.f32, shape=self.NT)
         self.dual_residual = ti.field(ti.f32, shape=self.NT)
         self.dlambda = ti.field(ti.f32, shape=self.NT)
-        self.negative_C_minus_alpha_lambda = ti.field(ti.f32, shape=self.NT)
         self.tet_centroid = ti.Vector.field(3, ti.f32, shape=self.NT)
         self.potential_energy = ti.field(ti.f32, shape=())
         self.inertial_energy = ti.field(ti.f32, shape=())
+
+        self.ele = self.tet_indices
 
         self.state = [
             self.pos,
@@ -406,17 +407,17 @@ def init_physics(
         total_volume += rest_volume[i]
 
     # init mass
-    for i in tet_indices:
-        ia, ib, ic, id = tet_indices[i]
-        mass_density = meta.total_mass / total_volume
-        tet_mass = mass_density * rest_volume[i]
-        avg_mass = tet_mass / 4.0
-        mass[ia] += avg_mass
-        mass[ib] += avg_mass
-        mass[ic] += avg_mass
-        mass[id] += avg_mass
+    # for i in tet_indices:
+    #     ia, ib, ic, id = tet_indices[i]
+    #     mass_density = meta.total_mass / total_volume
+    #     tet_mass = mass_density * rest_volume[i]
+    #     avg_mass = tet_mass / 4.0
+    #     mass[ia] += avg_mass
+    #     mass[ib] += avg_mass
+    #     mass[ic] += avg_mass
+    #     mass[id] += avg_mass
     for i in inv_mass:
-        inv_mass[i] = 1.0 / mass[i]
+        inv_mass[i] = 1.0 
 
     for i in alpha_tilde:
         alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V[i]
@@ -576,12 +577,13 @@ def compute_C_and_gradC_kernel(
         U, S, V = ti.svd(F)
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
-        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
+        g0_ = g0/g0.norm()
+        g1_ = g1/g1.norm()
+        g2_ = g2/g2.norm()
+        g3_ = g3/g3.norm()
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0_, g1_, g2_, g3_
 
 
-def compute_negative_C_minus_alpha_lambda(constraint, alpha_tilde, lagrangian, negative_C_minus_alpha_lambda):
-    compute_negative_C_minus_alpha_lambda_kernel(constraint, alpha_tilde, lagrangian, negative_C_minus_alpha_lambda)
-    return negative_C_minus_alpha_lambda.to_numpy()
 
 
 @ti.kernel
@@ -724,17 +726,18 @@ def ts_float32(val):
 
 
 def fill_A_by_spmm(ist,  M_inv, ALPHA):
-    ii, jj, vv = np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.float32)
+    ii, jj, vv = np.zeros(ist.NT*200, dtype=np.int32), np.zeros(ist.NT*200, dtype=np.int32), np.zeros(ist.NT*200, dtype=np.float32)
     fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
     G = scipy.sparse.coo_array((vv, (ii, jj)))
 
     # assemble A
     A = G @ M_inv @ G.transpose() + ALPHA
-    A = scipy.sparse.csr_matrix(A, dtype=np.float64)
+    A = scipy.sparse.csr_matrix(A, dtype=np.float32)
+    # A = scipy.sparse.diags(A.diagonal(), format="csr")
     return A
 
 
-def csr_is_equal(A, B):
+def csr_is_equal(A, B, ist):
     if A.shape != B.shape:
         print("shape not equal")
         return False
@@ -747,7 +750,9 @@ def csr_is_equal(A, B):
     if maxdiff > 1e-6:
         where = np.where(np.abs(diff.data) > 1e-6)
         print("In these places, the difference is larger than 1e-6: ", where)
-        raise ValueError("csr matrix not equal")
+        print("i:", ist.ii[where], "j:", ist.jj[where])
+        print("val:", ist.data[where])
+        # raise ValueError("csr matrix not equal")
         return False
     return True
 
@@ -777,11 +782,11 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
 
-        tic1 = time.perf_counter()
         A = fill_A_by_spmm(ist, M_inv, ALPHA)
-        # A2 = fill_A_csr(ist)
-        # csr_is_equal(A, A2)
+        tic1 = time.perf_counter()
+        A2 = fill_A_csr(ist)
         print(f"    assemble matrix time:{time.perf_counter()-tic1}")
+        csr_is_equal(A, A2, ist)
 
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
@@ -824,10 +829,11 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
             logging.info(f"    mgsolve time {toc2-tic2}")
             r_Axb = residuals
 
-        dlambda = x
-        ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-        dpos = M_inv @ G.transpose() @ dlambda
-        ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+
+        # dlambda = x
+        # ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
+        # dpos = M_inv @ G.transpose() @ dlambda
+        # ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
 
         rsys2 = np.linalg.norm(b - A @ x)
         
@@ -1511,7 +1517,7 @@ def csr_index_to_coo_index(indptr, indices):
     nrows = len(indptr)-1
     for i in range(nrows):
         ii[indptr[i]:indptr[i+1]]=i
-        jj[indptr[i]:indptr[i+1]]=indices[indptr[i]:indptr[i+1]]
+    jj[:]=indices[:]
     return ii, jj
 
 
@@ -1558,7 +1564,7 @@ def init_direct_fill_A(ist):
     print(f"dict_to_ndarr time: {perf_counter()-tic:.3f}s")
 
     tic = perf_counter()
-    n_adj_shared, shared_v, shared_v_order_in_cur, shared_v_order_in_adj = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
+    n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
     print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
 
 
@@ -1572,15 +1578,34 @@ def init_direct_fill_A(ist):
     ist.jj = jj
     ist.nnz = nnz
     ist.nnz_each_row = nnz_each_row
-    ist.n_adj_shared = n_adj_shared
+    ist.n_shared_v = n_shared_v
     ist.shared_v = shared_v
     ist.shared_v_order_in_cur = shared_v_order_in_cur
     ist.shared_v_order_in_adj = shared_v_order_in_adj
-    return adjacent, num_adjacent, data, indices, indptr, ii, jj, nnz, nnz_each_row, n_adj_shared, shared_v, shared_v_order_in_cur, shared_v_order_in_adj
 
 
 def fill_A_csr(ist):
-    fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.adjacent, ist.num_adjacent, ist.n_adj_shared, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
+    # for n in range(ist.nnz):
+    #     i = ist.ii[n] # row index,  current element id
+    #     j = ist.jj[n] # col index,  adjacent element id, adj_id
+    #     k = n - ist.indptr[i] # k: 第几个非零元
+    #     if i == j: # diag
+    #         i1,i2,i3,i4 = ist.ele[i]
+    #         m1,m2,m3,m4 = ist.inv_mass[i1], ist.inv_mass[i2], ist.inv_mass[i3], ist.inv_mass[i4]
+    #         alpha = ist.alpha_tilde[i]
+    #         d = m1+m2+m3+m4 + alpha
+    #         ist.data[n] = m1+m2+m3+m4 + ist.alpha_tilde[i]
+    #         continue
+    #     offdiag=0.0
+    #     for kv in range(ist.n_shared_v[i, k]): #kv 第几个共享点
+    #         o1 = ist.shared_v_order_in_cur[i,k,kv]
+    #         o2 = ist.shared_v_order_in_adj[i,k,kv]
+    #         sv = ist.shared_v[i,k,kv]  #sv: 共享的顶点id    shared vertex
+    #         sm = ist.inv_mass[sv]      #sm: 共享的顶点的质量倒数 shared inv mass
+    #         offdiag += sm*ist.gradC[i,o1].dot(ist.gradC[j,o2])
+    #     ist.data[n] = offdiag
+
+    fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.adjacent, ist.num_adjacent, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
     A = scipy.sparse.csr_matrix((ist.data, ist.indices, ist.indptr), shape=(ist.NT, ist.NT))
     return A
 
@@ -1591,7 +1616,7 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
                       indptr:ti.types.ndarray(dtype=ti.i32), 
                       ii:ti.types.ndarray(dtype=ti.i32), 
                       jj:ti.types.ndarray(dtype=ti.i32),
-                      num_nonz:ti.i32,
+                      nnz:ti.i32,
                       alpha_tilde:ti.template(),
                       inv_mass:ti.template(),
                       gradC:ti.template(),
@@ -1603,12 +1628,12 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
                       shared_v_order_in_cur:ti.types.ndarray(),
                       shared_v_order_in_adj:ti.types.ndarray(),
                     ):
-    for cnt in range(num_nonz):
-        i = ii[cnt] # row index,  current element id
-        j = jj[cnt] # col index,  adjacent element id, adj_id
-        k = cnt - indptr[i] # k: 第几个非零元
+    for n in range(nnz):
+        i = ii[n] # row index,  current element id
+        j = jj[n] # col index,  adjacent element id, adj_id
+        k = n - indptr[i] # k: 第几个非零元
         if i == j: # diag
-            data[cnt] = inv_mass[ele[i][0]] + inv_mass[ele[i][1]]+ inv_mass[ele[i][2]]+ inv_mass[ele[i][3]] + alpha_tilde[i]
+            data[n] = inv_mass[ele[i][0]] + inv_mass[ele[i][1]]+ inv_mass[ele[i][2]]+ inv_mass[ele[i][3]] + alpha_tilde[i]
             continue
         offdiag=0.0
         for kv in range(n_shared_v[i, k]): #kv 第几个共享点
@@ -1617,7 +1642,7 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
             sv = shared_v[i,k,kv]  #sv: 共享的顶点id    shared vertex
             sm = inv_mass[sv]      #sm: 共享的顶点的质量倒数 shared inv mass
             offdiag += sm*gradC[i,o1].dot(gradC[j,o2])
-        data[cnt] = offdiag
+        data[n] = offdiag
 
 
 # taichi version: get the adjacent element shared vertices
@@ -1681,7 +1706,7 @@ def init_adj_share_v_ti(adj, nadj, ele):
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
 def main():
-    global out_dir
+    global out_dir, ist
     if args.auto_another_outdir:
         out_dir = create_another_outdir(out_dir)
     make_and_clean_dirs(out_dir)

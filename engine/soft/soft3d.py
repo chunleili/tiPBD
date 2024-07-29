@@ -770,19 +770,41 @@ def csr_is_equal(A, B, ist):
     if A.shape != B.shape:
         print("shape not equal")
         return False
-    diff = A - B
+    
+    A_ = A.copy()
+    B_ = B.copy()
+    diff = A_ - B_
     if diff.nnz == 0:
         print("diff matrix nnz=0")
         return True
+    print("diff matrix nnz:", diff.nnz)
+
+    diff = A_ - B_
     maxdiff = np.abs(diff.data).max()
     print("maxdiff: ", maxdiff)
     if maxdiff > 1e-6:
         where = np.where(np.abs(diff.data) > 1e-6)
-        print("In these places, the difference is larger than 1e-6: ", where)
-        print("i:", ist.ii[where], "j:", ist.jj[where])
-        print("val:", ist.data[where])
-        # raise ValueError("csr matrix not equal")
-        return False
+        # print("In these places, the difference is larger than 1e-6: ", where)
+        diff = diff.tocoo()
+        i = diff.row[where]
+        j = diff.col[where]
+        d = diff.data[where]
+        # print("i:", i)
+        # print("j:", j)
+        # print("d:", d)
+        # print("A[i,j]:", A_[i,j])
+        # print("B[i,j]:", B_[i,j])
+        reldiff = d/A_[i,j]
+        # print("reldiff:", reldiff)
+        maxreldiff = np.abs(reldiff).max()
+        print("maxreldiff:", maxreldiff)
+        if maxreldiff > 1e-6:
+            print("maxreldiff > 1e-6!")
+            raise ValueError("maxreldiff > 1e-6!")
+            return False
+        else: 
+            print("Although maxdiff > 1e-6, maxreldiff < 1e-6. We still consider them equal.")
+            return True
     return True
 
 
@@ -813,9 +835,10 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
         A = fill_A_by_spmm(ist, M_inv, ALPHA)
         tic1 = time.perf_counter()
-        # A2 = fill_A_csr(ist)
+        # FIXME: fill_A_csr is not consistent with fill_A_by_spmm with diff 1e-3
+        A2 = fill_A_csr(ist)
         print(f"    assemble matrix time:{time.perf_counter()-tic1}")
-        # csr_is_equal(A, A2, ist)
+        csr_is_equal(A, A2, ist)
 
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 

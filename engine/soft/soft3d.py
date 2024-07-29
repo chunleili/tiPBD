@@ -1125,8 +1125,8 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
     niter = g_vcycle.fastmg_get_mgcg_data(x, residuals)
     residuals = residuals[:niter+1]
-    print(f"    niter", niter)
-    print(f"    solve time: {time.perf_counter()-tic4:.2f}s")
+    print(f"    niter", niter) #FIXME: always 1
+    print(f"    pure solve time: {time.perf_counter()-tic4:.2f}s")
     return (x),  residuals  
 
 

@@ -32,7 +32,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunnyBig.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/cube/minicube.node")
 # "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=30)
@@ -333,13 +333,6 @@ class SoftBody:
             # init by enlarge 1.5x
             self.pos.from_numpy(self.model_pos * 1.5)
 
-        # # set max_iter
-        # if self.name == "coarse":
-        #     self.max_iter = meta.args.coarse_iterations
-        # elif self.name == "fine":
-        #     self.max_iter = meta.args.fine_iterations
-        # info(f"{self.name} max_iter:{self.max_iter}")
-
 
     def solve_constraints(self):
         solve_constraints_kernel(
@@ -425,19 +418,8 @@ def init_physics(
     for i in inv_mass:
         inv_mass[i] = 1.0 / mass[i]
 
-    # init alpha_tilde
-    # avg_alpha_tilde = 0.0
-    # max_alpha_tilde = 0.0
-    # min_alpha_tilde = 1e10
     for i in alpha_tilde:
         alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V[i]
-        # avg_alpha_tilde += alpha_tilde[i]
-        # max_alpha_tilde = ti.math.max(max_alpha_tilde, alpha_tilde[i])
-        # min_alpha_tilde = ti.math.min(min_alpha_tilde, alpha_tilde[i])
-    # avg_alpha_tilde /= alpha_tilde.shape[0]
-    # print("avg_alpha_tilde: ", avg_alpha_tilde)
-    # print("max_alpha_tilde: ", max_alpha_tilde)
-    # print("min_alpha_tilde: ", min_alpha_tilde)
 
     # init par_2_tet
     for i in tet_indices:
@@ -741,10 +723,39 @@ def ts_float32(val):
     return np.float64(val)
 
 
+def fill_A_by_spmm(ist,  M_inv, ALPHA):
+    ii, jj, vv = np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.float32)
+    fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
+    G = scipy.sparse.coo_array((vv, (ii, jj)))
+
+    # assemble A
+    A = G @ M_inv @ G.transpose() + ALPHA
+    A = scipy.sparse.csr_matrix(A, dtype=np.float64)
+    return A
+
+
+def csr_is_equal(A, B):
+    if A.shape != B.shape:
+        print("shape not equal")
+        return False
+    diff = A - B
+    if diff.nnz == 0:
+        print("diff matrix nnz=0")
+        return True
+    maxdiff = np.abs(diff.data).max()
+    print("maxdiff: ", maxdiff)
+    if maxdiff > 1e-6:
+        where = np.where(np.abs(diff.data) > 1e-6)
+        print("In these places, the difference is larger than 1e-6: ", where)
+        raise ValueError("csr matrix not equal")
+        return False
+    return True
+
+
+
 Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb','niters','t'])
 
 def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=None):
-    global t_export_matrix, t_calc_residual, t_export_residual, t_save_state
     # ist is instance of fine or coarse
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
@@ -758,35 +769,29 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
     ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
     r=[]
-    tol_sim = 1e-6
     for meta.ite in range(max_iter):
+        global t_calc_residual, t_export_residual, t_save_state
         t_iter_start = perf_counter()
         # ----------------------------- prepare matrices ----------------------------- #
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
 
-        tic1 = time.perf_counter()
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-        ii, jj, vv = np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.int32), np.zeros(ist.NT*12, dtype=np.float32)
-        fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
-        G = scipy.sparse.coo_array((vv, (ii, jj)))
 
-        # assemble A and b
-        A = G @ M_inv @ G.transpose() + ALPHA
-        A = scipy.sparse.csr_matrix(A, dtype=np.float64)
+        tic1 = time.perf_counter()
+        A = fill_A_by_spmm(ist, M_inv, ALPHA)
+        # A2 = fill_A_csr(ist)
+        # csr_is_equal(A, A2)
+        print(f"    assemble matrix time:{time.perf_counter()-tic1}")
+
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
         if export_matrix:
-            tic = time.perf_counter()
-            postfix=f"F{meta.frame}-{meta.ite}"
-            export_A_b(A,b,postfix=postfix)
-            dir = out_dir + "/A/"
-            t_export_matrix = time.perf_counter()-tic
+            export_A_b(A,b,postfix=f"F{meta.frame}-{meta.ite}")
+            exit(0)
 
         # -------------------------------- solve Ax=b -------------------------------- #
         x0 = np.zeros_like(b)
         rsys0 = np.linalg.norm(b-A @ x0)
-
-        print(f"    assemble matrix time:{time.perf_counter()-tic1}")
 
         if solver_type == "GaussSeidel":
             x = np.zeros_like(b)
@@ -1446,6 +1451,9 @@ def ending(timer_all, start_date, initial_frame=0):
         logging.info(s)
 
 
+# ---------------------------------------------------------------------------- #
+#                               directly  fill A                               #
+# ---------------------------------------------------------------------------- #
 def init_adj_ele(eles):
     vertex_to_eles = {}
     for ele_index, (v1, v2, v3, v4) in enumerate(eles):
@@ -1571,57 +1579,45 @@ def init_direct_fill_A(ist):
     return adjacent, num_adjacent, data, indices, indptr, ii, jj, nnz, nnz_each_row, n_adj_shared, shared_v, shared_v_order_in_cur, shared_v_order_in_adj
 
 
-def fill_A_csr():
-    fill_A_CSR_kernel()
+def fill_A_csr(ist):
+    fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.adjacent, ist.num_adjacent, ist.n_adj_shared, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
+    A = scipy.sparse.csr_matrix((ist.data, ist.indices, ist.indptr), shape=(ist.NT, ist.NT))
+    return A
 
 
 # for cnt version, require init_A_CSR_pattern() to be called first
 @ti.kernel
-def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
+def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32), 
                       indptr:ti.types.ndarray(dtype=ti.i32), 
                       ii:ti.types.ndarray(dtype=ti.i32), 
                       jj:ti.types.ndarray(dtype=ti.i32),
                       num_nonz:ti.i32,
-                      alpha:ti.f32,
+                      alpha_tilde:ti.template(),
                       inv_mass:ti.template(),
-                      pos: ti.template(),
                       gradC:ti.template(),
                       ele: ti.template(),
                       adj: ti.types.ndarray(),
-                      nadj:ti.types.ndarray()
+                      nadj:ti.types.ndarray(),
+                      n_shared_v:ti.types.ndarray(),
+                      shared_v:ti.types.ndarray(),
+                      shared_v_order_in_cur:ti.types.ndarray(),
+                      shared_v_order_in_adj:ti.types.ndarray(),
                     ):
-    nrows = adj.shape[0]
     for cnt in range(num_nonz):
-        i = ii[cnt] # row index
-        j = jj[cnt] # col index
-        k = cnt - indptr[i] #k-th non-zero element of i-th row. 
-        # Because the diag is the final element of each row, 
-        # it is also the k-th adjacent ele of i-th ele.
+        i = ii[cnt] # row index,  current element id
+        j = jj[cnt] # col index,  adjacent element id, adj_id
+        k = cnt - indptr[i] # k: 第几个非零元
         if i == j: # diag
-            data[cnt] = inv_mass[ele[i][0]] + inv_mass[ele[i][1]]+ inv_mass[ele[i][2]]+ inv_mass[ele[i][3]] + alpha
+            data[cnt] = inv_mass[ele[i][0]] + inv_mass[ele[i][1]]+ inv_mass[ele[i][2]]+ inv_mass[ele[i][3]] + alpha_tilde[i]
             continue
-        FIXME: offdiag
-
-
-
-
-# # get the adjacent element shared vertices
-# def init_adj_share_v(   adj,  # adjacent element id, 2d array
-#                         nadj, # number of adjacent elements, 1d array
-#                         ele,  # element vertex id (nele, 4), 2d array
-#                         ): 
-#     nele = ele.shape[0]
-#     max_nadj = max(nadj)
-#     adj_shared_v = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
-#     n_shared_v = np.zeros((nele, max_nadj), dtype=np.int32)
-#     for i in range(nele):
-#         for j in range(nadj[i]):
-#             adj_id = adj[i][j]
-#             sharedv = np.intersect1d(ele[i],  ele[adj_id],assume_unique = True)
-#             n = len(sharedv)
-#             n_shared_v[i,j] = n
-#             adj_shared_v[i, j, :n] = sharedv
-#     return n_shared_v, adj_shared_v
+        offdiag=0.0
+        for kv in range(n_shared_v[i, k]): #kv 第几个共享点
+            o1 = shared_v_order_in_cur[i,k,kv]
+            o2 = shared_v_order_in_adj[i,k,kv]
+            sv = shared_v[i,k,kv]  #sv: 共享的顶点id    shared vertex
+            sm = inv_mass[sv]      #sm: 共享的顶点的质量倒数 shared inv mass
+            offdiag += sm*gradC[i,o1].dot(gradC[j,o2])
+        data[cnt] = offdiag
 
 
 # taichi version: get the adjacent element shared vertices

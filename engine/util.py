@@ -898,3 +898,18 @@ def collision_response_sdf(pos: ti.template(), sdf):
     assert 1 - 1e-4 < normal.norm() < 1 + 1e-4, f"sdf normal norm is not one: {normal.norm()}"
     if sdf_val < sdf_epsilon:
         pos -= sdf_val * normal
+
+
+
+def csr_is_equal(A, B):
+    if A.shape != B.shape:
+        print("shape not equal")
+        return False
+    diff = A - B
+    if diff.nnz == 0:
+        return True
+    maxdiff = np.abs(diff.data).max()
+    print("maxdiff: ", maxdiff)
+    if maxdiff > 1e-6:
+        return False
+    return True

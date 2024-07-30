@@ -24,18 +24,18 @@ import datetime
 proj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-max_iter", type=int, default=30)
+parser.add_argument("-max_iter", type=int, default=1000)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
-parser.add_argument("-dt", type=float, default=3e-3)
+parser.add_argument("-dt", type=float, default=1e-2)
 parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/liver/liver.node")
-# "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node"
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
+# "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node" "data/model/bunny85w/bunny85w.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
-parser.add_argument("-end_frame", type=int, default=300)
+parser.add_argument("-end_frame", type=int, default=100)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
 parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-auto_another_outdir", type=int, default=False)
@@ -44,6 +44,7 @@ parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU 
 parser.add_argument("-smoother_type", type=str, default="jacobi")
 parser.add_argument("-build_P_method", type=str, default="UA")
 parser.add_argument("-max_iter_Axb", type=int, default=100)
+parser.add_argument("-arch", type=str, default="cpu")
 
 args = parser.parse_args()
 
@@ -66,8 +67,10 @@ t_export_residual = 0.0
 t_export_mesh = 0.0
 t_save_state = 0.0
 
-
-ti.init(arch=ti.cpu)
+if args.arch == "cuda":
+    ti.init(arch=ti.cuda)
+else:
+    ti.init(arch=ti.cpu)
 
 
 class Meta:
@@ -925,6 +928,7 @@ def substep_xpbd(ist):
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
     for meta.ite in range(meta.args.max_iter):
+        tic = time.perf_counter()
         project_constraints(
             ist.pos_mid,
             ist.tet_indices,
@@ -940,6 +944,15 @@ def substep_xpbd(ist):
             ist.dpos,
         )
         collsion_response(ist.pos)
+        calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
+        dualr = np.linalg.norm(ist.residual.to_numpy())
+        if meta.ite == 0:
+            calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
+            dualr0 = np.linalg.norm(ist.dual_residual.to_numpy())
+        toc = time.perf_counter()
+        logging.info(f"{meta.frame}-{meta.ite} r0:{dualr0:.2e} r:{dualr:.2e} t:{toc-tic:.2e}s")
+        if dualr< 0.1*dualr0 or dualr < 1e-5:
+            break
     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 # ---------------------------------------------------------------------------- #
@@ -997,14 +1010,14 @@ def calc_near_nullspace_GS(A):
     for i in range(n):
         x = np.ones(A.shape[0]) + 1e-2*np.random.rand(A.shape[0])
         b = np.zeros(A.shape[0]) 
-        gauss_seidel(A,x,b,iterations=20, sweep='forward')
+        gauss_seidel(A,x.astype(np.float32),b.astype(np.float32),iterations=20, sweep='forward')
         B[:,i] = x
         print(f"norm B {i}: {np.linalg.norm(B[:,i])}")
     toc = perf_counter()
     print("Calculating near nullspace Time:", toc-tic)
     return B
 
-def build_Ps(A, method='UA'):
+def build_Ps(A, method='nullspace'):
     """Build a list of prolongation matrices Ps from A """
     print("build P by method:", method)
     if method == 'UA':
@@ -1525,6 +1538,7 @@ def create_another_outdir(out_dir):
 def ending(timer_all, start_date, initial_frame=0):
     t_all = time.perf_counter() - timer_all
     end_date = datetime.datetime.now()
+    meta.args.end_frame = meta.frame
     s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {meta.args.end_frame}, total {meta.args.end_frame-initial_frame} frames. Avg time per frame: {t_all/(meta.args.end_frame-initial_frame):.2f}s. Start at {start_date},\n end at {end_date}."
     if export_log:
         logging.info(s)

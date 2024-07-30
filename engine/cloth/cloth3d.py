@@ -64,8 +64,6 @@ parser.add_argument("-restart", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=10)
 parser.add_argument("-restart_dir", type=str, default="latest/state")
 parser.add_argument("-restart_from_last_frame", type=int, default=True)
-parser.add_argument("-tol_sim", type=float, default=1e-6)
-parser.add_argument("-tol_Axb", type=float, default=1e-6)
 parser.add_argument("-max_iter", type=int, default=1000)
 parser.add_argument("-max_iter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
@@ -96,8 +94,6 @@ end_frame = args.end_frame
 restart = bool(args.restart)
 restart_frame = args.restart_frame
 restart_dir = args.restart_dir + "/"
-tol_sim = args.tol_sim
-tol_Axb = args.tol_Axb
 max_iter = args.max_iter
 max_iter_Axb = args.max_iter_Axb
 export_log = bool(args.export_log)

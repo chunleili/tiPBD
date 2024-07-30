@@ -35,3 +35,4 @@ cache*.npz
 settings.json
 *.node
 *.ele
+data/*

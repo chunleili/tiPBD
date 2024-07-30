@@ -31,11 +31,11 @@ parser.add_argument("-dt", type=float, default=3e-3)
 parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
-parser.add_argument("-solver_type", type=str, default="AMG", choices=["Jacobi", "GaussSeidel", "Direct", "SOR", "AMG", "HPBD"])
+parser.add_argument("-solver_type", type=str, default="XPBD", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
 parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunnyBig.node")
 # "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
-parser.add_argument("-end_frame", type=int, default=30)
+parser.add_argument("-end_frame", type=int, default=300)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
 parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-auto_another_outdir", type=int, default=False)
@@ -67,7 +67,7 @@ t_export_mesh = 0.0
 t_save_state = 0.0
 
 
-ti.init(arch=ti.cpu)
+ti.init(arch=ti.cuda)
 
 
 class Meta:
@@ -833,12 +833,11 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
 
-        A = fill_A_by_spmm(ist, M_inv, ALPHA)
         tic1 = time.perf_counter()
-        # FIXME: fill_A_csr is not consistent with fill_A_by_spmm with diff 1e-3
-        A2 = fill_A_csr(ist)
+        # A = fill_A_by_spmm(ist, M_inv, ALPHA)
+        A = fill_A_csr(ist)
         print(f"    assemble matrix time:{time.perf_counter()-tic1}")
-        csr_is_equal(A, A2, ist)
+        # csr_is_equal(A, A2, ist)
 
         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
 
@@ -919,6 +918,27 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
     collsion_response(ist.pos)
     update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
+
+def substep_xpbd(ist):
+    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    reset_lagrangian(ist.lagrangian)
+    for meta.ite in range(meta.args.max_iter):
+        project_constraints(
+            ist.pos_mid,
+            ist.tet_indices,
+            ist.inv_mass,
+            ist.lagrangian,
+            ist.B,
+            ist.pos,
+            ist.alpha_tilde,
+            ist.constraint,
+            ist.residual,
+            ist.gradC,
+            ist.dlambda,
+            ist.dpos,
+        )
+        collsion_response(ist.pos)
+    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 # ---------------------------------------------------------------------------- #
 #                                    amgpcg                                    #
@@ -1774,7 +1794,8 @@ def main():
     if export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
-    init_direct_fill_A(ist)
+    if meta.args.solver_type == "AMG":
+        init_direct_fill_A(ist)
 
     timer_all = perf_counter()
     try:
@@ -1783,7 +1804,10 @@ def main():
             info(f"frame {meta.frame}")
             t = perf_counter()
 
-            substep_all_solver(ist, meta.args.max_iter, meta.args.solver_type)
+            if meta.args.solver_type == "XPBD":
+                substep_xpbd(ist)
+            else:
+                substep_all_solver(ist, meta.args.max_iter, meta.args.solver_type)
 
             if export_mesh:
                 write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)

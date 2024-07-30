@@ -55,6 +55,7 @@ export_mesh = True
 export_residual = True
 early_stop = True
 export_log = True
+use_cache= True
 cuda_dir = args.cuda_dir
 max_iter_Axb = args.max_iter_Axb
 smoother_type = args.smoother_type
@@ -258,18 +259,14 @@ def generate_cube_mesh(len, grid_dx=0.1):
 
 class SoftBody:
     def __init__(self, path):
+        tic = time.perf_counter()
         self.model_pos, self.model_tet, self.model_tri = read_tet(path, build_face_flag=True)
+        print(f"read_tet cost: {time.perf_counter() - tic:.4f}s")
         self.NV = len(self.model_pos)
         self.NT = len(self.model_tet)
         self.NF = len(self.model_tri)
         self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.display_indices.from_numpy(self.model_tri.flatten())
-
-        self.name = "fine"
-        if "coarse" in path:
-            self.name = "coarse"
-        elif "fine" in path:
-            self.name = "fine"
 
         self.pos = ti.Vector.field(3, float, self.NV)
         self.pos_mid = ti.Vector.field(3, float, self.NV)
@@ -302,10 +299,10 @@ class SoftBody:
             self.pos,
         ]
 
-        info(f"Creating {self.name} instance done")
+        info(f"Creating instance done")
 
     def initialize(self, reinit_style="enlarge"):
-        info(f"Initializing {self.name} mesh")
+        info(f"Initializing mesh")
 
         # read models
         self.model_pos = self.model_pos.astype(np.float32)
@@ -1636,6 +1633,41 @@ def csr_index_to_coo_index(indptr, indices):
 
 
 def init_direct_fill_A(ist):
+    if use_cache and os.path.exists(f'cache_initFill_{os.path.basename(meta.args.model_path)}.npz'):
+        tic = perf_counter()
+        print(f"Found cache cache_initFill_{os.path.basename(meta.args.model_path)}.npz'. Loading cached data...")
+        npzfile = np.load(f'cache_initFill_{os.path.basename(meta.args.model_path)}.npz')
+        adjacent = npzfile['adjacent']
+        num_adjacent = npzfile['num_adjacent']
+        data = npzfile['data']
+        indices = npzfile['indices']
+        indptr = npzfile['indptr']
+        ii = npzfile['ii']
+        jj = npzfile['jj']
+        nnz = int(npzfile['nnz'])
+        nnz_each_row = npzfile['nnz_each_row']
+        n_shared_v = npzfile['n_shared_v']
+        shared_v = npzfile['shared_v']
+        shared_v_order_in_cur = npzfile['shared_v_order_in_cur']
+        shared_v_order_in_adj = npzfile['shared_v_order_in_adj']
+        ist.adjacent = adjacent
+        ist.num_adjacent = num_adjacent
+        ist.data = data
+        ist.indices = indices
+        ist.indptr = indptr
+        ist.ii = ii
+        ist.jj = jj
+        ist.nnz = int(nnz)
+        ist.nnz_each_row = nnz_each_row
+        ist.n_shared_v = n_shared_v
+        ist.shared_v = shared_v
+        ist.shared_v_order_in_cur = shared_v_order_in_cur
+        ist.shared_v_order_in_adj = shared_v_order_in_adj
+        print(f"Loading cache time: {perf_counter()-tic:.3f}s")
+        return
+
+    print(f"No cached data found, initializing...")
+
     tic1 = perf_counter()
     print("Initializing adjacent elements and abc...")
     adjacent = init_adj_ele(eles=ist.tet_indices.to_numpy())
@@ -1672,6 +1704,9 @@ def init_direct_fill_A(ist):
     ist.shared_v = shared_v
     ist.shared_v_order_in_cur = shared_v_order_in_cur
     ist.shared_v_order_in_adj = shared_v_order_in_adj
+
+    np.savez(f'cache_initFill_{os.path.basename(meta.args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
+    print(f"cache_initFill_{os.path.basename(meta.args.model_path)}.npz saved")
 
 
 def fill_A_csr(ist):
@@ -1798,6 +1833,7 @@ def init_adj_share_v_ti(adj, nadj, ele):
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
 def main():
+    tic = perf_counter()
     global out_dir, ist
     if args.auto_another_outdir:
         out_dir = create_another_outdir(out_dir)
@@ -1817,6 +1853,8 @@ def main():
 
     if meta.args.solver_type == "AMG":
         init_direct_fill_A(ist)
+
+    print(f"initialize time:", perf_counter()-tic)
 
     timer_all = perf_counter()
     try:

@@ -211,7 +211,7 @@ cudaDataType_t cudaDataTypeFor<double>() {
 // https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/amg_core/relaxation.h#L232
 // i: row index, j: col index, n: data/indices index
 // rsum: sum of off-diagonal elements
-__global__ void weighted_jacobi_kernel(float *x, const float *b, float *data, int *indices, int *indptr, int nrows, float omega) {
+__global__ void weighted_jacobi_kernel(float *x_new, float *x, const float *b, float *data, int *indices, int *indptr, int nrows, float omega) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < nrows) {
         float rsum = 0.0;
@@ -226,7 +226,7 @@ __global__ void weighted_jacobi_kernel(float *x, const float *b, float *data, in
             }
         }
         // FIXME: should use x_new to avoid race condition
-        x[i] =  omega / diag * (b[i] - rsum)  + (1 - omega) * x[i];
+        x_new[i] =  omega / diag * (b[i] - rsum)  + (1 - omega) * x[i];
     }
 }
 
@@ -812,8 +812,11 @@ struct VCycle : Kernels {
     }
 
     void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
+        Vec<float> x_new;
+        x_new.resize(x.size());
         for (int i = 0; i < jacobi_niter; ++i) {
-            weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
+            weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x_new.data(), x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
+            x.swap(x_new);
         }
 
         // // serial jacobi

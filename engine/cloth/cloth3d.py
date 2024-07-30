@@ -592,8 +592,7 @@ def step_xpbd(max_iter):
     for ite in range(max_iter):
         tic_iter = perf_counter()
         reset_dpos(dpos)
-        copy_field(pos, pos_mid)
-        solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos_mid)
+        solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
         update_pos(inv_mass, dpos, pos)
 
         if calc_r:

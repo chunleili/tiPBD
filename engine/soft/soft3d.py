@@ -31,8 +31,8 @@ parser.add_argument("-dt", type=float, default=3e-3)
 parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
-parser.add_argument("-solver_type", type=str, default="XPBD", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunnyBig/bunnyBig.node")
+parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
+parser.add_argument("-model_path", type=str, default=f"data/model/liver/liver.node")
 # "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=300)
@@ -67,7 +67,7 @@ t_export_mesh = 0.0
 t_save_state = 0.0
 
 
-ti.init(arch=ti.cuda)
+ti.init(arch=ti.cpu)
 
 
 class Meta:
@@ -753,7 +753,7 @@ def ts_float32(val):
     """Used if *val* is an instance of numpy.float32."""
     return np.float64(val)
 
-
+# TODO: DEPRECATE
 def fill_A_by_spmm(ist,  M_inv, ALPHA):
     ii, jj, vv = np.zeros(ist.NT*200, dtype=np.int32), np.zeros(ist.NT*200, dtype=np.int32), np.zeros(ist.NT*200, dtype=np.float32)
     fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
@@ -789,11 +789,11 @@ def csr_is_equal(A, B, ist):
         i = diff.row[where]
         j = diff.col[where]
         d = diff.data[where]
-        # print("i:", i)
-        # print("j:", j)
-        # print("d:", d)
-        # print("A[i,j]:", A_[i,j])
-        # print("B[i,j]:", B_[i,j])
+        print("i:", i)
+        print("j:", j)
+        print("d:", d)
+        print("A[i,j]:", A_[i,j])
+        print("B[i,j]:", B_[i,j])
         reldiff = d/A_[i,j]
         # print("reldiff:", reldiff)
         maxreldiff = np.abs(reldiff).max()
@@ -833,9 +833,11 @@ def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=Non
 
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
 
+        # TODO:
         tic1 = time.perf_counter()
         # A = fill_A_by_spmm(ist, M_inv, ALPHA)
         A = fill_A_csr(ist)
+        A = A.copy()    #∠(°ゝ°）  FIXME: I really don't know why, but without this line, the result is wrong!!!
         print(f"    assemble matrix time:{time.perf_counter()-tic1}")
         # csr_is_equal(A, A2, ist)
 
@@ -1704,7 +1706,9 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
         j = jj[n] # col index,  adjacent element id, adj_id
         k = n - indptr[i] # k: 第几个非零元
         if i == j: # diag
-            data[n] = inv_mass[ele[i][0]] + inv_mass[ele[i][1]]+ inv_mass[ele[i][2]]+ inv_mass[ele[i][3]] + alpha_tilde[i]
+            m1,m2,m3,m4 = inv_mass[ele[i][0]], inv_mass[ele[i][1]], inv_mass[ele[i][2]], inv_mass[ele[i][3]]
+            g1,g2,g3,g4 = gradC[i,0], gradC[i,1], gradC[i,2], gradC[i,3]
+            data[n] = m1*g1.norm_sqr() + m2*g2.norm_sqr() + m3*g3.norm_sqr() + m4*g4.norm_sqr() + alpha_tilde[i]
             continue
         offdiag=0.0
         for kv in range(n_shared_v[i, k]): #kv 第几个共享点

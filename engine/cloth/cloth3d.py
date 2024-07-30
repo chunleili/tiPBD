@@ -581,7 +581,7 @@ def calc_primary_residual(G,M_inv):
 
 ResidualLess = namedtuple('ResidualLess', ['dual', 'obj', 't']) 
 
-def step_xpbd(max_iter):
+def substep_xpbd(max_iter):
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
 
@@ -598,22 +598,23 @@ def step_xpbd(max_iter):
         if calc_r:
             tic_calcr = perf_counter()
             t_iter = perf_counter()-tic_iter
-            calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-            dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
-            compute_potential_energy()
-            compute_inertial_energy()
-            robj = (potential_energy[None]+inertial_energy[None])
-            # r_Axb = r_Axb.tolist()
+            # calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+            dualr = np.linalg.norm(dual_residual.to_numpy()).astype(float)
+            # compute_potential_energy()
+            # compute_inertial_energy()
+            # robj = (potential_energy[None]+inertial_energy[None])
             
+            if ite==0:
+                dualr0 = dualr
+
             if export_fullr:
                 np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
 
-            r.append(ResidualLess(dual_r, robj, t_iter))
+            # r.append(ResidualLess(dual_r, robj, t_iter))
             if export_log:
-                logging.info(f"{frame}-{ite}  dual:{dual_r:.2e} object:{robj:.2e}  t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
+                logging.info(f"{frame}-{ite}  dualr0:{dualr0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
 
-
-        if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
+        if dualr < 0.1*dualr0 or dualr<1e-5:
             break
 
     if export_residual:
@@ -1746,6 +1747,15 @@ def init_direct_fill_A():
     return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj
 
 
+def ending(timer_loop, start_date, initial_frame=0):
+    t_all = time.perf_counter() - timer_loop
+    end_date = datetime.datetime.now()
+    end_frame = frame
+    s = f"Time all: {(time.perf_counter() - timer_loop):.2f}s = {(time.perf_counter() - timer_loop)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_date},\n end at {end_date}."
+    if export_log:
+        logging.info(s)
+
+
 misc_dir_path = prj_path + "/data/misc/"
 mkdir_if_not_exist(out_dir)
 mkdir_if_not_exist(out_dir + "/r/")
@@ -1827,12 +1837,12 @@ class Viewer:
 
 viewer = Viewer()
 
+timer_loop = time.perf_counter()
 initial_frame = frame
 step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
 try:
     while True:
         t_one_frame_start = time.perf_counter()
-        frame += 1
         if use_viewer:
             for e in viewer.window.get_events(ti.ui.PRESS):
                 if e.key in [ti.ui.ESCAPE]:
@@ -1842,9 +1852,10 @@ try:
                     print("paused:",paused)
         if not paused:
             if solver_type == "XPBD":
-                step_xpbd(max_iter)
+                substep_xpbd(max_iter)
             else:
                 substep_all_solver(max_iter)
+            frame += 1
             if export_mesh:
                 tic = time.perf_counter()
                 write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
@@ -1860,11 +1871,7 @@ try:
                     logging.info(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
                     logging.info(f"Time of frame-{frame}: {t_frame:.2f}s")
         if frame == end_frame:
-            t_all = time.perf_counter() - timer_all
-            end_wall_time = datetime.datetime.now()
-            s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_wall_time},\n end at {end_wall_time}."
-            if export_log:
-                logging.info(s)
+            ending(timer_loop, start_wall_time, initial_frame)
             exit()
         if use_viewer:
             viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
@@ -1882,11 +1889,4 @@ try:
         logging.info("")
 
 except KeyboardInterrupt:
-    print("\n\n------KeyboardInterrupt-----")
-    print(f"frame: {frame}")
-    t_all = time.perf_counter() - timer_all
-    end_wall_time = datetime.datetime.now()
-    s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {frame}, total {frame-initial_frame} frames. \nAvg time per frame: {t_all/(frame-initial_frame):.2f}s. \nStart at {start_wall_time}, end at {end_wall_time}."
-    if export_log:
-        logging.info(s)
-    exit()
+    ending(timer_loop, start_wall_time, initial_frame)

@@ -211,7 +211,7 @@ cudaDataType_t cudaDataTypeFor<double>() {
 // https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/amg_core/relaxation.h#L232
 // i: row index, j: col index, n: data/indices index
 // rsum: sum of off-diagonal elements
-__global__ void weighted_jacobi_kernel(float *x_new, float *x, const float *b, float *data, int *indices, int *indptr, int nrows, float omega) {
+__global__ void weighted_jacobi_kernel(float *x, float *x_old, const float *b, float *data, int *indices, int *indptr, int nrows, float omega) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < nrows) {
         float rsum = 0.0;
@@ -219,53 +219,93 @@ __global__ void weighted_jacobi_kernel(float *x_new, float *x, const float *b, f
         for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
             size_t j = indices[n];
             if (j != i) {
-                rsum += data[n] * x[j];
+                rsum += data[n] * x_old[j];
             }
             else {
                 diag = data[n];
             }
         }
         // FIXME: should use x_new to avoid race condition
-        x_new[i] =  omega / diag * (b[i] - rsum)  + (1 - omega) * x[i];
+        if (diag != 0.0)
+        {
+            x[i] =  omega / diag * (b[i] - rsum)  + (1.0 - omega) * x_old[i];
+        }
+    }
+}
+
+__global__ void copy_field(float *dst, const float *src, int size) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        dst[i] = src[i];
     }
 }
 
 
-template<class I, class T, class F>
-void jacobi_serial(const I Ap[], const int Ap_size,
-            const I Aj[], const int Aj_size,
-            const T Ax[], const int Ax_size,
-                  T  x[], const int  x_size,
-            const T  b[], const int  b_size,
-                  T temp[], const int temp_size,
-            const I row_start,
-            const I row_stop,
-            const I row_step,
-            const T omega[], const int omega_size)
+void jacobi_serial(const int Ap[], const int Ap_size,
+            const int Aj[], const int Aj_size,
+            const float Ax[], const int Ax_size,
+                  float  x[], const int  x_size,
+            const float  b[], const int  b_size,
+                  float temp[], const int temp_size,
+            const int row_start,
+            const int row_stop,
+            const int row_step,
+            const float omega)
 {
-    T one = 1.0;
-    T omega2 = omega[0];
+    float one = 1.0;
 
-    for(I i = row_start; i != row_stop; i += row_step) {
+    for(int i = row_start; i != row_stop; i += row_step) {
         temp[i] = x[i];
     }
 
-    for(I i = row_start; i != row_stop; i += row_step) {
-        I start = Ap[i];
-        I end   = Ap[i+1];
-        T rsum = 0;
-        T diag = 0;
+    for(int i = row_start; i != row_stop; i += row_step) {
+        int start = Ap[i];
+        int end   = Ap[i+1];
+        float rsum = 0;
+        float diag = 0;
 
-        for(I jj = start; jj < end; jj++){
-            I j = Aj[jj];
+        for(int jj = start; jj < end; jj++){
+            int j = Aj[jj];
             if (i == j)
                 diag  = Ax[jj];
             else
                 rsum += Ax[jj]*temp[j];
         }
 
-        if (diag != (F) 0.0){
-            x[i] = (one - omega2) * temp[i] + omega2 * ((b[i] - rsum)/diag);
+        if (diag != (float) 0.0){
+            x[i] = (one - omega) * temp[i] + omega * ((b[i] - rsum)/diag);
+        }
+    }
+}
+
+
+
+// https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/amg_core/relaxation.h#L45
+void gauss_seidel_serial(const int Ap[], const int Ap_size,
+                  const int Aj[], const int Aj_size,
+                  const float Ax[], const int Ax_size,
+                        float  x[], const int  x_size,
+                  const float  b[], const int  b_size,
+                  const int row_start,
+                  const int row_stop,
+                  const int row_step)
+{
+    for(int i = row_start; i != row_stop; i += row_step) {
+        int start = Ap[i];
+        int end   = Ap[i+1];
+        float rsum = 0;
+        float diag = 0;
+
+        for(int jj = start; jj < end; jj++){
+            int j = Aj[jj];
+            if (i == j)
+                diag  = Ax[jj];
+            else
+                rsum += Ax[jj]*x[j];
+        }
+
+        if (diag != (float) 0.0){
+            x[i] = (b[i] - rsum)/diag;
         }
     }
 }
@@ -812,31 +852,60 @@ struct VCycle : Kernels {
     }
 
     void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
-        Vec<float> x_new;
-        x_new.resize(x.size());
+        Vec<float> x_old;
+        x_old.resize(x.size());
+        copy(x_old, x);
         for (int i = 0; i < jacobi_niter; ++i) {
-            weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x_new.data(), x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
-            x.swap(x_new);
+            weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), x_old.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
+            x.swap(x_old);
         }
+    }
 
-        // // serial jacobi
-        // std::vector<float> x_host(x.size());
-        // std::vector<float> b_host(b.size());
-        // x.tohost(x_host);
-        // b.tohost(b_host);
-        // std::vector<float> data_host;
-        // std::vector<int> indices_host, indptr_host;
-        // levels.at(lv).A.tohost(data_host, indices_host, indptr_host);
-        // // cout<<"omega: "<<jacobi_omega<<endl;
-        // jacobi_serial<int, float, float>(
-        //     indptr_host.data(), indptr_host.size(),
-        //     indices_host.data(), indices_host.size(),
-        //     data_host.data(), data_host.size(),
-        //     x_host.data(), x_host.size(),
-        //     b_host.data(), b_host.size(),
-        //     x_host.data(), x_host.size(),
-        //     0, levels.at(lv).A.nrows, 1, &jacobi_omega, 1);
-        // x.assign(x_host.data(), x_host.size());
+    void jacobi_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
+        // serial jacobi
+        std::vector<float> x_host(x.size());
+        std::vector<float> b_host(b.size());
+        x.tohost(x_host);
+        b.tohost(b_host);
+        std::vector<float> data_host;
+        std::vector<int> indices_host, indptr_host;
+        levels.at(lv).A.tohost(data_host, indices_host, indptr_host);
+        // cout<<"omega: "<<jacobi_omega<<endl;
+        jacobi_serial(
+            indptr_host.data(), indptr_host.size(),
+            indices_host.data(), indices_host.size(),
+            data_host.data(), data_host.size(),
+            x_host.data(), x_host.size(),
+            b_host.data(), b_host.size(),
+            x_host.data(), x_host.size(),
+            0, levels.at(lv).A.nrows, 1, jacobi_omega);
+        x.assign(x_host.data(), x_host.size());
+        // auto r = calc_rnorm(b, x, levels.at(lv).A);
+        // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
+    }
+
+
+    void setup_gauss_seidel() {
+        smoother_type = 3;
+    }
+
+    void gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
+        // serial gauss seidel
+        std::vector<float> x_host(x.size());
+        std::vector<float> b_host(b.size());
+        x.tohost(x_host);
+        b.tohost(b_host);
+        std::vector<float> data_host;
+        std::vector<int> indices_host, indptr_host;
+        levels.at(lv).A.tohost(data_host, indices_host, indptr_host);
+        gauss_seidel_serial(
+            indptr_host.data(), indptr_host.size(),
+            indices_host.data(), indices_host.size(),
+            data_host.data(), data_host.size(),
+            x_host.data(), x_host.size(),
+            b_host.data(), b_host.size(),
+            0, levels.at(lv).A.nrows, 1);
+        x.assign(x_host.data(), x_host.size());
         // auto r = calc_rnorm(b, x, levels.at(lv).A);
         // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
@@ -847,6 +916,10 @@ struct VCycle : Kernels {
         else if (smoother_type == 2)
         {
             jacobi(lv, x, b);
+        }
+        else if (smoother_type == 3)
+        {
+            gauss_seidel_cpu(lv, x, b);
         }
     }
 
@@ -1000,9 +1073,8 @@ struct VCycle : Kernels {
             vcycle();
             do_cg_itern(residuals.data(), iteration); //first r is r[0], then r[iter+1]
             niter = iteration; 
-
             // auto r = calc_rnorm(outer_b, final_x, levels.at(0).A);
-            // cout<<"iter: "<<iteration<<"   rnorm: "<<r<<endl;
+            cout<<"iter: "<<iteration<<"   rnorm: "<<residuals[iteration]<<endl;
         }
     }
 
@@ -1069,6 +1141,10 @@ extern "C" DLLEXPORT void fastmg_setup_chebyshev(float const *coeff, size_t ncoe
 
 extern "C" DLLEXPORT void fastmg_setup_jacobi(float const omega, size_t const niter_jacobi) {
     fastmg->setup_jacobi(omega, niter_jacobi);
+}
+
+extern "C" DLLEXPORT void fastmg_setup_gauss_seidel() {
+    fastmg->setup_gauss_seidel();
 }
 
 extern "C" DLLEXPORT void fastmg_set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {

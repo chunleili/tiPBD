@@ -1257,6 +1257,9 @@ def init_g_vcycle(levels):
         cached_jacobi_omega_id = id(jacobi_omega)
         g_vcycle.fastmg_setup_jacobi(jacobi_omega, 10)
 
+    if smoother_type == 'GS' and (((meta.frame%20==0)) and (meta.ite==0)):
+        g_vcycle.fastmg_setup_gauss_seidel()
+
     # set P
     if id(cached_P_id) != id(levels[0].P):
         cached_P_id = levels[0].P

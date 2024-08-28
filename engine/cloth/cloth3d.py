@@ -57,7 +57,7 @@ parser.add_argument("-export_matrix_interval", type=int, default=1)
 parser.add_argument("-export_matrix_binary", type=int, default=True)
 parser.add_argument("-export_state", type=int, default=False)
 parser.add_argument("-export_residual", type=int, default=False)
-parser.add_argument("-end_frame", type=int, default=30)
+parser.add_argument("-end_frame", type=int, default=100)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
 parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-restart", type=int, default=False)
@@ -865,12 +865,19 @@ def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
             h = c*residual + A*h
         x += h
 
+def calc_spectral_radius(A):
+    global spectral_radius
+    if frame%100==0 and ite==0:
+        spectral_radius = approximate_spectral_radius(A)
+    return spectral_radius
+
 
 def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
                     iterations=1):
     global chebyshev_coeff # FIXME: later we should store this in the level
     """Set up Chebyshev."""
-    rho = approximate_spectral_radius(A)
+    # rho = approximate_spectral_radius(A)
+    rho = calc_spectral_radius(A)
     a = rho * lower_bound
     b = rho * upper_bound
     # drop the constant coefficient
@@ -1477,7 +1484,7 @@ def substep_all_solver(max_iter=1):
             gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
         if solver_type == "AMG":
             global Ps
-            if (((frame%20==0) or (frame==1)) and (ite==0)):
+            if ((frame%20==0) and (ite==0)):
                 tic = time.perf_counter()
                 Ps = setup_AMG(A)
                 logging.info(f"    setup AMG time:{perf_counter()-tic}")

@@ -55,7 +55,7 @@ export_mesh = True
 export_residual = True
 early_stop = True
 export_log = True
-use_cache= True
+use_cache= False
 cuda_dir = args.cuda_dir
 max_iter_Axb = args.max_iter_Axb
 smoother_type = args.smoother_type
@@ -1571,7 +1571,33 @@ def init_adj_ele(eles):
         adjacent_eles = vertex_to_eles[v1] | vertex_to_eles[v2] | vertex_to_eles[v3] | vertex_to_eles[v4]
         adjacent_eles.remove(ele_index)  # 移除本身
         all_adjacent_eles[ele_index] = list(adjacent_eles)
-    return all_adjacent_eles
+
+
+def init_adj_ele_ti(eles):
+    eles = eles
+    nele = eles.shape[0]
+    v2e = ti.field(dtype=ti.i32, shape=(nele, 200))
+    nv2e = ti.field(dtype=ti.i32, shape=nele)
+
+    @ti.kernel
+    def calc_vertex_to_eles_kernel(eles: ti.template(), v2e: ti.template(), nv2e: ti.template()):
+        # v2e: vertex to element
+        # nv2e: number of elements sharing the vertex
+        for e in range(eles.shape[0]):
+            v1, v2, v3, v4 = eles[e]
+            for v in ti.static([v1, v2, v3, v4]):
+                k = nv2e[v]
+                v2e[v, k] = e
+                nv2e[v] += 1
+
+    calc_vertex_to_eles_kernel(eles, v2e, nv2e)
+    # v2e = v2e.to_numpy()
+    # nv2e = nv2e.to_numpy()
+    
+
+
+
+
 
 
 def dict_to_ndarr(d:dict)->np.ndarray:
@@ -1671,6 +1697,7 @@ def init_direct_fill_A(ist):
     tic1 = perf_counter()
     print("Initializing adjacent elements and abc...")
     adjacent = init_adj_ele(eles=ist.tet_indices.to_numpy())
+    # adjacent = init_adj_ele_ti(eles=ist.tet_indices)
     num_adjacent = np.array([len(v) for v in adjacent.values()])
     print(f"init_adjacent time: {perf_counter()-tic1:.3f}s")
 
@@ -1705,8 +1732,9 @@ def init_direct_fill_A(ist):
     ist.shared_v_order_in_cur = shared_v_order_in_cur
     ist.shared_v_order_in_adj = shared_v_order_in_adj
 
-    np.savez(f'cache_initFill_{os.path.basename(meta.args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
-    print(f"cache_initFill_{os.path.basename(meta.args.model_path)}.npz saved")
+    if use_cache:
+        np.savez(f'cache_initFill_{os.path.basename(meta.args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
+        print(f"cache_initFill_{os.path.basename(meta.args.model_path)}.npz saved")
 
 
 def fill_A_csr(ist):

@@ -172,6 +172,7 @@ static string proj_dir_path_pre_get = get_proj_dir_path();
 ///               t.start();
 ///               //do something
 ///               t.end();
+/// You need to include <chrono> and <string> for this to work
 class Timer
 {
 public:
@@ -186,7 +187,7 @@ public:
     {
         m_start = std::chrono::steady_clock::now();
     };
-    inline void end(string msg = "", string unit = "ms", bool verbose=true, string endsep = "\n")
+    inline void end(std::string msg = "", std::string unit = "ms", bool verbose=true, std::string endsep = "\n")
     {
         m_end = std::chrono::steady_clock::now();
         if (unit == "s")

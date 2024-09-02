@@ -16,6 +16,18 @@
 #include <array>
 #include <unordered_set>
 
+#include <thrust/device_vector.h>
+#include <thrust/transform.h>
+#include <thrust/inner_product.h>
+#include <thrust/random.h>
+
+// Terminal output color (just for cosmetic purpose)
+#define RST  "\x1B[37m"  // Reset color to white
+#define KGRN  "\033[0;32m"   // Define green color
+#define RD "\x1B[31m"  // Define red color
+#define FGRN(x) KGRN x RST  // Define compiler function for green color
+#define FRD(x) RD x RST  // Define compiler function for red color
+
 using namespace std;
 
 #if __GNUC__ && __linux__
@@ -84,6 +96,67 @@ using namespace std;
             throw std::runtime_error("cusolver error");                                            \
         }                                                                                          \
     } while (0)
+
+
+
+// Generate random number in the range [0, 1)
+struct genRandomNumber {
+    __host__ __device__
+    float operator()(const int n) const {
+        thrust::default_random_engine rng(n);
+        thrust::uniform_real_distribution<float> dist(0.0f, 1.0f);
+        return dist(rng);
+    }
+};
+
+
+
+/// @brief Usage: Timer t("timer_name");
+///               t.start();
+///               //do something
+///               t.end();
+/// You need to include <chrono> and <string> for this to work
+class Timer
+{
+public:
+    std::chrono::time_point<std::chrono::steady_clock> m_start;
+    std::chrono::time_point<std::chrono::steady_clock> m_end;
+    std::chrono::duration<double, std::milli> elapsed_ms;
+    std::chrono::duration<double> elapsed_s;
+    std::string name = "";
+
+    Timer(std::string name = "") : name(name){};
+    inline void start()
+    {
+        m_start = std::chrono::steady_clock::now();
+    };
+    inline void end(std::string msg = "", std::string unit = "ms", bool verbose=true, std::string endsep = "\n")
+    {
+        m_end = std::chrono::steady_clock::now();
+        if (unit == "s")
+        {
+            elapsed_s = m_end - m_start;
+            if(verbose)
+                printf("%s(%s): %.0f(s)", msg.c_str(), name.c_str(), elapsed_s.count());
+            else
+                printf("%.0f(s)", elapsed_s.count());
+        }
+        else //else if(unit == "ms")
+        {
+            elapsed_ms = m_end - m_start;
+            if(verbose)
+                printf("%s(%s): %.0f(ms)", msg.c_str(), name.c_str(), elapsed_ms.count());
+            else
+                printf("%.0f(ms)", elapsed_ms.count());
+        }
+        printf("%s", endsep.c_str());
+    }
+    inline void reset()
+    {
+        m_start = std::chrono::steady_clock::now();
+        m_end = std::chrono::steady_clock::now();
+    };
+};
 
 
 namespace {
@@ -454,6 +527,8 @@ struct ConstDnVec {
     }
 };
 
+
+// Data of csr matrix
 template <class T>
 struct CSR {
     Vec<T> data;
@@ -496,6 +571,8 @@ struct CSR {
     }
 };
 
+
+// container of handle and descriptor
 struct SpMat {
     cusparseSpMatDescr_t handle;
 
@@ -532,6 +609,7 @@ struct SpMat {
     }
 };
 
+// container of handle and descriptor, const version
 struct ConstSpMat {
     cusparseConstSpMatDescr_t handle;
 
@@ -750,6 +828,94 @@ struct Kernels {
         buffer.reserve(bufferSize);
         CHECK_CUSPARSE( cusparseCsr2cscEx2(           cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, buffer.data()));                
     }
+
+
+
+//Calculate the largest eigenvalue of a symmetric matrix using the power method!
+// https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csreigvsi  (cusolverSpScsreigvsi is not used here, but it is another option, so I just keep the note. It use the shift inverse method to solve this equation Ax=lam x)
+// Reference code: https://github.com/physicslog/maxEigenValueGPU/blob/25e0aa3d6c9bbeb03be6249d0ab8cfaafd32188c/maxeigenvaluepower.cu#L255
+float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
+  assert(M.format == "CSR");  // We only use CSR format
+  assert(M.nrows == M.ncols);
+
+  // Initialize two vectors x_i and x_k
+  thrust::device_vector<float> x_i(M.nrows), x_k(M.nrows, 0.0f);
+
+  // Set x_i := the random vector
+    thrust::transform(thrust::make_counting_iterator<int>(0),
+    thrust::make_counting_iterator<int>(M.nrows),
+    x_i.begin(),
+    genRandomNumber());
+
+  // CUSPARSE APIs
+  cusparseHandle_t handle = NULL;
+  cusparseSpMatDescr_t matM;
+  cusparseDnVecDescr_t xi, xk;
+  void *dBuffer = NULL;
+  size_t bufferSize = 0;
+  float alpha = 1.0f;
+  float beta = 0.0f;
+
+  CHECK_CUSPARSE( cusparseCreate(&handle) )
+
+  CHECK_CUSPARSE( cusparseCreateCsr(&matM, M.nrows, M.ncols, M.numnonz,
+                                   thrust::raw_pointer_cast(M.indptr.data()),
+                                   thrust::raw_pointer_cast(M.indices.data()),
+                                   thrust::raw_pointer_cast(M.data.data()),
+                                   CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+                                   CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F) )
+
+  CHECK_CUSPARSE( cusparseCreateDnVec(&xi, M.nrows, thrust::raw_pointer_cast(x_i.data()), CUDA_R_32F) )
+  CHECK_CUSPARSE( cusparseCreateDnVec(&xk, M.nrows, thrust::raw_pointer_cast(x_k.data()), CUDA_R_32F) )
+
+  CHECK_CUSPARSE( cusparseSpMV_bufferSize(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                          &alpha, matM, xi, &beta, xk, CUDA_R_32F,
+                                          CUSPARSE_SPMV_ALG_DEFAULT, &bufferSize) )
+
+  CHECK_CUDA( cudaMalloc(&dBuffer, bufferSize) )
+
+  float max_eigenvalue(0.0f), max_eigenvalue_prev(0.0f);
+  float tol = 1e-6;  // tolerance for convergence
+  int itr = 0;
+  // Power iteration method
+  while (itr < max_iter) {
+    // Compute x_k = A * x_i; generates Krylov subspace
+    CHECK_CUSPARSE( cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                 &alpha, matM, xi, &beta, xk, CUDA_R_32F,
+                                 CUSPARSE_SPMV_ALG_DEFAULT, dBuffer) )
+
+    // Compute the L2 norm of x_k
+    float norm = std::sqrt(thrust::inner_product(x_k.begin(), x_k.end(), x_k.begin(), 0.0f));
+
+    // Normalize x_k and update x_i
+    thrust::transform(x_k.begin(), x_k.end(), x_i.begin(), thrust::placeholders::_1 / norm);
+
+    // Compute the maximum eigenvalue
+    CHECK_CUSPARSE( cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                &alpha, matM, xi, &beta, xk, CUDA_R_32F,
+                                CUSPARSE_SPMV_ALG_DEFAULT, dBuffer) )
+
+    max_eigenvalue = thrust::inner_product(x_i.begin(), x_i.end(), x_k.begin(), 0.0f);
+
+    if (std::abs(max_eigenvalue - max_eigenvalue_prev) < tol) {
+      std::cout << FGRN("[NOTE]: ") << "Converged at iterations: " << itr << std::endl;
+      return max_eigenvalue;
+    }
+
+    max_eigenvalue_prev = max_eigenvalue;
+    itr++;
+  }
+
+  // Destroy the handle and descriptors
+  CHECK_CUSPARSE( cusparseDestroySpMat(matM) )
+  CHECK_CUSPARSE( cusparseDestroyDnVec(xi) )
+  CHECK_CUSPARSE( cusparseDestroyDnVec(xk) )
+  CHECK_CUSPARSE( cusparseDestroy(handle) )
+  CHECK_CUDA( cudaFree(dBuffer) )
+
+  std::cout << FRD("[NOTE]: ") << "Maximum number of iterations reached." << std::endl;  // no convergence
+  return max_eigenvalue;
+}
 };
 
 struct MGLevel {
@@ -783,6 +949,7 @@ struct VCycle : Kernels {
     size_t maxiter;
     std::vector<float> residuals;
     size_t niter; //final number of iterations to break the loop
+    float eigval;
 
     float calc_rnorm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A) {
         float rnorm = 0.0;
@@ -1049,6 +1216,15 @@ struct VCycle : Kernels {
         rtol = rtol_;
         maxiter = maxiter_;
         residuals.resize(maxiter+1);
+
+        // eigval=calc_eigenvalue(levels.at(0).A);
+        Timer t("eigenvalue");
+
+        t.start();
+        eigval = computeMaxEigenvaluePowerMethodOptimized(levels.at(0).A, 100);
+        t.end();
+        
+        cout<<"eigenvalue: "<<eigval<<endl;
     }
 
     size_t get_mgcg_data(float* x_, float* r_)

@@ -868,7 +868,10 @@ def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
 def calc_spectral_radius(A):
     global spectral_radius
     if frame%100==0 and ite==0:
+        t = time.perf_counter()
         spectral_radius = approximate_spectral_radius(A)
+        print(f"approximate_spectral_radius time: {time.perf_counter()-t:.2f}s")
+    print("spectral_radius:", spectral_radius)
     return spectral_radius
 
 

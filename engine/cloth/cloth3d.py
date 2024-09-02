@@ -1001,8 +1001,9 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
 
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     tic1 = time.perf_counter()
-    init_g_vcycle(levels)
-    print(f"    init_g_vcycle time: {time.perf_counter()-tic1:.2f}s")
+    # init_g_vcycle(levels) move to after build_levels
+    update_g_vcycle(levels)
+    print(f"    update_g_vcycle time: {time.perf_counter()-tic1:.2f}s")
     assert g_vcycle
 
     tic2 = time.perf_counter()
@@ -1085,14 +1086,10 @@ def old_V_cycle(levels,lvl,x,b):
     x += levels[lvl].P @ coarse_x
     postsmoother(A, x, b)
 
+
 g_vcycle = None
-cached_P_id = None
-cached_cheby_id = None
-cached_jacobi_omega_id = None
 def init_g_vcycle(levels):
     global g_vcycle
-    global cached_P_id, cached_cheby_id, cached_jacobi_omega_id
-
     if g_vcycle is None:
         g_vcycle = extlib
 
@@ -1112,6 +1109,12 @@ def init_g_vcycle(levels):
 
         g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
 
+cached_P_id = None
+cached_cheby_id = None
+cached_jacobi_omega_id = None
+# update setups of smoothers and Ps
+def update_g_vcycle(levels):
+    global cached_P_id, cached_cheby_id, cached_jacobi_omega_id
     if smoother_type == 'chebyshev' and cached_cheby_id != id(chebyshev_coeff):
         cached_cheby_id = id(chebyshev_coeff)
         coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
@@ -1480,10 +1483,10 @@ def substep_all_solver(max_iter=1):
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic
 
-        rsys0 = (np.linalg.norm(b-A@x))
+        # rsys0 = (np.linalg.norm(b-A@x))
 
         print(f"    Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
-        tic_linsys = perf_counter()
+        # tic_linsys = perf_counter()
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
         if solver_type == "GS":
@@ -1501,18 +1504,21 @@ def substep_all_solver(max_iter=1):
             else:
                 levels = build_levels(A, Ps)
             logging.info(f"    build_levels time:{time.perf_counter()-tic}")
+
+            if use_cuda and g_vcycle is None:
+                init_g_vcycle(levels)
+
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()
             if use_cuda:
                 mgsolve = new_amg_cg_solve
             else:
                 mgsolve = old_amg_cg_solve
-            x,residuals = mgsolve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
+            x, r_Axb = mgsolve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
             toc2 = time.perf_counter()
             logging.info(f"    mgsolve time {toc2-tic2}")
-            r_Axb = residuals
 
-        rsys1 = np.linalg.norm(b-A@x)
+        # rsys1 = np.linalg.norm(b-A@x)
         # print(f"    Linear system solve time: {perf_counter()-tic_linsys:.4f}s")
         
         tic = time.perf_counter()
@@ -1542,7 +1548,7 @@ def substep_all_solver(max_iter=1):
 
             print(f"    Calc r time: {perf_counter()-tic_calcr:.4f}s")
             if export_log:
-                logging.info(f"{frame}-{ite} rsys:{rsys0:.2e} {rsys1:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
+                logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
             r.append(Residual([0.,0.], dual_r, robj, r_Axb, len(r_Axb), t_iter))
 
         x_prev = x.copy()

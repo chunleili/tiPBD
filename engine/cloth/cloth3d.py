@@ -999,6 +999,14 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     residuals = residuals[:iteration+1]
     return (x),  residuals  
 
+def cuda_set_A0(A0):
+    tic2 = time.perf_counter()
+    g_vcycle.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
+    print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
+
+def cuda_get_max_eig():
+    spectral_radius1 = g_vcycle.fastmg_get_max_eig()
+    print("spectral_radius1:", spectral_radius1)
 
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     tic1 = time.perf_counter()
@@ -1007,11 +1015,11 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     print(f"    update_g_vcycle time: {time.perf_counter()-tic1:.2f}s")
     assert g_vcycle
 
-    tic2 = time.perf_counter()
     # set A0
-    g_vcycle.fastmg_set_A0(levels[0].A.data.astype(np.float32), levels[0].A.indices, levels[0].A.indptr, levels[0].A.shape[0], levels[0].A.shape[1], levels[0].A.nnz)
-    print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
+    cuda_set_A0(levels[0].A)
     
+    cuda_get_max_eig()
+
     # compute RAP   (R=P.T)
     tic3 = time.perf_counter()
     for lv in range(len(levels)-1):
@@ -1027,8 +1035,7 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     b = b.astype(np.float32)
     g_vcycle.fastmg_set_mgcg_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
 
-    spectral_radius1 = g_vcycle.fastmg_get_max_eig()
-    print("spectral_radius1:", spectral_radius1)
+
     
     # solve
     g_vcycle.fastmg_mgcg_solve()

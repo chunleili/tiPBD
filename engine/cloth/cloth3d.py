@@ -950,16 +950,15 @@ def build_levels_cuda(A, Ps=[]):
     return levels
 
 
-def setup_AMG(A):
-    Ps = build_Ps(A)
-    return Ps
 
 def setup_smoothers(A):
     global chebyshev_coeff
     if smoother_type == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+        g_vcycle.fastmg_setup_chebyshev(chebyshev_coeff.astype(np.float32), chebyshev_coeff.shape[0])
     elif smoother_type == 'jacobi':
         setup_jacobi(A)
+        g_vcycle.fastmg_setup_jacobi(jacobi_omega, 10)
 
 
 def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
@@ -1094,13 +1093,22 @@ def init_g_vcycle(levels):
     global g_vcycle
     if g_vcycle is None:
         g_vcycle = extlib
+        arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
+        arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+        c_size_t = ctypes.c_size_t
+        c_float = ctypes.c_float
+        argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                        ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      #indices
+                        ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      #indptr
+                        ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                        ]
 
         g_vcycle.fastmg_set_mgcg_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
         g_vcycle.fastmg_get_mgcg_data.argtypes = [arr_float]*2
         g_vcycle.fastmg_get_mgcg_data.restype = c_size_t
 
         g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_setup_chebyshev.argtypes = [ctypes.c_size_t] * 2
+        g_vcycle.fastmg_setup_chebyshev.argtypes = [arr_float, c_size_t]
         g_vcycle.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
         g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
         g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
@@ -1112,20 +1120,9 @@ def init_g_vcycle(levels):
         g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
 
 cached_P_id = None
-cached_cheby_id = None
-cached_jacobi_omega_id = None
 # update setups of smoothers and Ps
 def update_g_vcycle(levels):
-    global cached_P_id, cached_cheby_id, cached_jacobi_omega_id
-    if smoother_type == 'chebyshev' and cached_cheby_id != id(chebyshev_coeff):
-        cached_cheby_id = id(chebyshev_coeff)
-        coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
-        g_vcycle.fastmg_setup_chebyshev(coeff_contig.ctypes.data, coeff_contig.shape[0])
-
-    if smoother_type == 'jacobi' and cached_jacobi_omega_id != id(jacobi_omega):
-        cached_jacobi_omega_id = id(jacobi_omega)
-        g_vcycle.fastmg_setup_jacobi(jacobi_omega, 10)
-
+    global cached_P_id
     # set P
     if id(cached_P_id) != id(levels[0].P):
         cached_P_id = levels[0].P
@@ -1496,11 +1493,13 @@ def substep_all_solver(max_iter=1):
             gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
         if solver_type == "AMG":
             global Ps
+            tic = time.perf_counter()
+
             if ((frame%20==0) and (ite==0)):
                 tic = time.perf_counter()
-                Ps = setup_AMG(A)
-                setup_smoothers(A)
-                logging.info(f"    setup AMG time:{perf_counter()-tic}")
+                Ps = build_Ps(A)
+                logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+            
             tic = time.perf_counter()
             if use_cuda:
                 levels = build_levels_cuda(A, Ps)
@@ -1510,6 +1509,11 @@ def substep_all_solver(max_iter=1):
 
             if use_cuda and g_vcycle is None:
                 init_g_vcycle(levels)
+            
+            if ((frame%20==0) and (ite==0)):
+                tic = time.perf_counter()
+                setup_smoothers(A)
+                logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
             x0 = np.zeros_like(b)
             tic2 = time.perf_counter()

@@ -951,13 +951,15 @@ def build_levels_cuda(A, Ps=[]):
 
 
 def setup_AMG(A):
-    global chebyshev_coeff
     Ps = build_Ps(A)
+    return Ps
+
+def setup_smoothers(A):
+    global chebyshev_coeff
     if smoother_type == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
     elif smoother_type == 'jacobi':
         setup_jacobi(A)
-    return Ps
 
 
 def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
@@ -1497,6 +1499,7 @@ def substep_all_solver(max_iter=1):
             if ((frame%20==0) and (ite==0)):
                 tic = time.perf_counter()
                 Ps = setup_AMG(A)
+                setup_smoothers(A)
                 logging.info(f"    setup AMG time:{perf_counter()-tic}")
             tic = time.perf_counter()
             if use_cuda:

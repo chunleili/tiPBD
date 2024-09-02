@@ -1216,15 +1216,16 @@ struct VCycle : Kernels {
         rtol = rtol_;
         maxiter = maxiter_;
         residuals.resize(maxiter+1);
+    }
 
-        // eigval=calc_eigenvalue(levels.at(0).A);
+    float get_max_eig()
+    {
         Timer t("eigenvalue");
-
         t.start();
         eigval = computeMaxEigenvaluePowerMethodOptimized(levels.at(0).A, 100);
         t.end();
-        
-        cout<<"eigenvalue: "<<eigval<<endl;
+        cout<<"max eigenvalue: "<<eigval<<endl;
+        return  eigval;
     }
 
     size_t get_mgcg_data(float* x_, float* r_)
@@ -1363,6 +1364,11 @@ extern "C" DLLEXPORT void fastmg_set_P(int lv, float* data, int* indices, int* i
                 //lv, data, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz
     fastmg->set_P(lv, data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
 }
+
+extern "C" DLLEXPORT float fastmg_get_max_eig() {
+    return fastmg->get_max_eig();
+}
+
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastA_setup() {

@@ -1024,6 +1024,9 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     x0 = x0.astype(np.float32)
     b = b.astype(np.float32)
     g_vcycle.fastmg_set_mgcg_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
+
+    spectral_radius1 = g_vcycle.fastmg_get_max_eig()
+    print("spectral_radius1:", spectral_radius1)
     
     # solve
     g_vcycle.fastmg_mgcg_solve()
@@ -1105,6 +1108,7 @@ def init_g_vcycle(levels):
 
         g_vcycle.fastmg_set_A0.argtypes = argtypes_of_csr
         g_vcycle.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
+        g_vcycle.fastmg_get_max_eig.restype = ctypes.c_float
 
         g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
 

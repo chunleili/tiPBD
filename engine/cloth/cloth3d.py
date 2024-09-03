@@ -854,6 +854,7 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
 #     levels = build_levels(A, Ps)
 #     x, r = old_amg_cg_solve(levels, b, x0=x0, tol=1e-6, maxiter=100)
 
+# https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/relaxation/relaxation.py#L586
 chebyshev_coeff = None
 def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
     x = np.ravel(x)
@@ -867,9 +868,11 @@ def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
 
 def calc_spectral_radius(A):
     global spectral_radius
-    if frame%100==0 and ite==0:
+    if frame%20==0 and ite==0:
         t = time.perf_counter()
-        spectral_radius = approximate_spectral_radius(A)
+        # spectral_radius = approximate_spectral_radius(A) # legacy python version
+        cuda_set_A0(A)
+        spectral_radius = g_vcycle.fastmg_get_max_eig()
         print(f"approximate_spectral_radius time: {time.perf_counter()-t:.2f}s")
     print("spectral_radius:", spectral_radius)
     return spectral_radius
@@ -879,7 +882,6 @@ def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
                     iterations=1):
     global chebyshev_coeff # FIXME: later we should store this in the level
     """Set up Chebyshev."""
-    # rho = approximate_spectral_radius(A)
     rho = calc_spectral_radius(A)
     a = rho * lower_bound
     b = rho * upper_bound
@@ -1004,10 +1006,6 @@ def cuda_set_A0(A0):
     g_vcycle.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
     print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
 
-def cuda_get_max_eig():
-    spectral_radius1 = g_vcycle.fastmg_get_max_eig()
-    print("spectral_radius1:", spectral_radius1)
-
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     tic1 = time.perf_counter()
     # init_g_vcycle(levels) move to after build_levels
@@ -1018,8 +1016,6 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     # set A0
     cuda_set_A0(levels[0].A)
     
-    cuda_get_max_eig()
-
     # compute RAP   (R=P.T)
     tic3 = time.perf_counter()
     for lv in range(len(levels)-1):

@@ -1347,7 +1347,7 @@ struct FastFill : Kernels {
     std::vector<std::array<int,2>> edges;
     std::vector<float> inv_mass;
     std::vector<std::array<float,3>> pos;
-    std::map<int, std::vector<int>> adjacent_edges;
+    std::vector<std::vector<int>> adjacent_edges;
     std::vector<int> num_adjacent_edge;
     std::vector<std::vector<int>> adjacent_edge_abc;
     std::vector<int> ii, jj;
@@ -1410,12 +1410,6 @@ struct FastFill : Kernels {
     {
         update_pos(pos_in);
         fill_A_CSR();
-    }
-
-
-    void get_data()
-    {
-        // adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj;
     }
 
 
@@ -1502,7 +1496,7 @@ struct FastFill : Kernels {
 
     void init_adj_edge(std::vector<std::array<int,2>> &edges)
     {
-        std::map<int, std::set<int>> vertex_to_edges;
+        std::unordered_map<int, std::set<int>> vertex_to_edges;
         for(int edge_index=0; edge_index<edges.size(); edge_index++)
         {
             int v1 = edges[edge_index][0];
@@ -1515,6 +1509,7 @@ struct FastFill : Kernels {
             vertex_to_edges[v2].insert(edge_index);
         }
 
+        adjacent_edges.resize(edges.size());
         for(int edge_index=0; edge_index<edges.size(); edge_index++)
         {
             int v1 = edges[edge_index][0];
@@ -1528,7 +1523,7 @@ struct FastFill : Kernels {
         //calc num_adjacent_edge
         for(auto adj:adjacent_edges)
         {
-            num_adjacent_edge.push_back(adj.second.size());
+            num_adjacent_edge.push_back(adj.size());
         }
 
         NE = edges.size();

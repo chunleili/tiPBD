@@ -55,3 +55,9 @@ Remove-Item .\build\* -Recurse
 Run directly from "x64 Native Tools Command Prompt for VS 2022"
 
 nvcc -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5/include" -I"." fastmg.cu -o fastmg -lcusparse
+
+
+## Debug in msvc
+
+ https://learn.microsoft.com/zh-cn/visualstudio/python/debugging-mixed-mode-c-cpp-python-in-visual-studio?view=vs-2022 
+

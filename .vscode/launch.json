@@ -30,6 +30,30 @@
                 "-N=64",
                 "-use_cache=0",
             ]
-        }
+        },
+        {
+            "name": "Python C++ Debug",
+            "type": "pythoncpp",
+            "request": "launch",
+            "pythonLaunchName": "Python: Current File",
+            "cppAttachName": "(Windows) Attach",
+          },
+          {
+            "name": "(Windows) Attach",
+            "type": "cppvsdbg",
+            "request": "attach",
+            "processId": ""
+          },
+          {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "-N=64",
+                "-use_cache=0",
+            ]
+          }
     ]
 }

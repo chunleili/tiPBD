@@ -1347,6 +1347,75 @@ struct FastFill : Kernels {
     std::map<int, std::vector<int>> adjacent_edges;
     std::vector<int> num_adjacent_edge;
     std::vector<std::vector<int>> adjacent_edge_abc;
+    std::vector<int> ii, jj;
+    std::vector<int> indptr;
+    std::vector<int> indices;
+    std::vector<float> data;
+    int num_nonz;
+
+
+    void set_data(int* edges_in, int NE_in)
+    {
+        NE = NE_in;
+        edges.resize(NE);
+        for(int i=0; i<NE; i++)
+        {
+            edges[i][0] = edges_in[i*2];
+            edges[i][1] = edges_in[i*2+1];
+        }
+    }
+
+    void run()
+    {
+        init_adj_edge(edges);
+        init_adjacent_edge_abc();
+        calc_num_nonz();
+        init_A_CSR_pattern();
+        csr_index_to_coo_index();
+    }
+
+
+    void get_data()
+    {
+        // adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj;
+    }
+
+    void init_A_CSR_pattern()
+    {
+        indptr.resize(NE+1);
+        indices.resize(num_nonz);
+        data.resize(num_nonz);
+
+        indptr[0] = 0;
+        for(int i=0; i<NE; i++)
+        {
+            int num_adj_i = num_adjacent_edge[i];
+            indptr[i+1] = indptr[i] + num_adj_i + 1;
+            for(int j=0; j<num_adj_i; j++)
+            {
+                indices[indptr[i]+j] = adjacent_edges[i][j];
+            }
+            indices[indptr[i+1]-1] = i;
+        }
+
+        A.assign(data.data(), data.size(), indices.data(), indices.size(), indptr.data(), indptr.size(), NE, NE, num_nonz);
+    }
+
+
+    void csr_index_to_coo_index()
+    {
+        ii.resize(num_nonz);
+        jj.resize(num_nonz);
+        for(int i=0; i<NE; i++)
+        {
+            for(int j=indptr[i]; j<indptr[i+1]; j++)
+            {
+                ii[j] = i;
+                jj[j] = indices[j];
+            }
+        }
+    }
+
 
     void init_adj_edge(std::vector<std::array<int,2>> &edges)
     {
@@ -1388,31 +1457,18 @@ struct FastFill : Kernels {
         }
     }
 
+    void calc_num_nonz()
+    {
+        num_nonz = 0;
+        for(auto num_adj:num_adjacent_edge)
+        {
+            num_nonz += num_adj;
+        }
+        num_nonz += num_adjacent_edge.size();
 
-// @ti.kernel
-// def init_adjacent_edge_abc_kernel(NE:int, edge:ti.template(), adjacent_edge:ti.types.ndarray(), num_adjacent_edge:ti.types.ndarray(), adjacent_edge_abc:ti.types.ndarray()):
-//     for i in range(NE):
-//         ii0 = edge[i][0]
-//         ii1 = edge[i][1]
+        A.numnonz = num_nonz;
+    }
 
-//         num_adj = num_adjacent_edge[i]
-//         for j in range(num_adj):
-//             ia = adjacent_edge[i,j]
-//             if ia == i:
-//                 continue
-//             jj0,jj1 = edge[ia]
-//             a, b, c = -1, -1, -1
-//             if ii0 == jj0:
-//                 a, b, c = ii0, ii1, jj1
-//             elif ii0 == jj1:
-//                 a, b, c = ii0, ii1, jj0
-//             elif ii1 == jj0:
-//                 a, b, c = ii1, ii0, jj1
-//             elif ii1 == jj1:
-//                 a, b, c = ii1, ii0, jj0
-//             adjacent_edge_abc[i, j*3] = a
-//             adjacent_edge_abc[i, j*3+1] = b
-//             adjacent_edge_abc[i, j*3+2] = c
 
     void init_adjacent_edge_abc()
     {
@@ -1574,4 +1630,12 @@ extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) 
 extern "C" DLLEXPORT void fastFill_setup() {
     if (!fastFill)
         fastFill = new FastFill{};
+}
+
+extern "C" DLLEXPORT void fastFill_set_data(int* edges, int NE) {
+    fastFill->set_data(edges, NE);
+}
+
+extern "C" DLLEXPORT void fastFill_run() {
+    fastFill->run();
 }

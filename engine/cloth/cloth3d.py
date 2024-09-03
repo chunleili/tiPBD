@@ -190,8 +190,10 @@ K_diag = np.zeros((NV*3), dtype=float)
 
 arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
 arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
 c_size_t = ctypes.c_size_t
 c_float = ctypes.c_float
+c_int = ctypes.c_int
 argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
                 ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
                 ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
@@ -1774,6 +1776,16 @@ def init_direct_fill_A():
     return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj
 
 
+def init_direct_fill_A_cuda():
+    extlib.fastFill_setup()
+    extlib.fastFill_set_data.argtypes = [arr2d_int, c_int]
+
+    extlib.fastFill_set_data(edge.to_numpy(), NE)
+    extlib.fastFill_run()
+
+
+
+
 def ending(timer_loop, start_date, initial_frame=0):
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now()
@@ -1835,6 +1847,7 @@ if  os.path.exists(f'cache_initFill_N{N}.npz') and args.use_cache:
     print(f"load cache_initFill_N{N}.npz")
 else:
     adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = init_direct_fill_A()
+    # init_direct_fill_A_cuda()
 
 if restart:
     if restart_from_last_frame :

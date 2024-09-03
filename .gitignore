@@ -36,3 +36,4 @@ settings.json
 *.node
 *.ele
 data/*
+.vs

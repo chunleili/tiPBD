@@ -1343,7 +1343,10 @@ struct FastFill : Kernels {
     CSR<float> A;
     float alpha;
     int NE;
+    int NV;
     std::vector<std::array<int,2>> edges;
+    std::vector<float> inv_mass;
+    std::vector<std::array<float,3>> pos;
     std::map<int, std::vector<int>> adjacent_edges;
     std::vector<int> num_adjacent_edge;
     std::vector<std::vector<int>> adjacent_edge_abc;
@@ -1354,14 +1357,42 @@ struct FastFill : Kernels {
     int num_nonz;
 
 
-    void set_data(int* edges_in, int NE_in)
+    void set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
     {
         NE = NE_in;
+        NV = NV_in;
+
         edges.resize(NE);
         for(int i=0; i<NE; i++)
         {
             edges[i][0] = edges_in[i*2];
             edges[i][1] = edges_in[i*2+1];
+        }
+
+        inv_mass.resize(NV_in);
+        for(int i=0; i<NV_in; i++)
+        {
+            inv_mass[i] = inv_mass_in[i];
+        }
+
+        pos.resize(NV);
+        for(int i=0; i<NV; i++)
+        {
+            pos[i][0] = pos_in[i*3];
+            pos[i][1] = pos_in[i*3+1];
+            pos[i][2] = pos_in[i*3+2];
+        }
+
+        alpha = alpha_in;
+    }
+
+    void update_pos(float* pos_in)
+    {
+        for(int i=0; i<NV; i++)
+        {
+            pos[i][0] = pos_in[i*3];
+            pos[i][1] = pos_in[i*3+1];
+            pos[i][2] = pos_in[i*3+2];
         }
     }
 
@@ -1375,11 +1406,62 @@ struct FastFill : Kernels {
         csr_index_to_coo_index();
     }
 
+    void run(float* pos_in)
+    {
+        update_pos(pos_in);
+        fill_A_CSR();
+    }
+
 
     void get_data()
     {
         // adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj;
     }
+
+
+    std::array<float,3> inline normalize(std::array<float,3> v)
+    {
+        float norm = sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+        return {v[0]/norm, v[1]/norm, v[2]/norm};
+    }
+
+    std::array<float,3> inline normalize_diff(std::array<float,3> &v1,  std::array<float,3> &v2)
+    {
+        std::array<float,3> diff = {v1[0]-v2[0], v1[1]-v2[1], v1[2]-v2[2]};
+        float norm = sqrt(diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2]);
+        return {diff[0]/norm, diff[1]/norm, diff[2]/norm};
+    }
+
+    float inline dot(std::array<float,3> a, std::array<float,3> b)
+    {
+        return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+    }
+
+
+    void fill_A_CSR()
+    {
+        for(int cnt=0; cnt<num_nonz; cnt++)
+        {
+            int i = ii[cnt]; // row index
+            int j = jj[cnt]; // col index
+            int k = cnt - indptr[i]; //k-th non-zero element of i-th row. 
+            // Because the diag is the final element of each row, 
+            // it is also the k-th adjacent edge of i-th edge.
+            if (i == j) // diag
+            {
+                data[cnt] = inv_mass[edges[i][0]] + inv_mass[edges[i][1]] + alpha;
+                continue;
+            }
+            int a = adjacent_edge_abc[i][k*3];
+            int b = adjacent_edge_abc[i][k*3+1];
+            int c = adjacent_edge_abc[i][k*3+2];
+            auto g_ab = normalize_diff(pos[a], pos[b]);
+            auto g_ac = normalize_diff(pos[a], pos[c]);
+            auto offdiag = inv_mass[a] * dot(g_ab, g_ac);
+            data[cnt] = offdiag;
+        }
+    }
+
 
     void init_A_CSR_pattern()
     {
@@ -1633,11 +1715,19 @@ extern "C" DLLEXPORT void fastFill_setup() {
         fastFill = new FastFill{};
 }
 
-extern "C" DLLEXPORT void fastFill_set_data(int* edges, int NE) {
-    fastFill->set_data(edges, NE);
+extern "C" DLLEXPORT void fastFill_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+{
+    fastFill->set_data(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
 }
 
 // init_direct_fill_A
 extern "C" DLLEXPORT void fastFill_init() {
     fastFill->init();
 }
+
+
+extern "C" DLLEXPORT void fastFill_run(float* pos_in) {
+    cout<<"run"<<endl;
+    fastFill->run(pos_in);
+}
+

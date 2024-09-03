@@ -190,6 +190,7 @@ K_diag = np.zeros((NV*3), dtype=float)
 
 arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
 arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
 arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
 c_size_t = ctypes.c_size_t
 c_float = ctypes.c_float
@@ -1374,6 +1375,10 @@ def fill_A_csr_ti():
     # A.eliminate_zeros()
     return A
 
+# fill A csr cuda
+def fill_A_csr_cuda():
+    extlib.fastFill_run(pos.to_numpy())
+
 
 @ti.kernel
 def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
@@ -1469,6 +1474,7 @@ def substep_all_solver(max_iter=1):
         # A,G = fill_A_by_spmm(M_inv, ALPHA)
         # A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
         A = fill_A_csr_ti()
+        fill_A_csr_cuda()
         print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
@@ -1778,9 +1784,10 @@ def init_direct_fill_A():
 
 def init_direct_fill_A_cuda():
     extlib.fastFill_setup()
-    extlib.fastFill_set_data.argtypes = [arr2d_int, c_int]
+    extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
+    extlib.fastFill_run.argtypes = [arr2d_float]
 
-    extlib.fastFill_set_data(edge.to_numpy(), NE)
+    extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
     extlib.fastFill_init()
 
 
@@ -1847,7 +1854,7 @@ if  os.path.exists(f'cache_initFill_N{N}.npz') and args.use_cache:
     print(f"load cache_initFill_N{N}.npz")
 else:
     adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = init_direct_fill_A()
-    # init_direct_fill_A_cuda()
+    init_direct_fill_A_cuda()
 
 if restart:
     if restart_from_last_frame :

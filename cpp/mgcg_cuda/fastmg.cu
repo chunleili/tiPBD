@@ -15,6 +15,9 @@
 #include <chrono>
 #include <array>
 #include <unordered_set>
+#include <unordered_map>
+#include <map>
+#include <set>
 
 #include <thrust/device_vector.h>
 #include <thrust/transform.h>
@@ -572,6 +575,46 @@ struct CSR {
 };
 
 
+// template <class T>
+// struct SuperCSR:CSR<T>
+// {
+//     Vec<T> ii;
+//     Vec<T> jj;
+
+//     SuperCSR() noexcept : nrows(0), ncols(0), numnonz(0) {}
+
+//     void assign(T const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz, T const *iip, T const *jjp) {
+//         indices.resize(nind);
+//         indptr.resize(nptr);
+//         data.resize(ndat);
+//         CHECK_CUDA(cudaMemcpy(data.data(), datap, data.size() * sizeof(T), cudaMemcpyHostToDevice));
+//         CHECK_CUDA(cudaMemcpy(indices.data(), indicesp, indices.size() * sizeof(int), cudaMemcpyHostToDevice));
+//         CHECK_CUDA(cudaMemcpy(indptr.data(), indptrp, indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
+//         nrows = rows;
+//         ncols = cols;
+//         numnonz = nnz;
+
+//         ii.resize(nnz);
+//         jj.resize(nnz);
+//         CHECK_CUDA(cudaMemcpy(ii.data(), iip, ii.size() * sizeof(T), cudaMemcpyHostToDevice));
+//         CHECK_CUDA(cudaMemcpy(jj.data(), jjp, jj.size() * sizeof(T), cudaMemcpyHostToDevice));
+//     }
+
+//     void resize(size_t rows, size_t cols, size_t nnz) {
+//         nrows = rows;
+//         ncols = cols;
+//         numnonz = nnz;
+//         data.resize(nnz);
+//         indices.resize(nnz);
+//         indptr.resize(rows + 1);
+
+//         ii.resize(nnz);
+//         jj.resize(nnz);
+//     }
+// };
+
+
+
 // container of handle and descriptor
 struct SpMat {
     cusparseSpMatDescr_t handle;
@@ -835,7 +878,6 @@ struct Kernels {
 // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csreigvsi  (cusolverSpScsreigvsi is not used here, but it is another option, so I just keep the note. It use the shift inverse method to solve this equation Ax=lam x)
 // Reference code: https://github.com/physicslog/maxEigenValueGPU/blob/25e0aa3d6c9bbeb03be6249d0ab8cfaafd32188c/maxeigenvaluepower.cu#L255
 float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
-  assert(M.format == "CSR");  // We only use CSR format
   assert(M.nrows == M.ncols);
 
   // Initialize two vectors x_i and x_k
@@ -1295,10 +1337,139 @@ struct AssembleMatrix : Kernels {
 
 };
 
+
+
+struct FastFill : Kernels {
+    CSR<float> A;
+    float alpha;
+    int NE;
+    std::vector<std::array<int,2>> edges;
+    std::map<int, std::vector<int>> adjacent_edges;
+    std::vector<int> num_adjacent_edge;
+    std::vector<std::vector<int>> adjacent_edge_abc;
+
+    void init_adj_edge(std::vector<std::array<int,2>> &edges)
+    {
+        std::map<int, std::set<int>> vertex_to_edges;
+        for(int edge_index=0; edge_index<edges.size(); edge_index++)
+        {
+            int v1 = edges[edge_index][0];
+            int v2 = edges[edge_index][1];
+            if (vertex_to_edges.find(v1) == vertex_to_edges.end())
+                vertex_to_edges[v1] = std::set<int>();
+            if (vertex_to_edges.find(v2) == vertex_to_edges.end())
+                vertex_to_edges[v2] = std::set<int>();
+            vertex_to_edges[v1].insert(edge_index);
+            vertex_to_edges[v2].insert(edge_index);
+        }
+
+        for(int edge_index=0; edge_index<edges.size(); edge_index++)
+        {
+            int v1 = edges[edge_index][0];
+            int v2 = edges[edge_index][1];
+            std::set<int> adj; //adjacent edges of one edge
+            std::set_union(vertex_to_edges[v1].begin(), vertex_to_edges[v1].end(), vertex_to_edges[v2].begin(), vertex_to_edges[v2].end(), std::inserter(adj, adj.begin()));
+            adj.erase(edge_index);
+            adjacent_edges[edge_index] = std::vector<int>(adj.begin(), adj.end());
+        }
+
+        //calc num_adjacent_edge
+        for(auto adj:adjacent_edges)
+        {
+            num_adjacent_edge.push_back(adj.second.size());
+        }
+
+        NE = edges.size();
+
+        adjacent_edge_abc.resize(NE);
+        for(int i=0; i<NE; i++)
+        {
+            adjacent_edge_abc[i].resize(num_adjacent_edge[i]*3);
+        }
+    }
+
+
+// @ti.kernel
+// def init_adjacent_edge_abc_kernel(NE:int, edge:ti.template(), adjacent_edge:ti.types.ndarray(), num_adjacent_edge:ti.types.ndarray(), adjacent_edge_abc:ti.types.ndarray()):
+//     for i in range(NE):
+//         ii0 = edge[i][0]
+//         ii1 = edge[i][1]
+
+//         num_adj = num_adjacent_edge[i]
+//         for j in range(num_adj):
+//             ia = adjacent_edge[i,j]
+//             if ia == i:
+//                 continue
+//             jj0,jj1 = edge[ia]
+//             a, b, c = -1, -1, -1
+//             if ii0 == jj0:
+//                 a, b, c = ii0, ii1, jj1
+//             elif ii0 == jj1:
+//                 a, b, c = ii0, ii1, jj0
+//             elif ii1 == jj0:
+//                 a, b, c = ii1, ii0, jj1
+//             elif ii1 == jj1:
+//                 a, b, c = ii1, ii0, jj0
+//             adjacent_edge_abc[i, j*3] = a
+//             adjacent_edge_abc[i, j*3+1] = b
+//             adjacent_edge_abc[i, j*3+2] = c
+
+    void init_adjacent_edge_abc()
+    {
+        for(int i=0; i<edges.size(); i++)
+        {
+            auto ii0 = edges[i][0];
+            auto ii1 = edges[i][1];
+
+            auto num_adj = num_adjacent_edge[i];
+            for(int j=0; j<num_adj; j++)
+            {
+                auto ia = adjacent_edges[i][j];
+                if (ia == i)
+                    continue;
+                auto jj0 = edges[ia][0];
+                auto jj1 = edges[ia][1];
+                auto a = -1;
+                auto b = -1;
+                auto c = -1;
+                if (ii0 == jj0)
+                {
+                    a = ii0;
+                    b = ii1;
+                    c = jj1;
+                }
+                else if (ii0 == jj1)
+                {
+                    a = ii0;
+                    b = ii1;
+                    c = jj0;
+                }
+                else if (ii1 == jj0)
+                {
+                    a = ii1;
+                    b = ii0;
+                    c = jj1;
+                }
+                else if (ii1 == jj1)
+                {
+                    a = ii1;
+                    b = ii0;
+                    c = jj0;
+                }
+                adjacent_edge_abc[i][j*3] = a;
+                adjacent_edge_abc[i][j*3+1] = b;
+                adjacent_edge_abc[i][j*3+2] = c;
+            }
+        }
+    }
+
+}; //FastFill struct
+
 } // namespace
 
 static VCycle *fastmg = nullptr;
 static AssembleMatrix *fastA = nullptr;
+static FastFill *fastFill = nullptr;
 
 #if _WIN32
 #define DLLEXPORT __declspec(dllexport)
@@ -1399,3 +1570,8 @@ extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) 
     fastA->fetch_A(data, indices, indptr);
 }
 
+// ------------------------------------------------------------------------------
+extern "C" DLLEXPORT void fastFill_setup() {
+    if (!fastFill)
+        fastFill = new FastFill{};
+}

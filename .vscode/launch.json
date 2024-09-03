@@ -21,93 +21,14 @@
                     "${file}"]
         },
         {
-            "name": "hpbd 5 5",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "engine/volumetric/arap_multigrid.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--fine_iterations",
-                "5",
-                "--coarse_iterations",
-                "5",
-                "--solver_type",
-                "Jacobian",
-                "--multigrid_type",
-                "HPBD"
-            ]
-        },
-        {
-            "name": "coarse direct",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "engine/volumetric/arap_multigrid.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--fine_iterations",
-                "0",
-                "--coarse_iterations",
-                "1",
-                "--solver_type",
-                "DirectSolver"
-            ]
-        },
-        {
-            "name": "fine direct",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "engine/volumetric/arap_multigrid.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--fine_iterations",
-                "1",
-                "--coarse_iterations",
-                "0",
-                "--solver_type",
-                "DirectSolver"
-            ]
-        },
-        {
-            "name": "amg direct",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "engine/volumetric/arap_multigrid.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--fine_iterations",
-                "1",
-                "--coarse_iterations",
-                "1",
-                "--solver_type",
-                "DirectSolver",
-                "--multigrid_type",
-                "AMG"
-            ]
-        },
-        {
-            "name": "fine Jacobian",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "engine/volumetric/arap_multigrid.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--fine_iterations",
-                "1",
-                "--coarse_iterations",
-                "0",
-                "--solver_type",
-                "Jacobian",
-            ]
-        },
-        {
-            "name": "debug:config.json",
+            "name": "debugpy: cloth3d",
             "type": "debugpy",
             "request": "launch",
             "program": "engine/cloth/cloth3d.py",
             "console": "integratedTerminal",
             "args": [
-                "-use_json=1",
-                "-json_path=config.json",
+                "-N=64",
+                "-use_cache=0",
             ]
         }
     ]

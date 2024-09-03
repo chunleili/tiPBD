@@ -89,6 +89,7 @@
         "xtree": "cpp",
         "xutility": "cpp",
         "*.inc": "cpp",
-        "sparseextra": "cpp"
+        "sparseextra": "cpp",
+        "alignedvector3": "cpp"
     }
 }

@@ -1824,6 +1824,8 @@ print("Initializing edge done")
 if setup_num == 1:
     init_scale()
 
+# np.savetxt(out_dir + "/edge.txt", edge.to_numpy(), fmt="%d")
+
 # cache init_direct_fill_A
 adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = (None,)*9
 if  os.path.exists(f'cache_initFill_N{N}.npz') and args.use_cache:

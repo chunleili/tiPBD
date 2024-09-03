@@ -878,17 +878,13 @@ def calc_spectral_radius(A):
     return spectral_radius
 
 
-def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
-                    iterations=1):
+def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3):
     global chebyshev_coeff # FIXME: later we should store this in the level
     """Set up Chebyshev."""
     rho = calc_spectral_radius(A)
     a = rho * lower_bound
     b = rho * upper_bound
-    # drop the constant coefficient
-    coefficients = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
-    chebyshev_coeff = coefficients
-    return coefficients
+    chebyshev_coeff = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
 
 
 def setup_jacobi(A):
@@ -1496,7 +1492,7 @@ def substep_all_solver(max_iter=1):
             gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
         if solver_type == "AMG":
             global Ps
-            
+
             if ((frame%20==0) and (ite==0)):
                 tic = time.perf_counter()
                 Ps = build_Ps(A)

@@ -1365,7 +1365,8 @@ struct FastFill : Kernels {
         }
     }
 
-    void run()
+    // init_direct_fill_A
+    void init()
     {
         init_adj_edge(edges);
         init_adjacent_edge_abc();
@@ -1636,6 +1637,7 @@ extern "C" DLLEXPORT void fastFill_set_data(int* edges, int NE) {
     fastFill->set_data(edges, NE);
 }
 
-extern "C" DLLEXPORT void fastFill_run() {
-    fastFill->run();
+// init_direct_fill_A
+extern "C" DLLEXPORT void fastFill_init() {
+    fastFill->init();
 }

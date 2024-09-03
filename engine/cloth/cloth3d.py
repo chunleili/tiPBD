@@ -1781,7 +1781,7 @@ def init_direct_fill_A_cuda():
     extlib.fastFill_set_data.argtypes = [arr2d_int, c_int]
 
     extlib.fastFill_set_data(edge.to_numpy(), NE)
-    extlib.fastFill_run()
+    extlib.fastFill_init()
 
 
 

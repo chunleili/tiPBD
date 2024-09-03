@@ -75,6 +75,7 @@ parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
+parser.add_argument("-use_cache", type=int, default=True)
 
 
 args = parser.parse_args()
@@ -952,7 +953,7 @@ def build_levels_cuda(A, Ps=[]):
 def setup_smoothers(A):
     global chebyshev_coeff
     if smoother_type == 'chebyshev':
-        setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
+        setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
         g_vcycle.fastmg_setup_chebyshev(chebyshev_coeff.astype(np.float32), chebyshev_coeff.shape[0])
     elif smoother_type == 'jacobi':
         setup_jacobi(A)
@@ -1825,7 +1826,7 @@ if setup_num == 1:
 
 # cache init_direct_fill_A
 adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = (None,)*9
-if  os.path.exists(f'cache_initFill_N{N}.npz'):
+if  os.path.exists(f'cache_initFill_N{N}.npz') and args.use_cache:
     npzfile= np.load(f'cache_initFill_N{N}.npz')
     (adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj) = (npzfile[key] for key in ['adjacent_edge', 'num_adjacent_edge', 'adjacent_edge_abc', 'num_nonz', 'spmat_data', 'spmat_indices', 'spmat_indptr', 'spmat_ii', 'spmat_jj'])
     num_nonz = int(num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
@@ -1844,7 +1845,7 @@ if restart:
         # print(f"restart from last frame: {restart_frame}")
         logging.info(f"restart from last frame: {restart_frame}")
 
-print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.3f}s")
+print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.3f}s") 
 
 
 class Viewer:

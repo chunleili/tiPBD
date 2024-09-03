@@ -1496,8 +1496,7 @@ def substep_all_solver(max_iter=1):
             gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
         if solver_type == "AMG":
             global Ps
-            tic = time.perf_counter()
-
+            
             if ((frame%20==0) and (ite==0)):
                 tic = time.perf_counter()
                 Ps = build_Ps(A)
@@ -1518,15 +1517,16 @@ def substep_all_solver(max_iter=1):
                 setup_smoothers(A)
                 logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
-            x0 = np.zeros_like(b)
-            tic2 = time.perf_counter()
             if use_cuda:
                 mgsolve = new_amg_cg_solve
             else:
                 mgsolve = old_amg_cg_solve
+
+            x0 = np.zeros_like(b)
+            tic = time.perf_counter()
             x, r_Axb = mgsolve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
-            toc2 = time.perf_counter()
-            logging.info(f"    mgsolve time {toc2-tic2}")
+            toc = time.perf_counter()
+            logging.info(f"    mgsolve time {toc-tic}")
 
         # rsys1 = np.linalg.norm(b-A@x)
         # print(f"    Linear system solve time: {perf_counter()-tic_linsys:.4f}s")

@@ -1093,15 +1093,16 @@ struct VCycle : Kernels {
         jacobi_omega = 0.0;
     }
 
-    void set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
-        CSR<float> *mat = nullptr;
-        if (which == 1) mat = &levels.at(lv).A;
-        if (which == 2) mat = &levels.at(lv).R;
-        if (which == 3) mat = &levels.at(lv).P;
-        if (mat) {
-            mat->assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
-        }
-    }
+    // DEPRECATED
+    // void set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
+    //     CSR<float> *mat = nullptr;
+    //     if (which == 1) mat = &levels.at(lv).A;
+    //     if (which == 2) mat = &levels.at(lv).R;
+    //     if (which == 3) mat = &levels.at(lv).P;
+    //     if (mat) {
+    //         mat->assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
+    //     }
+    // }
 
     void set_P(size_t lv, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
         levels.at(lv).P.assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
@@ -1111,10 +1112,11 @@ struct VCycle : Kernels {
         levels.at(0).A.assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
     }
 
-    void setup_chebyshev(float const *coeff, size_t ncoeffs) {
-        smoother_type = 1;
-        chebyshev_coeff.assign(coeff, coeff + ncoeffs);
-    }
+    // DEPRECATED
+    // void setup_chebyshev(float const *coeff, size_t ncoeffs) {
+    //     smoother_type = 1;
+    //     chebyshev_coeff.assign(coeff, coeff + ncoeffs);
+    // }
 
     void chebyshev(int lv, Vec<float> &x, Vec<float> const &b) {
         copy(levels.at(lv).residual, b);
@@ -1706,9 +1708,9 @@ extern "C" DLLEXPORT void fastmg_setup_nl(size_t numlvs) {
     fastmg->setup(numlvs);
 }
 
-extern "C" DLLEXPORT void fastmg_setup_chebyshev(float const *coeff, size_t ncoeffs) {
-    fastmg->setup_chebyshev(coeff, ncoeffs);
-}
+// extern "C" DLLEXPORT void fastmg_setup_chebyshev(float const *coeff, size_t ncoeffs) {
+//     fastmg->setup_chebyshev(coeff, ncoeffs);
+// }
 
 extern "C" DLLEXPORT void fastmg_setup_jacobi(float const omega, size_t const niter_jacobi) {
     fastmg->setup_jacobi(omega, niter_jacobi);
@@ -1763,9 +1765,9 @@ extern "C" DLLEXPORT float fastmg_get_max_eig() {
     return fastmg->get_max_eig();
 }
 
-extern "C" DLLEXPORT void fastmg_cheby_poly(float a, float b) {
-    fastmg->chebyshev_polynomial_coefficients(a, b);
-}
+// extern "C" DLLEXPORT void fastmg_cheby_poly(float a, float b) {
+//     fastmg->chebyshev_polynomial_coefficients(a, b);
+// }
 
 extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
     fastmg->setup_smoothers_cuda(type);

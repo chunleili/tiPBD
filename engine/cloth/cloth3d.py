@@ -215,13 +215,13 @@ def init_extlib_argtypes():
     extlib.fastmg_get_mgcg_data.argtypes = [arr_float]*2
     extlib.fastmg_get_mgcg_data.restype = c_size_t
     extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
-    extlib.fastmg_setup_chebyshev.argtypes = [arr_float, c_size_t]
+    # extlib.fastmg_setup_chebyshev.argtypes = [arr_float, c_size_t]
     extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
     extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
     extlib.fastmg_set_A0.argtypes = argtypes_of_csr
     extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
     extlib.fastmg_get_max_eig.restype = ctypes.c_float
-    extlib.fastmg_cheby_poly.argtypes = [ctypes.c_float, ctypes.c_float]
+    # extlib.fastmg_cheby_poly.argtypes = [ctypes.c_float, ctypes.c_float]
     extlib.fastmg_setup_smoothers.argtypes = [c_int]
 
     extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
@@ -923,7 +923,6 @@ def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3):
     rho = calc_spectral_radius(A)
     a = rho * lower_bound
     b = rho * upper_bound
-    extlib.fastmg_cheby_poly(a,b)
     chebyshev_coeff = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
 
 

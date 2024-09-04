@@ -889,6 +889,7 @@ def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3):
     rho = calc_spectral_radius(A)
     a = rho * lower_bound
     b = rho * upper_bound
+    g_vcycle.fastmg_cheby_poly(a,b)
     chebyshev_coeff = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
 
 
@@ -1010,8 +1011,8 @@ def cuda_set_A0(A0):
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     tic1 = time.perf_counter()
     # init_g_vcycle(levels) move to after build_levels
-    update_g_vcycle(levels)
-    print(f"    update_g_vcycle time: {time.perf_counter()-tic1:.2f}s")
+    update_P(levels)
+    print(f"    update_P time: {time.perf_counter()-tic1:.2f}s")
     assert g_vcycle
 
     # set A0
@@ -1114,18 +1115,19 @@ def init_g_vcycle(levels):
         g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
         g_vcycle.fastmg_setup_chebyshev.argtypes = [arr_float, c_size_t]
         g_vcycle.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
-        g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
         g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
 
         g_vcycle.fastmg_set_A0.argtypes = argtypes_of_csr
         g_vcycle.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
         g_vcycle.fastmg_get_max_eig.restype = ctypes.c_float
+        g_vcycle.fastmg_cheby_poly.argtypes = [ctypes.c_float, ctypes.c_float]
+
 
         g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
 
 cached_P_id = None
 # update setups of smoothers and Ps
-def update_g_vcycle(levels):
+def update_P(levels):
     global cached_P_id
     # set P
     if id(cached_P_id) != id(levels[0].P):

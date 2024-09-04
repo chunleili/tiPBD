@@ -993,6 +993,59 @@ struct VCycle : Kernels {
     size_t niter; //final number of iterations to break the loop
     float eigval;
 
+    void chebyshev_polynomial_coefficients(float a, float b)
+    {
+        float degree=3;
+        const float PI = 3.14159265358979323846;
+
+        if(a >= b || a <= 0)
+            assert(false && "Invalid input for Chebyshev polynomial coefficients");
+
+        // Chebyshev roots for the interval [-1,1]
+        std::vector<float> std_roots(degree);
+        for(int i=0; i<degree; i++)
+        {
+            std_roots[i] = std::cos(PI * (i + 0.5) / degree);
+        }
+
+        // Chebyshev roots for the interval [a,b]
+        std::vector<float> scaled_roots(degree);
+        for(int i=0; i<degree; i++)
+        {
+            scaled_roots[i] = 0.5 * (b-a) * (1 + std_roots[i]) + a;
+        }
+
+        // Compute monic polynomial coefficients of polynomial with scaled roots
+        std::vector<float> scaled_poly(4);
+        // np.poly for 3 roots. This will calc the coefficients of the polynomial from roots.
+        // i.e., (x - root1) * (x - root2) * (x - root3) = x^3 - (root1 + root2 + root3)x^2 + (root1*root2 + root2*root3 + root3*root1)x - root1*root2*root3
+        scaled_poly[0] = 1.0;
+        scaled_poly[1] = -(scaled_roots[0] + scaled_roots[1] + scaled_roots[2]);
+        scaled_poly[2] = scaled_roots[0]*scaled_roots[1] + scaled_roots[1]*scaled_roots[2] + scaled_roots[2]*scaled_roots[0];
+        scaled_poly[3] = -scaled_roots[0]*scaled_roots[1]*scaled_roots[2];
+
+        // Scale coefficients to enforce C(0) = 1.0
+        float c0 = scaled_poly[3];
+        for(int i=0; i<degree; i++)
+        {
+            scaled_poly[i] /= c0; 
+        }
+
+
+        //CAUTION:setup_chebyshev has "-" at the end
+        for(int i=0; i<degree; i++)
+        {
+            chebyshev_coeff = -scaled_poly[i];
+        }
+
+        cout<<"Chebyshev polynomial coefficients: ";
+        for(int i=0; i<degree; i++)
+        {
+            cout<<chebyshev_coeff[i]<<" ";
+        }
+    }
+
+
     float calc_rnorm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A) {
         float rnorm = 0.0;
         Vec<float> r;
@@ -1635,9 +1688,9 @@ extern "C" DLLEXPORT void fastmg_setup_gauss_seidel() {
     fastmg->setup_gauss_seidel();
 }
 
-extern "C" DLLEXPORT void fastmg_set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
-    fastmg->set_lv_csrmat(lv, which, datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
-}
+// extern "C" DLLEXPORT void fastmg_set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
+//     fastmg->set_lv_csrmat(lv, which, datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
+// }
 
 extern "C" DLLEXPORT void fastmg_RAP(size_t lv) {
     fastmg->compute_RAP(lv);
@@ -1680,6 +1733,10 @@ extern "C" DLLEXPORT float fastmg_get_max_eig() {
     return fastmg->get_max_eig();
 }
 
+// FIXME: For debugging
+extern "C" DLLEXPORT void fastmg_cheby_poly(float a, float b) {
+    fastmg->chebyshev_polynomial_coefficients(a, b);
+}
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastA_setup() {

@@ -78,7 +78,7 @@ parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
-parser.add_argument("-use_fastFill", type=int, default=True)
+parser.add_argument("-use_fastFill", type=int, default=False)
 
 
 args = parser.parse_args()
@@ -223,6 +223,7 @@ def init_extlib_argtypes():
     extlib.fastmg_get_max_eig.restype = ctypes.c_float
     # extlib.fastmg_cheby_poly.argtypes = [ctypes.c_float, ctypes.c_float]
     extlib.fastmg_setup_smoothers.argtypes = [c_int]
+    extlib.fastmg_update_A0.argtypes = [arr_float]
 
     extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
     extlib.fastFill_run.argtypes = [arr2d_float]
@@ -1030,9 +1031,12 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     return (x),  residuals  
 
 def cuda_set_A0(A0):
-    tic2 = time.perf_counter()
     extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
-    print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
+
+
+def cuda_update_A0(A0):
+    extlib.fastmg_update_A0(A0.data.astype(np.float32))
+
 
 def new_amg_cg_solve(b, x0=None, tol=1e-5, maxiter=100):
     if x0 is None:
@@ -1544,7 +1548,8 @@ def substep_all_solver(max_iter=1):
                 if args.use_fastFill:
                     extlib.fastmg_set_A0_from_fastFill()
                 else:
-                    cuda_set_A0(A)
+                    # cuda_set_A0(A)
+                    cuda_update_A0(A)
                 logging.info(f"    set_A0 time:{perf_counter()-tic:.3f}s")
                 
                 # compute RAP(R=P.T) and build levels in cuda-end

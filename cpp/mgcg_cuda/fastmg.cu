@@ -1414,6 +1414,12 @@ struct VCycle : Kernels {
     }
 
 
+    // only update the data of A0
+    void update_A0(float const *datap) {
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), datap, levels.at(0).A.data.size() * sizeof(float), cudaMemcpyHostToDevice));
+    }
+
+
     void set_A0_from_fastFill(FastFill *ff) {
         levels.at(0).A.assign(ff->data.data(), ff->data.size(), ff->indices.data(), ff->indices.size(), ff->indptr.data(), ff->indptr.size(), ff->nrows, ff->ncols, ff->num_nonz);
     }
@@ -1794,6 +1800,12 @@ extern "C" DLLEXPORT void fastmg_set_A0(float* data, int* indices, int* indptr, 
 {
                 // data, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz
     fastmg->set_A0(data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
+}
+
+// only update the data of A0
+extern "C" DLLEXPORT void fastmg_update_A0(const float* data_in)
+{
+    fastmg->update_A0(data_in);
 }
 
 extern "C" DLLEXPORT void fastmg_set_P(int lv, float* data, int* indices, int* indptr, int rows, int cols, int nnz)

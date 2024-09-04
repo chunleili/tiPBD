@@ -1356,6 +1356,11 @@ struct FastFill : Kernels {
     std::vector<float> data;
     int num_nonz;
 
+    void fetch_A(float *data_in, int *indices_in, int *indptr_in) {
+        std::copy(data.begin(), data.end(), data_in);
+        std::copy(indices.begin(), indices.end(), indices_in);
+        std::copy(indptr.begin(), indptr.end(), indptr_in);
+    }
 
     void set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
     {
@@ -1397,13 +1402,14 @@ struct FastFill : Kernels {
     }
 
     // init_direct_fill_A
-    void init()
+    int init()
     {
         init_adj_edge(edges);
         init_adjacent_edge_abc();
         calc_num_nonz();
         init_A_CSR_pattern();
         csr_index_to_coo_index();
+        return num_nonz;
     }
 
     void run(float* pos_in)
@@ -1716,8 +1722,9 @@ extern "C" DLLEXPORT void fastFill_set_data(int* edges_in, int NE_in, float* inv
 }
 
 // init_direct_fill_A
-extern "C" DLLEXPORT void fastFill_init() {
-    fastFill->init();
+extern "C" DLLEXPORT int fastFill_init() {
+    int nnz = fastFill->init();
+    return nnz;
 }
 
 
@@ -1726,3 +1733,6 @@ extern "C" DLLEXPORT void fastFill_run(float* pos_in) {
     fastFill->run(pos_in);
 }
 
+extern "C" DLLEXPORT void fastFill_fetch_A(float* data, int* indices, int* indptr) {
+    fastFill->fetch_A(data, indices, indptr);
+}

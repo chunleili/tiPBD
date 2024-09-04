@@ -90,6 +90,7 @@
         "xutility": "cpp",
         "*.inc": "cpp",
         "sparseextra": "cpp",
-        "alignedvector3": "cpp"
+        "alignedvector3": "cpp",
+        "nonlinearoptimization": "cpp"
     }
 }

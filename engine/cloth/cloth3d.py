@@ -76,6 +76,7 @@ parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
+parser.add_argument("-use_fastFill", type=int, default=True)
 
 
 args = parser.parse_args()
@@ -1368,16 +1369,17 @@ def fill_A_ijv_ti():
     A= A.tocsr()
 
 
-# fill A csr
 def fill_A_csr_ti():
     fill_A_CSR_kernel(spmat_data, spmat_indptr, spmat_ii, spmat_jj, adjacent_edge_abc, num_nonz, alpha)
     A = scipy.sparse.csr_matrix((spmat_data, spmat_indices, spmat_indptr), shape=(NE, NE))
-    # A.eliminate_zeros()
     return A
 
-# fill A csr cuda
+
 def fill_A_csr_cuda():
     extlib.fastFill_run(pos.to_numpy())
+    extlib.fastFill_fetch_A(spmat_data, spmat_indices, spmat_indptr)
+    A = scipy.sparse.csr_matrix((spmat_data, spmat_indices, spmat_indptr), shape=(NE, NE))
+    return A
 
 
 @ti.kernel
@@ -1473,8 +1475,10 @@ def substep_all_solver(max_iter=1):
         tic2 = perf_counter()
         # A,G = fill_A_by_spmm(M_inv, ALPHA)
         # A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
-        A = fill_A_csr_ti()
-        fill_A_csr_cuda()
+        if args.use_fastFill:
+            A = fill_A_csr_cuda()
+        else:
+            A = fill_A_csr_ti()
         print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
@@ -1786,10 +1790,28 @@ def init_direct_fill_A_cuda():
     extlib.fastFill_setup()
     extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
     extlib.fastFill_run.argtypes = [arr2d_float]
+    extlib.fastFill_init.restype = c_int
+    extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
 
     extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
-    extlib.fastFill_init()
+    nonz = extlib.fastFill_init()
 
+    global spmat_data, spmat_indices, spmat_indptr
+    spmat_indptr = np.empty(NE+1, dtype=np.int32)
+    spmat_indices = np.empty(nonz, dtype=np.int32)
+    spmat_data = np.empty(nonz, dtype=np.float32)
+
+
+
+def cache_and_init_direct_fill_A():
+    global adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj
+    if  os.path.exists(f'cache_initFill_N{N}.npz') and args.use_cache:
+        npzfile= np.load(f'cache_initFill_N{N}.npz')
+        (adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj) = (npzfile[key] for key in ['adjacent_edge', 'num_adjacent_edge', 'adjacent_edge_abc', 'num_nonz', 'spmat_data', 'spmat_indices', 'spmat_indptr', 'spmat_ii', 'spmat_jj'])
+        num_nonz = int(num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
+        print(f"load cache_initFill_N{N}.npz")
+    else:
+        adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = init_direct_fill_A()
 
 
 
@@ -1845,16 +1867,13 @@ if setup_num == 1:
 
 # np.savetxt(out_dir + "/edge.txt", edge.to_numpy(), fmt="%d")
 
-# cache init_direct_fill_A
-adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = (None,)*9
-if  os.path.exists(f'cache_initFill_N{N}.npz') and args.use_cache:
-    npzfile= np.load(f'cache_initFill_N{N}.npz')
-    (adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj) = (npzfile[key] for key in ['adjacent_edge', 'num_adjacent_edge', 'adjacent_edge_abc', 'num_nonz', 'spmat_data', 'spmat_indices', 'spmat_indptr', 'spmat_ii', 'spmat_jj'])
-    num_nonz = int(num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
-    print(f"load cache_initFill_N{N}.npz")
-else:
-    adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = init_direct_fill_A()
+tic = time.perf_counter()
+if use_cuda and args.use_fastFill:
     init_direct_fill_A_cuda()
+else:
+    cache_and_init_direct_fill_A()
+print(f"init_direct_fill_A time: {time.perf_counter()-tic:.3f}s")
+
 
 if restart:
     if restart_from_last_frame :

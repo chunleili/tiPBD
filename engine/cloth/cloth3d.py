@@ -1356,6 +1356,10 @@ def fill_A_csr_cuda():
     return A
 
 
+def fill_A_csr_cuda_not_fetch():
+    extlib.fastFill_run(pos.to_numpy())
+
+
 @ti.kernel
 def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
     for i in range(edge.shape[0]):
@@ -1472,11 +1476,11 @@ def substep_all_solver(max_iter=1):
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
 
         tic2 = perf_counter()
-        # A,G = fill_A_by_spmm(M_inv, ALPHA)
         if args.use_fastFill:
-            A = fill_A_csr_cuda()
+            fill_A_csr_cuda_not_fetch()
         else:
             A = fill_A_csr_ti()
+            # A,G = fill_A_by_spmm(M_inv, ALPHA)
         print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
@@ -1489,6 +1493,7 @@ def substep_all_solver(max_iter=1):
 
         if export_matrix:
             tic = time.perf_counter()
+            A = fill_A_csr_cuda()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic
 
@@ -1521,9 +1526,6 @@ def substep_all_solver(max_iter=1):
                     update_P(Ps)
                     print(f"    update_P time: {time.perf_counter()-tic1:.2f}s")
 
-                tic = time.perf_counter()
-                logging.info(f"    build_levels time:{time.perf_counter()-tic}")
-                
                 if ((frame%20==0) and (ite==0)):
                     tic = time.perf_counter()
                     cuda_set_A0(A)
@@ -1531,7 +1533,10 @@ def substep_all_solver(max_iter=1):
                     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
                 # set A0
+                tic = time.perf_counter()
                 cuda_set_A0(A)
+                # extlib.fastmg_set_A0_from_fastFill()
+                logging.info(f"    set_A0 time:{perf_counter()-tic:.3f}s")
                 
                 # compute RAP(R=P.T) and build levels in cuda-end
                 tic3 = time.perf_counter()
@@ -1543,7 +1548,7 @@ def substep_all_solver(max_iter=1):
                 tic = time.perf_counter()
                 x, r_Axb = new_amg_cg_solve(b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
                 toc = time.perf_counter()
-                logging.info(f"    mgsolve time {toc-tic}")
+                logging.info(f"    mgsolve time {toc-tic:.3f}")
 
 
         # rsys1 = np.linalg.norm(b-A@x)

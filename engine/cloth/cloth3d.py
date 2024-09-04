@@ -1041,18 +1041,7 @@ def cuda_set_A0(A0):
     extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
     print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
 
-def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
-
-
-    # set A0
-    cuda_set_A0(levels[0].A)
-    
-    # compute RAP   (R=P.T)
-    tic3 = time.perf_counter()
-    for lv in range(len(levels)-1):
-        extlib.fastmg_RAP(lv)
-    print(f"    compute RAP time: {time.perf_counter()-tic3:.2f}s")
-
+def new_amg_cg_solve(b, x0=None, tol=1e-5, maxiter=100):
     if x0 is None:
         x0 = np.zeros(b.shape[0], dtype=np.float32)
 
@@ -1540,18 +1529,26 @@ def substep_all_solver(max_iter=1):
                     print(f"    update_P time: {time.perf_counter()-tic1:.2f}s")
 
                 tic = time.perf_counter()
-                levels = build_levels_cuda(A, Ps)
                 logging.info(f"    build_levels time:{time.perf_counter()-tic}")
                 
                 if ((frame%20==0) and (ite==0)):
                     tic = time.perf_counter()
-                    cuda_set_A0(levels[0].A)
-                    extlib.fastmg_setup_smoothers(1)
+                    cuda_set_A0(A)
+                    extlib.fastmg_setup_smoothers(1) # 1 means chebyshev
                     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
+
+                # set A0
+                cuda_set_A0(A)
+                
+                # compute RAP(R=P.T) and build levels in cuda-end
+                tic3 = time.perf_counter()
+                for lv in range(num_levels-1):
+                    extlib.fastmg_RAP(lv) # build_levels is implicitly done 
+                print(f"    compute RAP time: {time.perf_counter()-tic3:.2f}s")
 
                 x0 = np.zeros_like(b)
                 tic = time.perf_counter()
-                x, r_Axb = new_amg_cg_solve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
+                x, r_Axb = new_amg_cg_solve(b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
                 toc = time.perf_counter()
                 logging.info(f"    mgsolve time {toc-tic}")
 

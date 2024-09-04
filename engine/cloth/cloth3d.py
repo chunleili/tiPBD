@@ -78,7 +78,7 @@ parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
-parser.add_argument("-use_fastFill", type=int, default=False)
+parser.add_argument("-use_fastFill", type=int, default=True)
 
 
 args = parser.parse_args()
@@ -1349,14 +1349,19 @@ def fill_A_csr_ti():
     return A
 
 
-def fill_A_csr_cuda():
-    extlib.fastFill_run(pos.to_numpy())
+# def fill_A_csr_cuda_and_fetch():
+#     extlib.fastFill_run(pos.to_numpy())
+#     extlib.fastFill_fetch_A(spmat_data, spmat_indices, spmat_indptr)
+#     A = scipy.sparse.csr_matrix((spmat_data, spmat_indices, spmat_indptr), shape=(NE, NE))
+#     return A
+
+def fastFill_fetch():
     extlib.fastFill_fetch_A(spmat_data, spmat_indices, spmat_indptr)
     A = scipy.sparse.csr_matrix((spmat_data, spmat_indices, spmat_indptr), shape=(NE, NE))
     return A
 
 
-def fill_A_csr_cuda_not_fetch():
+def fastFill_run():
     extlib.fastFill_run(pos.to_numpy())
 
 
@@ -1477,7 +1482,7 @@ def substep_all_solver(max_iter=1):
 
         tic2 = perf_counter()
         if args.use_fastFill:
-            fill_A_csr_cuda_not_fetch()
+            fastFill_run()
         else:
             A = fill_A_csr_ti()
             # A,G = fill_A_by_spmm(M_inv, ALPHA)
@@ -1493,7 +1498,7 @@ def substep_all_solver(max_iter=1):
 
         if export_matrix:
             tic = time.perf_counter()
-            A = fill_A_csr_cuda()
+            A = fastFill_fetch()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic
 
@@ -1514,6 +1519,8 @@ def substep_all_solver(max_iter=1):
 
                 if ((frame%20==0) and (ite==0)):
                     tic = time.perf_counter()
+                    if args.use_fastFill:
+                        A = fastFill_fetch()
                     Ps = build_Ps(A)
                     num_levels = len(Ps)+1
                     logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
@@ -1534,8 +1541,10 @@ def substep_all_solver(max_iter=1):
 
                 # set A0
                 tic = time.perf_counter()
-                cuda_set_A0(A)
-                # extlib.fastmg_set_A0_from_fastFill()
+                if args.use_fastFill:
+                    extlib.fastmg_set_A0_from_fastFill()
+                else:
+                    cuda_set_A0(A)
                 logging.info(f"    set_A0 time:{perf_counter()-tic:.3f}s")
                 
                 # compute RAP(R=P.T) and build levels in cuda-end

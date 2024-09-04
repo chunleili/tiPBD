@@ -126,6 +126,7 @@ public:
     std::chrono::time_point<std::chrono::steady_clock> m_end;
     std::chrono::duration<double, std::milli> elapsed_ms;
     std::chrono::duration<double> elapsed_s;
+    double elapsed=0.0;
     std::string name = "";
 
     Timer(std::string name = "") : name(name){};
@@ -158,7 +159,18 @@ public:
     {
         m_start = std::chrono::steady_clock::now();
         m_end = std::chrono::steady_clock::now();
+        elapsed = 0.0;
     };
+    inline void accumulate()
+    {
+        m_end = std::chrono::steady_clock::now();
+        elapsed += std::chrono::duration<double, std::milli>(m_end - m_start).count();
+    };
+    inline void report()
+    {
+        std::cout << name << ": " << elapsed << " ms" << std::endl;
+    };
+    
 };
 
 
@@ -279,6 +291,13 @@ template <>
 cudaDataType_t cudaDataTypeFor<double>() {
     return CUDA_R_64F;
 }
+
+
+__global__ void fill_A_CSR_kernel()
+{
+    // TODO:
+}
+
 
 
 // weighted Jacobi for csr matrix
@@ -1051,8 +1070,13 @@ struct FastFill : Kernels {
 
     void run(float* pos_in)
     {
+        Timer t;
+        t.start();
         update_pos(pos_in);
+        t.end("update_pos");
+        t.start();
         fill_A_CSR();
+        t.end("fill_A_CSR");
     }
 
 
@@ -1072,6 +1096,13 @@ struct FastFill : Kernels {
     float inline dot(std::array<float,3> a, std::array<float,3> b)
     {
         return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+    }
+
+
+    void fill_A_CSR_gpu()
+    {
+        // prepare data TODO:
+        fill_A_CSR_kernel<<<num_nonz/256+1, 256>>>();
     }
 
 
@@ -1836,7 +1867,6 @@ extern "C" DLLEXPORT int fastFill_init() {
 
 
 extern "C" DLLEXPORT void fastFill_run(float* pos_in) {
-    cout<<"run"<<endl;
     fastFill->run(pos_in);
 }
 

@@ -975,7 +975,7 @@ struct VCycle : Kernels {
     std::vector<MGLevel> levels;
     size_t nlvs;
     std::vector<float> chebyshev_coeff;
-    size_t smoother_type = 1;
+    size_t smoother_type = 1; //1:chebyshev, 2:jacobi, 3:gauss_seidel
     float jacobi_omega;
     size_t jacobi_niter;
     Vec<float> init_x;
@@ -991,11 +991,35 @@ struct VCycle : Kernels {
     size_t maxiter;
     std::vector<float> residuals;
     size_t niter; //final number of iterations to break the loop
-    float eigval;
+    float max_eig;
+
+
+    void setup_smoothers_cuda(int type) {
+        if(smoother_type == 1)
+        {
+            setup_chebyshev_cuda(levels[0].A);
+        }
+        else if (smoother_type == 2)
+        {
+            //TODO:setup jacobi
+        }
+    }
+
+
+    void setup_chebyshev_cuda(CSR<float> &A) {
+        float lower_bound=1.0/30.0;
+        float upper_bound=1.1;
+        float rho = computeMaxEigenvaluePowerMethodOptimized(A, 100);
+        max_eig = rho;
+        float a = rho * lower_bound;
+        float b = rho * upper_bound;
+        chebyshev_polynomial_coefficients(a, b);
+    }
+
 
     void chebyshev_polynomial_coefficients(float a, float b)
     {
-        float degree=3;
+        int degree=3;
         const float PI = 3.14159265358979323846;
 
         if(a >= b || a <= 0)
@@ -1005,7 +1029,7 @@ struct VCycle : Kernels {
         std::vector<float> std_roots(degree);
         for(int i=0; i<degree; i++)
         {
-            std_roots[i] = std::cos(PI * (i + 0.5) / degree);
+            std_roots[i] = std::cos(PI * (i + 0.5) / (float)degree);
         }
 
         // Chebyshev roots for the interval [a,b]
@@ -1032,10 +1056,11 @@ struct VCycle : Kernels {
         }
 
 
+        chebyshev_coeff.resize(degree);
         //CAUTION:setup_chebyshev has "-" at the end
         for(int i=0; i<degree; i++)
         {
-            chebyshev_coeff = -scaled_poly[i];
+            chebyshev_coeff[i] = -scaled_poly[i];
         }
 
         cout<<"Chebyshev polynomial coefficients: ";
@@ -1317,10 +1342,10 @@ struct VCycle : Kernels {
     {
         Timer t("eigenvalue");
         t.start();
-        eigval = computeMaxEigenvaluePowerMethodOptimized(levels.at(0).A, 100);
+        max_eig = computeMaxEigenvaluePowerMethodOptimized(levels.at(0).A, 100);
         t.end();
-        cout<<"max eigenvalue: "<<eigval<<endl;
-        return  eigval;
+        cout<<"max eigenvalue: "<<max_eig<<endl;
+        return  max_eig;
     }
 
     size_t get_mgcg_data(float* x_, float* r_)
@@ -1733,10 +1758,14 @@ extern "C" DLLEXPORT float fastmg_get_max_eig() {
     return fastmg->get_max_eig();
 }
 
-// FIXME: For debugging
 extern "C" DLLEXPORT void fastmg_cheby_poly(float a, float b) {
     fastmg->chebyshev_polynomial_coefficients(a, b);
 }
+
+extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
+    fastmg->setup_smoothers_cuda(type);
+}
+
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastA_setup() {

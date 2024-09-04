@@ -884,7 +884,7 @@ def calc_spectral_radius(A):
 
 
 def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3):
-    global chebyshev_coeff # FIXME: later we should store this in the level
+    global chebyshev_coeff 
     """Set up Chebyshev."""
     rho = calc_spectral_radius(A)
     a = rho * lower_bound
@@ -1121,6 +1121,7 @@ def init_g_vcycle(levels):
         g_vcycle.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
         g_vcycle.fastmg_get_max_eig.restype = ctypes.c_float
         g_vcycle.fastmg_cheby_poly.argtypes = [ctypes.c_float, ctypes.c_float]
+        g_vcycle.fastmg_setup_smoothers.argtypes = [c_int]
 
 
         g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
@@ -1525,7 +1526,11 @@ def substep_all_solver(max_iter=1):
             
             if ((frame%20==0) and (ite==0)):
                 tic = time.perf_counter()
-                setup_smoothers(A)
+                if use_cuda:
+                    cuda_set_A0(levels[0].A)
+                    g_vcycle.fastmg_setup_smoothers(1)
+                else:
+                    setup_smoothers(A)
                 logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
             if use_cuda:

@@ -1382,42 +1382,42 @@ struct VCycle : Kernels {
 
 };
 
-struct AssembleMatrix : Kernels {
-    CSR<float> A;
-    CSR<float> G;
-    CSR<float> M;
-    CSR<float> ALPHA;
-    float alpha;
-    int NE;
+// struct AssembleMatrix : Kernels {
+//     CSR<float> A;
+//     CSR<float> G;
+//     CSR<float> M;
+//     CSR<float> ALPHA;
+//     float alpha;
+//     int NE;
 
-    void fetch_A(float *data, int *indices, int *indptr) {
-        CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
-        CHECK_CUDA(cudaMemcpy(indices, A.indices.data(), A.indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
-        CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
-    }
+//     void fetch_A(float *data, int *indices, int *indptr) {
+//         CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
+//         CHECK_CUDA(cudaMemcpy(indices, A.indices.data(), A.indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
+//         CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
+//     }
 
-    void set_G(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
-        G.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
-    }
+//     void set_G(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
+//         G.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
+//     }
 
-    void set_M(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
-        M.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
-    }
+//     void set_M(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
+//         M.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
+//     }
 
-    void set_ALPHA(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
-        ALPHA.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
-    }
+//     void set_ALPHA(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
+//         ALPHA.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
+//     }
 
-    void compute_GMG() {
-        CSR<float> GM;
-        spgemm(G, M, GM);
-        CSR<float> GT;
-        GT.resize(G.ncols, G.nrows, G.numnonz);
-        transpose(G, GT);
-        spgemm(GM, GT, A);
-    }
+//     void compute_GMG() {
+//         CSR<float> GM;
+//         spgemm(G, M, GM);
+//         CSR<float> GT;
+//         GT.resize(G.ncols, G.nrows, G.numnonz);
+//         transpose(G, GT);
+//         spgemm(GM, GT, A);
+//     }
 
-};
+// };
 
 
 
@@ -1690,7 +1690,7 @@ struct FastFill : Kernels {
 } // namespace
 
 static VCycle *fastmg = nullptr;
-static AssembleMatrix *fastA = nullptr;
+// static AssembleMatrix *fastA = nullptr;
 static FastFill *fastFill = nullptr;
 
 #if _WIN32
@@ -1774,34 +1774,34 @@ extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
 }
 
 
-// ------------------------------------------------------------------------------
-extern "C" DLLEXPORT void fastA_new() {
-    if (!fastA)
-        fastA = new AssembleMatrix{};
-}
+// // ------------------------------------------------------------------------------
+// extern "C" DLLEXPORT void fastA_new() {
+//     if (!fastA)
+//         fastA = new AssembleMatrix{};
+// }
 
-extern "C" DLLEXPORT void fastA_set_G(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
-{
-    fastA->set_G(data, indices, indptr, rows, cols, nnz);
-}
+// extern "C" DLLEXPORT void fastA_set_G(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
+// {
+//     fastA->set_G(data, indices, indptr, rows, cols, nnz);
+// }
 
-extern "C" DLLEXPORT void fastA_set_M(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
-{
-    fastA->set_M(data, indices, indptr, rows, cols, nnz);
-}
+// extern "C" DLLEXPORT void fastA_set_M(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
+// {
+//     fastA->set_M(data, indices, indptr, rows, cols, nnz);
+// }
 
-extern "C" DLLEXPORT void fastA_set_ALPHA(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
-{
-    fastA->set_ALPHA(data, indices, indptr, rows, cols, nnz);
-}
+// extern "C" DLLEXPORT void fastA_set_ALPHA(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
+// {
+//     fastA->set_ALPHA(data, indices, indptr, rows, cols, nnz);
+// }
 
-extern "C" DLLEXPORT void fastA_compute_GMG() {
-    fastA->compute_GMG();
-}
+// extern "C" DLLEXPORT void fastA_compute_GMG() {
+//     fastA->compute_GMG();
+// }
 
-extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) {
-    fastA->fetch_A(data, indices, indptr);
-}
+// extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) {
+//     fastA->fetch_A(data, indices, indptr);
+// }
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastFill_new() {

@@ -1204,50 +1204,50 @@ def fill_A_by_spmm(M_inv, ALPHA):
 
 
 
-has_run_initialize_fastFill = False
-def fill_A_by_spmm_dll(M_inv, ALPHA):
-    # -----------------initialize--------------
-    def initialize_fastFill(M_inv):
-        global extlib, has_run_initialize_fastFill, argtypes_of_csr
-        if has_run_initialize_fastFill:
-            return
+# has_run_initialize_fastFill = False
+# def fill_A_by_spmm_dll(M_inv, ALPHA):
+#     # -----------------initialize--------------
+#     def initialize_fastFill(M_inv):
+#         global extlib, has_run_initialize_fastFill, argtypes_of_csr
+#         if has_run_initialize_fastFill:
+#             return
 
-        extlib.fastA_new() # new fastA instance
+#         extlib.fastA_new() # new fastA instance
 
-        M_inv = M_inv.tocsr() # transfer M to cusparse
-        extlib.fastA_set_M.argtypes = argtypes_of_csr
-        extlib.fastA_set_M(M_inv.data, M_inv.indices, M_inv.indptr, M_inv.shape[0], M_inv.shape[1], M_inv.nnz)
-        has_run_initialize_fastFill = True
+#         M_inv = M_inv.tocsr() # transfer M to cusparse
+#         extlib.fastA_set_M.argtypes = argtypes_of_csr
+#         extlib.fastA_set_M(M_inv.data, M_inv.indices, M_inv.indptr, M_inv.shape[0], M_inv.shape[1], M_inv.nnz)
+#         has_run_initialize_fastFill = True
     
-    initialize_fastFill(M_inv)
+#     initialize_fastFill(M_inv)
     
-    # -----------------fill G--------------
-    G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
-    compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
-    fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
-    G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
+#     # -----------------fill G--------------
+#     G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
+#     compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
+#     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
+#     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
 
-    # transfer G to cusparse
-    extlib.fastA_set_G.argtypes = argtypes_of_csr
-    extlib.fastA_set_G(G.data, G.indices, G.indptr, G.shape[0], G.shape[1], G.nnz) 
+#     # transfer G to cusparse
+#     extlib.fastA_set_G.argtypes = argtypes_of_csr
+#     extlib.fastA_set_G(G.data, G.indices, G.indptr, G.shape[0], G.shape[1], G.nnz) 
 
-    # -----------------compute GMG by cusparse--------------
-    tic = time.perf_counter()
-    extlib.fastA_compute_GMG()
-    print(f"    GMG: {time.perf_counter() - tic:.4f}s")
+#     # -----------------compute GMG by cusparse--------------
+#     tic = time.perf_counter()
+#     extlib.fastA_compute_GMG()
+#     print(f"    GMG: {time.perf_counter() - tic:.4f}s")
 
-    # fetch GMG
-    from scipy.sparse import csr_matrix
-    mat = csr_matrix((G.shape[0],G.shape[0]), dtype=np.float32)
-    mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
-    mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
-    extlib.fastA_fetch_A.argtypes = argtypes_of_csr[:3]
-    extlib.fastA_fetch_A(mat.data, mat.indices, mat.indptr)
-    mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
+#     # fetch GMG
+#     from scipy.sparse import csr_matrix
+#     mat = csr_matrix((G.shape[0],G.shape[0]), dtype=np.float32)
+#     mat.data = np.empty(20* mat.shape[0], dtype=np.float32)
+#     mat.indices = np.empty(20* mat.shape[0], dtype=np.int32)
+#     extlib.fastA_fetch_A.argtypes = argtypes_of_csr[:3]
+#     extlib.fastA_fetch_A(mat.data, mat.indices, mat.indptr)
+#     mat = csr_matrix((mat.data, mat.indices, mat.indptr), shape=mat.shape)
 
-    # -----------------plus alpha--------------
-    A = mat + ALPHA
-    return A, G
+#     # -----------------plus alpha--------------
+#     A = mat + ALPHA
+#     return A, G
 
 
 def calc_num_nonz(num_adjacent_edge):
@@ -1491,7 +1491,6 @@ def substep_all_solver(max_iter=1):
 
         tic2 = perf_counter()
         # A,G = fill_A_by_spmm(M_inv, ALPHA)
-        # A,G = fill_A_by_spmm_dll(M_inv, ALPHA)
         if args.use_fastFill:
             A = fill_A_csr_cuda()
         else:

@@ -78,7 +78,7 @@ parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
-parser.add_argument("-use_fastFill", type=int, default=True)
+parser.add_argument("-use_fastFill", type=int, default=False)
 
 
 args = parser.parse_args()

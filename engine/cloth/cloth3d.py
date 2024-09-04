@@ -1043,10 +1043,7 @@ def cuda_set_A0(A0):
     print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
 
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
-    tic1 = time.perf_counter()
-    update_P(levels)
-    print(f"    update_P time: {time.perf_counter()-tic1:.2f}s")
-    assert extlib
+
 
     # set A0
     cuda_set_A0(levels[0].A)
@@ -1125,16 +1122,10 @@ def old_V_cycle(levels,lvl,x,b):
 
 
 
-cached_P_id = None
-# update setups of smoothers and Ps
-def update_P(levels):
-    global cached_P_id
-    # set P
-    if id(cached_P_id) != id(levels[0].P):
-        cached_P_id = levels[0].P
-        for lv in range(len(levels)-1):
-            P_ = levels[lv].P
-            extlib.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
+def update_P(Ps):
+    for lv in range(len(Ps)):
+        P_ = Ps[lv]
+        extlib.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
 
 # ---------------------------------------------------------------------------- #
 #                                  amgpcg end                                  #
@@ -1545,6 +1536,10 @@ def substep_all_solver(max_iter=1):
                     if new_fastmg==True:
                         extlib.fastmg_setup_nl(num_levels)
                         new_fastmg = False
+
+                    tic1 = time.perf_counter()
+                    update_P(Ps)
+                    print(f"    update_P time: {time.perf_counter()-tic1:.2f}s")
 
                 tic = time.perf_counter()
                 levels = build_levels_cuda(A, Ps)

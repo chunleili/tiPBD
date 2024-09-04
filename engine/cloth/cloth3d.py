@@ -46,6 +46,7 @@ dont_clean_results = False
 report_time = True
 # chebyshev_coeff = None
 export_fullr = False
+new_fastmg = True
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
@@ -189,18 +190,47 @@ predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 K_diag = np.zeros((NV*3), dtype=float)
 
 
-arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
-arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
-arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
-arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
-c_size_t = ctypes.c_size_t
-c_float = ctypes.c_float
-c_int = ctypes.c_int
-argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
-                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
-                ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                ]
+def init_extlib_argtypes():
+    global extlib
+
+    if use_cuda:
+        os.add_dll_directory(cuda_dir)
+        extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
+
+    arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
+    arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+    arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
+    arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
+    c_size_t = ctypes.c_size_t
+    c_float = ctypes.c_float
+    c_int = ctypes.c_int
+    argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
+                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
+                    ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                    ]
+
+    extlib.fastmg_set_mgcg_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
+    extlib.fastmg_get_mgcg_data.argtypes = [arr_float]*2
+    extlib.fastmg_get_mgcg_data.restype = c_size_t
+    extlib.fastmg_setup.argtypes = [ctypes.c_size_t]
+    extlib.fastmg_setup_chebyshev.argtypes = [arr_float, c_size_t]
+    extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
+    extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
+    extlib.fastmg_set_A0.argtypes = argtypes_of_csr
+    extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
+    extlib.fastmg_get_max_eig.restype = ctypes.c_float
+    extlib.fastmg_cheby_poly.argtypes = [ctypes.c_float, ctypes.c_float]
+    extlib.fastmg_setup_smoothers.argtypes = [c_int]
+
+    extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
+    extlib.fastFill_run.argtypes = [arr2d_float]
+    extlib.fastFill_init.restype = c_int
+    extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
+
+
+init_extlib_argtypes()
+
 
 class SpMat():
     def __init__(self, nnz, nrow=NE):
@@ -877,7 +907,7 @@ def calc_spectral_radius(A):
         t = time.perf_counter()
         # spectral_radius = approximate_spectral_radius(A) # legacy python version
         cuda_set_A0(A)
-        spectral_radius = g_vcycle.fastmg_get_max_eig()
+        spectral_radius = extlib.fastmg_get_max_eig()
         print(f"approximate_spectral_radius time: {time.perf_counter()-t:.2f}s")
     print("spectral_radius:", spectral_radius)
     return spectral_radius
@@ -889,7 +919,7 @@ def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3):
     rho = calc_spectral_radius(A)
     a = rho * lower_bound
     b = rho * upper_bound
-    g_vcycle.fastmg_cheby_poly(a,b)
+    extlib.fastmg_cheby_poly(a,b)
     chebyshev_coeff = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
 
 
@@ -959,10 +989,10 @@ def setup_smoothers(A):
     global chebyshev_coeff
     if smoother_type == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
-        g_vcycle.fastmg_setup_chebyshev(chebyshev_coeff.astype(np.float32), chebyshev_coeff.shape[0])
+        extlib.fastmg_setup_chebyshev(chebyshev_coeff.astype(np.float32), chebyshev_coeff.shape[0])
     elif smoother_type == 'jacobi':
         setup_jacobi(A)
-        g_vcycle.fastmg_setup_jacobi(jacobi_omega, 10)
+        extlib.fastmg_setup_jacobi(jacobi_omega, 10)
 
 
 def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
@@ -1005,15 +1035,14 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
 
 def cuda_set_A0(A0):
     tic2 = time.perf_counter()
-    g_vcycle.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
+    extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
     print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
 
 def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     tic1 = time.perf_counter()
-    # init_g_vcycle(levels) move to after build_levels
     update_P(levels)
     print(f"    update_P time: {time.perf_counter()-tic1:.2f}s")
-    assert g_vcycle
+    assert extlib
 
     # set A0
     cuda_set_A0(levels[0].A)
@@ -1021,7 +1050,7 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     # compute RAP   (R=P.T)
     tic3 = time.perf_counter()
     for lv in range(len(levels)-1):
-        g_vcycle.fastmg_RAP(lv)
+        extlib.fastmg_RAP(lv)
     print(f"    compute RAP time: {time.perf_counter()-tic3:.2f}s")
 
     if x0 is None:
@@ -1031,17 +1060,15 @@ def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     # set data
     x0 = x0.astype(np.float32)
     b = b.astype(np.float32)
-    g_vcycle.fastmg_set_mgcg_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
+    extlib.fastmg_set_mgcg_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
 
-
-    
     # solve
-    g_vcycle.fastmg_mgcg_solve()
+    extlib.fastmg_mgcg_solve()
 
     # get result
     x = np.empty_like(x0, dtype=np.float32)
     residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
-    niter = g_vcycle.fastmg_get_mgcg_data(x, residuals)
+    niter = extlib.fastmg_get_mgcg_data(x, residuals)
     residuals = residuals[:niter+1]
     print(f"    niter", niter)
     print(f"    solve time: {time.perf_counter()-tic4:.2f}s")
@@ -1093,38 +1120,6 @@ def old_V_cycle(levels,lvl,x,b):
     postsmoother(A, x, b)
 
 
-g_vcycle = None
-def init_g_vcycle(levels):
-    global g_vcycle
-    if g_vcycle is None:
-        g_vcycle = extlib
-        arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
-        arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
-        c_size_t = ctypes.c_size_t
-        c_float = ctypes.c_float
-        argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                        ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      #indices
-                        ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      #indptr
-                        ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                        ]
-
-        g_vcycle.fastmg_set_mgcg_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
-        g_vcycle.fastmg_get_mgcg_data.argtypes = [arr_float]*2
-        g_vcycle.fastmg_get_mgcg_data.restype = c_size_t
-
-        g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_setup_chebyshev.argtypes = [arr_float, c_size_t]
-        g_vcycle.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
-        g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
-
-        g_vcycle.fastmg_set_A0.argtypes = argtypes_of_csr
-        g_vcycle.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
-        g_vcycle.fastmg_get_max_eig.restype = ctypes.c_float
-        g_vcycle.fastmg_cheby_poly.argtypes = [ctypes.c_float, ctypes.c_float]
-        g_vcycle.fastmg_setup_smoothers.argtypes = [c_int]
-
-
-        g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
 
 cached_P_id = None
 # update setups of smoothers and Ps
@@ -1135,7 +1130,7 @@ def update_P(levels):
         cached_P_id = levels[0].P
         for lv in range(len(levels)-1):
             P_ = levels[lv].P
-            g_vcycle.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
+            extlib.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
 
 # ---------------------------------------------------------------------------- #
 #                                  amgpcg end                                  #
@@ -1521,14 +1516,16 @@ def substep_all_solver(max_iter=1):
                 levels = build_levels(A, Ps)
             logging.info(f"    build_levels time:{time.perf_counter()-tic}")
 
-            if use_cuda and g_vcycle is None:
-                init_g_vcycle(levels)
+            global new_fastmg
+            if use_cuda and new_fastmg==True:
+                extlib.fastmg_setup(len(levels))
+                new_fastmg = False
             
             if ((frame%20==0) and (ite==0)):
                 tic = time.perf_counter()
                 if use_cuda:
                     cuda_set_A0(levels[0].A)
-                    g_vcycle.fastmg_setup_smoothers(1)
+                    extlib.fastmg_setup_smoothers(1)
                 else:
                     setup_smoothers(A)
                 logging.info(f"    setup smoothers time:{perf_counter()-tic}")
@@ -1795,10 +1792,6 @@ def init_direct_fill_A():
 
 def init_direct_fill_A_cuda():
     extlib.fastFill_setup()
-    extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
-    extlib.fastFill_run.argtypes = [arr2d_float]
-    extlib.fastFill_init.restype = c_int
-    extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
 
     extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
     nonz = extlib.fastFill_init()
@@ -1858,9 +1851,7 @@ timer_all = time.perf_counter()
 start_wall_time = datetime.datetime.now()
 print("\nInitializing...")
 
-if use_cuda:
-    os.add_dll_directory(cuda_dir)
-    extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
+
 
 print("Initializing pos..")
 init_pos(inv_mass,pos)

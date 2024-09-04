@@ -883,15 +883,6 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
 # ---------------------------------------------------------------------------- #
 #                                    amgpcg                                    #
 # ---------------------------------------------------------------------------- #
-# usage
-# if use_cuda:
-#     Ps = setup_AMG(A)
-#     levels = build_levels_cuda(A, Ps)
-#     x, r = new_amg_cg_solve(levels, b, x0=x0, tol=1e-6, maxiter=100)
-# else:
-#     Ps = setup_AMG(A)
-#     levels = build_levels(A, Ps)
-#     x, r = old_amg_cg_solve(levels, b, x0=x0, tol=1e-6, maxiter=100)
 
 # https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/relaxation/relaxation.py#L586
 chebyshev_coeff = None
@@ -974,17 +965,19 @@ def build_levels(A, Ps=[]):
 
     return levels
 
-def build_levels_cuda(A, Ps=[]):
-    '''Give A and a list of prolongation matrices Ps, return a list of levels'''
-    lvl = len(Ps) + 1 # number of levels
 
-    levels = [MultiLevel() for i in range(lvl)]
+# DEPRECATED: build_levels_cuda is not needed any more because fastmg_RAP has done its job
+# def build_levels_cuda(A, Ps=[]):
+#     '''Give A and a list of prolongation matrices Ps, return a list of levels'''
+#     lvl = len(Ps) + 1 # number of levels
 
-    levels[0].A = A
+#     levels = [MultiLevel() for i in range(lvl)]
 
-    for i in range(lvl-1):
-        levels[i].P = Ps[i]
-    return levels
+#     levels[0].A = A
+
+#     for i in range(lvl-1):
+#         levels[i].P = Ps[i]
+#     return levels
 
 
 

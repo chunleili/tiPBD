@@ -47,6 +47,7 @@ report_time = True
 # chebyshev_coeff = None
 export_fullr = False
 new_fastmg = True
+num_levels = 0
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
@@ -213,7 +214,7 @@ def init_extlib_argtypes():
     extlib.fastmg_set_mgcg_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
     extlib.fastmg_get_mgcg_data.argtypes = [arr_float]*2
     extlib.fastmg_get_mgcg_data.restype = c_size_t
-    extlib.fastmg_setup.argtypes = [ctypes.c_size_t]
+    extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
     extlib.fastmg_setup_chebyshev.argtypes = [arr_float, c_size_t]
     extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
     extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
@@ -227,6 +228,9 @@ def init_extlib_argtypes():
     extlib.fastFill_run.argtypes = [arr2d_float]
     extlib.fastFill_init.restype = c_int
     extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
+
+
+    extlib.fastmg_new()
 
 
 init_extlib_argtypes()
@@ -1218,7 +1222,7 @@ def fill_A_by_spmm_dll(M_inv, ALPHA):
         if has_run_initialize_fastFill:
             return
 
-        extlib.fastA_setup() # new fastA instance
+        extlib.fastA_new() # new fastA instance
 
         M_inv = M_inv.tocsr() # transfer M to cusparse
         extlib.fastA_set_M.argtypes = argtypes_of_csr
@@ -1442,6 +1446,31 @@ def compute_inertial_energy():
         inertial_energy[None] += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
 
 
+def python_AMG(A,b):
+    global Ps, num_levels
+
+    if ((frame%20==0) and (ite==0)):
+        tic = time.perf_counter()
+        Ps = build_Ps(A)
+        num_levels = len(Ps)+1
+        logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+    
+    tic = time.perf_counter()
+    levels = build_levels(A, Ps)
+    logging.info(f"    build_levels time:{time.perf_counter()-tic}")
+
+    if ((frame%20==0) and (ite==0)):
+        tic = time.perf_counter()
+        setup_smoothers(A)
+        logging.info(f"    setup smoothers time:{perf_counter()-tic}")
+    x0 = np.zeros_like(b)
+    tic = time.perf_counter()
+    x, r_Axb = old_amg_cg_solve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
+    toc = time.perf_counter()
+    logging.info(f"    mgsolve time {toc-tic}")
+    return  x, r_Axb
+        
+
 Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])
 
 def substep_all_solver(max_iter=1):
@@ -1502,44 +1531,37 @@ def substep_all_solver(max_iter=1):
             x = x.copy()
             gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
         if solver_type == "AMG":
-            global Ps
-
-            if ((frame%20==0) and (ite==0)):
-                tic = time.perf_counter()
-                Ps = build_Ps(A)
-                logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
-            
-            tic = time.perf_counter()
-            if use_cuda:
-                levels = build_levels_cuda(A, Ps)
+            if not use_cuda:
+                python_AMG()
             else:
-                levels = build_levels(A, Ps)
-            logging.info(f"    build_levels time:{time.perf_counter()-tic}")
+                global Ps, num_levels, new_fastmg
 
-            global new_fastmg
-            if use_cuda and new_fastmg==True:
-                extlib.fastmg_setup(len(levels))
-                new_fastmg = False
-            
-            if ((frame%20==0) and (ite==0)):
+                if ((frame%20==0) and (ite==0)):
+                    tic = time.perf_counter()
+                    Ps = build_Ps(A)
+                    num_levels = len(Ps)+1
+                    logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+                
+                    if new_fastmg==True:
+                        extlib.fastmg_setup_nl(num_levels)
+                        new_fastmg = False
+
                 tic = time.perf_counter()
-                if use_cuda:
+                levels = build_levels_cuda(A, Ps)
+                logging.info(f"    build_levels time:{time.perf_counter()-tic}")
+                
+                if ((frame%20==0) and (ite==0)):
+                    tic = time.perf_counter()
                     cuda_set_A0(levels[0].A)
                     extlib.fastmg_setup_smoothers(1)
-                else:
-                    setup_smoothers(A)
-                logging.info(f"    setup smoothers time:{perf_counter()-tic}")
+                    logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
-            if use_cuda:
-                mgsolve = new_amg_cg_solve
-            else:
-                mgsolve = old_amg_cg_solve
+                x0 = np.zeros_like(b)
+                tic = time.perf_counter()
+                x, r_Axb = new_amg_cg_solve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
+                toc = time.perf_counter()
+                logging.info(f"    mgsolve time {toc-tic}")
 
-            x0 = np.zeros_like(b)
-            tic = time.perf_counter()
-            x, r_Axb = mgsolve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
-            toc = time.perf_counter()
-            logging.info(f"    mgsolve time {toc-tic}")
 
         # rsys1 = np.linalg.norm(b-A@x)
         # print(f"    Linear system solve time: {perf_counter()-tic_linsys:.4f}s")
@@ -1791,7 +1813,7 @@ def init_direct_fill_A():
 
 
 def init_direct_fill_A_cuda():
-    extlib.fastFill_setup()
+    extlib.fastFill_new()
 
     extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
     nonz = extlib.fastFill_init()

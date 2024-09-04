@@ -1010,10 +1010,12 @@ struct VCycle : Kernels {
         float lower_bound=1.0/30.0;
         float upper_bound=1.1;
         float rho = computeMaxEigenvaluePowerMethodOptimized(A, 100);
-        max_eig = rho;
         float a = rho * lower_bound;
         float b = rho * upper_bound;
         chebyshev_polynomial_coefficients(a, b);
+        
+        max_eig = rho;
+        cout<<"max eigenvalue: "<<max_eig<<endl;
     }
 
 
@@ -1695,9 +1697,12 @@ static FastFill *fastFill = nullptr;
 #define DLLEXPORT
 #endif
 
-extern "C" DLLEXPORT void fastmg_setup(size_t numlvs) {
+extern "C" DLLEXPORT void fastmg_new(size_t numlvs) {
     if (!fastmg)
         fastmg = new VCycle{};
+}
+
+extern "C" DLLEXPORT void fastmg_setup_nl(size_t numlvs) {
     fastmg->setup(numlvs);
 }
 
@@ -1768,7 +1773,7 @@ extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
 
 
 // ------------------------------------------------------------------------------
-extern "C" DLLEXPORT void fastA_setup() {
+extern "C" DLLEXPORT void fastA_new() {
     if (!fastA)
         fastA = new AssembleMatrix{};
 }
@@ -1797,7 +1802,7 @@ extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) 
 }
 
 // ------------------------------------------------------------------------------
-extern "C" DLLEXPORT void fastFill_setup() {
+extern "C" DLLEXPORT void fastFill_new() {
     if (!fastFill)
         fastFill = new FastFill{};
 }

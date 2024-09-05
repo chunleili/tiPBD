@@ -11,9 +11,8 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-- Linux get `build/libfastmg.so`。
-- Windows get `build/Release/fastmg.dll`。
-   
+Output in `lib/*`。
+
 `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5\bin`
 
 5. Change `os.add_dll_directory("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")` as your own path in python code.

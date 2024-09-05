@@ -22,5 +22,5 @@ set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 # add_executable(mgxpbd mgxpbd.cpp)
 # target_include_directories(mgxpbd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
 
-add_executable(test_main test_main.cu)
-target_link_libraries(test_main PUBLIC fastmg)
+# add_executable(test_main test_main.cu)
+# target_link_libraries(test_main PUBLIC fastmg)

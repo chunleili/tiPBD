@@ -37,3 +37,8 @@ settings.json
 *.ele
 data/*
 .vs
+
+./perf.obj
+./perf.exe
+perf.exe
+NVprof.ncu-rep

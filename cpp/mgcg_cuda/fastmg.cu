@@ -174,6 +174,54 @@ public:
 };
 
 
+// https://stackoverflow.com/a/41154786/19253199
+// https://github.com/aramadia/udacity-cs344/blob/master/Unit2%20Code%20Snippets/gputimer.h
+// https://developer.nvidia.com/blog/how-implement-performance-metrics-cuda-cc/
+/// @brief Usage: 
+///     GpuTimer  timer;
+///     timer.start(); 
+///     do something
+///     timer.stop(); 
+///     float elapsedTime = timer.elapsed(); 
+///     printf("Elapsed time : %.2f ms\n" ,elapsedTime);
+struct GpuTimer
+{
+      cudaEvent_t m_start;
+      cudaEvent_t m_stop;
+
+      GpuTimer()
+      {
+            cudaEventCreate(&m_start);
+            cudaEventCreate(&m_stop);
+      }
+
+      ~GpuTimer()
+      {
+            cudaEventDestroy(m_start);
+            cudaEventDestroy(m_stop);
+      }
+
+      void start()
+      {
+            cudaEventRecord(m_start, 0);
+      }
+
+      void stop()
+      {
+            cudaEventRecord(m_stop, 0);
+      }
+
+      float elapsed()
+      {
+            float elapsed_ms;
+            cudaEventSynchronize(m_stop);
+            cudaEventElapsedTime(&elapsed_ms, m_start, m_stop);
+            return elapsed_ms;
+      }
+};
+
+
+
 namespace {
 
 struct Buffer {
@@ -1673,6 +1721,9 @@ struct VCycle : Kernels {
 
     void solve()
     {
+        GpuTimer timer;
+        timer.start();
+
         float bnrm2 = init_cg_iter0(residuals.data());
         float atol = bnrm2 * rtol;
         for (size_t iteration=0; iteration<maxiter; iteration++)
@@ -1689,6 +1740,10 @@ struct VCycle : Kernels {
             // auto r = calc_rnorm(outer_b, final_x, levels.at(0).A);
             // cout<<"iter: "<<iteration<<"   rnorm: "<<residuals[iteration]<<endl;
         }
+
+        timer.stop();
+        cout<<"time of solve gpu: "<<timer.elapsed()<<" ms"<<endl;
+
     }
 
 

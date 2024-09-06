@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <map>
 #include <set>
+#include <numeric>
 
 #include <thrust/device_vector.h>
 #include <thrust/transform.h>
@@ -1574,13 +1575,23 @@ struct VCycle : Kernels {
         }
     }
 
+    GpuTimer ttt1, ttt2, ttt3;
+    std::vector<float> ttt1_elapsed, ttt2_elapsed, ttt3_elapsed;
 
     void vcycle_down() {
         for (int lv = 0; lv < nlvs-1; ++lv) {
+            ttt1.start();
             Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : init_x;
             Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : init_b;
-            _smooth(lv, x, b);
+            ttt1.stop();
+            ttt1_elapsed.push_back(ttt1.elapsed());
 
+            ttt2.start();
+            _smooth(lv, x, b);
+            ttt2.stop();
+            ttt2_elapsed.push_back(ttt2.elapsed());
+
+            ttt3.start();
             copy(levels.at(lv).residual, b);
             spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff); // residual = b - A@x
 
@@ -1589,6 +1600,8 @@ struct VCycle : Kernels {
 
             levels.at(lv).x.resize(levels.at(lv).b.size());
             zero(levels.at(lv).x);
+            ttt3.stop();
+            ttt3_elapsed.push_back(ttt3.elapsed());
         }
     }
 
@@ -1601,10 +1614,26 @@ struct VCycle : Kernels {
         }
     }
 
+    GpuTimer tt1, tt2, tt3;
+    std::vector<float> tt1_elapsed, tt2_elapsed, tt3_elapsed;
+
     void vcycle() {
+        
+        tt1.start();
         vcycle_down();
+        tt1.stop();
+        tt1_elapsed.push_back(tt1.elapsed());
+
+        tt2.start();
         coarse_solve();
+        tt2.stop();
+        tt2_elapsed.push_back(tt2.elapsed());
+
+
+        tt3.start();
         vcycle_up();
+        tt3.stop();
+        tt3_elapsed.push_back(tt3.elapsed());
     }
 
 
@@ -1719,31 +1748,79 @@ struct VCycle : Kernels {
         return niter;
     }
 
+    float sum(std::vector<float> &v)
+    {
+        return std::accumulate(v.begin(), v.end(), 0.0);
+    }
+
+    float avg(std::vector<float> &v)
+    {
+        return std::accumulate(v.begin(), v.end(), 0.0) / v.size();
+    }
+
     void solve()
     {
-        GpuTimer timer;
-        timer.start();
+        GpuTimer t1, t2, t3, t4, t5;
+        std::vector<float> t2_elapsed, t3_elapsed, t4_elapsed, t5_elapsed;
 
+        t1.start();
         float bnrm2 = init_cg_iter0(residuals.data());
         float atol = bnrm2 * rtol;
-        for (size_t iteration=0; iteration<maxiter; iteration++)
+        for (size_t iter=0; iter<maxiter; iter++)
         {   
-            if (residuals[iteration] < atol)
+            t2.start();
+            t3.start();
+
+            if (residuals[iter] < atol)
             {
-                niter = iteration; 
+                niter = iter;
                 break;
             }
             copy_outer2init_x();  //reset x to x0
+            t3.stop();
+            t3_elapsed.push_back(t3.elapsed());
+
+            t4.start();
             vcycle();
-            do_cg_itern(residuals.data(), iteration); //first r is r[0], then r[iter+1]
-            niter = iteration; 
-            // auto r = calc_rnorm(outer_b, final_x, levels.at(0).A);
-            // cout<<"iter: "<<iteration<<"   rnorm: "<<residuals[iteration]<<endl;
+            t4.stop();
+            t4_elapsed.push_back(t4.elapsed());
+
+            t5.start();
+            do_cg_itern(residuals.data(), iter); //first r is r[0], then r[iter+1]
+            t5.stop();
+            t5_elapsed.push_back(t5.elapsed());
+
+            niter = iter;
+            t2.stop();
+            t2_elapsed.push_back(t2.elapsed());
         }
 
-        timer.stop();
-        cout<<"time of solve gpu: "<<timer.elapsed()<<" ms"<<endl;
+        float avg_t2 = avg(t2_elapsed);
+        float avg_t3 = avg(t3_elapsed);
+        float avg_t4 = avg(t4_elapsed);
+        float avg_t5 = avg(t5_elapsed);
+        float avg_tt1 = avg(tt1_elapsed);
+        float avg_tt2 = avg(tt2_elapsed);
+        float avg_tt3 = avg(tt3_elapsed);
+        float avg_ttt1 = avg(ttt1_elapsed);
+        float avg_ttt2 = avg(ttt2_elapsed);
+        float avg_ttt3 = avg(ttt3_elapsed);
 
+        cout<<"     avg time one iteration: "<<avg_t2<<" ms"<<endl;
+        cout<<"     avg time before vcycle: "<<avg_t3<<" ms"<<endl;
+        cout<<"     avg time vcycle: "<<avg_t4<<" ms"<<endl;
+        cout<<"     avg time after vcycle: "<<avg_t5<<" ms"<<endl;
+
+        cout<<"     avg time vcycle_down: "<<avg_tt1<<" ms"<<endl;
+        cout<<"     avg time coarse_solve: "<<avg_tt2<<" ms"<<endl;
+        cout<<"     avg time vcycle_up: "<<avg_tt3<<" ms"<<endl;
+
+        cout<<"     avg time vcycle_down before smooth: "<<avg_ttt1<<" ms"<<endl;
+        cout<<"     avg time vcycle_down smooth: "<<avg_ttt2<<" ms"<<endl;
+        cout<<"     avg time vcycle_down after smooth: "<<avg_ttt3<<" ms"<<endl;
+
+        t1.stop();
+        cout<<"     time of solve: "<<t1.elapsed()<<" ms"<<endl;
     }
 
 

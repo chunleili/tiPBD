@@ -79,6 +79,7 @@ parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU 
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-use_fastFill", type=int, default=False)
+parser.add_argument("-setup_interval", type=int, default=20)
 
 
 args = parser.parse_args()
@@ -1057,7 +1058,7 @@ def new_amg_cg_solve(b, x0=None, tol=1e-5, maxiter=100):
     niter = extlib.fastmg_get_data(x, residuals)
     residuals = residuals[:niter+1]
     print(f"    niter", niter)
-    print(f"    solve time: {time.perf_counter()-tic4:.2f}s")
+    print(f"    solve time: {time.perf_counter()-tic4:.3f}s")
     return (x),  residuals  
 
 
@@ -1454,7 +1455,27 @@ def python_AMG(A,b):
     toc = time.perf_counter()
     logging.info(f"    mgsolve time {toc-tic}")
     return  x, r_Axb
-        
+
+
+
+def report_multilevel_details(r_Axb, Ps, num_levels):
+    def calc_conv(r):
+        return (r[-1]/r[0])**(1.0/(len(r)-1))
+
+    logging.info(f"    num_levels:{num_levels}")
+    num_points_level = []
+    for i in range(len(Ps)):
+        num_points_level.append(Ps[i].shape[0])
+    num_points_level.append(Ps[-1].shape[1])
+    for i in range(num_levels):
+        logging.info(f"    num points of level {i}: {num_points_level[i]}")
+    convfactor = calc_conv(r_Axb)
+    logging.info(f"    convfactor: {convfactor:.2f}")
+
+
+def should_setup():
+    return ((frame%args.setup_interval==0) and (ite==0))
+
 
 Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])
 
@@ -1521,7 +1542,7 @@ def substep_all_solver(max_iter=1):
             else:
                 global Ps, num_levels, new_fastmg
 
-                if ((frame%20==0) and (ite==0)):
+                if should_setup():
                     tic = time.perf_counter()
                     if args.use_fastFill:
                         A = fastFill_fetch()
@@ -1537,7 +1558,7 @@ def substep_all_solver(max_iter=1):
                     update_P(Ps)
                     print(f"    update_P time: {time.perf_counter()-tic1:.2f}s")
 
-                if ((frame%20==0) and (ite==0)):
+                if should_setup():
                     tic = time.perf_counter()
                     cuda_set_A0(A)
                     extlib.fastmg_setup_smoothers(1) # 1 means chebyshev
@@ -1556,13 +1577,13 @@ def substep_all_solver(max_iter=1):
                 tic3 = time.perf_counter()
                 for lv in range(num_levels-1):
                     extlib.fastmg_RAP(lv) # build_levels is implicitly done 
-                print(f"    compute RAP time: {time.perf_counter()-tic3:.2f}s")
+                print(f"    RAP time: {time.perf_counter()-tic3:.3f}s")
 
                 x0 = np.zeros_like(b)
-                tic = time.perf_counter()
-                x, r_Axb = new_amg_cg_solve(b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
-                toc = time.perf_counter()
-                logging.info(f"    mgsolve time {toc-tic:.3f}")
+                x, r_Axb = new_amg_cg_solve(b, x0=x0, maxiter=max_iter_Axb, tol=1e-5)
+
+                if should_setup():
+                    report_multilevel_details(r_Axb, Ps, num_levels)
 
 
         # rsys1 = np.linalg.norm(b-A@x)

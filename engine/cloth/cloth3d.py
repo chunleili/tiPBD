@@ -1411,6 +1411,7 @@ def export_A_b(A,b,postfix="", binary=export_matrix_binary):
         scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)
         np.save(dir + f"b_{postfix}.npy", b)
         # A = scipy.sparse.load_npz("A.npz") # load
+        # b = np.load("b.npy")
     else:
         scipy.io.mmwrite(dir + f"A_{postfix}.mtx", A, symmetry='symmetric')
         np.savetxt(dir + f"b_{postfix}.txt", b)
@@ -1523,7 +1524,6 @@ def substep_all_solver(max_iter=1):
 
         if export_matrix:
             tic = time.perf_counter()
-            A = fastFill_fetch()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic
 

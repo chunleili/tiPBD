@@ -39,7 +39,7 @@ export_mesh = True
 use_offdiag = True
 reduce_offdiag = False
 early_stop = True
-use_primary_residual = False
+use_PXPBD = False
 use_geometric_stiffness = False
 dont_clean_results = False
 report_time = True
@@ -161,6 +161,7 @@ predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 # K = ti.Matrix.field(3, 3, float, (NV, NV)) 
 # geometric stiffness, only retain diagonal elements
 K_diag = np.zeros((NV*3), dtype=float)
+Minv_gg = ti.Vector.field(3, dtype=float, shape=(NV))
 
 inv_mass_np = np.repeat(inv_mass.to_numpy(), 3, axis=0)
 M_inv = scipy.sparse.diags(inv_mass_np)
@@ -1102,7 +1103,7 @@ def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg=None):
     dLambda_ = x.copy()
     lagrangian.from_numpy(lagrangian.to_numpy() + dLambda_)
     dpos = M_inv @ G.transpose() @ dLambda_ 
-    if use_primary_residual:
+    if use_PXPBD:
         dpos -=  Minv_gg
     dpos = dpos.reshape(-1, 3)
     pos.from_numpy(pos_mid.to_numpy() + omega*dpos)
@@ -1466,7 +1467,7 @@ def calc_r_AMG(r,fulldual0, t_iter_start, r_Axb):
     compute_inertial_energy()
     robj = (potential_energy[None]+inertial_energy[None])
     r_Axb = r_Axb.tolist()
-    # if use_primary_residual:
+    # if use_PXPBD:
     #     primary_residual = calc_primary_residual(G, M_inv)
     #     primary_r = np.linalg.norm(primary_residual).astype(float)
 
@@ -1491,8 +1492,54 @@ def do_export_r(r):
             file.write(r_json)
 
 
-Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])
 
+@ti.kernel
+def PXPBD_b(pos:ti.template(), predict_pos:ti.template(), lagrangian:ti.template(), inv_mass:ti.template(), gradC:ti.template(), b:ti.types.ndarray(), Minv_gg:ti.template()):
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+
+        if invM0 != 0.0:
+            Minv_gg[idx0] = invM0 * lagrangian[i] * gradC[i, 0] + (pos[idx0] - predict_pos[idx0])
+        if invM1 != 0.0:
+            Minv_gg[idx1] = invM1 * lagrangian[i] * gradC[i, 1] + (pos[idx0] - predict_pos[idx0])
+
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        if invM1 != 0.0 and invM0 != 0.0:
+            b[idx0] += gradC[i, 0] @ Minv_gg[idx0] + gradC[i, 1] @ Minv_gg[idx1]
+
+        #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
+        #     b += G @ Minv_gg
+
+def PXPBD_transfer_back_to_pos_mfree(x):
+    dLambda.from_numpy(x)
+    reset_dpos(dpos)
+    PXPBD_transfer_back_to_pos_mfree_kernel(Minv_gg)
+    update_pos(inv_mass, dpos, pos)
+
+
+@ti.kernel
+def PXPBD_transfer_back_to_pos_mfree_kernel(Minv_gg:ti.template()):
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+
+        delta_lagrangian = dLambda[i]
+        lagrangian[i] += delta_lagrangian
+
+        gradient = gradC[i, 0]
+        
+        if invM0 != 0.0:
+            dpos[idx0] += invM0 * delta_lagrangian * gradient - Minv_gg[idx0]
+        if invM1 != 0.0:
+            dpos[idx1] -= invM1 * delta_lagrangian * gradient - Minv_gg[idx1]
+        
+
+
+
+Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])
 
 def substep_all_solver(max_iter=1):
     global pos, lagrangian, ite, t_export
@@ -1523,7 +1570,8 @@ def substep_all_solver(max_iter=1):
         b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
         # #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
-        # if use_primary_residual:
+        if use_PXPBD:
+            PXPBD_b(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
         #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
         #     b += G @ Minv_gg
         logging.info(f"    Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
@@ -1581,9 +1629,11 @@ def substep_all_solver(max_iter=1):
                     report_multilevel_details(r_Axb, Ps, num_levels)
 
         tic = time.perf_counter()
-        transfer_back_to_pos_mfree(x)
-        # if use_primary_residual:
+        if use_PXPBD:
+            PXPBD_transfer_back_to_pos_mfree(x)
         #     transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
+        else:
+            transfer_back_to_pos_mfree(x)
         print(f"    dlam to dpos time: {perf_counter()-tic:.4f}s")
 
         tic = perf_counter()

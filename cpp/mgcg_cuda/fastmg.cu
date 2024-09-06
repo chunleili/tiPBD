@@ -1809,42 +1809,44 @@ struct VCycle : Kernels {
             t2_elapsed.push_back(t2.elapsed());
         }
 
-        float avg_t2 = avg(t2_elapsed);
-        float avg_t3 = avg(t3_elapsed);
-        float avg_t4 = avg(t4_elapsed);
-        float avg_t5 = avg(t5_elapsed);
-        float avg_tt1 = avg(tt1_elapsed);
-        float avg_tt2 = avg(tt2_elapsed);
-        float avg_tt3 = avg(tt3_elapsed);
-        float avg_ttt1 = avg(ttt1_elapsed);
-        float avg_ttt2 = avg(ttt2_elapsed);
-        float avg_ttt3 = avg(ttt3_elapsed);
-        
-
-        cout<<"     avg time one iteration: "<<avg_t2<<" ms"<<endl;
-        cout<<"     avg time before vcycle: "<<avg_t3<<" ms"<<endl;
-        cout<<"     avg time vcycle: "<<avg_t4<<" ms"<<endl;
-        cout<<"     avg time after vcycle: "<<avg_t5<<" ms"<<endl;
-
-        cout<<"     avg time vcycle_down: "<<avg_tt1<<" ms"<<endl;
-        cout<<"     avg time coarse_solve: "<<avg_tt2<<" ms"<<endl;
-        cout<<"     avg time vcycle_up: "<<avg_tt3<<" ms"<<endl;
-
-        cout<<"     avg time vcycle_down before smooth: "<<avg_ttt1<<" ms"<<endl;
-        cout<<"     avg time vcycle_down smooth: "<<avg_ttt2<<" ms"<<endl;
-        cout<<"     avg time vcycle_down after smooth: "<<avg_ttt3<<" ms"<<endl;
-
-        // print ttt elaspse
-        for(int lv=0; lv<nlvs-1; lv++)
+        bool report_time = false;
+        if(report_time)
         {
-            cout<<"     level "<<lv<<endl;
-            cout<<"     avg ttt time: "<< avg(ttt_elapsed[lv])<<" ms"<<endl;
+            float avg_t2 = avg(t2_elapsed);
+            float avg_t3 = avg(t3_elapsed);
+            float avg_t4 = avg(t4_elapsed);
+            float avg_t5 = avg(t5_elapsed);
+            float avg_tt1 = avg(tt1_elapsed);
+            float avg_tt2 = avg(tt2_elapsed);
+            float avg_tt3 = avg(tt3_elapsed);
+            float avg_ttt1 = avg(ttt1_elapsed);
+            float avg_ttt2 = avg(ttt2_elapsed);
+            float avg_ttt3 = avg(ttt3_elapsed);
+            
+
+            cout<<"     avg time one iteration: "<<avg_t2<<" ms"<<endl;
+            cout<<"     avg time before vcycle: "<<avg_t3<<" ms"<<endl;
+            cout<<"     avg time vcycle: "<<avg_t4<<" ms"<<endl;
+            cout<<"     avg time after vcycle: "<<avg_t5<<" ms"<<endl;
+
+            cout<<"     avg time vcycle_down: "<<avg_tt1<<" ms"<<endl;
+            cout<<"     avg time coarse_solve: "<<avg_tt2<<" ms"<<endl;
+            cout<<"     avg time vcycle_up: "<<avg_tt3<<" ms"<<endl;
+
+            cout<<"     avg time vcycle_down before smooth: "<<avg_ttt1<<" ms"<<endl;
+            cout<<"     avg time vcycle_down smooth: "<<avg_ttt2<<" ms"<<endl;
+            cout<<"     avg time vcycle_down after smooth: "<<avg_ttt3<<" ms"<<endl;
+
+            // print ttt elaspse
+            for(int lv=0; lv<nlvs-1; lv++)
+            {
+                cout<<"     level "<<lv;
+                cout<<" avg ttt time: "<< avg(ttt_elapsed[lv])<<" ms"<<endl;
+            }
+
+            t1.stop();
+            cout<<"     time of solve: "<<t1.elapsed()<<" ms"<<endl;
         }
-
-
-
-        t1.stop();
-        cout<<"     time of solve: "<<t1.elapsed()<<" ms"<<endl;
     }
 
 

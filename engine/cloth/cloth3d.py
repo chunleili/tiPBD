@@ -30,14 +30,13 @@ prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 
 # parameters not in argparse
 frame = 0
+ite=0
 save_image = True
 paused = False
 save_P, load_P = False, False
 use_viewer = False
 export_mesh = True
-calc_r = True
 use_offdiag = True
-gravity = [0.0, -9.8, 0.0]
 reduce_offdiag = False
 early_stop = True
 use_primary_residual = False
@@ -46,8 +45,9 @@ dont_clean_results = False
 report_time = True
 # chebyshev_coeff = None
 export_fullr = False
-new_fastmg = True
 num_levels = 0
+t_export = 0.0
+
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
@@ -84,7 +84,7 @@ args = parser.parse_args()
 N = args.N
 delta_t = args.delta_t
 solver_type = args.solver_type
-export_residual = bool(args.export_residual)
+gravity = [0.0, -9.8, 0.0]
 if args.setup_num==1: gravity = [0.0, 0.0, 0.0]
 else : gravity = [0.0, -9.8, 0.0]
 end_frame = args.end_frame
@@ -115,12 +115,6 @@ if args.use_json:
 #to print out the parameters
 global_vars = globals().copy()
 
-
-t_export_matrix = 0.0
-t_calc_residual = 0.0
-t_export_residual = 0.0
-t_export_mesh = 0.0
-t_save_state = 0.0
 
 
 if args.arch == "cuda":
@@ -167,6 +161,11 @@ predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 # K = ti.Matrix.field(3, 3, float, (NV, NV)) 
 # geometric stiffness, only retain diagonal elements
 K_diag = np.zeros((NV*3), dtype=float)
+
+inv_mass_np = np.repeat(inv_mass.to_numpy(), 3, axis=0)
+M_inv = scipy.sparse.diags(inv_mass_np)
+alpha_tilde_np = np.array([alpha] * NCONS)
+ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
 
 def init_extlib_argtypes():
@@ -611,8 +610,9 @@ def substep_xpbd(max_iter):
         reset_dpos(dpos)
         solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
         update_pos(inv_mass, dpos, pos)
-
-        if calc_r:
+        
+        calc_r_xpbd = True
+        if calc_r_xpbd:
             tic_calcr = perf_counter()
             t_iter = perf_counter()-tic_iter
             # calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
@@ -634,14 +634,13 @@ def substep_xpbd(max_iter):
         if dualr < 0.1*dualr0 or dualr<1e-5:
             break
 
-    if export_residual:
-        global t_export_residual
+    if args.export_residual:
         tic = time.perf_counter()
         serialized_r = [r[i]._asdict() for i in range(len(r))]
         r_json = json.dumps(serialized_r)
         with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
             file.write(r_json)
-        t_export_residual = time.perf_counter()-tic
+        print(f"export residual time: {time.perf_counter()-tic:.2f}s")
 
     update_vel(old_pos, inv_mass, vel, pos)
 
@@ -1381,6 +1380,7 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
 
 
 def export_A_b(A,b,postfix="", binary=args.export_matrix_binary):
+    tic = time.perf_counter()
     dir = out_dir + "/A/"
     if binary:
         # https://stackoverflow.com/a/8980156/19253199
@@ -1391,6 +1391,9 @@ def export_A_b(A,b,postfix="", binary=args.export_matrix_binary):
     else:
         scipy.io.mmwrite(dir + f"A_{postfix}.mtx", A, symmetry='symmetric')
         np.savetxt(dir + f"b_{postfix}.txt", b)
+    t_calc_residual += time.perf_counter()-tic
+    print(f"    export_A_b time: {time.perf_counter()-tic:.3f}s")
+    
 
 @ti.kernel
 def compute_potential_energy():
@@ -1434,10 +1437,10 @@ def python_AMG(A,b):
     return  x, r_Axb
 
 
+def calc_conv(r):
+    return (r[-1]/r[0])**(1.0/(len(r)-1))
 
 def report_multilevel_details(r_Axb, Ps, num_levels):
-    def calc_conv(r):
-        return (r[-1]/r[0])**(1.0/(len(r)-1))
 
     logging.info(f"    num_levels:{num_levels}")
     num_points_level = []
@@ -1454,27 +1457,53 @@ def should_setup():
     return ((frame%args.setup_interval==0) and (ite==0))
 
 
+def calc_r_AMG(r,fulldual0, t_iter_start, r_Axb):
+    t_iter = perf_counter()-t_iter_start
+    tic_calcr = perf_counter()
+    calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+    dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
+    compute_potential_energy()
+    compute_inertial_energy()
+    robj = (potential_energy[None]+inertial_energy[None])
+    r_Axb = r_Axb.tolist()
+    # if use_primary_residual:
+    #     primary_residual = calc_primary_residual(G, M_inv)
+    #     primary_r = np.linalg.norm(primary_residual).astype(float)
+
+    if export_fullr:
+        fulldual_final = dual_residual.to_numpy()
+        np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
+
+    logging.info(f"    convergence factor: {calc_conv(r_Axb):.2f}")
+    logging.info(f"    Calc r time: {perf_counter()-tic_calcr:.4f}s")
+
+    if args.export_log:
+        logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
+    r.append(Residual([0.,0.], dual_r, robj, r_Axb, len(r_Axb), t_iter))
+
+
+
+def do_export_r(r):
+    if args.export_residual:
+        serialized_r = [r[i]._asdict() for i in range(len(r))]
+        r_json = json.dumps(serialized_r)
+        with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
+            file.write(r_json)
+
+
 Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])
 
+
 def substep_all_solver(max_iter=1):
-    global pos, lagrangian
-    global t_export_matrix, t_calc_residual, t_export_residual, t_save_state
+    global pos, lagrangian, ite, t_export
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
-    inv_mass_np = np.repeat(inv_mass.to_numpy(), 3, axis=0)
-    M_inv = scipy.sparse.diags(inv_mass_np)
-    alpha_tilde_np = np.array([alpha] * NCONS)
-    ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
-
-    x0 = np.random.rand(NE)
-    x_prev = x0.copy()
+    x0 = np.zeros(NCONS)
     x = x0.copy()
     r = []
-    t_calc_residual = 0.0
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
     fulldual0 = dual_residual.to_numpy()
-    global ite
     for ite in range(max_iter):
         tic_assemble = perf_counter()
         t_iter_start = perf_counter()
@@ -1497,16 +1526,11 @@ def substep_all_solver(max_iter=1):
         # if use_primary_residual:
         #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
         #     b += G @ Minv_gg
+        logging.info(f"    Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
 
         if args.export_matrix:
-            tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
-            t_export_matrix = time.perf_counter()-tic
 
-        # rsys0 = (np.linalg.norm(b-A@x))
-
-        print(f"    Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
-        # tic_linsys = perf_counter()
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
         if solver_type == "GS":
@@ -1516,7 +1540,7 @@ def substep_all_solver(max_iter=1):
             if not args.use_cuda:
                 x, r_Axb = python_AMG(A,b)
             else:
-                global Ps, num_levels, new_fastmg
+                global Ps, num_levels
 
                 if should_setup():
                     tic = time.perf_counter()
@@ -1526,15 +1550,12 @@ def substep_all_solver(max_iter=1):
                     num_levels = len(Ps)+1
                     logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
                 
-                    if new_fastmg==True:
-                        extlib.fastmg_setup_nl(num_levels)
-                        new_fastmg = False
+                    extlib.fastmg_setup_nl(num_levels)
 
-                    tic1 = time.perf_counter()
+                    tic = time.perf_counter()
                     update_P(Ps)
-                    print(f"    update_P time: {time.perf_counter()-tic1:.2f}s")
+                    print(f"    update_P time: {time.perf_counter()-tic:.2f}s")
 
-                if should_setup():
                     tic = time.perf_counter()
                     cuda_set_A0(A)
                     extlib.fastmg_setup_smoothers(1) # 1 means chebyshev
@@ -1545,7 +1566,6 @@ def substep_all_solver(max_iter=1):
                 if args.use_fastFill:
                     extlib.fastmg_set_A0_from_fastFill()
                 else:
-                    # cuda_set_A0(A)
                     cuda_update_A0(A)
                 logging.info(f"    set_A0 time:{perf_counter()-tic:.3f}s")
                 
@@ -1561,54 +1581,19 @@ def substep_all_solver(max_iter=1):
                 if should_setup():
                     report_multilevel_details(r_Axb, Ps, num_levels)
 
-
-        # rsys1 = np.linalg.norm(b-A@x)
-        # print(f"    Linear system solve time: {perf_counter()-tic_linsys:.4f}s")
-        
         tic = time.perf_counter()
         transfer_back_to_pos_mfree(x)
         # if use_primary_residual:
         #     transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
-        # else:
-        #     transfer_back_to_pos_mfree(x) #XPBD
         print(f"    dlam to dpos time: {perf_counter()-tic:.4f}s")
 
-        if calc_r:
-            tic_calcr = perf_counter()
-            t_iter = perf_counter()-t_iter_start
-            calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-            dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
-            compute_potential_energy()
-            compute_inertial_energy()
-            robj = (potential_energy[None]+inertial_energy[None])
-            r_Axb = r_Axb.tolist()
-            # if use_primary_residual:
-            #     primary_residual = calc_primary_residual(G, M_inv)
-            #     primary_r = np.linalg.norm(primary_residual).astype(float)
-
-            if export_fullr:
-                fulldual_final = dual_residual.to_numpy()
-                np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
-
-            print(f"    Calc r time: {perf_counter()-tic_calcr:.4f}s")
-            if args.export_log:
-                logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
-            r.append(Residual([0.,0.], dual_r, robj, r_Axb, len(r_Axb), t_iter))
-
-        x_prev = x.copy()
+        tic = perf_counter()
+        calc_r_AMG(r, fulldual0,t_iter_start, r_Axb)
+        do_export_r(r)
+        t_export += perf_counter()-tic
 
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
-        
-
-    if export_residual:
-        tic = time.perf_counter()
-        serialized_r = [r[i]._asdict() for i in range(len(r))]
-        r_json = json.dumps(serialized_r)
-        with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
-            file.write(r_json)
-        t_export_residual = time.perf_counter()-tic
-
     update_vel(old_pos, inv_mass, vel, pos)
 
 
@@ -1836,11 +1821,11 @@ def cache_and_init_direct_fill_A():
 
 
 
-def ending(timer_loop, start_date, initial_frame=0):
+def ending(timer_loop, start_date, initial_frame, t_export_total):
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now()
     end_frame = frame
-    s = f"Time all: {(time.perf_counter() - timer_loop):.2f}s = {(time.perf_counter() - timer_loop)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_date},\n end at {end_date}."
+    s = f"\n-------\nTime: {(time.perf_counter() - timer_loop):.2f}s = {(time.perf_counter() - timer_loop)/60:.2f}min. \nFrame {initial_frame}-{end_frame}({end_frame-initial_frame} frames). \nAvg: {t_all/(end_frame-initial_frame):.2f}s/frame. \nStart\t{start_date},\nEnd\t{end_date}.\nTime of exporting: {t_export_total:.3f}s"
     if args.export_log:
         logging.info(s)
 
@@ -1922,13 +1907,15 @@ viewer = Viewer()
 
 def run():
     global frame, paused, ite
-    global t_export_matrix, t_calc_residual, t_export_residual, t_save_state
     timer_loop = time.perf_counter()
     initial_frame = frame
     step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
+    t_export_total = 0.0
     try:
         while True:
-            t_one_frame_start = time.perf_counter()
+            tic_frame = time.perf_counter()
+            t_export = 0.0
+
             if use_viewer:
                 for e in viewer.window.get_events(ti.ui.PRESS):
                     if e.key in [ti.ui.ESCAPE]:
@@ -1942,23 +1929,21 @@ def run():
                 else:
                     substep_all_solver(max_iter)
                 frame += 1
+                
+                tic_export = time.perf_counter()
                 if export_mesh:
-                    tic = time.perf_counter()
                     write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
-                    t_export_mesh = time.perf_counter()-tic
                 if args.export_state:
-                    tic = time.perf_counter()
                     save_state(out_dir+'/state/' + f"{frame:04d}.npz")
-                    t_save_state = time.perf_counter()-tic
-                if report_time:
-                    total_export_time = t_export_mesh+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
-                    t_frame = time.perf_counter()-t_one_frame_start
-                    if args.export_log:
-                        # logging.info(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
-                        logging.info(f"Time of exporting: {total_export_time:.3f}s")
-                        logging.info(f"Time of frame-{frame}: {t_frame:.3f}s")
+                t_export += time.perf_counter()-tic_export
+                t_export_total += t_export
+                t_frame = time.perf_counter()-tic_frame
+                if args.export_log:
+                    logging.info(f"Time of exporting: {t_export:.3f}s")
+                    logging.info(f"Time of frame-{frame}: {t_frame:.3f}s")
             if frame == end_frame:
-                ending(timer_loop, start_wall_time, initial_frame)
+                print("Normallly end.")
+                ending(timer_loop, start_wall_time, initial_frame, t_export_total)
                 exit()
             if use_viewer:
                 viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
@@ -1976,7 +1961,8 @@ def run():
             logging.info("")
 
     except KeyboardInterrupt:
-        ending(timer_loop, start_wall_time, initial_frame)
+        print("KeyboardInterrupt")
+        ending(timer_loop, start_wall_time, initial_frame, t_export_total)
 
 
 def main():

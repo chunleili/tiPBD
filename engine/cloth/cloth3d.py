@@ -195,9 +195,8 @@ K_diag = np.zeros((NV*3), dtype=float)
 def init_extlib_argtypes():
     global extlib
 
-    if use_cuda:
-        os.add_dll_directory(cuda_dir)
-        extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
+    os.add_dll_directory(cuda_dir)
+    extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
     arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
     arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
@@ -234,8 +233,8 @@ def init_extlib_argtypes():
 
     extlib.fastmg_new()
 
-
-init_extlib_argtypes()
+if use_cuda:
+    init_extlib_argtypes()
 
 
 class SpMat():
@@ -888,7 +887,7 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
 
 # https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/relaxation/relaxation.py#L586
 chebyshev_coeff = None
-def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
+def chebyshev(A, x, b, coefficients, iterations=1):
     x = np.ravel(x)
     b = np.ravel(b)
     for _i in range(iterations):
@@ -900,12 +899,13 @@ def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
 
 def calc_spectral_radius(A):
     global spectral_radius
-    if frame%20==0 and ite==0:
-        t = time.perf_counter()
-        # spectral_radius = approximate_spectral_radius(A) # legacy python version
+    t = time.perf_counter()
+    if use_cuda:
         cuda_set_A0(A)
         spectral_radius = extlib.fastmg_get_max_eig()
-        print(f"approximate_spectral_radius time: {time.perf_counter()-t:.2f}s")
+    else:
+        spectral_radius = approximate_spectral_radius(A) # legacy python version
+    print(f"spectral_radius time: {time.perf_counter()-t:.2f}s")
     print("spectral_radius:", spectral_radius)
     return spectral_radius
 
@@ -987,7 +987,6 @@ def setup_smoothers(A):
     global chebyshev_coeff
     if smoother_type == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
-        extlib.fastmg_setup_chebyshev(chebyshev_coeff.astype(np.float32), chebyshev_coeff.shape[0])
     elif smoother_type == 'jacobi':
         setup_jacobi(A)
         extlib.fastmg_setup_jacobi(jacobi_omega, 10)
@@ -1082,7 +1081,7 @@ def presmoother(A,x,b):
     elif smoother_type == 'diag_sweep':
         diag_sweep(A,x,b,iterations=1)
     elif smoother_type == 'chebyshev':
-        chebyshev(A,x,b)
+        chebyshev(A,x,b,chebyshev_coeff)
 
 
 def postsmoother(A,x,b):
@@ -1436,7 +1435,7 @@ def compute_inertial_energy():
 def python_AMG(A,b):
     global Ps, num_levels
 
-    if ((frame%20==0) and (ite==0)):
+    if should_setup():
         tic = time.perf_counter()
         Ps = build_Ps(A)
         num_levels = len(Ps)+1
@@ -1446,7 +1445,7 @@ def python_AMG(A,b):
     levels = build_levels(A, Ps)
     logging.info(f"    build_levels time:{time.perf_counter()-tic}")
 
-    if ((frame%20==0) and (ite==0)):
+    if should_setup():
         tic = time.perf_counter()
         setup_smoothers(A)
         logging.info(f"    setup smoothers time:{perf_counter()-tic}")
@@ -1538,7 +1537,7 @@ def substep_all_solver(max_iter=1):
             gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
         if solver_type == "AMG":
             if not use_cuda:
-                python_AMG()
+                x, r_Axb = python_AMG(A,b)
             else:
                 global Ps, num_levels, new_fastmg
 

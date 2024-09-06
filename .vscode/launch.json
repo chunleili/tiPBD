@@ -8,7 +8,10 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": []
+            "args": [
+                "-N=64",
+                "-use_cuda=0",
+            ]
         },
         {
             "name": "profile",

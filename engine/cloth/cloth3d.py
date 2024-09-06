@@ -419,7 +419,7 @@ def init_adj_edge(edges: np.ndarray):
         adjacent_edges.remove(edge_index)  # 移除边本身
         all_adjacent_edges[edge_index] = list(adjacent_edges)
 
-    return all_adjacent_edges
+    return all_adjacent_edges, vertex_to_edges
 
 # # 示例用法
 # edges = np.array([[0, 1], [1, 2], [2, 0], [1, 3]])
@@ -1315,6 +1315,15 @@ def csr_is_equal(A, B):
         return False
     return True
 
+def dense_mat_is_equal(A, B):
+    diff = A - B
+    maxdiff = np.abs(diff).max()
+    print("maxdiff: ", maxdiff)
+    if maxdiff > 1e-6:
+        assert False
+    print("is equal!")
+    return True
+
 
 def fill_A_ijv_ti():
     ii, jj, vv = np.zeros(num_nonz, int), np.zeros(num_nonz, int), np.zeros(num_nonz, np.float32)
@@ -1328,6 +1337,61 @@ def fill_A_csr_ti():
     fill_A_CSR_kernel(spmat_data, spmat_indptr, spmat_ii, spmat_jj, adjacent_edge_abc, num_nonz, alpha)
     A = scipy.sparse.csr_matrix((spmat_data, spmat_indices, spmat_indptr), shape=(NE, NE))
     return A
+
+
+def fill_A_mfree_wrapper():
+    ii, jj, vv = np.zeros(2*num_nonz, int), np.zeros(2*num_nonz, int), np.zeros(2*num_nonz, np.float32)
+    fill_A_mfree(v2e, num_v2e, ii, jj, vv, pos.to_numpy(), edge.to_numpy(), inv_mass.to_numpy())
+    A = scipy.sparse.coo_array((vv, (ii, jj)), shape=(NE, NE))
+    A= A.tocsr()
+    return A
+
+def normalize(v):
+    return v / np.linalg.norm(v)
+
+def compare_find_shared_v_order(v,e1,e2,edge):
+    # which is shared v in e1? 0 or 1
+    order_in_e1 = 0 if edge[e1][0] == v else 1
+    order_in_e2 = 0 if edge[e2][0] == v else 1
+    return order_in_e1, order_in_e2
+
+
+def fill_A_mfree(v2e, num_v2e, ii, jj, vv, pos, edge, inv_mass):
+    cnt=0
+    for v in range(NV):
+        es = v2e[v] # a list of edges
+        if inv_mass[v] == 0: # no mass, no force
+            continue
+        if num_v2e[v] == 0: #only one edge, no shared edge
+            continue
+        else:
+            for i in range(num_v2e[v]):
+                for j in range(num_v2e[v]):
+                    if i == j:
+                        continue
+                    e1 = es[i]
+                    e2 = es[j]
+
+                    o1,o2 = compare_find_shared_v_order(v,e1,e2,edge)
+                    o1 = 1-o1 # 0->1, 1->0, because we want to find the other point
+                    o2 = 1-o2
+
+                    g1 = normalize(pos[v] - pos[edge[e1][o1]])
+                    g2 = normalize(pos[v] - pos[edge[e2][o2]])
+
+                    ii[cnt]=e1
+                    jj[cnt]=e2 # A[e1, e2]
+                    vv[cnt] = inv_mass[v] * g1.dot(g2) 
+                    cnt+=1
+
+    # diagonal
+    for i in range(NE):
+        ii[cnt]=i
+        jj[cnt]=i
+        vv[cnt]=inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+        cnt+=1
+
+
 
 
 # def fill_A_csr_cuda_and_fetch():
@@ -1562,7 +1626,13 @@ def substep_all_solver(max_iter=1):
         if args.use_fastFill:
             fastFill_run()
         else:
-            A = fill_A_csr_ti()
+            A1 = fill_A_csr_ti()
+            A2 = fill_A_mfree_wrapper()
+            A1 = A1.todense()
+            A2 = A2.todense()
+             # check if A1 and A2 are equal
+            dense_mat_is_equal(A1, A2)
+            A = A1
             # A,G = fill_A_by_spmm(M_inv, ALPHA)
         print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
 
@@ -1784,7 +1854,7 @@ def dict_to_ndarr(d:dict)->np.ndarray:
 
     max_len = max(len(item) for item in d.values())
     # 使用填充或截断的方式转换为NumPy数组
-    arr = np.array([item + [-1]*(max_len - len(item)) if len(item) < max_len else item[:max_len] for item in d.values()])
+    arr = np.array([list(item) + [-1]*(max_len - len(item)) if len(item) < max_len else list(item)[:max_len] for item in d.values()])
     return arr, lengths
 
 
@@ -1813,8 +1883,9 @@ def init_direct_fill_A():
     # global spmatdata
     tic1 = perf_counter()
     print("Initializing adjacent edge and abc...")
-    adjacent_edge = init_adj_edge(edges=edge.to_numpy())
+    adjacent_edge, v2e_dict = init_adj_edge(edges=edge.to_numpy())
     adjacent_edge,num_adjacent_edge = dict_to_ndarr(adjacent_edge)
+    v2e_np, num_v2e = dict_to_ndarr(v2e_dict)
     print(f"init_adjacent_edge time: {perf_counter()-tic1:.3f}s")
 
     adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
@@ -1842,7 +1913,7 @@ def init_direct_fill_A():
     tic = perf_counter() # savez_compressed will save 10x space(1.4G->140MB), but much slower(33s)
     np.savez(f'cache_initFill_N{N}.npz', adjacent_edge=adjacent_edge, num_adjacent_edge=num_adjacent_edge, adjacent_edge_abc=adjacent_edge_abc, num_nonz=num_nonz, spmat_data=data, spmat_indices=indices, spmat_indptr=indptr, spmat_ii=ii, spmat_jj=jj)
     print("time of caching:", perf_counter()-tic)
-    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj
+    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj, v2e_np, num_v2e
 
 
 def init_direct_fill_A_cuda():
@@ -1859,14 +1930,14 @@ def init_direct_fill_A_cuda():
 
 
 def cache_and_init_direct_fill_A():
-    global adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj
+    global adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e
     if  os.path.exists(f'cache_initFill_N{N}.npz') and args.use_cache:
         npzfile= np.load(f'cache_initFill_N{N}.npz')
         (adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj) = (npzfile[key] for key in ['adjacent_edge', 'num_adjacent_edge', 'adjacent_edge_abc', 'num_nonz', 'spmat_data', 'spmat_indices', 'spmat_indptr', 'spmat_ii', 'spmat_jj'])
         num_nonz = int(num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
         print(f"load cache_initFill_N{N}.npz")
     else:
-        adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj = init_direct_fill_A()
+        adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e = init_direct_fill_A()
 
 
 

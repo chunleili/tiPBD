@@ -9,8 +9,9 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-                "-N=64",
+                "-N=3",
                 "-use_cuda=0",
+                "-use_cache=0"
             ]
         },
         {

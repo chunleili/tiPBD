@@ -76,7 +76,7 @@ parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
-parser.add_argument("-use_fastFill", type=int, default=False)
+parser.add_argument("-use_fastFill", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
 
 
@@ -1626,13 +1626,13 @@ def substep_all_solver(max_iter=1):
         if args.use_fastFill:
             fastFill_run()
         else:
-            A1 = fill_A_csr_ti()
-            A2 = fill_A_mfree_wrapper()
-            A1 = A1.todense()
-            A2 = A2.todense()
-             # check if A1 and A2 are equal
-            dense_mat_is_equal(A1, A2)
-            A = A1
+            A = fill_A_csr_ti()
+            # A2 = fill_A_mfree_wrapper()
+            # A1 = A1.todense()
+            # A2 = A2.todense()
+            #  # check if A1 and A2 are equal
+            # dense_mat_is_equal(A1, A2)
+            # A = A1
             # A,G = fill_A_by_spmm(M_inv, ALPHA)
         print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
 

@@ -91,6 +91,7 @@
         "*.inc": "cpp",
         "sparseextra": "cpp",
         "alignedvector3": "cpp",
-        "nonlinearoptimization": "cpp"
+        "nonlinearoptimization": "cpp",
+        "nnls": "cpp"
     }
 }

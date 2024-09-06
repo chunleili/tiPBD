@@ -342,10 +342,80 @@ cudaDataType_t cudaDataTypeFor<double>() {
 }
 
 
-__global__ void fill_A_CSR_kernel()
+
+/* -------------------------------------------------------------------------- */
+/*                                   kernels                                  */
+/* -------------------------------------------------------------------------- */
+
+
+
+__device__ float3 inline d_normalize_diff(std::array<float,3> &v1,  std::array<float,3> &v2)
 {
-    // TODO:
+    std::array<float,3> diff = {v1[0]-v2[0], v1[1]-v2[1], v1[2]-v2[2]};
+    float norm = sqrt(diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2]);
+    return {diff[0]/norm, diff[1]/norm, diff[2]/norm};
 }
+
+__device__ float inline d_dot(std::array<float,3> a, std::array<float,3> b)
+{
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+
+
+// def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
+//                               indptr:ti.types.ndarray(dtype=ti.i32), 
+//                               ii:ti.types.ndarray(dtype=ti.i32), 
+//                               jj:ti.types.ndarray(dtype=ti.i32),
+//                               adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
+//                               num_nonz:ti.i32,
+//                               alpha:ti.f32):
+//     for cnt in range(num_nonz):
+//         i = ii[cnt] # row index
+//         j = jj[cnt] # col index
+//         k = cnt - indptr[i] #k-th non-zero element of i-th row. 
+//         # Because the diag is the final element of each row, 
+//         # it is also the k-th adjacent edge of i-th edge.
+//         if i == j: # diag
+//             data[cnt] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+//             continue
+//         a = adjacent_edge_abc[i, k * 3]
+//         b = adjacent_edge_abc[i, k * 3 + 1]
+//         c = adjacent_edge_abc[i, k * 3 + 2]
+//         g_ab = (pos[a] - pos[b]).normalized()
+//         g_ac = (pos[a] - pos[c]).normalized()
+//         offdiag = inv_mass[a] * g_ab.dot(g_ac)
+//         data[cnt] = offdiag
+// __global__ void fill_A_CSR_kernel(thrust::device_vector<float> &data, 
+//                                   thrust::device_vector<int> indptr, 
+//                                   thrust::device_vector<int> ii, 
+//                                   thrust::device_vector<int> jj,
+//                                   thrust::device_vector<thrust::device_vector<int>> adjacent_edge_abc,
+//                                   int num_nonz,
+//                                   float alpha,
+//                                   thrust::device_vector<float3> pos,
+//                                   thrust::device_vector<float> inv_mass) {
+//     size_t cnt = blockIdx.x * blockDim.x + threadIdx.x;
+//     if (cnt < num_nonz) {
+//         int i = ii[cnt]; // row index
+//         int j = jj[cnt]; // col index
+//         int k = cnt - indptr[i]; //k-th non-zero element of i-th row. 
+//         // Because the diag is the final element of each row, 
+//         // it is also the k-th adjacent edge of i-th edge.
+//         if (i == j) { // diag
+//             data[cnt] = inv_mass[i] + inv_mass[i] + alpha;
+//             return;
+//         }
+//         int a = adjacent_edge_abc[i][k * 3];
+//         int b = adjacent_edge_abc[i][k * 3 + 1];
+//         int c = adjacent_edge_abc[i][k * 3 + 2];
+//         float3 g_ab = d_normalize_diff(pos[a], pos[b]);
+//         float3 g_ac = d_normalize_diff(pos[a], pos[c]);
+//         float offdiag = inv_mass[a] * d_dot(g_ab, g_ac);
+//         data[cnt] = offdiag;
+//     }
+// }
+
 
 
 
@@ -509,11 +579,13 @@ struct Vec {
         }
     }
 
+    // host to device
     void assign(T const *data, size_t size) {
         resize(size);
         CHECK_CUDA(cudaMemcpy(m_data, data, sizeof(T) * size, cudaMemcpyHostToDevice));
     }
 
+    // device to host
     void tohost(std::vector<T> &data_host) const{
         data_host.resize(size());
         CHECK_CUDA(cudaMemcpy(data_host.data(), m_data, sizeof(T) * size(), cudaMemcpyDeviceToHost));
@@ -1040,6 +1112,16 @@ struct MGLevel {
 };
 
 
+using thrust::device_vector;
+
+__global__ void fill_A_CSR_kernel(float *a, int size) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        a[i] = 100.0;
+    }
+}
+
+
 struct FastFill : Kernels {
     CSR<float> A;
     float alpha;
@@ -1057,6 +1139,7 @@ struct FastFill : Kernels {
     std::vector<float> data;
     int num_nonz;
     int nrows, ncols;
+    Vec<float> d_inv_mass;
 
     void fetch_A(float *data_in, int *indices_in, int *indptr_in) {
         std::copy(data.begin(), data.end(), data_in);
@@ -1105,6 +1188,18 @@ struct FastFill : Kernels {
         }
     }
 
+    void host_to_device()
+    {
+        d_inv_mass.assign(inv_mass.data(), inv_mass.size());
+        cout<<"copy data to device"<<endl;
+    }
+
+    void device_to_host()
+    {
+        d_inv_mass.tohost(inv_mass);
+    }
+
+
     // init_direct_fill_A
     int init()
     {
@@ -1113,7 +1208,10 @@ struct FastFill : Kernels {
         calc_num_nonz();
         init_A_CSR_pattern();
         csr_index_to_coo_index();
-        // A.assign(data.data(), data.size(), indices.data(), indices.size(), indptr.data(), indptr.size(), NE, NE, num_nonz);
+
+        // transfer data to device
+        host_to_device();
+
         return num_nonz;
     }
 
@@ -1124,7 +1222,7 @@ struct FastFill : Kernels {
         update_pos(pos_in);
         t.end("update_pos");
         t.start();
-        fill_A_CSR();
+        fill_A_CSR_gpu();
         t.end("fill_A_CSR");
     }
 
@@ -1147,11 +1245,27 @@ struct FastFill : Kernels {
         return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
     }
 
+    void launch_check()
+    {
+        cudaError_t varCudaError1 = cudaGetLastError();
+        if (varCudaError1 != cudaSuccess)
+        {
+            std::cout << "Failed to launch kernel (error code: " << cudaGetErrorString(varCudaError1) << ")!" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+    }
 
     void fill_A_CSR_gpu()
     {
-        // prepare data TODO:
-        fill_A_CSR_kernel<<<num_nonz/256+1, 256>>>();
+        TODO: finish fill A CSR
+        fill_A_CSR_kernel<<<NV/128+1, 128>>>(d_inv_mass.data(), NV);
+        cudaDeviceSynchronize();
+        launch_check();
+
+        cout<<"111"<<endl;
+        device_to_host();
+        cout<<"inv_mass[0]: "<<inv_mass[0]<<endl;
+        exit(0);
     }
 
 

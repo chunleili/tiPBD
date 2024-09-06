@@ -17,7 +17,7 @@ project(fastmg LANGUAGES CXX CUDA)
 add_library(fastmg SHARED fastmg.cu)
 target_link_libraries(fastmg PUBLIC cusparse cublas cusolver)
 target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
-set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+# set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 # add_executable(mgxpbd mgxpbd.cpp)
 # target_include_directories(mgxpbd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)

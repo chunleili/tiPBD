@@ -1575,11 +1575,22 @@ struct VCycle : Kernels {
         }
     }
 
-    GpuTimer ttt1, ttt2, ttt3;
+    GpuTimer ttt1, ttt2, ttt3, ttt;
     std::vector<float> ttt1_elapsed, ttt2_elapsed, ttt3_elapsed;
+    std::vector<std::vector<float>> ttt_elapsed;
+
+
+    void calc_residual(int lv, Vec<float> &x, Vec<float> const &b) {
+        copy(levels.at(lv).residual, b);
+        spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff); // residual = b - A@x
+    }
+
 
     void vcycle_down() {
+        ttt_elapsed.resize(nlvs-1);
         for (int lv = 0; lv < nlvs-1; ++lv) {
+            ttt.start();
+
             ttt1.start();
             Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : init_x;
             Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : init_b;
@@ -1602,6 +1613,9 @@ struct VCycle : Kernels {
             zero(levels.at(lv).x);
             ttt3.stop();
             ttt3_elapsed.push_back(ttt3.elapsed());
+
+            ttt.stop();
+            ttt_elapsed[lv].push_back(ttt.elapsed());
         }
     }
 
@@ -1805,6 +1819,7 @@ struct VCycle : Kernels {
         float avg_ttt1 = avg(ttt1_elapsed);
         float avg_ttt2 = avg(ttt2_elapsed);
         float avg_ttt3 = avg(ttt3_elapsed);
+        
 
         cout<<"     avg time one iteration: "<<avg_t2<<" ms"<<endl;
         cout<<"     avg time before vcycle: "<<avg_t3<<" ms"<<endl;
@@ -1818,6 +1833,15 @@ struct VCycle : Kernels {
         cout<<"     avg time vcycle_down before smooth: "<<avg_ttt1<<" ms"<<endl;
         cout<<"     avg time vcycle_down smooth: "<<avg_ttt2<<" ms"<<endl;
         cout<<"     avg time vcycle_down after smooth: "<<avg_ttt3<<" ms"<<endl;
+
+        // print ttt elaspse
+        for(int lv=0; lv<nlvs-1; lv++)
+        {
+            cout<<"     level "<<lv<<endl;
+            cout<<"     avg ttt time: "<< avg(ttt_elapsed[lv])<<" ms"<<endl;
+        }
+
+
 
         t1.stop();
         cout<<"     time of solve: "<<t1.elapsed()<<" ms"<<endl;

@@ -55,7 +55,6 @@ parser.add_argument("-N", type=int, default=1024)
 parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
-parser.add_argument("-export_matrix_interval", type=int, default=1)
 parser.add_argument("-export_matrix_binary", type=int, default=True)
 parser.add_argument("-export_state", type=int, default=False)
 parser.add_argument("-export_residual", type=int, default=False)
@@ -64,16 +63,15 @@ parser.add_argument("-out_dir", type=str, default=f"result/latest/")
 parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-restart", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=10)
-parser.add_argument("-restart_dir", type=str, default="latest/state")
+parser.add_argument("-restart_dir", type=str, default="result/latest/state/")
 parser.add_argument("-restart_from_last_frame", type=int, default=True)
 parser.add_argument("-max_iter", type=int, default=1000)
 parser.add_argument("-max_iter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
-parser.add_argument("-use_json", type=int, default=0, help="json configs will overwrite the command line args")
+parser.add_argument("-use_json", type=int, default=False, help="json configs will overwrite the command line args")
 parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
-parser.add_argument("-auto_complete_path", type=int, default=0, help="Will automatically set path to prj_dir+/result/out_dir or prj_dir+/result/restart_dir")
-parser.add_argument("-arch", type=str, default="cpu", help="cuda or cpu")
+parser.add_argument("-arch", type=str, default="cpu", help="taichi arch: cuda or cpu")
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
@@ -86,30 +84,13 @@ args = parser.parse_args()
 N = args.N
 delta_t = args.delta_t
 solver_type = args.solver_type
-export_matrix = bool(args.export_matrix)
-export_matrix_interval = args.export_matrix_interval
-export_matrix_binary = args.export_matrix_binary
-export_state = bool(args.export_state)
 export_residual = bool(args.export_residual)
-setup_num = args.setup_num
-cuda_dir = args.cuda_dir
-if setup_num==1: gravity = [0.0, 0.0, 0.0]
+if args.setup_num==1: gravity = [0.0, 0.0, 0.0]
 else : gravity = [0.0, -9.8, 0.0]
 end_frame = args.end_frame
-restart = bool(args.restart)
-restart_frame = args.restart_frame
-restart_dir = args.restart_dir + "/"
 max_iter = args.max_iter
 max_iter_Axb = args.max_iter_Axb
-export_log = bool(args.export_log)
 out_dir =  args.out_dir + "/"
-auto_another_outdir = bool(args.auto_another_outdir)
-restart_from_last_frame = bool(args.restart_from_last_frame)
-use_json = bool(args.use_json)
-json_path = prj_path + args.json_path
-auto_complete_path = bool(args.auto_complete_path)
-arch = args.arch
-use_cuda = args.use_cuda
 smoother_type = args.smoother_type
 
 
@@ -127,12 +108,8 @@ def parse_json_params(path, vars_to_overwrite):
         else:
             print(f"json key {key} not exist in vars_to_overwrite!")
 
-if use_json:
-    parse_json_params(json_path, globals())
-
-if auto_complete_path:
-    out_dir = prj_path + f"/result/" +  out_dir + "/"
-    restart_dir = prj_path + f"/result/" + restart_dir + "/"
+if args.use_json:
+    parse_json_params(args.json_path, globals())
 
 
 #to print out the parameters
@@ -146,7 +123,7 @@ t_export_mesh = 0.0
 t_save_state = 0.0
 
 
-if arch == "cuda":
+if args.arch == "cuda":
     ti.init(arch=ti.cuda)
 else:
     ti.init(arch=ti.cpu)
@@ -195,7 +172,7 @@ K_diag = np.zeros((NV*3), dtype=float)
 def init_extlib_argtypes():
     global extlib
 
-    os.add_dll_directory(cuda_dir)
+    os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
     arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
@@ -233,7 +210,7 @@ def init_extlib_argtypes():
 
     extlib.fastmg_new()
 
-if use_cuda:
+if args.use_cuda:
     init_extlib_argtypes()
 
 
@@ -302,7 +279,7 @@ def init_pos(
         # pos[idx] = ti.Vector([i / N,  j / N, 0.5])  # vertical hang
         pos[idx] = ti.Vector([i / N, 0.5, j / N]) # horizontal hang
         inv_mass[idx] = 1.0
-    if setup_num == 0:
+    if args.setup_num == 0:
         inv_mass[N] = 0.0
         inv_mass[NV-1] = 0.0
 
@@ -651,7 +628,7 @@ def substep_xpbd(max_iter):
                 np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
 
             # r.append(ResidualLess(dual_r, robj, t_iter))
-            if export_log:
+            if args.export_log:
                 logging.info(f"{frame}-{ite}  dualr0:{dualr0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
 
         if dualr < 0.1*dualr0 or dualr<1e-5:
@@ -900,7 +877,7 @@ def chebyshev(A, x, b, coefficients, iterations=1):
 def calc_spectral_radius(A):
     global spectral_radius
     t = time.perf_counter()
-    if use_cuda:
+    if args.use_cuda:
         cuda_set_A0(A)
         spectral_radius = extlib.fastmg_get_max_eig()
     else:
@@ -1360,6 +1337,7 @@ def fill_A_csr_ti():
 #     return A
 
 def fastFill_fetch():
+    global spmat_data, spmat_indices, spmat_indptr
     extlib.fastFill_fetch_A(spmat_data, spmat_indices, spmat_indptr)
     A = scipy.sparse.csr_matrix((spmat_data, spmat_indices, spmat_indptr), shape=(NE, NE))
     return A
@@ -1402,8 +1380,7 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
         n += 1 
 
 
-
-def export_A_b(A,b,postfix="", binary=export_matrix_binary):
+def export_A_b(A,b,postfix="", binary=args.export_matrix_binary):
     dir = out_dir + "/A/"
     if binary:
         # https://stackoverflow.com/a/8980156/19253199
@@ -1521,7 +1498,7 @@ def substep_all_solver(max_iter=1):
         #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
         #     b += G @ Minv_gg
 
-        if export_matrix:
+        if args.export_matrix:
             tic = time.perf_counter()
             export_A_b(A,b,postfix=f"F{frame}-{ite}")
             t_export_matrix = time.perf_counter()-tic
@@ -1536,7 +1513,7 @@ def substep_all_solver(max_iter=1):
             x = x.copy()
             gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
         if solver_type == "AMG":
-            if not use_cuda:
+            if not args.use_cuda:
                 x, r_Axb = python_AMG(A,b)
             else:
                 global Ps, num_levels, new_fastmg
@@ -1614,7 +1591,7 @@ def substep_all_solver(max_iter=1):
                 np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
 
             print(f"    Calc r time: {perf_counter()-tic_calcr:.4f}s")
-            if export_log:
+            if args.export_log:
                 logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
             r.append(Residual([0.,0.], dual_r, robj, r_Axb, len(r_Axb), t_iter))
 
@@ -1752,7 +1729,7 @@ def print_all_globals(global_vars):
         if var_name != module_name and not var_name.startswith('__') and not callable(var_value) and not isinstance(var_value, type(sys)):
             if var_name == 'parser':
                 continue
-            if export_log:
+            if args.export_log:
                 logging.info(f"{var_name} = {var_value}")
             keys_to_delete.append(var_name)
     logging.info("\n\n\n")
@@ -1777,7 +1754,7 @@ def dict_to_ndarr(d:dict)->np.ndarray:
     return arr, lengths
 
 
-if auto_another_outdir:
+if args.auto_another_outdir:
     out_dir = create_another_outdir(out_dir)
     dont_clean_results = True
 
@@ -1864,7 +1841,7 @@ def ending(timer_loop, start_date, initial_frame=0):
     end_date = datetime.datetime.now()
     end_frame = frame
     s = f"Time all: {(time.perf_counter() - timer_loop):.2f}s = {(time.perf_counter() - timer_loop)/60:.2f}min. \nFrom frame {initial_frame} to {end_frame}, total {end_frame-initial_frame} frames. Avg time per frame: {t_all/(end_frame-initial_frame):.2f}s. Start at {start_date},\n end at {end_date}."
-    if export_log:
+    if args.export_log:
         logging.info(s)
 
 
@@ -1874,7 +1851,7 @@ mkdir_if_not_exist(out_dir + "/r/")
 mkdir_if_not_exist(out_dir + "/A/")
 mkdir_if_not_exist(out_dir + "/state/")
 mkdir_if_not_exist(out_dir + "/mesh/")
-if not restart and not dont_clean_results:
+if not args.restart and not dont_clean_results:
     clean_result_dir(out_dir)
     clean_result_dir(out_dir + "/r/")
     clean_result_dir(out_dir + "/A/")
@@ -1893,42 +1870,38 @@ print_all_globals(global_vars)
 # ---------------------------------------------------------------------------- #
 timer_all = time.perf_counter()
 start_wall_time = datetime.datetime.now()
-print("\nInitializing...")
 
 
+def init():
+    global frame
+    print("\nInitializing...")
+    print("Initializing pos..")
+    init_pos(inv_mass,pos)
+    init_tri(tri)
+    init_edge(edge, rest_len, pos)
+    write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
+    print("Initializing pos and edge done")
+    if args.setup_num == 1:
+        init_scale()
 
-print("Initializing pos..")
-init_pos(inv_mass,pos)
-init_tri(tri)
-print("Initializing edge..")
-init_edge(edge, rest_len, pos)
-write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
-print("Initializing edge done")
-if setup_num == 1:
-    init_scale()
-
-# np.savetxt(out_dir + "/edge.txt", edge.to_numpy(), fmt="%d")
-
-tic = time.perf_counter()
-if use_cuda and args.use_fastFill:
-    init_direct_fill_A_cuda()
-else:
-    cache_and_init_direct_fill_A()
-print(f"init_direct_fill_A time: {time.perf_counter()-tic:.3f}s")
-
-
-if restart:
-    if restart_from_last_frame :
-        restart_frame =  find_last_frame(out_dir)
-    if restart_frame == 0:
-        print("No restart file found.")
+    tic = time.perf_counter()
+    if args.use_cuda and args.use_fastFill:
+        init_direct_fill_A_cuda()
     else:
-        load_state(restart_dir + f"{restart_frame:04d}.npz")
-        frame = restart_frame
-        # print(f"restart from last frame: {restart_frame}")
-        logging.info(f"restart from last frame: {restart_frame}")
+        cache_and_init_direct_fill_A()
+    print(f"init_direct_fill_A time: {time.perf_counter()-tic:.3f}s")
 
-print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.3f}s") 
+    if args.restart:
+        if args.restart_from_last_frame :
+            args.restart_frame =  find_last_frame(out_dir)
+        if args.restart_frame == 0:
+            print("No restart file found.")
+        else:
+            load_state(args.restart_dir + f"{args.restart_frame:04d}.npz")
+            frame = args.restart_frame
+            logging.info(f"restart from last frame: {args.restart_frame}")
+
+    print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.3f}s") 
 
 
 class Viewer:
@@ -1947,56 +1920,68 @@ class Viewer:
 
 viewer = Viewer()
 
-timer_loop = time.perf_counter()
-initial_frame = frame
-step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
-try:
-    while True:
-        t_one_frame_start = time.perf_counter()
-        if use_viewer:
-            for e in viewer.window.get_events(ti.ui.PRESS):
-                if e.key in [ti.ui.ESCAPE]:
-                    exit()
-                if e.key == ti.ui.SPACE:
-                    paused = not paused
-                    print("paused:",paused)
-        if not paused:
-            if solver_type == "XPBD":
-                substep_xpbd(max_iter)
-            else:
-                substep_all_solver(max_iter)
-            frame += 1
-            if export_mesh:
-                tic = time.perf_counter()
-                write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
-                t_export_mesh = time.perf_counter()-tic
-            if export_state:
-                tic = time.perf_counter()
-                save_state(out_dir+'/state/' + f"{frame:04d}.npz")
-                t_save_state = time.perf_counter()-tic
-            if report_time:
-                total_export_time = t_export_mesh+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
-                t_frame = time.perf_counter()-t_one_frame_start
-                if export_log:
-                    logging.info(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
-                    logging.info(f"Time of frame-{frame}: {t_frame:.2f}s")
-        if frame == end_frame:
-            ending(timer_loop, start_wall_time, initial_frame)
-            exit()
-        if use_viewer:
-            viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
-            viewer.scene.set_camera(viewer.camera)
-            viewer.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
-            viewer.scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
-            viewer.canvas.scene(viewer.scene)
-            # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
-            viewer.window.show()
-            if save_image:
-                file_path = out_dir + f"{frame:04d}.png"
-                viewer.window.save_image(file_path)  # export and show in GUI
-        logging.info("\n")
-        step_pbar.update(1)
-        logging.info("")
+def run():
+    global frame, paused, ite
+    global t_export_matrix, t_calc_residual, t_export_residual, t_save_state
+    timer_loop = time.perf_counter()
+    initial_frame = frame
+    step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
+    try:
+        while True:
+            t_one_frame_start = time.perf_counter()
+            if use_viewer:
+                for e in viewer.window.get_events(ti.ui.PRESS):
+                    if e.key in [ti.ui.ESCAPE]:
+                        exit()
+                    if e.key == ti.ui.SPACE:
+                        paused = not paused
+                        print("paused:",paused)
+            if not paused:
+                if solver_type == "XPBD":
+                    substep_xpbd(max_iter)
+                else:
+                    substep_all_solver(max_iter)
+                frame += 1
+                if export_mesh:
+                    tic = time.perf_counter()
+                    write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
+                    t_export_mesh = time.perf_counter()-tic
+                if args.export_state:
+                    tic = time.perf_counter()
+                    save_state(out_dir+'/state/' + f"{frame:04d}.npz")
+                    t_save_state = time.perf_counter()-tic
+                if report_time:
+                    total_export_time = t_export_mesh+t_save_state+t_export_matrix+t_export_residual+t_calc_residual
+                    t_frame = time.perf_counter()-t_one_frame_start
+                    if args.export_log:
+                        # logging.info(f"Time of exporting: {total_export_time:.2f}s, where mesh:{t_export_mesh:.2f}s state:{t_save_state:.2f}s matrix:{t_export_matrix:.2f}s calc_r:{t_calc_residual:.2f}s export_r:{t_export_residual:.2f}s")
+                        logging.info(f"Time of exporting: {total_export_time:.3f}s")
+                        logging.info(f"Time of frame-{frame}: {t_frame:.3f}s")
+            if frame == end_frame:
+                ending(timer_loop, start_wall_time, initial_frame)
+                exit()
+            if use_viewer:
+                viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
+                viewer.scene.set_camera(viewer.camera)
+                viewer.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
+                viewer.scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
+                viewer.canvas.scene(viewer.scene)
+                # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
+                viewer.window.show()
+                if save_image:
+                    file_path = out_dir + f"{frame:04d}.png"
+                    viewer.window.save_image(file_path)  # export and show in GUI
+            logging.info("\n")
+            step_pbar.update(1)
+            logging.info("")
 
-except KeyboardInterrupt:
-    ending(timer_loop, start_wall_time, initial_frame)
+    except KeyboardInterrupt:
+        ending(timer_loop, start_wall_time, initial_frame)
+
+
+def main():
+    init()
+    run()
+
+if __name__ == "__main__":
+    main()

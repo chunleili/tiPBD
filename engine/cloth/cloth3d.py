@@ -1499,8 +1499,8 @@ def substep_all_solver(max_iter=1):
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
 
-    x0 = np.zeros(NCONS)
-    x = x0.copy()
+
+    x = np.zeros(NCONS)
     r = []
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
     fulldual0 = dual_residual.to_numpy()
@@ -1534,7 +1534,6 @@ def substep_all_solver(max_iter=1):
         if solver_type == "Direct":
             x = scipy.sparse.linalg.spsolve(A, b)
         if solver_type == "GS":
-            x = x.copy()
             gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
         if solver_type == "AMG":
             if not args.use_cuda:

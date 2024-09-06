@@ -1645,7 +1645,7 @@ struct VCycle : Kernels {
         CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
     }
     
-    void set_mgcg_data(const float* x, size_t nx, const float* b, size_t nb, float rtol_, size_t maxiter_)
+    void set_data(const float* x, size_t nx, const float* b, size_t nb, float rtol_, size_t maxiter_)
     {
         set_outer_x(x, nx);
         set_outer_b(b, nb);
@@ -1664,14 +1664,14 @@ struct VCycle : Kernels {
         return  max_eig;
     }
 
-    size_t get_mgcg_data(float* x_, float* r_)
+    size_t get_data(float* x_, float* r_)
     {
         fetch_cg_final_x(x_);
         fetch_cg_final_r(r_);
         return niter;
     }
 
-    void mgcg_solve()
+    void solve()
     {
         float bnrm2 = init_cg_iter0(residuals.data());
         float atol = bnrm2 * rtol;
@@ -1779,20 +1779,20 @@ extern "C" DLLEXPORT void fastmg_fetch_A(size_t lv, float* data, int* indices, i
     fastmg->fetch_A(lv, data, indices, indptr);
 }
 
-extern "C" DLLEXPORT void fastmg_vcycle() {
-    fastmg->vcycle();
+// extern "C" DLLEXPORT void fastmg_vcycle() {
+//     fastmg->vcycle();
+// }
+
+extern "C" DLLEXPORT void fastmg_solve() {
+    fastmg->solve();
 }
 
-extern "C" DLLEXPORT void fastmg_mgcg_solve() {
-    fastmg->mgcg_solve();
+extern "C" DLLEXPORT void fastmg_set_data(const float* x, size_t nx, const float* b, size_t nb, float rtol, size_t maxiter) {
+    fastmg->set_data(x, nx, b, nb, rtol, maxiter);
 }
 
-extern "C" DLLEXPORT void fastmg_set_mgcg_data(const float* x, size_t nx, const float* b, size_t nb, float rtol, size_t maxiter) {
-    fastmg->set_mgcg_data(x, nx, b, nb, rtol, maxiter);
-}
-
-extern "C" DLLEXPORT size_t fastmg_get_mgcg_data(float *x, float *r) {
-    size_t niter = fastmg->get_mgcg_data(x, r);
+extern "C" DLLEXPORT size_t fastmg_get_data(float *x, float *r) {
+    size_t niter = fastmg->get_data(x, r);
     return niter;
 }
 

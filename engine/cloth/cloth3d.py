@@ -211,9 +211,9 @@ def init_extlib_argtypes():
                     ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
                     ]
 
-    extlib.fastmg_set_mgcg_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
-    extlib.fastmg_get_mgcg_data.argtypes = [arr_float]*2
-    extlib.fastmg_get_mgcg_data.restype = c_size_t
+    extlib.fastmg_set_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
+    extlib.fastmg_get_data.argtypes = [arr_float]*2
+    extlib.fastmg_get_data.restype = c_size_t
     extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
     # extlib.fastmg_setup_chebyshev.argtypes = [arr_float, c_size_t]
     extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
@@ -1046,15 +1046,15 @@ def new_amg_cg_solve(b, x0=None, tol=1e-5, maxiter=100):
     # set data
     x0 = x0.astype(np.float32)
     b = b.astype(np.float32)
-    extlib.fastmg_set_mgcg_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
+    extlib.fastmg_set_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
 
     # solve
-    extlib.fastmg_mgcg_solve()
+    extlib.fastmg_solve()
 
     # get result
     x = np.empty_like(x0, dtype=np.float32)
     residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
-    niter = extlib.fastmg_get_mgcg_data(x, residuals)
+    niter = extlib.fastmg_get_data(x, residuals)
     residuals = residuals[:niter+1]
     print(f"    niter", niter)
     print(f"    solve time: {time.perf_counter()-tic4:.2f}s")

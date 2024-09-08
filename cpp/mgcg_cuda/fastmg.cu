@@ -348,73 +348,20 @@ cudaDataType_t cudaDataTypeFor<double>() {
 /* -------------------------------------------------------------------------- */
 
 
-
-__device__ float3 inline d_normalize_diff(std::array<float,3> &v1,  std::array<float,3> &v2)
+// normalize(v1-v2)
+__device__ float3 inline d_normalize_diff(float3 &v1,  float3 &v2)
 {
-    std::array<float,3> diff = {v1[0]-v2[0], v1[1]-v2[1], v1[2]-v2[2]};
-    float norm = sqrt(diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2]);
-    return {diff[0]/norm, diff[1]/norm, diff[2]/norm};
+    float3 diff = {v1.x-v2.x, v1.y-v2.y, v1.z-v2.z};
+    float norm = norm3df(diff.x, diff.y, diff.z);
+    float3 res = {diff.x/norm, diff.y/norm, diff.z/norm};
+    return res;
 }
 
-__device__ float inline d_dot(std::array<float,3> a, std::array<float,3> b)
+__device__ float inline d_dot(float3 a, float3 b)
 {
-    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+    return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
-
-
-// def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
-//                               indptr:ti.types.ndarray(dtype=ti.i32), 
-//                               ii:ti.types.ndarray(dtype=ti.i32), 
-//                               jj:ti.types.ndarray(dtype=ti.i32),
-//                               adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
-//                               num_nonz:ti.i32,
-//                               alpha:ti.f32):
-//     for cnt in range(num_nonz):
-//         i = ii[cnt] # row index
-//         j = jj[cnt] # col index
-//         k = cnt - indptr[i] #k-th non-zero element of i-th row. 
-//         # Because the diag is the final element of each row, 
-//         # it is also the k-th adjacent edge of i-th edge.
-//         if i == j: # diag
-//             data[cnt] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-//             continue
-//         a = adjacent_edge_abc[i, k * 3]
-//         b = adjacent_edge_abc[i, k * 3 + 1]
-//         c = adjacent_edge_abc[i, k * 3 + 2]
-//         g_ab = (pos[a] - pos[b]).normalized()
-//         g_ac = (pos[a] - pos[c]).normalized()
-//         offdiag = inv_mass[a] * g_ab.dot(g_ac)
-//         data[cnt] = offdiag
-// __global__ void fill_A_CSR_kernel(thrust::device_vector<float> &data, 
-//                                   thrust::device_vector<int> indptr, 
-//                                   thrust::device_vector<int> ii, 
-//                                   thrust::device_vector<int> jj,
-//                                   thrust::device_vector<thrust::device_vector<int>> adjacent_edge_abc,
-//                                   int num_nonz,
-//                                   float alpha,
-//                                   thrust::device_vector<float3> pos,
-//                                   thrust::device_vector<float> inv_mass) {
-//     size_t cnt = blockIdx.x * blockDim.x + threadIdx.x;
-//     if (cnt < num_nonz) {
-//         int i = ii[cnt]; // row index
-//         int j = jj[cnt]; // col index
-//         int k = cnt - indptr[i]; //k-th non-zero element of i-th row. 
-//         // Because the diag is the final element of each row, 
-//         // it is also the k-th adjacent edge of i-th edge.
-//         if (i == j) { // diag
-//             data[cnt] = inv_mass[i] + inv_mass[i] + alpha;
-//             return;
-//         }
-//         int a = adjacent_edge_abc[i][k * 3];
-//         int b = adjacent_edge_abc[i][k * 3 + 1];
-//         int c = adjacent_edge_abc[i][k * 3 + 2];
-//         float3 g_ab = d_normalize_diff(pos[a], pos[b]);
-//         float3 g_ac = d_normalize_diff(pos[a], pos[c]);
-//         float offdiag = inv_mass[a] * d_dot(g_ab, g_ac);
-//         data[cnt] = offdiag;
-//     }
-// }
 
 
 
@@ -1112,15 +1059,54 @@ struct MGLevel {
 };
 
 
-using thrust::device_vector;
+__global__ void fill_A_CSR_kernel(
+    float *data,
+    const int *indptr,
+    const int *indices,
+    const int *ii,
+    const int *jj,
+    const int *adjacent_edge_abc,
+    const int *num_adjacent_edge,
+    const int num_nonz,
+    const float *inv_mass,
+    const float alpha,
+    const int NV,
+    const int NE,
+    const int *edge,
+    const float *pos)
+{
+    size_t cnt = blockIdx.x * blockDim.x + threadIdx.x;
+    if (cnt < num_nonz) {
+        int row_idx = ii[cnt]; // row index
+        int j = jj[cnt]; // col index
+        int k = cnt - indptr[row_idx]; // k-th element in row row_idx
+        if (row_idx==j) // diag
+        {
+            data[cnt] = inv_mass[edge[row_idx*2 + 0]] + inv_mass[edge[row_idx*2 + 1]] + alpha;
+            // printf("cnt=%d, row_idx=%d, j=%d, data=%f\n", cnt, row_idx, j, data[cnt]);
+        }
+        else
+        {
+            int n = num_adjacent_edge[row_idx];
+            int width = n * 3;
+            int a = adjacent_edge_abc[row_idx* width + k*3 + 0];
+            int b = adjacent_edge_abc[row_idx* width + k*3 + 1];
+            int c = adjacent_edge_abc[row_idx* width + k*3 + 2];
+            float3 pa = {pos[a*3+0], pos[a*3+1], pos[a*3+2]};
+            float3 pb = {pos[b*3+0], pos[b*3+1], pos[b*3+2]};
+            float3 pc = {pos[c*3+0], pos[c*3+1], pos[c*3+2]};
+            // printf("pa=(%f, %f, %f), pb=(%f, %f, %f), pc=(%f, %f, %f)\n", pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z);
 
-__global__ void fill_A_CSR_kernel(float *a, int size) {
-    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < size) {
-        a[i] = 100.0;
+            float3 g_ab = d_normalize_diff(pa, pb);
+            float3 g_ac = d_normalize_diff(pa, pc);
+            float offdiag = inv_mass[a] * d_dot(g_ab, g_ac);
+            printf("cnt=%d, row_idx=%d, j=%d, offdiag=%f", cnt, row_idx, j, offdiag);
+            printf("inv_mass[a]=%f", inv_mass[a]);
+            
+            // // data[cnt] = offdiag; // BUG:
+        }
     }
 }
-
 
 struct FastFill : Kernels {
     CSR<float> A;
@@ -1140,6 +1126,11 @@ struct FastFill : Kernels {
     int num_nonz;
     int nrows, ncols;
     Vec<float> d_inv_mass;
+    Vec<int> d_ii, d_jj;
+    Vec<int> d_edges;
+    Vec<float> d_pos;
+    Vec<int> d_adjacent_edge_abc;
+    Vec<int> d_num_adjacent_edge;
 
     void fetch_A(float *data_in, int *indices_in, int *indptr_in) {
         std::copy(data.begin(), data.end(), data_in);
@@ -1186,17 +1177,6 @@ struct FastFill : Kernels {
             pos[i][1] = pos_in[i*3+1];
             pos[i][2] = pos_in[i*3+2];
         }
-    }
-
-    void host_to_device()
-    {
-        d_inv_mass.assign(inv_mass.data(), inv_mass.size());
-        cout<<"copy data to device"<<endl;
-    }
-
-    void device_to_host()
-    {
-        d_inv_mass.tohost(inv_mass);
     }
 
 
@@ -1255,16 +1235,53 @@ struct FastFill : Kernels {
         }
     }
 
+
+    void host_to_device()
+    {
+        d_inv_mass.assign(inv_mass.data(), inv_mass.size());
+        A.assign(data.data(), data.size(), indices.data(), indices.size(), indptr.data(), indptr.size(), nrows, ncols, num_nonz);
+        d_ii.assign(ii.data(), ii.size());
+        d_jj.assign(jj.data(), jj.size());
+
+        for(int i=0; i<adjacent_edge_abc.size(); i++)
+        {
+            d_adjacent_edge_abc.assign(adjacent_edge_abc[i].data(), adjacent_edge_abc[i].size());
+        }
+        d_num_adjacent_edge.assign(num_adjacent_edge.data(), num_adjacent_edge.size());
+        d_edges.assign((int*)edges.data(), edges.size()*2);
+        d_pos.assign((float*)pos.data(), pos.size()*3);
+
+        cout<<"copy data to device"<<endl;
+    }
+
+    void device_to_host()
+    {
+        A.tohost(data, indices, indptr);
+    }
+
     void fill_A_CSR_gpu()
     {
-        TODO: finish fill A CSR
-        fill_A_CSR_kernel<<<NV/128+1, 128>>>(d_inv_mass.data(), NV);
+        // TODO: finish fill A CSR
+        fill_A_CSR_kernel<<<num_nonz / 256 + 1, 256>>>(A.data.data(),
+                                                 A.indptr.data(),
+                                                 A.indices.data(),
+                                                 d_ii.data(),
+                                                 d_jj.data(),
+                                                 d_adjacent_edge_abc.data(),
+                                                 d_num_adjacent_edge.data(),
+                                                 num_nonz,
+                                                 d_inv_mass.data(),
+                                                 alpha,
+                                                 NV,
+                                                 NE,
+                                                 d_edges.data(),
+                                                 d_pos.data());
         cudaDeviceSynchronize();
         launch_check();
 
-        cout<<"111"<<endl;
+        cout<<"finish fill A kernel"<<endl;
         device_to_host();
-        cout<<"inv_mass[0]: "<<inv_mass[0]<<endl;
+        cout<<"data[0]: "<<data[0]<<endl;
         exit(0);
     }
 
@@ -1367,6 +1384,7 @@ struct FastFill : Kernels {
         for(int i=0; i<NE; i++)
         {
             adjacent_edge_abc[i].resize(num_adjacent_edge[i]*3);
+            // adjacent_edge_abc[i].resize(20*3);
         }
     }
 

@@ -25,6 +25,8 @@
 #include <thrust/inner_product.h>
 #include <thrust/random.h>
 
+#include "kernels.cuh"
+
 // Terminal output color (just for cosmetic purpose)
 #define RST  "\x1B[37m"  // Reset color to white
 #define KGRN  "\033[0;32m"   // Define green color
@@ -348,20 +350,6 @@ cudaDataType_t cudaDataTypeFor<double>() {
 /* -------------------------------------------------------------------------- */
 
 
-// normalize(v1-v2)
-__device__ float3 inline d_normalize_diff(float3 &v1,  float3 &v2)
-{
-    float3 diff = {v1.x-v2.x, v1.y-v2.y, v1.z-v2.z};
-    float norm = norm3df(diff.x, diff.y, diff.z);
-    float3 res = {diff.x/norm, diff.y/norm, diff.z/norm};
-    return res;
-}
-
-__device__ float inline d_dot(float3 a, float3 b)
-{
-    return a.x*b.x + a.y*b.y + a.z*b.z;
-}
-
 
 
 
@@ -519,6 +507,87 @@ struct Vec {
                 CHECK_CUDA(cudaFree(m_data));
             m_data = nullptr;
             CHECK_CUDA(cudaMalloc(&m_data, sizeof(T) * new_size));
+            m_cap = new_size;
+        }
+        if (m_size != new_size || change) {
+            m_size = new_size;
+        }
+    }
+
+    // host to device
+    void assign(T const *data, size_t size) {
+        resize(size);
+        CHECK_CUDA(cudaMemcpy(m_data, data, sizeof(T) * size, cudaMemcpyHostToDevice));
+    }
+
+    // device to host
+    void tohost(std::vector<T> &data_host) const{
+        data_host.resize(size());
+        CHECK_CUDA(cudaMemcpy(data_host.data(), m_data, sizeof(T) * size(), cudaMemcpyDeviceToHost));
+    }
+
+    size_t size() const noexcept {
+        return m_size;
+    }
+
+    T const *data() const noexcept {
+        return m_data;
+    }
+
+    T *data() noexcept {
+        return m_data;
+    }
+};
+
+
+template <class T>
+struct HostVec {
+    T *m_data;
+    size_t m_size;
+    size_t m_cap;
+
+    HostVec() noexcept : m_data(nullptr), m_size(0), m_cap(0) {
+    }
+
+    HostVec(HostVec &&that) noexcept : m_data(that.m_data), m_size(that.m_size), m_cap(that.m_cap) {
+        that.m_data = nullptr;
+        that.m_size = 0;
+        that.m_cap = 0;
+    }
+
+    HostVec &operator=(HostVec &&that) noexcept {
+        if (this == &that) return *this;
+        if (m_data)
+            CHECK_CUDA(cudaFree(m_data));
+        m_data = nullptr;
+        m_data = that.m_data;
+        m_size = that.m_size;
+        m_cap = that.m_cap;
+        that.m_data = nullptr;
+        that.m_size = 0;
+        that.m_cap = 0;
+        return *this;
+    }
+
+    void swap(HostVec &that) noexcept {
+        std::swap(m_data, that.m_data);
+        std::swap(m_size, that.m_size);
+        std::swap(m_cap, that.m_cap);
+    }
+
+    ~HostVec() noexcept {
+        if (m_data)
+            CHECK_CUDA(cudaFreeHost(m_data));
+        m_data = nullptr;
+    }
+
+    void resize(size_t new_size) {
+        bool change = m_cap < new_size;
+        if (change) {
+            if (m_data)
+                CHECK_CUDA(cudaFreeHost(m_data));
+            m_data = nullptr;
+            CHECK_CUDA(cudaMallocHost(&m_data, sizeof(T) * new_size));
             m_cap = new_size;
         }
         if (m_size != new_size || change) {
@@ -1059,54 +1128,6 @@ struct MGLevel {
 };
 
 
-__global__ void fill_A_CSR_kernel(
-    float *data,
-    const int *indptr,
-    const int *indices,
-    const int *ii,
-    const int *jj,
-    const int *adjacent_edge_abc,
-    const int *num_adjacent_edge,
-    const int num_nonz,
-    const float *inv_mass,
-    const float alpha,
-    const int NV,
-    const int NE,
-    const int *edge,
-    const float *pos)
-{
-    size_t cnt = blockIdx.x * blockDim.x + threadIdx.x;
-    if (cnt < num_nonz) {
-        int row_idx = ii[cnt]; // row index
-        int j = jj[cnt]; // col index
-        int k = cnt - indptr[row_idx]; // k-th element in row row_idx
-        if (row_idx==j) // diag
-        {
-            data[cnt] = inv_mass[edge[row_idx*2 + 0]] + inv_mass[edge[row_idx*2 + 1]] + alpha;
-            // printf("cnt=%d, row_idx=%d, j=%d, data=%f\n", cnt, row_idx, j, data[cnt]);
-        }
-        else
-        {
-            int n = num_adjacent_edge[row_idx];
-            int width = n * 3;
-            int a = adjacent_edge_abc[row_idx* width + k*3 + 0];
-            int b = adjacent_edge_abc[row_idx* width + k*3 + 1];
-            int c = adjacent_edge_abc[row_idx* width + k*3 + 2];
-            float3 pa = {pos[a*3+0], pos[a*3+1], pos[a*3+2]};
-            float3 pb = {pos[b*3+0], pos[b*3+1], pos[b*3+2]};
-            float3 pc = {pos[c*3+0], pos[c*3+1], pos[c*3+2]};
-            // printf("pa=(%f, %f, %f), pb=(%f, %f, %f), pc=(%f, %f, %f)\n", pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z);
-
-            float3 g_ab = d_normalize_diff(pa, pb);
-            float3 g_ac = d_normalize_diff(pa, pc);
-            float offdiag = inv_mass[a] * d_dot(g_ab, g_ac);
-            printf("cnt=%d, row_idx=%d, j=%d, offdiag=%f", cnt, row_idx, j, offdiag);
-            printf("inv_mass[a]=%f", inv_mass[a]);
-            
-            // // data[cnt] = offdiag; // BUG:
-        }
-    }
-}
 
 struct FastFill : Kernels {
     CSR<float> A;
@@ -1198,9 +1219,7 @@ struct FastFill : Kernels {
     void run(float* pos_in)
     {
         Timer t;
-        t.start();
         update_pos(pos_in);
-        t.end("update_pos");
         t.start();
         fill_A_CSR_gpu();
         t.end("fill_A_CSR");
@@ -1243,11 +1262,12 @@ struct FastFill : Kernels {
         d_ii.assign(ii.data(), ii.size());
         d_jj.assign(jj.data(), jj.size());
 
-        for(int i=0; i<adjacent_edge_abc.size(); i++)
-        {
-            d_adjacent_edge_abc.assign(adjacent_edge_abc[i].data(), adjacent_edge_abc[i].size());
-        }
+
         d_num_adjacent_edge.assign(num_adjacent_edge.data(), num_adjacent_edge.size());
+
+        d_adjacent_edge_abc.resize(NE*60);
+        CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data(), adjacent_edge_abc[0].data(), sizeof(int) * NE*60, cudaMemcpyHostToDevice));
+
         d_edges.assign((int*)edges.data(), edges.size()*2);
         d_pos.assign((float*)pos.data(), pos.size()*3);
 
@@ -1282,7 +1302,7 @@ struct FastFill : Kernels {
         cout<<"finish fill A kernel"<<endl;
         device_to_host();
         cout<<"data[0]: "<<data[0]<<endl;
-        exit(0);
+        // exit(0);
     }
 
 
@@ -1383,8 +1403,9 @@ struct FastFill : Kernels {
         adjacent_edge_abc.resize(NE);
         for(int i=0; i<NE; i++)
         {
-            adjacent_edge_abc[i].resize(num_adjacent_edge[i]*3);
-            // adjacent_edge_abc[i].resize(20*3);
+            // adjacent_edge_abc[i].resize(num_adjacent_edge[i]*3);
+            adjacent_edge_abc[i].resize(20*3);
+            std::fill(adjacent_edge_abc[i].begin(), adjacent_edge_abc[i].end(), -1);
         }
     }
 

@@ -1625,6 +1625,9 @@ def substep_all_solver(max_iter=1):
         tic2 = perf_counter()
         if args.use_fastFill:
             fastFill_run()
+            A = fastFill_fetch().todense()
+            A2 = fill_A_csr_ti().todense()
+            ...
         else:
             A = fill_A_csr_ti()
             # A2 = fill_A_mfree_wrapper()
@@ -1922,11 +1925,6 @@ def init_direct_fill_A_cuda():
     extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
     nonz = extlib.fastFill_init()
 
-    global spmat_data, spmat_indices, spmat_indptr
-    spmat_indptr = np.empty(NE+1, dtype=np.int32)
-    spmat_indices = np.empty(nonz, dtype=np.int32)
-    spmat_data = np.empty(nonz, dtype=np.float32)
-
 
 
 def cache_and_init_direct_fill_A():
@@ -1992,6 +1990,7 @@ def init():
     tic = time.perf_counter()
     if args.use_cuda and args.use_fastFill:
         init_direct_fill_A_cuda()
+        cache_and_init_direct_fill_A()
     else:
         cache_and_init_direct_fill_A()
     print(f"init_direct_fill_A time: {time.perf_counter()-tic:.3f}s")

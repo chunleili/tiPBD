@@ -1755,10 +1755,10 @@ struct VCycle : Kernels {
 
 
     void set_A0_from_fastFill(FastFill *ff) {
-        levels.at(0).A.data = ff->d_data;
-        levels.at(0).A.indices = ff->d_indices;
-        levels.at(0).A.indptr = ff->d_indptr;
-        levels.at(0).A.numnonz = ff->num_nonz;
+        levels.at(0).A.data.swap( (ff->A).data);
+        levels.at(0).A.indices.swap( (ff->A).indices);
+        levels.at(0).A.indptr.swap((ff->A).indptr);
+        levels.at(0).A.numnonz = ( ff->num_nonz);
     }
 
     // DEPRECATED

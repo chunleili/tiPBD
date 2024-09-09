@@ -172,10 +172,10 @@ ALPHA = scipy.sparse.diags(alpha_tilde_np)
 def init_extlib_argtypes():
     global extlib
 
-    # # DEBUG only
-    # os.chdir(prj_path+'/cpp/mgcg_cuda')
-    # os.system("cmake --build build --config Debug")
-    # os.chdir(prj_path)
+    # DEBUG only
+    os.chdir(prj_path+'/cpp/mgcg_cuda')
+    os.system("cmake --build build --config Debug")
+    os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')

@@ -69,7 +69,7 @@ __global__ void fill_A_CSR_kernel(
 
             if(isnan(offdiag) || isinf(offdiag))
             {
-                printf("row_idx: %d, j: %d, offdiag: %f, invmass=%f, dot=%f, g_ab=(%f,%f,%f), g_ac=(%f,%f,%f), pa=(%f,%f,%f), pb=(%f,%f,%f), pc=(%f,%f,%f), a=%d, b=%d, c=%d\n", row_idx, j, offdiag, inv_mass[a], dot, g_ab.x, g_ab.y, g_ab.z, g_ac.x, g_ac.y, g_ac.z, pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z, a, b, c);
+                // printf("row_idx: %d, j: %d, offdiag: %f, invmass=%f, dot=%f, g_ab=(%f,%f,%f), g_ac=(%f,%f,%f), pa=(%f,%f,%f), pb=(%f,%f,%f), pc=(%f,%f,%f), a=%d, b=%d, c=%d\n", row_idx, j, offdiag, inv_mass[a], dot, g_ab.x, g_ab.y, g_ab.z, g_ac.x, g_ac.y, g_ac.z, pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z, a, b, c);
             }
         }
     }

@@ -1354,7 +1354,8 @@ struct FastFill : Kernels {
         printf("Copying adj\n");
         d_num_adjacent_edge.assign(num_adjacent_edge_in, NE);
         d_adjacent_edge_abc.resize(NE*60);
-        CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data(), adjacent_edge_abc_in, sizeof(int) * 60, cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data(), adjacent_edge_abc_in, sizeof(int) * NE * 60, cudaMemcpyHostToDevice));
+        debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc111");
         cout<<"Finish."<<endl;
     }
 
@@ -1455,6 +1456,7 @@ struct FastFill : Kernels {
         cudaDeviceSynchronize();
         launch_check();
         debug_cuda_vec(A.data, "A.data");
+        debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc");
         cout<<"finish fill A kernel"<<endl;
     }
 

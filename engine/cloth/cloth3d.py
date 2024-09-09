@@ -1317,6 +1317,7 @@ def csr_is_equal(A, B):
         assert False
     diff = A - B
     if diff.nnz == 0:
+        print("csr is equal! nnz=0")
         return True
     maxdiff = np.abs(diff.data).max()
     print("maxdiff: ", maxdiff)
@@ -1636,6 +1637,8 @@ def substep_all_solver(max_iter=1):
         if args.use_fastFill:
             fastFill_run()
             A = fastFill_fetch()
+            A2 = fill_A_csr_ti()
+            csr_is_equal(A,A2)
         else:
             A = fill_A_csr_ti()
             # A2 = fill_A_mfree_wrapper()

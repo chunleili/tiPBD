@@ -1212,8 +1212,70 @@ struct FastFill : Kernels {
 
         // transfer data to device
         host_to_device();
-
         return num_nonz;
+    }
+
+    // init_direct_fill_A
+    // (adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj)
+    void init_from_python_cache(
+        int *adjacent_edge_in,
+        int *num_adjacent_edge_in,
+        int *adjacent_edge_abc_in,
+        int num_nonz_in,
+        float *spmat_data_in,
+        int *spmat_indices_in,
+        int *spmat_indptr_in,
+        int *spmat_ii_in,
+        int *spmat_jj_in,
+        int NE_in,
+        int NV_in)
+    {
+        NE = NE_in;
+        NV = NV_in;
+        num_nonz = num_nonz_in;
+
+        adjacent_edge_abc.resize(NE);
+        num_adjacent_edge.resize(NE);
+        adjacent_edges.resize(NE);
+        for(int i=0; i<NE; i++)
+        {
+            const int width=20;
+            num_adjacent_edge[i] = num_adjacent_edge_in[i];
+            adjacent_edges[i].resize(width);
+            for(int j=0; j<width; j++)
+            {
+                adjacent_edges[i][j] = adjacent_edge_in[i*width+j];
+            }
+            adjacent_edge_abc[i].resize(width*3);
+            for(int j=0; j<width*3; j++)
+            {
+                adjacent_edge_abc[i][j] = adjacent_edge_abc_in[i*width*3+j];
+            }
+        }
+
+
+        num_nonz = num_nonz_in;
+        data.resize(num_nonz);
+        indices.resize(num_nonz);
+        indptr.resize(NE+1);
+        ii.resize(num_nonz);
+        jj.resize(num_nonz);
+
+        for(int i=0; i<num_nonz; i++)
+        {
+            data[i] = spmat_data_in[i];
+            indices[i] = spmat_indices_in[i];
+            ii[i] = spmat_ii_in[i];
+            jj[i] = spmat_jj_in[i];
+        }
+
+        for(int i=0; i<NE+1; i++)
+        {
+            indptr[i] = spmat_indptr_in[i];
+        }
+
+        // transfer data to device
+        host_to_device();
     }
 
     void run(float* pos_in)
@@ -1221,7 +1283,8 @@ struct FastFill : Kernels {
         Timer t;
         update_pos(pos_in);
         t.start();
-        fill_A_CSR_gpu();
+        // fill_A_CSR_gpu();
+        fill_A_CSR_cpu();
         t.end("fill_A_CSR");
     }
 
@@ -1266,7 +1329,10 @@ struct FastFill : Kernels {
         d_num_adjacent_edge.assign(num_adjacent_edge.data(), num_adjacent_edge.size());
 
         d_adjacent_edge_abc.resize(NE*60);
-        CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data(), adjacent_edge_abc[0].data(), sizeof(int) * NE*60, cudaMemcpyHostToDevice));
+        for(int i=0; i<NE; i++)
+        {
+            CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data()+i*60, adjacent_edge_abc[i].data(), sizeof(int) * 60, cudaMemcpyHostToDevice));
+        }
 
         d_edges.assign((int*)edges.data(), edges.size()*2);
         d_pos.assign((float*)pos.data(), pos.size()*3);
@@ -1306,7 +1372,7 @@ struct FastFill : Kernels {
     }
 
 
-    void fill_A_CSR()
+    void fill_A_CSR_cpu()
     {
         for(int cnt=0; cnt<num_nonz; cnt++)
         {
@@ -2188,6 +2254,31 @@ extern "C" DLLEXPORT int fastFill_init() {
     return nnz;
 }
 
+extern "C" DLLEXPORT void fastFill_init_from_python_cache(
+    int *adjacent_edge_in,
+    int *num_adjacent_edge_in,
+    int *adjacent_edge_abc_in,
+    int num_nonz_in,
+    float *spmat_data_in,
+    int *spmat_indices_in,
+    int *spmat_indptr_in,
+    int *spmat_ii_in,
+    int *spmat_jj_in,
+    int NE_in,
+    int NV_in)
+{
+    fastFill->init_from_python_cache(adjacent_edge_in,
+                                     num_adjacent_edge_in,
+                                     adjacent_edge_abc_in,
+                                     num_nonz_in,
+                                     spmat_data_in,
+                                     spmat_indices_in,
+                                     spmat_indptr_in,
+                                     spmat_ii_in,
+                                     spmat_jj_in,
+                                     NE_in,
+                                     NV_in);
+}
 
 extern "C" DLLEXPORT void fastFill_run(float* pos_in) {
     fastFill->run(pos_in);

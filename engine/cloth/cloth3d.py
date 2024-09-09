@@ -76,7 +76,7 @@ parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
-parser.add_argument("-use_fastFill", type=int, default=True)
+parser.add_argument("-use_fastFill", type=int, default=False)
 parser.add_argument("-setup_interval", type=int, default=20)
 
 
@@ -211,9 +211,13 @@ def init_extlib_argtypes():
     extlib.fastFill_run.argtypes = [arr2d_float]
     extlib.fastFill_init.restype = c_int
     extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
+    extlib.fastFill_init_from_python_cache.argtypes = [arr2d_int, arr_int, arr2d_int, c_int, arr_float, arr_int, arr_int, arr_int, arr_int, c_int, c_int]
 
 
     extlib.fastmg_new()
+
+    if args.use_fastFill:
+        extlib.fastFill_new()
 
 if args.use_cuda:
     init_extlib_argtypes()
@@ -1632,6 +1636,7 @@ def substep_all_solver(max_iter=1):
             fastFill_run()
             A = fastFill_fetch().todense()
             A2 = fill_A_csr_ti().todense()
+            dense_mat_is_equal(A, A2)
             ...
         else:
             A = fill_A_csr_ti()
@@ -1925,8 +1930,6 @@ def init_direct_fill_A():
 
 
 def init_direct_fill_A_cuda():
-    extlib.fastFill_new()
-
     extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
     nonz = extlib.fastFill_init()
 
@@ -1941,6 +1944,24 @@ def cache_and_init_direct_fill_A():
         print(f"load cache_initFill_N{N}.npz")
     else:
         adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e = init_direct_fill_A()
+
+
+def load_cache_init_and_to_cuda():
+    global adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e
+    cache_and_init_direct_fill_A()
+    extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
+    extlib.fastFill_init_from_python_cache(adjacent_edge,
+                                            num_adjacent_edge,
+                                              adjacent_edge_abc,
+                                                num_nonz,
+                                                 spmat_data,
+                                                 spmat_indices,
+                                                 spmat_indptr,
+                                                 spmat_ii,
+                                                 spmat_jj,
+                                                 NE,
+                                                NV)
+    
 
 
 
@@ -1994,8 +2015,8 @@ def init():
 
     tic = time.perf_counter()
     if args.use_cuda and args.use_fastFill:
-        init_direct_fill_A_cuda()
-        cache_and_init_direct_fill_A()
+        # init_direct_fill_A_cuda()
+        load_cache_init_and_to_cuda()
     else:
         cache_and_init_direct_fill_A()
     print(f"init_direct_fill_A time: {time.perf_counter()-tic:.3f}s")

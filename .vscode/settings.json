@@ -93,5 +93,5 @@
         "alignedvector3": "cpp",
         "nonlinearoptimization": "cpp",
         "nnls": "cpp"
-    }
+    },
 }

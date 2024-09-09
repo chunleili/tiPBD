@@ -1237,22 +1237,25 @@ struct FastFill : Kernels {
         adjacent_edge_abc.resize(NE);
         num_adjacent_edge.resize(NE);
         adjacent_edges.resize(NE);
+        printf("loading adj from python cache\n");
         for(int i=0; i<NE; i++)
         {
-            const int width=20;
             num_adjacent_edge[i] = num_adjacent_edge_in[i];
-            adjacent_edges[i].resize(width);
-            for(int j=0; j<width; j++)
+
+            int n = num_adjacent_edge[i];
+            adjacent_edges[i].resize(n);
+            for(int j=0; j<n; j++)
             {
-                adjacent_edges[i][j] = adjacent_edge_in[i*width+j];
+                adjacent_edges[i][j] = adjacent_edge_in[i*n+j];
             }
-            adjacent_edge_abc[i].resize(width*3);
-            for(int j=0; j<width*3; j++)
+
+            adjacent_edge_abc[i].resize(20*3);
+            for(int j=0; j<20*3; j++)
             {
-                adjacent_edge_abc[i][j] = adjacent_edge_abc_in[i*width*3+j];
+                adjacent_edge_abc[i][j] = adjacent_edge_abc_in[i*20*3+j];
             }
         }
-
+        printf("Finish loading adj from python cache\n");
 
         num_nonz = num_nonz_in;
         data.resize(num_nonz);
@@ -1261,6 +1264,7 @@ struct FastFill : Kernels {
         ii.resize(num_nonz);
         jj.resize(num_nonz);
 
+        printf("loading spmat from python cache\n");
         for(int i=0; i<num_nonz; i++)
         {
             data[i] = spmat_data_in[i];
@@ -1273,9 +1277,11 @@ struct FastFill : Kernels {
         {
             indptr[i] = spmat_indptr_in[i];
         }
+        printf("Finish loading spmat from python cache\n");
 
-        // transfer data to device
+        printf("Copying host to device\n");
         host_to_device();
+        printf("Finish copying host to device\n");
     }
 
     void run(float* pos_in)
@@ -1320,24 +1326,23 @@ struct FastFill : Kernels {
 
     void host_to_device()
     {
+        printf("Copying inv_mass, A, ii, jj,pos,edge\n");
         d_inv_mass.assign(inv_mass.data(), inv_mass.size());
         A.assign(data.data(), data.size(), indices.data(), indices.size(), indptr.data(), indptr.size(), nrows, ncols, num_nonz);
         d_ii.assign(ii.data(), ii.size());
         d_jj.assign(jj.data(), jj.size());
+        d_edges.assign((int*)edges.data(), edges.size()*2);
+        d_pos.assign((float*)pos.data(), pos.size()*3);
 
-
+        printf("Copying adj\n");
         d_num_adjacent_edge.assign(num_adjacent_edge.data(), num_adjacent_edge.size());
-
         d_adjacent_edge_abc.resize(NE*60);
         for(int i=0; i<NE; i++)
         {
             CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data()+i*60, adjacent_edge_abc[i].data(), sizeof(int) * 60, cudaMemcpyHostToDevice));
         }
 
-        d_edges.assign((int*)edges.data(), edges.size()*2);
-        d_pos.assign((float*)pos.data(), pos.size()*3);
-
-        cout<<"copy data to device"<<endl;
+        cout<<"Finish copying data to device"<<endl;
     }
 
     void device_to_host()

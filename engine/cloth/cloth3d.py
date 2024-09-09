@@ -1314,14 +1314,15 @@ def is_symmetric(A):
 def csr_is_equal(A, B):
     if A.shape != B.shape:
         print("shape not equal")
-        return False
+        assert False
     diff = A - B
     if diff.nnz == 0:
         return True
     maxdiff = np.abs(diff.data).max()
     print("maxdiff: ", maxdiff)
     if maxdiff > 1e-6:
-        return False
+        assert False
+    print("csr is equal!")
     return True
 
 def dense_mat_is_equal(A, B):
@@ -1634,9 +1635,9 @@ def substep_all_solver(max_iter=1):
         tic2 = perf_counter()
         if args.use_fastFill:
             fastFill_run()
-            A = fastFill_fetch().todense()
-            A2 = fill_A_csr_ti().todense()
-            dense_mat_is_equal(A, A2)
+            A = fastFill_fetch()
+            A2 = fill_A_csr_ti()
+            csr_is_equal(A, A2)
             ...
         else:
             A = fill_A_csr_ti()

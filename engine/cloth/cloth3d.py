@@ -76,7 +76,7 @@ parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
-parser.add_argument("-use_fastFill", type=int, default=False)
+parser.add_argument("-use_fastFill", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
 
 
@@ -172,10 +172,10 @@ ALPHA = scipy.sparse.diags(alpha_tilde_np)
 def init_extlib_argtypes():
     global extlib
 
-    # DEBUG only
-    os.chdir(prj_path+'/cpp/mgcg_cuda')
-    os.system("cmake --build build --config Debug")
-    os.chdir(prj_path)
+    # # DEBUG only
+    # os.chdir(prj_path+'/cpp/mgcg_cuda')
+    # os.system("cmake --build build --config Debug")
+    # os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
@@ -1636,18 +1636,9 @@ def substep_all_solver(max_iter=1):
         if args.use_fastFill:
             fastFill_run()
             A = fastFill_fetch()
-            A2 = fill_A_csr_ti()
-            csr_is_equal(A, A2)
-            ...
         else:
             A = fill_A_csr_ti()
             # A2 = fill_A_mfree_wrapper()
-            # A1 = A1.todense()
-            # A2 = A2.todense()
-            #  # check if A1 and A2 are equal
-            # dense_mat_is_equal(A1, A2)
-            # A = A1
-            # A,G = fill_A_by_spmm(M_inv, ALPHA)
         print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
 
         update_constraints_kernel(pos, edge, rest_len, constraints)
@@ -1677,6 +1668,8 @@ def substep_all_solver(max_iter=1):
                     tic = time.perf_counter()
                     if args.use_fastFill:
                         A = fastFill_fetch()
+                    else:
+                        A = fill_A_csr_ti()
                     Ps = build_Ps(A)
                     num_levels = len(Ps)+1
                     logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
@@ -1952,16 +1945,16 @@ def load_cache_init_and_to_cuda():
     cache_and_init_direct_fill_A()
     extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
     extlib.fastFill_init_from_python_cache(adjacent_edge,
-                                            num_adjacent_edge,
-                                              adjacent_edge_abc,
-                                                num_nonz,
-                                                 spmat_data,
-                                                 spmat_indices,
-                                                 spmat_indptr,
-                                                 spmat_ii,
-                                                 spmat_jj,
-                                                 NE,
-                                                NV)
+                                           num_adjacent_edge,
+                                           adjacent_edge_abc,
+                                           num_nonz,
+                                           spmat_data,
+                                           spmat_indices,
+                                           spmat_indptr,
+                                           spmat_ii,
+                                           spmat_jj,
+                                           NE,
+                                           NV)
     
 
 

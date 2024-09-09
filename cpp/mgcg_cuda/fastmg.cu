@@ -1190,6 +1190,21 @@ struct FastFill : Kernels {
         alpha = alpha_in;
     }
 
+
+    void set_data_v2(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+    {
+        NE = NE_in;
+        NV = NV_in;
+        nrows = NE;
+        ncols = NE;
+
+        d_edges.assign(edges_in, NE*2);
+        d_inv_mass.assign(inv_mass_in, NV);
+        d_pos.assign(pos_in, NV*3);
+
+        alpha = alpha_in;
+    }
+
     void update_pos(float* pos_in)
     {
         for(int i=0; i<NV; i++)
@@ -1198,6 +1213,11 @@ struct FastFill : Kernels {
             pos[i][1] = pos_in[i*3+1];
             pos[i][2] = pos_in[i*3+2];
         }
+    }
+
+    void update_pos_v2(float* pos_in)
+    {
+        d_pos.assign(pos_in, NV*3);
     }
 
 
@@ -1284,14 +1304,53 @@ struct FastFill : Kernels {
         printf("Finish copying host to device\n");
     }
 
+
+    void init_from_python_cache_v2(
+        int *adjacent_edge_in,
+        int *num_adjacent_edge_in,
+        int *adjacent_edge_abc_in,
+        int num_nonz_in,
+        float *spmat_data_in,
+        int *spmat_indices_in,
+        int *spmat_indptr_in,
+        int *spmat_ii_in,
+        int *spmat_jj_in,
+        int NE_in,
+        int NV_in)
+    {
+        NE = NE_in;
+        NV = NV_in;
+        num_nonz = num_nonz_in;
+
+        printf("Copying A, ii, jj\n");
+        A.assign(spmat_data_in, num_nonz, spmat_indices_in, num_nonz, spmat_indptr_in, NE+1, NE, NE, num_nonz);
+        d_ii.assign(spmat_ii_in, num_nonz);
+        d_jj.assign(spmat_jj_in, num_nonz);
+        cout<<"Finish."<<endl;
+
+        printf("Copying adj\n");
+        d_num_adjacent_edge.assign(num_adjacent_edge_in, NE);
+        d_adjacent_edge_abc.resize(NE*60);
+        CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data(), adjacent_edge_abc_in, sizeof(int) * 60, cudaMemcpyHostToDevice));
+        cout<<"Finish."<<endl;
+    }
+
+
+
     void run(float* pos_in)
     {
-        Timer t;
-        update_pos(pos_in);
+        Timer t,t2,t3,t4;
         t.start();
-        // fill_A_CSR_gpu();
-        fill_A_CSR_cpu();
-        t.end("fill_A_CSR");
+        t2.start();
+        update_pos_v2(pos_in);
+        t2.end("update_pos_v2");
+        t3.start();
+        fill_A_CSR_gpu();
+        t3.end("fill_A_CSR_gpu");
+        t4.start();
+        fetch_pos(pos_in);
+        t4.end("fetch_pos");
+        t.end("fastfill_cuda");
     }
 
 
@@ -1327,10 +1386,10 @@ struct FastFill : Kernels {
     void host_to_device()
     {
         printf("Copying inv_mass, A, ii, jj,pos,edge\n");
-        d_inv_mass.assign(inv_mass.data(), inv_mass.size());
         A.assign(data.data(), data.size(), indices.data(), indices.size(), indptr.data(), indptr.size(), nrows, ncols, num_nonz);
         d_ii.assign(ii.data(), ii.size());
         d_jj.assign(jj.data(), jj.size());
+        d_inv_mass.assign(inv_mass.data(), inv_mass.size());
         d_edges.assign((int*)edges.data(), edges.size()*2);
         d_pos.assign((float*)pos.data(), pos.size()*3);
 
@@ -1349,6 +1408,12 @@ struct FastFill : Kernels {
     {
         A.tohost(data, indices, indptr);
     }
+
+    void fetch_pos(float* pos_out)
+    {
+        CHECK_CUDA(cudaMemcpy(pos_out, d_pos.data(), NV*3*sizeof(float), cudaMemcpyDeviceToHost));
+    }
+
 
     void fill_A_CSR_gpu()
     {
@@ -1369,11 +1434,7 @@ struct FastFill : Kernels {
                                                  d_pos.data());
         cudaDeviceSynchronize();
         launch_check();
-
         cout<<"finish fill A kernel"<<endl;
-        device_to_host();
-        cout<<"data[0]: "<<data[0]<<endl;
-        // exit(0);
     }
 
 
@@ -1694,7 +1755,10 @@ struct VCycle : Kernels {
 
 
     void set_A0_from_fastFill(FastFill *ff) {
-        levels.at(0).A.assign(ff->data.data(), ff->data.size(), ff->indices.data(), ff->indices.size(), ff->indptr.data(), ff->indptr.size(), ff->nrows, ff->ncols, ff->num_nonz);
+        levels.at(0).A.data = ff->d_data;
+        levels.at(0).A.indices = ff->d_indices;
+        levels.at(0).A.indptr = ff->d_indptr;
+        levels.at(0).A.numnonz = ff->num_nonz;
     }
 
     // DEPRECATED
@@ -2250,7 +2314,7 @@ extern "C" DLLEXPORT void fastFill_new() {
 
 extern "C" DLLEXPORT void fastFill_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
 {
-    fastFill->set_data(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
+    fastFill->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
 }
 
 // init_direct_fill_A
@@ -2272,7 +2336,7 @@ extern "C" DLLEXPORT void fastFill_init_from_python_cache(
     int NE_in,
     int NV_in)
 {
-    fastFill->init_from_python_cache(adjacent_edge_in,
+    fastFill->init_from_python_cache_v2(adjacent_edge_in,
                                      num_adjacent_edge_in,
                                      adjacent_edge_abc_in,
                                      num_nonz_in,

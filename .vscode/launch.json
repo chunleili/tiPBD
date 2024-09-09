@@ -59,7 +59,6 @@
                 "-N=1024",
                 "-use_cuda=1",
                 "-use_cache=1",
-                "-arch=cuda",
                 "-use_fastFill=1"
             ]
           }

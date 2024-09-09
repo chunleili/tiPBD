@@ -1636,9 +1636,6 @@ def substep_all_solver(max_iter=1):
         tic2 = perf_counter()
         if args.use_fastFill:
             fastFill_run()
-            A = fastFill_fetch()
-            A2 = fill_A_csr_ti()
-            csr_is_equal(A,A2)
         else:
             A = fill_A_csr_ti()
             # A2 = fill_A_mfree_wrapper()

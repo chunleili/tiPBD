@@ -225,6 +225,9 @@ struct GpuTimer
 
 
 
+
+
+
 namespace {
 
 struct Buffer {
@@ -619,6 +622,23 @@ struct HostVec {
         return m_data;
     }
 };
+
+
+template <typename T=float>
+void debug_cuda_vec(Vec<T> &v, std::string name) {
+    std::vector<T> v_host(v.size());
+    v.tohost(v_host);
+    cout<<name<<": ";
+    int k=0;
+    for(auto i:v_host)
+    {
+        if(k>10)
+            break;
+        std::cout<<i<<" ";
+        k++;
+    }
+    std::cout<<endl;
+}
 
 struct DnVec {
     cusparseDnVecDescr_t handle;
@@ -1218,6 +1238,9 @@ struct FastFill : Kernels {
     void update_pos_v2(float* pos_in)
     {
         d_pos.assign(pos_in, NV*3);
+
+        pos.resize(NV);
+        CHECK_CUDA(cudaMemcpy(pos.data(), d_pos.data(), sizeof(float) * NV*3, cudaMemcpyDeviceToHost));
     }
 
 
@@ -1336,7 +1359,6 @@ struct FastFill : Kernels {
     }
 
 
-
     void run(float* pos_in)
     {
         Timer t,t2,t3,t4;
@@ -1348,8 +1370,6 @@ struct FastFill : Kernels {
         fill_A_CSR_gpu();
         t3.end("fill_A_CSR_gpu");
         t4.start();
-        fetch_pos(pos_in);
-        t4.end("fetch_pos");
         t.end("fastfill_cuda");
     }
 
@@ -1434,6 +1454,7 @@ struct FastFill : Kernels {
                                                  d_pos.data());
         cudaDeviceSynchronize();
         launch_check();
+        debug_cuda_vec(A.data, "A.data");
         cout<<"finish fill A kernel"<<endl;
     }
 
@@ -1628,7 +1649,6 @@ struct VCycle : Kernels {
     size_t niter; //final number of iterations to break the loop
     float max_eig;
 
-
     void setup_smoothers_cuda(int type) {
         if(smoother_type == 1)
         {
@@ -1754,11 +1774,18 @@ struct VCycle : Kernels {
     }
 
 
+
     void set_A0_from_fastFill(FastFill *ff) {
+        debug_cuda_vec((ff->A).data, "(ff->A).data");
         levels.at(0).A.data.swap( (ff->A).data);
         levels.at(0).A.indices.swap( (ff->A).indices);
         levels.at(0).A.indptr.swap((ff->A).indptr);
         levels.at(0).A.numnonz = ( ff->num_nonz);
+
+
+        debug_cuda_vec(levels.at(0).A.data, "A0_data");
+        debug_cuda_vec<int>(levels.at(0).A.indices, "A0_indices");
+        debug_cuda_vec<int>(levels.at(0).A.indptr, "A0_indptr");
     }
 
     // DEPRECATED

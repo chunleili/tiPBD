@@ -1356,7 +1356,7 @@ struct FastFill : Kernels {
         d_num_adjacent_edge.assign(num_adjacent_edge_in, NE);
         d_adjacent_edge_abc.resize(NE*60);
         CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data(), adjacent_edge_abc_in, sizeof(int) * NE * 60, cudaMemcpyHostToDevice));
-        debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc111");
+        // debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc111");
         cout<<"Finish."<<endl;
     }
 
@@ -1456,8 +1456,8 @@ struct FastFill : Kernels {
                                                  d_pos.data());
         cudaDeviceSynchronize();
         launch_check();
-        debug_cuda_vec(A.data, "A.data");
-        debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc");
+        // debug_cuda_vec(A.data, "A.data");
+        // debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc");
         cout<<"finish fill A kernel"<<endl;
     }
 
@@ -1779,16 +1779,16 @@ struct VCycle : Kernels {
 
 
     void set_A0_from_fastFill(FastFill *ff) {
-        debug_cuda_vec((ff->A).data, "(ff->A).data");
+        // debug_cuda_vec((ff->A).data, "(ff->A).data");
         levels.at(0).A.data.swap( (ff->A).data);
         levels.at(0).A.indices.swap( (ff->A).indices);
         levels.at(0).A.indptr.swap((ff->A).indptr);
         levels.at(0).A.numnonz = ( ff->num_nonz);
 
 
-        debug_cuda_vec(levels.at(0).A.data, "A0_data");
-        debug_cuda_vec<int>(levels.at(0).A.indices, "A0_indices");
-        debug_cuda_vec<int>(levels.at(0).A.indptr, "A0_indptr");
+        // debug_cuda_vec(levels.at(0).A.data, "A0_data");
+        // debug_cuda_vec<int>(levels.at(0).A.indices, "A0_indices");
+        // debug_cuda_vec<int>(levels.at(0).A.indptr, "A0_indptr");
     }
 
     // DEPRECATED

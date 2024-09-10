@@ -1174,9 +1174,10 @@ struct FastFill : Kernels {
     Vec<int> d_num_adjacent_edge;
 
     void fetch_A(float *data_in, int *indices_in, int *indptr_in) {
-        std::copy(data.begin(), data.end(), data_in);
-        std::copy(indices.begin(), indices.end(), indices_in);
-        std::copy(indptr.begin(), indptr.end(), indptr_in);
+        // std::copy(data.begin(), data.end(), data_in);
+        // std::copy(indices.begin(), indices.end(), indices_in);
+        // std::copy(indptr.begin(), indptr.end(), indptr_in);
+        CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
     }
 
     void set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)

@@ -1363,16 +1363,8 @@ struct FastFill : Kernels {
 
     void run(float* pos_in)
     {
-        Timer t,t2,t3,t4;
-        t.start();
-        t2.start();
         update_pos_v2(pos_in);
-        t2.end("update_pos_v2");
-        t3.start();
         fill_A_CSR_gpu();
-        t3.end("fill_A_CSR_gpu");
-        t4.start();
-        t.end("fastfill_cuda");
     }
 
 

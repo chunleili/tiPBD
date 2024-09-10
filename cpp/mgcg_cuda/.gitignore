@@ -2,3 +2,4 @@ result/
 lib/*
 eigen/*
 pybind11/*
+extern

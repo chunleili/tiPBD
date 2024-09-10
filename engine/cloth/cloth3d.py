@@ -1694,6 +1694,7 @@ def substep_all_solver():
     for ite in range(args.max_iter):
         tic_assemble = perf_counter()
         tic_iter = perf_counter()
+        compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len) # required by dlam2dpos
         AMG_A()
         b = AMG_b()
         logging.info(f"    Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")

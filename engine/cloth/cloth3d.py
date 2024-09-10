@@ -1043,7 +1043,7 @@ def AMG_solve(b, x0=None, tol=1e-5, maxiter=100):
     niter = extlib.fastmg_get_data(x, residuals)
     residuals = residuals[:niter+1]
     print(f"    niter", niter)
-    print(f"    solve time: {time.perf_counter()-tic4:.3f}s")
+    print(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
     return (x),  residuals  
 
 
@@ -1554,10 +1554,11 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
         np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
 
     logging.info(f"    convergence factor: {calc_conv(r_Axb):.2f}")
-    logging.info(f"    Calc r time: {perf_counter()-tic_calcr:.4f}s")
+    logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
 
     if args.export_log:
-        logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
+        logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
+        logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)}")
     r.append(Residual([0.,0.], dual_r, robj, r_Axb, len(r_Axb), t_iter))
 
     if args.export_residual:
@@ -1650,7 +1651,7 @@ def AMG_presolve():
     tic3 = time.perf_counter()
     for lv in range(num_levels-1):
         extlib.fastmg_RAP(lv) 
-    print(f"    RAP time: {time.perf_counter()-tic3:.3f}s")
+    print(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
 
 
 def AMG_dlam2dpos(x):
@@ -1660,7 +1661,7 @@ def AMG_dlam2dpos(x):
     #     transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
     else:
         transfer_back_to_pos_mfree(x)
-    print(f"    dlam to dpos time: {perf_counter()-tic:.4f}s")
+    print(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
 
 def AMG_b():
     update_constraints_kernel(pos, edge, rest_len, constraints)
@@ -1677,7 +1678,7 @@ def AMG_b():
 def AMG_A():
     tic2 = perf_counter()
     fastFill_run()
-    print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
+    print(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
 def calc_dual0():
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
@@ -1697,7 +1698,7 @@ def substep_all_solver():
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len) # required by dlam2dpos
         AMG_A()
         b = AMG_b()
-        logging.info(f"    Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
+        logging.info(f"    Assemble time: {(perf_counter()-tic_assemble)*1000:.0f}ms")
         if not args.use_cuda:
             x, r_Axb = AMG_python(b)
         else:

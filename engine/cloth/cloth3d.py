@@ -1024,7 +1024,7 @@ def cuda_update_A0(A0):
     extlib.fastmg_update_A0(A0.data.astype(np.float32))
 
 
-def new_amg_cg_solve(b, x0=None, tol=1e-5, maxiter=100):
+def AMG_solve(b, x0=None, tol=1e-5, maxiter=100):
     if x0 is None:
         x0 = np.zeros(b.shape[0], dtype=np.float32)
 
@@ -1488,8 +1488,10 @@ def compute_inertial_energy():
         inertial_energy[None] += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
 
 
-def python_AMG(A,b):
+def AMG_python(b):
     global Ps, num_levels
+
+    A = fill_A_csr_ti()
 
     if should_setup():
         tic = time.perf_counter()
@@ -1516,8 +1518,8 @@ def python_AMG(A,b):
 def calc_conv(r):
     return (r[-1]/r[0])**(1.0/(len(r)-1))
 
-def report_multilevel_details(r_Axb, Ps, num_levels):
 
+def report_multilevel_details(Ps, num_levels):
     logging.info(f"    num_levels:{num_levels}")
     num_points_level = []
     for i in range(len(Ps)):
@@ -1525,16 +1527,17 @@ def report_multilevel_details(r_Axb, Ps, num_levels):
     num_points_level.append(Ps[-1].shape[1])
     for i in range(num_levels):
         logging.info(f"    num points of level {i}: {num_points_level[i]}")
-    convfactor = calc_conv(r_Axb)
-    logging.info(f"    convfactor: {convfactor:.2f}")
 
 
 def should_setup():
     return ((frame%args.setup_interval==0) and (ite==0))
 
 
-def calc_r_AMG(r,fulldual0, t_iter_start, r_Axb):
-    t_iter = perf_counter()-t_iter_start
+def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
+    global t_export
+    tic = time.perf_counter()
+
+    t_iter = perf_counter()-tic_iter
     tic_calcr = perf_counter()
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
     dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
@@ -1557,14 +1560,18 @@ def calc_r_AMG(r,fulldual0, t_iter_start, r_Axb):
         logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.3f}s")
     r.append(Residual([0.,0.], dual_r, robj, r_Axb, len(r_Axb), t_iter))
 
+    if args.export_residual:
+        do_export_r(r)
+
+    t_export += perf_counter()-tic
+    
 
 
 def do_export_r(r):
-    if args.export_residual:
-        serialized_r = [r[i]._asdict() for i in range(len(r))]
-        r_json = json.dumps(serialized_r)
-        with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
-            file.write(r_json)
+    serialized_r = [r[i]._asdict() for i in range(len(r))]
+    r_json = json.dumps(serialized_r)
+    with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
+        file.write(r_json)
 
 
 
@@ -1613,111 +1620,92 @@ def PXPBD_transfer_back_to_pos_mfree_kernel(Minv_gg:ti.template()):
         
 
 
+def AMG_setup_phase():
+    global Ps, num_levels
+    tic = time.perf_counter()
+    if args.use_fastFill:
+        A = fastFill_fetch()
+    else:
+        A = fill_A_csr_ti()
+    Ps = build_Ps(A)
+    num_levels = len(Ps)+1
+    logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+
+    extlib.fastmg_setup_nl(num_levels)
+
+    tic = time.perf_counter()
+    update_P(Ps)
+    print(f"    update_P time: {time.perf_counter()-tic:.2f}s")
+
+    tic = time.perf_counter()
+    cuda_set_A0(A)
+    extlib.fastmg_setup_smoothers(1) # 1 means chebyshev
+    logging.info(f"    setup smoothers time:{perf_counter()-tic}")
+
+    report_multilevel_details(Ps, num_levels)
+
+
+def AMG_presolve():
+    extlib.fastmg_set_A0_from_fastFill()
+    tic3 = time.perf_counter()
+    for lv in range(num_levels-1):
+        extlib.fastmg_RAP(lv) 
+    print(f"    RAP time: {time.perf_counter()-tic3:.3f}s")
+
+
+def AMG_dlam2dpos(x):
+    tic = time.perf_counter()
+    if use_PXPBD:
+        PXPBD_transfer_back_to_pos_mfree(x)
+    #     transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
+    else:
+        transfer_back_to_pos_mfree(x)
+    print(f"    dlam to dpos time: {perf_counter()-tic:.4f}s")
+
+def AMG_b():
+    update_constraints_kernel(pos, edge, rest_len, constraints)
+    b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
+
+    # #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
+    if use_PXPBD:
+        PXPBD_b(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
+    #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
+    #     b += G @ Minv_gg
+    return b
+    
+
+def AMG_A():
+    tic2 = perf_counter()
+    fastFill_run()
+    print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
+
+def calc_dual0():
+    calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+    return dual_residual.to_numpy()
 
 Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])
 
-def substep_all_solver(max_iter=1):
-    global pos, lagrangian, ite, t_export
+def substep_all_solver():
+    global ite
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
-
-
-    x = np.zeros(NCONS)
     r = []
-    calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-    fulldual0 = dual_residual.to_numpy()
-    for ite in range(max_iter):
+    fulldual0 = calc_dual0()
+    for ite in range(args.max_iter):
         tic_assemble = perf_counter()
-        t_iter_start = perf_counter()
-        copy_field(pos_mid, pos)
-
-        compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
-
-        tic2 = perf_counter()
-        if args.use_fastFill:
-            fastFill_run()
-        else:
-            A = fill_A_csr_ti()
-            # A2 = fill_A_mfree_wrapper()
-        print(f"    fill_A time: {perf_counter()-tic2:.4f}s")
-
-        update_constraints_kernel(pos, edge, rest_len, constraints)
-        b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
-
-        # #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
-        if use_PXPBD:
-            PXPBD_b(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
-        #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
-        #     b += G @ Minv_gg
+        tic_iter = perf_counter()
+        AMG_A()
+        b = AMG_b()
         logging.info(f"    Assemble matrix time: {perf_counter()-tic_assemble:.4f}s")
-
-        if args.export_matrix:
-            export_A_b(A,b,postfix=f"F{frame}-{ite}")
-
-        if solver_type == "Direct":
-            x = scipy.sparse.linalg.spsolve(A, b)
-        if solver_type == "GS":
-            gauss_seidel(A, x, b, iterations=max_iter_Axb, residuals=r_Axb)
-        if solver_type == "AMG":
-            if not args.use_cuda:
-                x, r_Axb = python_AMG(A,b)
-            else:
-                global Ps, num_levels
-
-                if should_setup():
-                    tic = time.perf_counter()
-                    if args.use_fastFill:
-                        A = fastFill_fetch()
-                    else:
-                        A = fill_A_csr_ti()
-                    Ps = build_Ps(A)
-                    num_levels = len(Ps)+1
-                    logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
-                
-                    extlib.fastmg_setup_nl(num_levels)
-
-                    tic = time.perf_counter()
-                    update_P(Ps)
-                    print(f"    update_P time: {time.perf_counter()-tic:.2f}s")
-
-                    tic = time.perf_counter()
-                    cuda_set_A0(A)
-                    extlib.fastmg_setup_smoothers(1) # 1 means chebyshev
-                    logging.info(f"    setup smoothers time:{perf_counter()-tic}")
-
-                # set A0
-                tic = time.perf_counter()
-                if args.use_fastFill:
-                    extlib.fastmg_set_A0_from_fastFill()
-                else:
-                    cuda_update_A0(A)
-                logging.info(f"    set_A0 time:{perf_counter()-tic:.3f}s")
-                
-                # compute RAP(R=P.T) and build levels in cuda-end
-                tic3 = time.perf_counter()
-                for lv in range(num_levels-1):
-                    extlib.fastmg_RAP(lv) # build_levels is implicitly done 
-                print(f"    RAP time: {time.perf_counter()-tic3:.3f}s")
-
-                x0 = np.zeros_like(b)
-                x, r_Axb = new_amg_cg_solve(b, x0=x0, maxiter=max_iter_Axb, tol=1e-5)
-
-                if should_setup():
-                    report_multilevel_details(r_Axb, Ps, num_levels)
-
-        tic = time.perf_counter()
-        if use_PXPBD:
-            PXPBD_transfer_back_to_pos_mfree(x)
-        #     transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
+        if not args.use_cuda:
+            x, r_Axb = AMG_python(b)
         else:
-            transfer_back_to_pos_mfree(x)
-        print(f"    dlam to dpos time: {perf_counter()-tic:.4f}s")
-
-        tic = perf_counter()
-        calc_r_AMG(r, fulldual0,t_iter_start, r_Axb)
-        do_export_r(r)
-        t_export += perf_counter()-tic
-
+            if should_setup():
+                AMG_setup_phase()
+            AMG_presolve()
+            x, r_Axb = AMG_solve(b, maxiter=max_iter_Axb, tol=1e-5)
+            AMG_dlam2dpos(x)
+            AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
     update_vel(old_pos, inv_mass, vel, pos)
@@ -2066,7 +2054,7 @@ def run():
                 if solver_type == "XPBD":
                     substep_xpbd(max_iter)
                 else:
-                    substep_all_solver(max_iter)
+                    substep_all_solver()
                 frame += 1
                 
                 tic_export = time.perf_counter()

@@ -1533,7 +1533,7 @@ def AMG_setup_phase():
 
     tic = time.perf_counter()
     update_P(Ps)
-    print(f"    update_P time: {time.perf_counter()-tic:.2f}s")
+    logging.info(f"    update_P time: {time.perf_counter()-tic:.2f}s")
 
     tic = time.perf_counter()
     cuda_set_A0(A)
@@ -1548,13 +1548,13 @@ def AMG_presolve():
     extlib.fastmg_set_A0_from_fastFill()
     for lv in range(num_levels-1):
         extlib.fastmg_RAP(lv) 
-    print(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
+    logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
 
 
 def AMG_dlam2dpos(x):
     tic = time.perf_counter()
     transfer_back_to_pos_mfree(x)
-    print(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
+    logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
 
 
 # def AMG_PXPBD_dlam2dpos():
@@ -1579,7 +1579,7 @@ def AMG_b():
 def AMG_A():
     tic2 = perf_counter()
     fastFill_run()
-    print(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
+    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
 def calc_dual0():
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
@@ -1593,7 +1593,7 @@ def substep_all_solver():
     reset_lagrangian(lagrangian)
     r = []
     fulldual0 = calc_dual0()
-    print(f"    pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
+    logging.info(f"    pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     for ite in range(args.maxiter):
         tic_assemble = perf_counter()
         tic_iter = perf_counter()
@@ -1610,7 +1610,7 @@ def substep_all_solver():
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
             AMG_dlam2dpos(x)
             AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
-        print(f"    iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
+        logging.info(f"    iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
     
@@ -1618,7 +1618,7 @@ def substep_all_solver():
     if args.export_residual:
         do_export_r(r)
     update_vel(old_pos, inv_mass, vel, pos)
-    print(f"    post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
+    logging.info(f"    post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
 
 
 def mkdir_if_not_exist(path=None):
@@ -1654,10 +1654,10 @@ def clean_result_dir(folder_path):
         for f in files:
             if f in except_files:
                 to_remove.remove(f)
-    print(f"removing {len(to_remove)} files")
+    logging.info(f"removing {len(to_remove)} files")
     for file_path in to_remove:
         os.remove(file_path)
-    print(f"clean {folder_path} done")
+    logging.info(f"clean {folder_path} done")
     os.chdir(pwd)
 
 def create_another_outdir(out_dir):
@@ -1674,7 +1674,7 @@ def create_another_outdir(out_dir):
                 i += 1
     path.mkdir(parents=True, exist_ok=True)
     out_dir = str(path)
-    print(f"\ncreate another outdir: {out_dir}\n")
+    logging.info(f"\ncreate another outdir: {out_dir}\n")
     return out_dir
 
 @ti.kernel
@@ -1727,9 +1727,6 @@ def load_state(filename):
 
 def print_all_globals(global_vars):
     logging.info("\n\n### Global Variables ###")
-    import datetime
-    d = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logging.info(f"datetime:{d}",)
     import sys
     module_name = sys.modules[__name__].__name__
     global_vars = global_vars.copy()
@@ -1742,6 +1739,7 @@ def print_all_globals(global_vars):
                 logging.info(f"{var_name} = {var_value}")
             keys_to_delete.append(var_name)
     logging.info("\n\n\n")
+
 
 def find_last_frame(dir):
     # find the last frame number of dir
@@ -1910,26 +1908,28 @@ def process_dirs():
 
 
 def init():
-    global start_wall_time, frame, global_vars
-    tic_all = time.perf_counter()
-    start_wall_time = datetime.datetime.now()
+    global start_wall_time, frame, global_vars, tic_all
     process_dirs()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
+    tic_all = time.perf_counter()
+    start_wall_time = datetime.datetime.now()
+    logging.info(f"start wall time:{start_wall_time}")
+
     print_all_globals(global_vars)
 
 
-    print("\nInitializing...")
-    print("Initializing pos..")
+    logging.info("\nInitializing...")
+    logging.info("Initializing pos..")
     init_pos(inv_mass,pos)
     init_tri(tri)
     init_edge(edge, rest_len, pos)
     if args.setup_num == 1:
         init_scale()
     write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
-    print("Initializing pos and edge done")
+    logging.info("Initializing pos and edge done")
 
     tic = time.perf_counter()
     if args.solver_type == "AMG":
@@ -1937,12 +1937,12 @@ def init():
             load_cache_initFill_to_cuda()
         else:
             cache_and_initFill()
-    print(f"Init fill time: {time.perf_counter()-tic:.3f}s")
+    logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:
         do_restart()
 
-    print(f"Initialization done. Cost time:  {time.perf_counter() - tic_all:.3f}s") 
+    logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_all:.3f}s") 
 
 
 class Viewer:

@@ -143,10 +143,6 @@ denominator = ti.field(dtype=float, shape=(NE))
 gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
 edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
-# adjacent_edge = ti.field(dtype=int, shape=(NE, 20))
-# num_adjacent_edge = ti.field(dtype=int, shape=(NE))
-# adjacent_edge_abc = ti.field(dtype=int, shape=(NE, 100))
-# num_nonz = 0
 nnz_each_row = np.zeros(NE, dtype=int)
 potential_energy = ti.field(dtype=float, shape=())
 inertial_energy = ti.field(dtype=float, shape=())
@@ -167,9 +163,9 @@ def init_extlib_argtypes():
     global extlib
 
     # DEBUG only
-    os.chdir(prj_path+'/cpp/mgcg_cuda')
-    os.system("cmake --build build --config Debug")
-    os.chdir(prj_path)
+    # os.chdir(prj_path+'/cpp/mgcg_cuda')
+    # os.system("cmake --build build --config Debug")
+    # os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
@@ -203,6 +199,12 @@ def init_extlib_argtypes():
     extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
     extlib.fastFill_init_from_python_cache.argtypes = [arr2d_int, arr_int, arr2d_int, c_int, arr_float, arr_int, arr_int, arr_int, arr_int, c_int, c_int]
 
+
+    extlib.initFillCloth_set.argtypes = [arr2d_int, c_int]
+    extlib.initFillCloth_get.argtypes = [arr2d_int, arr_int, arr2d_int, c_int] + [arr_int]*4 + [arr2d_int, arr_int]
+    extlib.fastmg_get_data.restype = c_int
+
+    extlib.initFillCloth_new()
 
     extlib.fastmg_new()
 
@@ -1884,11 +1886,26 @@ def initFill_python():
 def initFill_cpp():
     tic1 = perf_counter()
     print("Initializing adjacent edge and abc...")
-    sys.path.append(prj_path + "/engine/cloth")
-    import InitFillCloth 
+    extlib.initFillCloth_set(edge.to_numpy(), NE)
+    extlib.initFillCloth_run()
+    num_nonz = extlib.initFillCloth_get_nnz()
 
+    MAX_ADJ = 20
+    MAX_V2E = MAX_ADJ
+    adjacent_edge = np.zeros((NE, MAX_ADJ), dtype=np.int32)
+    num_adjacent_edge = np.zeros(NE, dtype=np.int32)
+    adjacent_edge_abc = np.zeros((NE, MAX_ADJ*3), dtype=np.int32)
+    spmat_data = np.zeros(num_nonz, dtype=np.float32)
+    spmat_indices = np.zeros(num_nonz, dtype=np.int32)
+    spmat_indptr = np.zeros(NE+1, dtype=np.int32)
+    spmat_ii = np.zeros(num_nonz, dtype=np.int32)
+    spmat_jj = np.zeros(num_nonz, dtype=np.int32)
+    v2e = np.zeros((NV, MAX_V2E), dtype=np.int32)
+    num_v2e = np.zeros(NV, dtype=np.int32)
+
+    extlib.initFillCloth_get(adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e)
     print(f"initFill time: {perf_counter()-tic1:.3f}s")
-    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj, v2e_np, num_v2e
+    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e
 
 
 def cache_and_initFill():
@@ -1899,8 +1916,13 @@ def cache_and_initFill():
         num_nonz = int(num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
         print(f"load cache_initFill_N{N}.npz")
     else:
-        adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e = initFill_python()
-        print("caching initFill_python...")
+        use_cpp_initFill = True
+        if use_cpp_initFill:
+            initFill = initFill_cpp
+        else:
+            initFill = initFill_python
+        adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e = initFill()
+        print("caching init fill...")
         tic = perf_counter() # savez_compressed will save 10x space(1.4G->140MB), but much slower(33s)
         np.savez(f'cache_initFill_N{N}.npz', adjacent_edge=adjacent_edge, num_adjacent_edge=num_adjacent_edge, adjacent_edge_abc=adjacent_edge_abc, num_nonz=num_nonz, spmat_data=spmat_data, spmat_indices=spmat_indices, spmat_indptr=spmat_indptr, spmat_ii=spmat_ii, spmat_jj=spmat_jj)
         print("time of caching:", perf_counter()-tic)
@@ -1978,7 +2000,7 @@ def init():
         load_cache_initFill_to_cuda()
     else:
         cache_and_initFill()
-    print(f"initFill_python time: {time.perf_counter()-tic:.3f}s")
+    print(f"init fill time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:
         if args.restart_from_last_frame :

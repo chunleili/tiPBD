@@ -60,3 +60,12 @@ nvcc -I"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5/include" -I"." 
 
  https://learn.microsoft.com/zh-cn/visualstudio/python/debugging-mixed-mode-c-cpp-python-in-visual-studio?view=vs-2022 
 
+
+## Debug in vscode
+Install pythoncpp-debug plug-in: https://marketplace.visualstudio.com/items?itemName=benjamin-simmonds.pythoncpp-debug
+
+Modify launch.json as in .vscode/launch.json
+
+
+More Details:
+(https://blog.csdn.net/weixin_43940314/article/details/141869353)

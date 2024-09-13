@@ -41,8 +41,10 @@ if(test)
 endif()
 
 
-option(initFillCloth "cpp initFillCloth(OFF will use python initFill)" OFF)
+# option(initFillCloth "cpp initFillCloth(OFF will use python initFill)" ON)
+set(initFillCloth ON)
 if(initFillCloth)
-    add_subdirectory(extern/pybind11)
-    pybind11_add_module(initFillCloth initFillCloth.cpp)
+    # add_subdirectory(extern/pybind11)
+    # pybind11_add_module(initFillCloth initFillCloth.cpp)
+    target_sources(fastmg PRIVATE initFillCloth.cpp)
 endif()

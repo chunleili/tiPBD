@@ -1380,7 +1380,7 @@ static FastFillCloth *fastFillCloth = nullptr;
 #define DLLEXPORT
 #endif
 
-extern "C" DLLEXPORT void fastmg_new(size_t numlvs) {
+extern "C" DLLEXPORT void fastmg_new() {
     if (!fastmg)
         fastmg = new VCycle{};
 }

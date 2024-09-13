@@ -56,9 +56,9 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "-N=1024",
+                "-N=64",
                 "-use_cuda=1",
-                "-use_cache=1",
+                "-use_cache=0",
                 "-use_fastFill=1"
             ]
           }

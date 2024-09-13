@@ -92,6 +92,10 @@
         "sparseextra": "cpp",
         "alignedvector3": "cpp",
         "nonlinearoptimization": "cpp",
-        "nnls": "cpp"
+        "nnls": "cpp",
+        "openglsupport": "cpp",
+        "*.rh": "cpp",
+        "__config": "cpp",
+        "fft": "cpp"
     },
 }

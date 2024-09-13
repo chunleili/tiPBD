@@ -1679,10 +1679,12 @@ Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])
 
 def substep_all_solver():
     global ite
+    tic1 = time.perf_counter()
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
     r = []
     fulldual0 = calc_dual0()
+    print(f"    pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     for ite in range(args.maxiter):
         tic_assemble = perf_counter()
         tic_iter = perf_counter()
@@ -1701,7 +1703,10 @@ def substep_all_solver():
             AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
+        print(f"    iter {ite} time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
+    tic = time.perf_counter()
     update_vel(old_pos, inv_mass, vel, pos)
+    print(f"    update_vel time: {(time.perf_counter()-tic)*1000:.0f}ms")
 
 
 def mkdir_if_not_exist(path=None):
@@ -2032,7 +2037,7 @@ class Viewer:
 viewer = Viewer()
 
 def run():
-    global frame, paused, ite
+    global frame, paused, ite, t_export
     timer_loop = time.perf_counter()
     initial_frame = frame
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=frame)

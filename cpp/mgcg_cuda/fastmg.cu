@@ -947,7 +947,7 @@ struct FastFillCloth : Kernels {
         launch_check();
         // debug_cuda_vec(A.data, "A.data");
         // debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc");
-        cout<<"finish fill A kernel"<<endl;
+        // cout<<"finish fill A kernel"<<endl;
     }
 }; //FastFill struct
 

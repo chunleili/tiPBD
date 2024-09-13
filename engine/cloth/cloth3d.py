@@ -153,8 +153,9 @@ alpha_tilde_np = np.array([alpha] * NCONS)
 ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
 
-ResidualData = namedtuple('residual', ['dual', 'niter','t'])
-r_alltime = []
+ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
+n_outer_all = []
+
 
 def init_extlib_argtypes():
     global extlib
@@ -991,8 +992,8 @@ def AMG_solve(b, x0=None, tol=1e-5, maxiter=100):
     residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
     niter = extlib.fastmg_get_data(x, residuals)
     residuals = residuals[:niter+1]
-    print(f"    niter", niter)
-    print(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
+    logging.info(f"    inner iter: {niter}")
+    logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
     return (x),  residuals  
 
 
@@ -1587,13 +1588,13 @@ def calc_dual0():
 
 
 def substep_all_solver():
-    global ite, t_export
+    global ite, t_export, n_outer_all
     tic1 = time.perf_counter()
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
-    r = []
+    r = [] # residual list of one frame
     fulldual0 = calc_dual0()
-    logging.info(f"    pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
+    logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     for ite in range(args.maxiter):
         tic_assemble = perf_counter()
         tic_iter = perf_counter()
@@ -1610,15 +1611,17 @@ def substep_all_solver():
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
             AMG_dlam2dpos(x)
             AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
-        logging.info(f"    iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
+        logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
     
     tic = time.perf_counter()
+    logging.info(f"n_outer: {len(r)}")
+    n_outer_all.append(len(r))
     if args.export_residual:
         do_export_r(r)
     update_vel(old_pos, inv_mass, vel, pos)
-    logging.info(f"    post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
+    logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
 
 
 def mkdir_if_not_exist(path=None):
@@ -1660,7 +1663,7 @@ def clean_result_dir(folder_path):
     logging.info(f"clean {folder_path} done")
     os.chdir(pwd)
 
-def create_another_outdir(out_dir):
+def use_another_outdir(out_dir):
     path = Path(out_dir)
     if path.exists():
         # add a number to the end of the folder name
@@ -1672,9 +1675,8 @@ def create_another_outdir(out_dir):
                 if not path.exists():
                     break
                 i += 1
-    path.mkdir(parents=True, exist_ok=True)
+    # path.mkdir(parents=True, exist_ok=True)
     out_dir = str(path)
-    logging.info(f"\ncreate another outdir: {out_dir}\n")
     return out_dir
 
 @ti.kernel
@@ -1856,15 +1858,21 @@ def load_cache_initFill_to_cuda():
                                            NV)
 
 
-
-
 def ending(timer_loop, start_date, initial_frame, t_export_total):
+    global n_outer_all
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now()
     args.end_frame = frame
-    s = f"\n-------\nTime: {(time.perf_counter() - timer_loop):.2f}s = {(time.perf_counter() - timer_loop)/60:.2f}min. \nFrame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames). \nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame. \nStart\t{start_date},\nEnd\t{end_date}.\nTime of exporting: {t_export_total:.3f}s"
-    if args.export_log:
-        logging.info(s)
+
+    sum_n_outer = sum(n_outer_all)
+    avg_n_outer = sum_n_outer / len(n_outer_all)
+    max_n_outer = max(n_outer_all)
+    max_n_outer_index = n_outer_all.index(max_n_outer)
+
+    s = f"\n-------\nTime: {(time.perf_counter() - timer_loop):.2f}s = {(time.perf_counter() - timer_loop)/60:.2f}min. \nFrame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames). \nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame. \nStart\t{start_date},\nEnd\t{end_date}.\nTime of exporting: {t_export_total:.3f}s" + \
+    f"\nSum n_outer: {sum_n_outer}\nAvg n_outer: {avg_n_outer:.1f}\nMax n_outer: {max_n_outer}. \nMax n_outer frame: {max_n_outer_index + initial_frame}.\n"
+
+    logging.info(s)
 
 
 
@@ -1884,7 +1892,7 @@ def do_restart():
     else:
         load_state(args.restart_dir + f"{args.restart_frame:04d}.npz")
         frame = args.restart_frame
-        logging.info(f"restart from last frame: {args.restart_frame}")
+        print(f"restart from last frame: {args.restart_frame}")
 
 
 def make_and_clean_dirs(out_dir):
@@ -1903,16 +1911,21 @@ def make_and_clean_dirs(out_dir):
 def process_dirs():
     global out_dir
     if args.auto_another_outdir:
-        out_dir = create_another_outdir(out_dir)
+        out_dir = use_another_outdir(out_dir)
     make_and_clean_dirs(out_dir)
 
 
 def init():
     global start_wall_time, frame, global_vars, tic_all
     process_dirs()
-
-    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
+    
+    log_level = logging.INFO
+    if not args.export_log:
+        log_level = logging.ERROR
+    logging.basicConfig(level=log_level, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+
+    logging.info(f"out_dir: {out_dir}")
 
     tic_all = time.perf_counter()
     start_wall_time = datetime.datetime.now()

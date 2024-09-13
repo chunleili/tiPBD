@@ -792,8 +792,9 @@ float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
   CHECK_CUDA( cudaMalloc(&dBuffer, bufferSize) )
 
   float max_eigenvalue(0.0f), max_eigenvalue_prev(0.0f);
-  float tol = 1e-6;  // tolerance for convergence
+  float tol = 1e-3;  // tolerance for convergence
   int itr = 0;
+  float err = 0.0f;
   // Power iteration method
   while (itr < max_iter) {
     // Compute x_k = A * x_i; generates Krylov subspace
@@ -815,8 +816,8 @@ float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
     max_eigenvalue = thrust::inner_product(x_i.begin(), x_i.end(), x_k.begin(), 0.0f);
 
 
-
-    if (std::abs(max_eigenvalue - max_eigenvalue_prev) < tol) {
+    err = std::abs(max_eigenvalue - max_eigenvalue_prev);
+    if (err < tol) {
       std::cout << ("[NOTE]: ") << "Converged at iterations: " << itr << std::endl;
       return max_eigenvalue;
     }
@@ -832,7 +833,7 @@ float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
   CHECK_CUSPARSE( cusparseDestroy(handle) )
   CHECK_CUDA( cudaFree(dBuffer) )
 
-  std::cout << ("[NOTE]: ") << "Maximum number of iterations reached." << std::endl;  // no convergence
+  std::cout << ("\n[NOTE]: ") << "Max_iter("<<max_iter<<") reached when calculating max eig, error=" <<err<< std::endl;  // no convergence
   return max_eigenvalue;
 }
 };
@@ -975,6 +976,7 @@ struct VCycle : Kernels {
     float max_eig;
 
     void setup_smoothers_cuda(int type) {
+        cout<<"Setting up smoothers..."<<endl;
         if(smoother_type == 1)
         {
             setup_chebyshev_cuda(levels[0].A);
@@ -995,7 +997,7 @@ struct VCycle : Kernels {
         chebyshev_polynomial_coefficients(a, b);
         
         max_eig = rho;
-        cout<<"max eigenvalue: "<<max_eig<<endl;
+        cout<<"\nmax eigenvalue: "<<max_eig<<endl;
     }
 
 
@@ -1050,6 +1052,7 @@ struct VCycle : Kernels {
         {
             cout<<chebyshev_coeff[i]<<" ";
         }
+        cout<<endl;
     }
 
 

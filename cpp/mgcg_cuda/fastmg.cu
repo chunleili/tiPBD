@@ -1167,8 +1167,7 @@ struct MGLevel {
 };
 
 
-
-struct FastFill : Kernels {
+struct FastFillCloth : Kernels {
     CSR<float> A;
     float alpha;
     int NE;
@@ -1244,8 +1243,6 @@ struct FastFill : Kernels {
         update_pos_v2(pos_in);
         fill_A_CSR_gpu();
     }
-
-
 
 
     void fill_A_CSR_gpu()
@@ -1394,16 +1391,6 @@ struct VCycle : Kernels {
         jacobi_omega = 0.0;
     }
 
-    // DEPRECATED
-    // void set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
-    //     CSR<float> *mat = nullptr;
-    //     if (which == 1) mat = &levels.at(lv).A;
-    //     if (which == 2) mat = &levels.at(lv).R;
-    //     if (which == 3) mat = &levels.at(lv).P;
-    //     if (mat) {
-    //         mat->assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
-    //     }
-    // }
 
     void set_P(size_t lv, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
         levels.at(lv).P.assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
@@ -1420,25 +1407,13 @@ struct VCycle : Kernels {
     }
 
 
-
-    void set_A0_from_fastFill(FastFill *ff) {
-        // debug_cuda_vec((ff->A).data, "(ff->A).data");
+    void set_A0_from_fastFill(FastFillCloth *ff) {
         levels.at(0).A.data.swap( (ff->A).data);
         levels.at(0).A.indices.swap( (ff->A).indices);
         levels.at(0).A.indptr.swap((ff->A).indptr);
         levels.at(0).A.numnonz = ( ff->num_nonz);
-
-
-        // debug_cuda_vec(levels.at(0).A.data, "A0_data");
-        // debug_cuda_vec<int>(levels.at(0).A.indices, "A0_indices");
-        // debug_cuda_vec<int>(levels.at(0).A.indptr, "A0_indptr");
     }
 
-    // DEPRECATED
-    // void setup_chebyshev(float const *coeff, size_t ncoeffs) {
-    //     smoother_type = 1;
-    //     chebyshev_coeff.assign(coeff, coeff + ncoeffs);
-    // }
 
     void chebyshev(int lv, Vec<float> &x, Vec<float> const &b) {
         copy(levels.at(lv).residual, b);
@@ -1536,10 +1511,6 @@ struct VCycle : Kernels {
         }
     }
 
-    GpuTimer ttt1, ttt2, ttt3, ttt;
-    std::vector<float> ttt1_elapsed, ttt2_elapsed, ttt3_elapsed;
-    std::vector<std::vector<float>> ttt_elapsed;
-
 
     void calc_residual(int lv, Vec<float> &x, Vec<float> const &b) {
         copy(levels.at(lv).residual, b);
@@ -1548,22 +1519,12 @@ struct VCycle : Kernels {
 
 
     void vcycle_down() {
-        ttt_elapsed.resize(nlvs-1);
         for (int lv = 0; lv < nlvs-1; ++lv) {
-            ttt.start();
-
-            ttt1.start();
             Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : init_x;
             Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : init_b;
-            ttt1.stop();
-            ttt1_elapsed.push_back(ttt1.elapsed());
 
-            ttt2.start();
             _smooth(lv, x, b);
-            ttt2.stop();
-            ttt2_elapsed.push_back(ttt2.elapsed());
 
-            ttt3.start();
             copy(levels.at(lv).residual, b);
             spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff); // residual = b - A@x
 
@@ -1572,11 +1533,6 @@ struct VCycle : Kernels {
 
             levels.at(lv).x.resize(levels.at(lv).b.size());
             zero(levels.at(lv).x);
-            ttt3.stop();
-            ttt3_elapsed.push_back(ttt3.elapsed());
-
-            ttt.stop();
-            ttt_elapsed[lv].push_back(ttt.elapsed());
         }
     }
 
@@ -1589,26 +1545,10 @@ struct VCycle : Kernels {
         }
     }
 
-    GpuTimer tt1, tt2, tt3;
-    std::vector<float> tt1_elapsed, tt2_elapsed, tt3_elapsed;
-
     void vcycle() {
-        
-        tt1.start();
         vcycle_down();
-        tt1.stop();
-        tt1_elapsed.push_back(tt1.elapsed());
-
-        tt2.start();
         coarse_solve();
-        tt2.stop();
-        tt2_elapsed.push_back(tt2.elapsed());
-
-
-        tt3.start();
         vcycle_up();
-        tt3.stop();
-        tt3_elapsed.push_back(tt3.elapsed());
     }
 
 
@@ -1674,7 +1614,6 @@ struct VCycle : Kernels {
     }
 
     void fetch_cg_final_r(float *r) {
-        // CHECK_CUDA(cudaMemcpy(r, residuals.data(), residuals.size() * sizeof(float), cudaMemcpyDeviceToHost));
         std::copy(residuals.begin(), residuals.end(), r);
     }
 
@@ -1708,12 +1647,7 @@ struct VCycle : Kernels {
 
     float get_max_eig()
     {
-        Timer t("eigenvalue");
-        t.start();
-        max_eig = computeMaxEigenvaluePowerMethodOptimized(levels.at(0).A, 100);
-        t.end();
-        cout<<"max eigenvalue: "<<max_eig<<endl;
-        return  max_eig;
+        return  computeMaxEigenvaluePowerMethodOptimized(levels.at(0).A, 100);
     }
 
     size_t get_data(float* x_, float* r_)
@@ -1735,91 +1669,28 @@ struct VCycle : Kernels {
 
     void solve()
     {
-        GpuTimer t1, t2, t3, t4, t5;
-        std::vector<float> t2_elapsed, t3_elapsed, t4_elapsed, t5_elapsed;
-
-        t1.start();
         float bnrm2 = init_cg_iter0(residuals.data());
         float atol = bnrm2 * rtol;
         for (size_t iter=0; iter<maxiter; iter++)
         {   
-            t2.start();
-            t3.start();
-
             if (residuals[iter] < atol)
             {
                 niter = iter;
                 break;
             }
             copy_outer2init_x();  //reset x to x0
-            t3.stop();
-            t3_elapsed.push_back(t3.elapsed());
-
-            t4.start();
             vcycle();
-            t4.stop();
-            t4_elapsed.push_back(t4.elapsed());
-
-            t5.start();
             do_cg_itern(residuals.data(), iter); //first r is r[0], then r[iter+1]
-            t5.stop();
-            t5_elapsed.push_back(t5.elapsed());
-
             niter = iter;
-            t2.stop();
-            t2_elapsed.push_back(t2.elapsed());
-        }
-
-        bool report_time = false;
-        if(report_time)
-        {
-            float avg_t2 = avg(t2_elapsed);
-            float avg_t3 = avg(t3_elapsed);
-            float avg_t4 = avg(t4_elapsed);
-            float avg_t5 = avg(t5_elapsed);
-            float avg_tt1 = avg(tt1_elapsed);
-            float avg_tt2 = avg(tt2_elapsed);
-            float avg_tt3 = avg(tt3_elapsed);
-            float avg_ttt1 = avg(ttt1_elapsed);
-            float avg_ttt2 = avg(ttt2_elapsed);
-            float avg_ttt3 = avg(ttt3_elapsed);
-            
-
-            cout<<"     avg time one iteration: "<<avg_t2<<" ms"<<endl;
-            cout<<"     avg time before vcycle: "<<avg_t3<<" ms"<<endl;
-            cout<<"     avg time vcycle: "<<avg_t4<<" ms"<<endl;
-            cout<<"     avg time after vcycle: "<<avg_t5<<" ms"<<endl;
-
-            cout<<"     avg time vcycle_down: "<<avg_tt1<<" ms"<<endl;
-            cout<<"     avg time coarse_solve: "<<avg_tt2<<" ms"<<endl;
-            cout<<"     avg time vcycle_up: "<<avg_tt3<<" ms"<<endl;
-
-            cout<<"     avg time vcycle_down before smooth: "<<avg_ttt1<<" ms"<<endl;
-            cout<<"     avg time vcycle_down smooth: "<<avg_ttt2<<" ms"<<endl;
-            cout<<"     avg time vcycle_down after smooth: "<<avg_ttt3<<" ms"<<endl;
-
-            // print ttt elaspse
-            for(int lv=0; lv<nlvs-1; lv++)
-            {
-                cout<<"     level "<<lv;
-                cout<<" avg ttt time: "<< avg(ttt_elapsed[lv])<<" ms"<<endl;
-            }
-
-            t1.stop();
-            cout<<"     time of solve: "<<t1.elapsed()<<" ms"<<endl;
         }
     }
-
-
 };
 
 } // namespace
 
 
-
 static VCycle *fastmg = nullptr;
-// static AssembleMatrix *fastA = nullptr;
-static FastFill *fastFill = nullptr;
+static FastFillCloth *fastFillCloth = nullptr;
 
 #if _WIN32
 #define DLLEXPORT __declspec(dllexport)
@@ -1883,10 +1754,6 @@ extern "C" DLLEXPORT void fastmg_set_P(int lv, float* data, int* indices, int* i
     fastmg->set_P(lv, data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
 }
 
-extern "C" DLLEXPORT float fastmg_get_max_eig() {
-    return fastmg->get_max_eig();
-}
-
 
 extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
     fastmg->setup_smoothers_cuda(type);
@@ -1894,19 +1761,19 @@ extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
 
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFill() {
-    fastmg->set_A0_from_fastFill(fastFill);
+    fastmg->set_A0_from_fastFill(fastFillCloth);
 }
 
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastFill_new() {
-    if (!fastFill)
-        fastFill = new FastFill{};
+    if (!fastFillCloth)
+        fastFillCloth = new FastFillCloth{};
 }
 
 extern "C" DLLEXPORT void fastFill_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
 {
-    fastFill->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
+    fastFillCloth->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
 }
 
 
@@ -1923,7 +1790,7 @@ extern "C" DLLEXPORT void fastFill_init_from_python_cache(
     int NE_in,
     int NV_in)
 {
-    fastFill->init_from_python_cache_v2(adjacent_edge_in,
+    fastFillCloth->init_from_python_cache_v2(adjacent_edge_in,
                                      num_adjacent_edge_in,
                                      adjacent_edge_abc_in,
                                      num_nonz_in,
@@ -1937,9 +1804,9 @@ extern "C" DLLEXPORT void fastFill_init_from_python_cache(
 }
 
 extern "C" DLLEXPORT void fastFill_run(float* pos_in) {
-    fastFill->run(pos_in);
+    fastFillCloth->run(pos_in);
 }
 
 extern "C" DLLEXPORT void fastFill_fetch_A(float* data, int* indices, int* indptr) {
-    fastFill->fetch_A(data, indices, indptr);
+    fastFillCloth->fetch_A(data, indices, indptr);
 }

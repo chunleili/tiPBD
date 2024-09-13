@@ -19,8 +19,29 @@ target_link_libraries(fastmg PUBLIC cusparse cublas cusolver)
 target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
 # set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
-# add_executable(mgxpbd mgxpbd.cpp)
-# target_include_directories(mgxpbd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
 
-# add_executable(test_main test_main.cu)
-# target_link_libraries(test_main PUBLIC fastmg)
+
+
+
+## -------------------------------------------------------------------------- */
+##                                optional targets                            */
+## -------------------------------------------------------------------------- */
+
+option(cppmgxpbd "Build cpp mgxpbd" OFF)
+if(cppmgxpbd)
+    add_executable(mgxpbd mgxpbd.cpp)
+    target_include_directories(mgxpbd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
+endif()
+
+option(test "Build test for debug" OFF)
+if(test)
+    add_executable(test_main test_main.cu)
+    target_link_libraries(test_main PUBLIC fastmg)
+endif()
+
+
+option(test "cpp initFillCloth(OFF will use python initFill)" ON)
+if(test)
+    add_subdirectory(pybind11)
+    pybind11_add_module(initFillCloth initFillCloth.cpp)
+endif()

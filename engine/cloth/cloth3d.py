@@ -191,13 +191,10 @@ def init_extlib_argtypes():
     extlib.fastmg_get_data.argtypes = [arr_float]*2
     extlib.fastmg_get_data.restype = c_size_t
     extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
-    # extlib.fastmg_setup_chebyshev.argtypes = [arr_float, c_size_t]
     extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
     extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
     extlib.fastmg_set_A0.argtypes = argtypes_of_csr
     extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
-    extlib.fastmg_get_max_eig.restype = ctypes.c_float
-    # extlib.fastmg_cheby_poly.argtypes = [ctypes.c_float, ctypes.c_float]
     extlib.fastmg_setup_smoothers.argtypes = [c_int]
     extlib.fastmg_update_A0.argtypes = [arr_float]
 

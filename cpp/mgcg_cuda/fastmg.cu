@@ -2162,47 +2162,9 @@ struct VCycle : Kernels {
 
 };
 
-// struct AssembleMatrix : Kernels {
-//     CSR<float> A;
-//     CSR<float> G;
-//     CSR<float> M;
-//     CSR<float> ALPHA;
-//     float alpha;
-//     int NE;
-
-//     void fetch_A(float *data, int *indices, int *indptr) {
-//         CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
-//         CHECK_CUDA(cudaMemcpy(indices, A.indices.data(), A.indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
-//         CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
-//     }
-
-//     void set_G(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
-//         G.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
-//     }
-
-//     void set_M(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
-//         M.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
-//     }
-
-//     void set_ALPHA(float const *datap, int const *indicesp, int const *indptrp, int rows, int cols, int nnz) {
-//         ALPHA.assign(datap, nnz, indicesp, nnz, indptrp, rows + 1, rows, cols, nnz);
-//     }
-
-//     void compute_GMG() {
-//         CSR<float> GM;
-//         spgemm(G, M, GM);
-//         CSR<float> GT;
-//         GT.resize(G.ncols, G.nrows, G.numnonz);
-//         transpose(G, GT);
-//         spgemm(GM, GT, A);
-//     }
-
-// };
-
-
-
-
 } // namespace
+
+
 
 static VCycle *fastmg = nullptr;
 // static AssembleMatrix *fastA = nullptr;
@@ -2223,10 +2185,6 @@ extern "C" DLLEXPORT void fastmg_setup_nl(size_t numlvs) {
     fastmg->setup(numlvs);
 }
 
-// extern "C" DLLEXPORT void fastmg_setup_chebyshev(float const *coeff, size_t ncoeffs) {
-//     fastmg->setup_chebyshev(coeff, ncoeffs);
-// }
-
 extern "C" DLLEXPORT void fastmg_setup_jacobi(float const omega, size_t const niter_jacobi) {
     fastmg->setup_jacobi(omega, niter_jacobi);
 }
@@ -2235,9 +2193,6 @@ extern "C" DLLEXPORT void fastmg_setup_gauss_seidel() {
     fastmg->setup_gauss_seidel();
 }
 
-// extern "C" DLLEXPORT void fastmg_set_lv_csrmat(size_t lv, size_t which, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
-//     fastmg->set_lv_csrmat(lv, which, datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
-// }
 
 extern "C" DLLEXPORT void fastmg_RAP(size_t lv) {
     fastmg->compute_RAP(lv);
@@ -2247,9 +2202,6 @@ extern "C" DLLEXPORT void fastmg_fetch_A(size_t lv, float* data, int* indices, i
     fastmg->fetch_A(lv, data, indices, indptr);
 }
 
-// extern "C" DLLEXPORT void fastmg_vcycle() {
-//     fastmg->vcycle();
-// }
 
 extern "C" DLLEXPORT void fastmg_solve() {
     fastmg->solve();
@@ -2266,7 +2218,6 @@ extern "C" DLLEXPORT size_t fastmg_get_data(float *x, float *r) {
 
 extern "C" DLLEXPORT void fastmg_set_A0(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
 {
-                // data, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz
     fastmg->set_A0(data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
 }
 
@@ -2278,7 +2229,6 @@ extern "C" DLLEXPORT void fastmg_update_A0(const float* data_in)
 
 extern "C" DLLEXPORT void fastmg_set_P(int lv, float* data, int* indices, int* indptr, int rows, int cols, int nnz)
 {
-                //lv, data, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz
     fastmg->set_P(lv, data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
 }
 
@@ -2286,9 +2236,6 @@ extern "C" DLLEXPORT float fastmg_get_max_eig() {
     return fastmg->get_max_eig();
 }
 
-// extern "C" DLLEXPORT void fastmg_cheby_poly(float a, float b) {
-//     fastmg->chebyshev_polynomial_coefficients(a, b);
-// }
 
 extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
     fastmg->setup_smoothers_cuda(type);
@@ -2299,34 +2246,6 @@ extern "C" DLLEXPORT void fastmg_set_A0_from_fastFill() {
     fastmg->set_A0_from_fastFill(fastFill);
 }
 
-// // ------------------------------------------------------------------------------
-// extern "C" DLLEXPORT void fastA_new() {
-//     if (!fastA)
-//         fastA = new AssembleMatrix{};
-// }
-
-// extern "C" DLLEXPORT void fastA_set_G(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
-// {
-//     fastA->set_G(data, indices, indptr, rows, cols, nnz);
-// }
-
-// extern "C" DLLEXPORT void fastA_set_M(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
-// {
-//     fastA->set_M(data, indices, indptr, rows, cols, nnz);
-// }
-
-// extern "C" DLLEXPORT void fastA_set_ALPHA(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
-// {
-//     fastA->set_ALPHA(data, indices, indptr, rows, cols, nnz);
-// }
-
-// extern "C" DLLEXPORT void fastA_compute_GMG() {
-//     fastA->compute_GMG();
-// }
-
-// extern "C" DLLEXPORT void fastA_fetch_A(float* data, int* indices, int* indptr) {
-//     fastA->fetch_A(data, indices, indptr);
-// }
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastFill_new() {

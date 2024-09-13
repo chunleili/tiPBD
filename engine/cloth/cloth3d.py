@@ -43,7 +43,6 @@ use_PXPBD = False
 use_geometric_stiffness = False
 dont_clean_results = False
 report_time = True
-# chebyshev_coeff = None
 export_fullr = False
 num_levels = 0
 t_export = 0.0
@@ -65,8 +64,8 @@ parser.add_argument("-restart", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=10)
 parser.add_argument("-restart_dir", type=str, default="result/latest/state/")
 parser.add_argument("-restart_from_last_frame", type=int, default=True)
-parser.add_argument("-max_iter", type=int, default=1000)
-parser.add_argument("-max_iter_Axb", type=int, default=100)
+parser.add_argument("-maxiter", type=int, default=1000)
+parser.add_argument("-maxiter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 parser.add_argument("-use_json", type=int, default=False, help="json configs will overwrite the command line args")
@@ -83,15 +82,10 @@ parser.add_argument("-setup_interval", type=int, default=20)
 args = parser.parse_args()
 N = args.N
 delta_t = args.delta_t
-solver_type = args.solver_type
 gravity = [0.0, -9.8, 0.0]
 if args.setup_num==1: gravity = [0.0, 0.0, 0.0]
 else : gravity = [0.0, -9.8, 0.0]
-end_frame = args.end_frame
-max_iter = args.max_iter
-max_iter_Axb = args.max_iter_Axb
 out_dir =  args.out_dir + "/"
-smoother_type = args.smoother_type
 
 
 def parse_json_params(path, vars_to_overwrite):
@@ -607,7 +601,7 @@ def calc_primary_residual(G,M_inv):
 
 ResidualLess = namedtuple('ResidualLess', ['dual', 'obj', 't']) 
 
-def substep_xpbd(max_iter):
+def substep_xpbd():
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
 
@@ -615,7 +609,7 @@ def substep_xpbd(max_iter):
     fulldual0 = dual_residual.to_numpy()
 
     r = []
-    for ite in range(max_iter):
+    for ite in range(args.maxiter):
         tic_iter = perf_counter()
         reset_dpos(dpos)
         solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
@@ -971,9 +965,9 @@ def build_levels(A, Ps=[]):
 
 def setup_smoothers(A):
     global chebyshev_coeff
-    if smoother_type == 'chebyshev':
+    if args.smoother_type == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
-    elif smoother_type == 'jacobi':
+    elif args.smoother_type == 'jacobi':
         setup_jacobi(A)
         extlib.fastmg_setup_jacobi(jacobi_omega, 10)
 
@@ -1054,19 +1048,19 @@ def diag_sweep(A,x,b,iterations=1):
 
 def presmoother(A,x,b):
     from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
-    if smoother_type == 'gauss_seidel':
+    if args.smoother_type == 'gauss_seidel':
         gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
-    elif smoother_type == 'jacobi':
+    elif args.smoother_type == 'jacobi':
         jacobi(A,x,b,iterations=10, omega=jacobi_omega)
-    elif smoother_type == 'sor_vanek':
+    elif args.smoother_type == 'sor_vanek':
         for _ in range(1):
             sor(A,x,b,omega=1.0,iterations=1,sweep='forward')
             sor(A,x,b,omega=1.85,iterations=1,sweep='backward')
-    elif smoother_type == 'sor':
+    elif args.smoother_type == 'sor':
         sor(A,x,b,omega=1.33,sweep='symmetric',iterations=1)
-    elif smoother_type == 'diag_sweep':
+    elif args.smoother_type == 'diag_sweep':
         diag_sweep(A,x,b,iterations=1)
-    elif smoother_type == 'chebyshev':
+    elif args.smoother_type == 'chebyshev':
         chebyshev(A,x,b,chebyshev_coeff)
 
 
@@ -1509,7 +1503,7 @@ def AMG_python(b):
         logging.info(f"    setup smoothers time:{perf_counter()-tic}")
     x0 = np.zeros_like(b)
     tic = time.perf_counter()
-    x, r_Axb = old_amg_cg_solve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
+    x, r_Axb = old_amg_cg_solve(levels, b, x0=x0, maxiter=args.maxiter_Axb, tol=1e-6)
     toc = time.perf_counter()
     logging.info(f"    mgsolve time {toc-tic}")
     return  x, r_Axb
@@ -1577,7 +1571,7 @@ def do_export_r(r):
 
 
 @ti.kernel
-def PXPBD_b(pos:ti.template(), predict_pos:ti.template(), lagrangian:ti.template(), inv_mass:ti.template(), gradC:ti.template(), b:ti.types.ndarray(), Minv_gg:ti.template()):
+def PXPBD_b_kernel(pos:ti.template(), predict_pos:ti.template(), lagrangian:ti.template(), inv_mass:ti.template(), gradC:ti.template(), b:ti.types.ndarray(), Minv_gg:ti.template()):
     for i in range(NE):
         idx0, idx1 = edge[i]
         invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
@@ -1595,6 +1589,7 @@ def PXPBD_b(pos:ti.template(), predict_pos:ti.template(), lagrangian:ti.template
 
         #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
         #     b += G @ Minv_gg
+
 
 def PXPBD_transfer_back_to_pos_mfree(x):
     dLambda.from_numpy(x)
@@ -1647,8 +1642,8 @@ def AMG_setup_phase():
 
 
 def AMG_presolve():
-    extlib.fastmg_set_A0_from_fastFill()
     tic3 = time.perf_counter()
+    extlib.fastmg_set_A0_from_fastFill()
     for lv in range(num_levels-1):
         extlib.fastmg_RAP(lv) 
     print(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
@@ -1656,23 +1651,27 @@ def AMG_presolve():
 
 def AMG_dlam2dpos(x):
     tic = time.perf_counter()
-    if use_PXPBD:
-        PXPBD_transfer_back_to_pos_mfree(x)
-    #     transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
-    else:
-        transfer_back_to_pos_mfree(x)
+    transfer_back_to_pos_mfree(x)
     print(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
+
+
+# def AMG_PXPBD_dlam2dpos():
+    #  PXPBD_transfer_back_to_pos_mfree(x)
+    #  transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
+
 
 def AMG_b():
     update_constraints_kernel(pos, edge, rest_len, constraints)
     b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
-
-    # #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
-    if use_PXPBD:
-        PXPBD_b(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
-    #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
-    #     b += G @ Minv_gg
     return b
+
+
+# def AMG_PXPBD_b():
+    # # #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
+    # if use_PXPBD:
+    #     PXPBD_b_kernel(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
+    # #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
+    # #     b += G @ Minv_gg
     
 
 def AMG_A():
@@ -1692,7 +1691,7 @@ def substep_all_solver():
     reset_lagrangian(lagrangian)
     r = []
     fulldual0 = calc_dual0()
-    for ite in range(args.max_iter):
+    for ite in range(args.maxiter):
         tic_assemble = perf_counter()
         tic_iter = perf_counter()
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len) # required by dlam2dpos
@@ -1705,7 +1704,7 @@ def substep_all_solver():
             if should_setup():
                 AMG_setup_phase()
             AMG_presolve()
-            x, r_Axb = AMG_solve(b, maxiter=max_iter_Axb, tol=1e-5)
+            x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
             AMG_dlam2dpos(x)
             AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
@@ -1861,7 +1860,7 @@ if args.auto_another_outdir:
 
 
 def init_set_P_R_manually():
-    if solver_type=="AMG":
+    if args.solver_type=="AMG":
         # init_edge_center(edge_center, edge, pos)
         if save_P:
             R, P, labels, new_M = compute_R_and_P_kmeans()
@@ -1952,8 +1951,8 @@ def load_cache_init_and_to_cuda():
 def ending(timer_loop, start_date, initial_frame, t_export_total):
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now()
-    end_frame = frame
-    s = f"\n-------\nTime: {(time.perf_counter() - timer_loop):.2f}s = {(time.perf_counter() - timer_loop)/60:.2f}min. \nFrame {initial_frame}-{end_frame}({end_frame-initial_frame} frames). \nAvg: {t_all/(end_frame-initial_frame):.2f}s/frame. \nStart\t{start_date},\nEnd\t{end_date}.\nTime of exporting: {t_export_total:.3f}s"
+    args.end_frame = frame
+    s = f"\n-------\nTime: {(time.perf_counter() - timer_loop):.2f}s = {(time.perf_counter() - timer_loop)/60:.2f}min. \nFrame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames). \nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame. \nStart\t{start_date},\nEnd\t{end_date}.\nTime of exporting: {t_export_total:.3f}s"
     if args.export_log:
         logging.info(s)
 
@@ -2038,7 +2037,7 @@ def run():
     global frame, paused, ite
     timer_loop = time.perf_counter()
     initial_frame = frame
-    step_pbar = tqdm.tqdm(total=end_frame, initial=frame)
+    step_pbar = tqdm.tqdm(total=args.end_frame, initial=frame)
     t_export_total = 0.0
     try:
         while True:
@@ -2053,8 +2052,8 @@ def run():
                         paused = not paused
                         print("paused:",paused)
             if not paused:
-                if solver_type == "XPBD":
-                    substep_xpbd(max_iter)
+                if args.solver_type == "XPBD":
+                    substep_xpbd()
                 else:
                     substep_all_solver()
                 frame += 1
@@ -2070,7 +2069,7 @@ def run():
                 if args.export_log:
                     logging.info(f"Time of exporting: {t_export:.3f}s")
                     logging.info(f"Time of frame-{frame}: {t_frame:.3f}s")
-            if frame == end_frame:
+            if frame == args.end_frame:
                 print("Normallly end.")
                 ending(timer_loop, start_wall_time, initial_frame, t_export_total)
                 exit()

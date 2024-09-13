@@ -1,7 +1,7 @@
 taichi
-configargparse
-trimesh
-mesh-to-sdf
-pre-commit
-# gradio
-# dearpygui
+numpy
+scipy
+matplotlib
+tqdm
+pyamg
+meshio

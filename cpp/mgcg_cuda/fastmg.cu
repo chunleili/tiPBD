@@ -27,14 +27,12 @@
 
 #include "kernels.cuh"
 
-// Terminal output color (just for cosmetic purpose)
-#define RST  "\x1B[37m"  // Reset color to white
-#define KGRN  "\033[0;32m"   // Define green color
-#define RD "\x1B[31m"  // Define red color
-#define FGRN(x) KGRN x RST  // Define compiler function for green color
-#define FRD(x) RD x RST  // Define compiler function for red color
+using std::cout;
+using std::endl;
+/* -------------------------------------------------------------------------- */
+/*                                 cuda utils                                 */
+/* -------------------------------------------------------------------------- */
 
-using namespace std;
 
 #if __GNUC__ && __linux__
 #include <sys/ptrace.h>
@@ -103,6 +101,16 @@ using namespace std;
         }                                                                                          \
     } while (0)
 
+
+void launch_check()
+{
+    cudaError_t varCudaError1 = cudaGetLastError();
+    if (varCudaError1 != cudaSuccess)
+    {
+        std::cout << "Failed to launch kernel (error code: " << cudaGetErrorString(varCudaError1) << ")!" << std::endl;
+        exit(EXIT_FAILURE);
+    }
+}
 
 
 // Generate random number in the range [0, 1)
@@ -224,7 +232,9 @@ struct GpuTimer
 };
 
 
-
+/* -------------------------------------------------------------------------- */
+/*                               end cuda utils                               */
+/* -------------------------------------------------------------------------- */
 
 
 
@@ -1054,6 +1064,13 @@ struct Kernels {
 // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csreigvsi  (cusolverSpScsreigvsi is not used here, but it is another option, so I just keep the note. It use the shift inverse method to solve this equation Ax=lam x)
 // Reference code: https://github.com/physicslog/maxEigenValueGPU/blob/25e0aa3d6c9bbeb03be6249d0ab8cfaafd32188c/maxeigenvaluepower.cu#L255
 float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
+    // // Terminal output color (just for cosmetic purpose)
+    // #define RST  "\x1B[37m"  // Reset color to white
+    // #define KGRN  "\033[0;32m"   // Define green color
+    // #define RD "\x1B[31m"  // Define red color
+    // #define FGRN(x) KGRN x RST  // Define compiler function for green color
+    // #define FRD(x) RD x RST  // Define compiler function for red color
+
   assert(M.nrows == M.ncols);
 
   // Initialize two vectors x_i and x_k
@@ -1115,8 +1132,10 @@ float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
 
     max_eigenvalue = thrust::inner_product(x_i.begin(), x_i.end(), x_k.begin(), 0.0f);
 
+
+
     if (std::abs(max_eigenvalue - max_eigenvalue_prev) < tol) {
-      std::cout << FGRN("[NOTE]: ") << "Converged at iterations: " << itr << std::endl;
+      std::cout << ("[NOTE]: ") << "Converged at iterations: " << itr << std::endl;
       return max_eigenvalue;
     }
 
@@ -1131,7 +1150,7 @@ float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
   CHECK_CUSPARSE( cusparseDestroy(handle) )
   CHECK_CUDA( cudaFree(dBuffer) )
 
-  std::cout << FRD("[NOTE]: ") << "Maximum number of iterations reached." << std::endl;  // no convergence
+  std::cout << ("[NOTE]: ") << "Maximum number of iterations reached." << std::endl;  // no convergence
   return max_eigenvalue;
 }
 };
@@ -1154,16 +1173,6 @@ struct FastFill : Kernels {
     float alpha;
     int NE;
     int NV;
-    std::vector<std::array<int,2>> edges;
-    std::vector<float> inv_mass;
-    std::vector<std::array<float,3>> pos;
-    std::vector<std::vector<int>> adjacent_edges;
-    std::vector<int> num_adjacent_edge;
-    std::vector<std::vector<int>> adjacent_edge_abc;
-    std::vector<int> ii, jj;
-    std::vector<int> indptr;
-    std::vector<int> indices;
-    std::vector<float> data;
     int num_nonz;
     int nrows, ncols;
     Vec<float> d_inv_mass;
@@ -1172,9 +1181,11 @@ struct FastFill : Kernels {
     Vec<float> d_pos;
     Vec<int> d_adjacent_edge_abc;
     Vec<int> d_num_adjacent_edge;
+
     void fetch_A(float *data_in, int *indices_in, int *indptr_in) {
         CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
     }
+
     void set_data_v2(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
     {
         NE = NE_in;
@@ -1192,11 +1203,8 @@ struct FastFill : Kernels {
     void update_pos_v2(float* pos_in)
     {
         d_pos.assign(pos_in, NV*3);
-
-        pos.resize(NV);
-        CHECK_CUDA(cudaMemcpy(pos.data(), d_pos.data(), sizeof(float) * NV*3, cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(pos_in, d_pos.data(), sizeof(float) * NV*3, cudaMemcpyDeviceToHost));
     }
-
 
 
     void init_from_python_cache_v2(
@@ -1238,70 +1246,10 @@ struct FastFill : Kernels {
     }
 
 
-    std::array<float,3> inline normalize(std::array<float,3> v)
-    {
-        float norm = sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
-        return {v[0]/norm, v[1]/norm, v[2]/norm};
-    }
-
-    std::array<float,3> inline normalize_diff(std::array<float,3> &v1,  std::array<float,3> &v2)
-    {
-        std::array<float,3> diff = {v1[0]-v2[0], v1[1]-v2[1], v1[2]-v2[2]};
-        float norm = sqrt(diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2]);
-        return {diff[0]/norm, diff[1]/norm, diff[2]/norm};
-    }
-
-    float inline dot(std::array<float,3> a, std::array<float,3> b)
-    {
-        return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
-    }
-
-    void launch_check()
-    {
-        cudaError_t varCudaError1 = cudaGetLastError();
-        if (varCudaError1 != cudaSuccess)
-        {
-            std::cout << "Failed to launch kernel (error code: " << cudaGetErrorString(varCudaError1) << ")!" << std::endl;
-            exit(EXIT_FAILURE);
-        }
-    }
-
-
-    void host_to_device()
-    {
-        printf("Copying inv_mass, A, ii, jj,pos,edge\n");
-        A.assign(data.data(), data.size(), indices.data(), indices.size(), indptr.data(), indptr.size(), nrows, ncols, num_nonz);
-        d_ii.assign(ii.data(), ii.size());
-        d_jj.assign(jj.data(), jj.size());
-        d_inv_mass.assign(inv_mass.data(), inv_mass.size());
-        d_edges.assign((int*)edges.data(), edges.size()*2);
-        d_pos.assign((float*)pos.data(), pos.size()*3);
-
-        printf("Copying adj\n");
-        d_num_adjacent_edge.assign(num_adjacent_edge.data(), num_adjacent_edge.size());
-        d_adjacent_edge_abc.resize(NE*60);
-        for(int i=0; i<NE; i++)
-        {
-            CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data()+i*60, adjacent_edge_abc[i].data(), sizeof(int) * 60, cudaMemcpyHostToDevice));
-        }
-
-        cout<<"Finish copying data to device"<<endl;
-    }
-
-    void device_to_host()
-    {
-        A.tohost(data, indices, indptr);
-    }
-
-    void fetch_pos(float* pos_out)
-    {
-        CHECK_CUDA(cudaMemcpy(pos_out, d_pos.data(), NV*3*sizeof(float), cudaMemcpyDeviceToHost));
-    }
 
 
     void fill_A_CSR_gpu()
     {
-        // TODO: finish fill A CSR
         fill_A_CSR_kernel<<<num_nonz / 256 + 1, 256>>>(A.data.data(),
                                                  A.indptr.data(),
                                                  A.indices.data(),
@@ -1322,148 +1270,6 @@ struct FastFill : Kernels {
         // debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc");
         cout<<"finish fill A kernel"<<endl;
     }
-
-
-    void init_A_CSR_pattern()
-    {
-        indptr.resize(NE+1);
-        indices.resize(num_nonz);
-        data.resize(num_nonz);
-
-        indptr[0] = 0;
-        for(int i=0; i<NE; i++)
-        {
-            int num_adj_i = num_adjacent_edge[i];
-            indptr[i+1] = indptr[i] + num_adj_i + 1;
-            for(int j=0; j<num_adj_i; j++)
-            {
-                indices[indptr[i]+j] = adjacent_edges[i][j];
-            }
-            indices[indptr[i+1]-1] = i;
-        }
-    }
-
-
-    void csr_index_to_coo_index()
-    {
-        ii.resize(num_nonz);
-        jj.resize(num_nonz);
-        for(int i=0; i<NE; i++)
-        {
-            for(int j=indptr[i]; j<indptr[i+1]; j++)
-            {
-                ii[j] = i;
-                jj[j] = indices[j];
-            }
-        }
-    }
-
-
-    void init_adj_edge(std::vector<std::array<int,2>> &edges)
-    {
-        std::unordered_map<int, std::set<int>> vertex_to_edges;
-        for(int edge_index=0; edge_index<edges.size(); edge_index++)
-        {
-            int v1 = edges[edge_index][0];
-            int v2 = edges[edge_index][1];
-            if (vertex_to_edges.find(v1) == vertex_to_edges.end())
-                vertex_to_edges[v1] = std::set<int>();
-            if (vertex_to_edges.find(v2) == vertex_to_edges.end())
-                vertex_to_edges[v2] = std::set<int>();
-            vertex_to_edges[v1].insert(edge_index);
-            vertex_to_edges[v2].insert(edge_index);
-        }
-
-        adjacent_edges.resize(edges.size());
-        for(int edge_index=0; edge_index<edges.size(); edge_index++)
-        {
-            int v1 = edges[edge_index][0];
-            int v2 = edges[edge_index][1];
-            std::set<int> adj; //adjacent edges of one edge
-            std::set_union(vertex_to_edges[v1].begin(), vertex_to_edges[v1].end(), vertex_to_edges[v2].begin(), vertex_to_edges[v2].end(), std::inserter(adj, adj.begin()));
-            adj.erase(edge_index);
-            adjacent_edges[edge_index] = std::vector<int>(adj.begin(), adj.end());
-        }
-
-        //calc num_adjacent_edge
-        for(auto adj:adjacent_edges)
-        {
-            num_adjacent_edge.push_back(adj.size());
-        }
-
-        NE = edges.size();
-
-        adjacent_edge_abc.resize(NE);
-        for(int i=0; i<NE; i++)
-        {
-            // adjacent_edge_abc[i].resize(num_adjacent_edge[i]*3);
-            adjacent_edge_abc[i].resize(20*3);
-            std::fill(adjacent_edge_abc[i].begin(), adjacent_edge_abc[i].end(), -1);
-        }
-    }
-
-    int calc_num_nonz(std::vector<int> &num_adjacent_edge)
-    {
-        int num_nonz = 0;
-        for(auto num_adj:num_adjacent_edge)
-        {
-            num_nonz += num_adj;
-        }
-        num_nonz += num_adjacent_edge.size();
-
-        return num_nonz;
-    }
-
-
-    void init_adjacent_edge_abc(std::vector<std::array<int,2>> &edges, std::vector<std::vector<int>> &adjacent_edges, std::vector<int> &num_adjacent_edge, std::vector<std::vector<int>> &adjacent_edge_abc)
-    {
-        for(int i=0; i<edges.size(); i++)
-        {
-            auto ii0 = edges[i][0];
-            auto ii1 = edges[i][1];
-
-            auto num_adj = num_adjacent_edge[i];
-            for(int j=0; j<num_adj; j++)
-            {
-                auto ia = adjacent_edges[i][j];
-                if (ia == i)
-                    continue;
-                auto jj0 = edges[ia][0];
-                auto jj1 = edges[ia][1];
-                auto a = -1;
-                auto b = -1;
-                auto c = -1;
-                if (ii0 == jj0)
-                {
-                    a = ii0;
-                    b = ii1;
-                    c = jj1;
-                }
-                else if (ii0 == jj1)
-                {
-                    a = ii0;
-                    b = ii1;
-                    c = jj0;
-                }
-                else if (ii1 == jj0)
-                {
-                    a = ii1;
-                    b = ii0;
-                    c = jj1;
-                }
-                else if (ii1 == jj1)
-                {
-                    a = ii1;
-                    b = ii0;
-                    c = jj0;
-                }
-                adjacent_edge_abc[i][j*3] = a;
-                adjacent_edge_abc[i][j*3+1] = b;
-                adjacent_edge_abc[i][j*3+2] = c;
-            }
-        }
-    }
-
 }; //FastFill struct
 
 

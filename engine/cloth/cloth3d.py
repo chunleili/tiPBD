@@ -19,9 +19,7 @@ import logging
 import datetime
 from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
 from pyamg.relaxation.smoothing import approximate_spectral_radius, chebyshev_polynomial_coefficients
-from pyamg.relaxation.relaxation import polynomial
 from time import perf_counter
-from scipy.linalg import pinv
 import pyamg
 import numpy.ctypeslib as ctl
 
@@ -38,7 +36,6 @@ use_viewer = False
 export_mesh = True
 use_PXPBD = False
 use_geometric_stiffness = False
-dont_clean_results = False
 export_fullr = False
 calc_r_xpbd = True
 num_levels = 0
@@ -135,10 +132,10 @@ rest_len    = ti.field(dtype=float, shape=(NE))
 lagrangian  = ti.field(dtype=float, shape=(NE))  
 constraints = ti.field(dtype=float, shape=(NE))  
 dLambda     = ti.field(dtype=float, shape=(NE))
-numerator   = ti.field(dtype=float, shape=(NE))
-denominator = ti.field(dtype=float, shape=(NE))
+# numerator   = ti.field(dtype=float, shape=(NE))
+# denominator = ti.field(dtype=float, shape=(NE))
 gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
-edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
+# edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
 nnz_each_row = np.zeros(NE, dtype=int)
 potential_energy = ti.field(dtype=float, shape=())
@@ -147,8 +144,8 @@ predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 # primary_residual = np.zeros(dtype=float, shape=(3*NV))
 # K = ti.Matrix.field(3, 3, float, (NV, NV)) 
 # geometric stiffness, only retain diagonal elements
-K_diag = np.zeros((NV*3), dtype=float)
-Minv_gg = ti.Vector.field(3, dtype=float, shape=(NV))
+# K_diag = np.zeros((NV*3), dtype=float)
+# Minv_gg = ti.Vector.field(3, dtype=float, shape=(NV))
 
 inv_mass_np = np.repeat(inv_mass.to_numpy(), 3, axis=0)
 M_inv = scipy.sparse.diags(inv_mass_np)
@@ -944,21 +941,6 @@ def build_levels(A, Ps=[]):
         levels[i+1].A = Ps[i].T @ levels[i].A @ Ps[i]
 
     return levels
-
-
-# DEPRECATED: build_levels_cuda is not needed any more because fastmg_RAP has done its job
-# def build_levels_cuda(A, Ps=[]):
-#     '''Give A and a list of prolongation matrices Ps, return a list of levels'''
-#     lvl = len(Ps) + 1 # number of levels
-
-#     levels = [MultiLevel() for i in range(lvl)]
-
-#     levels[0].A = A
-
-#     for i in range(lvl-1):
-#         levels[i].P = Ps[i]
-#     return levels
-
 
 
 def setup_smoothers(A):
@@ -1851,12 +1833,9 @@ def dict_to_ndarr(d:dict)->np.ndarray:
     return arr, lengths
 
 
-if args.auto_another_outdir:
-    out_dir = create_another_outdir(out_dir)
-    dont_clean_results = True
-
 
 def init_set_P_R_manually():
+    misc_dir_path = prj_path + "/data/misc/"
     if args.solver_type=="AMG":
         # init_edge_center(edge_center, edge, pos)
         if save_P:
@@ -1960,25 +1939,7 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
         logging.info(s)
 
 
-misc_dir_path = prj_path + "/data/misc/"
-mkdir_if_not_exist(out_dir)
-mkdir_if_not_exist(out_dir + "/r/")
-mkdir_if_not_exist(out_dir + "/A/")
-mkdir_if_not_exist(out_dir + "/state/")
-mkdir_if_not_exist(out_dir + "/mesh/")
-if not args.restart and not dont_clean_results:
-    clean_result_dir(out_dir)
-    clean_result_dir(out_dir + "/r/")
-    clean_result_dir(out_dir + "/A/")
-    clean_result_dir(out_dir + "/state/")
-    clean_result_dir(out_dir + "/mesh/")
 
-
-logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-
-
-print_all_globals(global_vars)
 
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #
@@ -1999,8 +1960,33 @@ def do_restart():
         logging.info(f"restart from last frame: {args.restart_frame}")
 
 
+def process_dirs():
+    global out_dir
+    mkdir_if_not_exist(out_dir)
+    mkdir_if_not_exist(out_dir + "/r/")
+    mkdir_if_not_exist(out_dir + "/A/")
+    mkdir_if_not_exist(out_dir + "/state/")
+    mkdir_if_not_exist(out_dir + "/mesh/")
+    if not args.restart :
+        clean_result_dir(out_dir)
+        clean_result_dir(out_dir + "/r/")
+        clean_result_dir(out_dir + "/A/")
+        clean_result_dir(out_dir + "/state/")
+        clean_result_dir(out_dir + "/mesh/")
+    if args.auto_another_outdir:
+        out_dir = create_another_outdir(out_dir)
+
+
 def init():
-    global frame
+    global frame, global_vars
+    process_dirs()
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+
+    print_all_globals(global_vars)
+
+
     print("\nInitializing...")
     print("Initializing pos..")
     init_pos(inv_mass,pos)
@@ -2017,7 +2003,7 @@ def init():
             load_cache_initFill_to_cuda()
         else:
             cache_and_initFill()
-    print(f"init fill time: {time.perf_counter()-tic:.3f}s")
+    print(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:
         do_restart()

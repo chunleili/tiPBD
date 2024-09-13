@@ -59,7 +59,7 @@
                 "-N=64",
                 "-use_cuda=1",
                 "-use_cache=0",
-                "-use_fastFill=1"
+                "-auto_another_outdir=1"
             ]
           }
     ]

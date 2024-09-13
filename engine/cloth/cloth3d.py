@@ -1655,9 +1655,9 @@ def substep_all_solver():
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
             AMG_dlam2dpos(x)
             AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
+        print(f"    iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
-        print(f"    iter {ite} time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
     
     tic = time.perf_counter()
     if args.export_residual:
@@ -1919,8 +1919,7 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #
 # ---------------------------------------------------------------------------- #
-timer_all = time.perf_counter()
-start_wall_time = datetime.datetime.now()
+
 
 
 def do_restart():
@@ -1935,25 +1934,30 @@ def do_restart():
         logging.info(f"restart from last frame: {args.restart_frame}")
 
 
+def make_and_clean_dirs(out_dir):
+    import shutil
+    from pathlib import Path
+
+    shutil.rmtree(out_dir, ignore_errors=True)
+
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    Path(out_dir + "/r/").mkdir(parents=True, exist_ok=True)
+    Path(out_dir + "/A/").mkdir(parents=True, exist_ok=True)
+    Path(out_dir + "/state/").mkdir(parents=True, exist_ok=True)
+    Path(out_dir + "/mesh/").mkdir(parents=True, exist_ok=True)
+
+
 def process_dirs():
     global out_dir
-    mkdir_if_not_exist(out_dir)
-    mkdir_if_not_exist(out_dir + "/r/")
-    mkdir_if_not_exist(out_dir + "/A/")
-    mkdir_if_not_exist(out_dir + "/state/")
-    mkdir_if_not_exist(out_dir + "/mesh/")
-    if not args.restart :
-        clean_result_dir(out_dir)
-        clean_result_dir(out_dir + "/r/")
-        clean_result_dir(out_dir + "/A/")
-        clean_result_dir(out_dir + "/state/")
-        clean_result_dir(out_dir + "/mesh/")
     if args.auto_another_outdir:
         out_dir = create_another_outdir(out_dir)
+    make_and_clean_dirs(out_dir)
 
 
 def init():
-    global frame, global_vars
+    global start_wall_time, frame, global_vars
+    tic_all = time.perf_counter()
+    start_wall_time = datetime.datetime.now()
     process_dirs()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
@@ -1983,7 +1987,7 @@ def init():
     if args.restart:
         do_restart()
 
-    print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.3f}s") 
+    print(f"Initialization done. Cost time:  {time.perf_counter() - tic_all:.3f}s") 
 
 
 class Viewer:

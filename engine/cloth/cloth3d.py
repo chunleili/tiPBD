@@ -1882,20 +1882,11 @@ def initFill_python():
 
 
 def initFill_cpp():
-    extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
     tic1 = perf_counter()
     print("Initializing adjacent edge and abc...")
-    adjacent_edge, v2e_dict = init_adj_edge(edges=edge.to_numpy())
-    adjacent_edge,num_adjacent_edge = dict_to_ndarr(adjacent_edge)
-    v2e_np, num_v2e = dict_to_ndarr(v2e_dict)
+    sys.path.append(prj_path + "/engine/cloth")
+    import InitFillCloth 
 
-    adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
-    adjacent_edge_abc.fill(-1)
-    init_adjacent_edge_abc_kernel(NE,edge,adjacent_edge,num_adjacent_edge,adjacent_edge_abc)
-
-    num_nonz = calc_num_nonz(num_adjacent_edge) 
-    data, indices, indptr = init_A_CSR_pattern(num_adjacent_edge, adjacent_edge)
-    ii, jj = csr_index_to_coo_index(indptr, indices)
     print(f"initFill time: {perf_counter()-tic1:.3f}s")
     return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj, v2e_np, num_v2e
 

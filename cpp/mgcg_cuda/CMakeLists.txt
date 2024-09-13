@@ -41,8 +41,8 @@ if(test)
 endif()
 
 
-option(test "cpp initFillCloth(OFF will use python initFill)" ON)
-if(test)
-    add_subdirectory(pybind11)
+option(initFillCloth "cpp initFillCloth(OFF will use python initFill)" OFF)
+if(initFillCloth)
+    add_subdirectory(extern/pybind11)
     pybind11_add_module(initFillCloth initFillCloth.cpp)
 endif()

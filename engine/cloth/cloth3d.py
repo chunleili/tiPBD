@@ -368,31 +368,6 @@ def init_adjacent_edge_abc_kernel(NE:int, edge:ti.template(), adjacent_edge:ti.t
             adjacent_edge_abc[i, j*3+2] = c
 
 
-# def init_adj_edge(edges:np.ndarray,):
-#     # 构建数据结构
-#     vertex_to_edges = {}
-#     for edge_index, (v1, v2) in enumerate(edges):
-#         if v1 not in vertex_to_edges:
-#             vertex_to_edges[v1] = set()
-#         if v2 not in vertex_to_edges:
-#             vertex_to_edges[v2] = set()
-        
-#         vertex_to_edges[v1].add(edge_index)
-#         vertex_to_edges[v2].add(edge_index)
-
-#     # 查找某条边相邻的边
-#     def find_adjacent_edges(edge_index):
-#         v1, v2 = edges[edge_index]
-#         adjacent_edges = vertex_to_edges[v1] | vertex_to_edges[v2]  # 合并两个集合
-#         adjacent_edges.remove(edge_index)  # 移除边本身
-#         return list(adjacent_edges)
-
-#     # 示例：查找第0条边的相邻边
-#     print(find_adjacent_edges(0))
-#     print(find_adjacent_edges(1))
-#     print(find_adjacent_edges(2))
-#     print(find_adjacent_edges(3))
-
 
 def init_adj_edge(edges: np.ndarray):
     # 构建数据结构

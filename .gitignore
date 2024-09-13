@@ -42,3 +42,4 @@ data/*
 ./perf.exe
 perf.exe
 NVprof.ncu-rep
+poetry.lock

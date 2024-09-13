@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "tipbd"
+version = "0.1.2"
+description = "Multigrid PBD engine"
+authors = ["Chunlei Li"]
+packages = [{ include = "engine/cloth"},{ include = "engine/soft"},
+]
+include = [ {path ="cpp/mgcg_cuda/CMakeLists.txt"},
+            {path ="cpp/mgcg_cuda/fastmg.cu"},
+            {path ="cpp/mgcg_cuda/kernels.cuh"},
+            {path ="cpp/mgcg_cuda/README.md"}]
+exclude = ["engine/cloth/cloth2d.py"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+
+
+[tool.poetry.urls]
+repository  = "https://github.com/chunleili/tiPBD/tree/amg"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

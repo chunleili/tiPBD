@@ -4,6 +4,10 @@ set(CMAKE_CUDA_ARCHITECTURES 86;89)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# suppress the warning of unused function
+# warning #177-D: function "xxx" was declared but never referenced 
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-diag-suppress=177")
+
 # compile to mgcg_cuda/lib
 SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_CURRENT_LIST_DIR}/lib")
 SET( CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_LIST_DIR}/lib")
@@ -18,9 +22,6 @@ add_library(fastmg SHARED fastmg.cu kernels.cuh)
 target_link_libraries(fastmg PUBLIC cusparse cublas cusolver)
 target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
 # set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
-
-
-
 
 
 ## -------------------------------------------------------------------------- */

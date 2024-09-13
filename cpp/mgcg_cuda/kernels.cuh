@@ -69,3 +69,115 @@ __global__ void fill_A_CSR_kernel(
         }
     }
 }
+
+
+
+
+
+
+
+
+// weighted Jacobi for csr matrix
+// https://en.wikipedia.org/wiki/Jacobi_method#Weighted_Jacobi_method
+// https://stackoverflow.com/questions/78057439/jacobi-algorithm-using-cuda
+// https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/amg_core/relaxation.h#L232
+// i: row index, j: col index, n: data/indices index
+// rsum: sum of off-diagonal elements
+__global__ void weighted_jacobi_kernel(float *x, float *x_old, const float *b, float *data, int *indices, int *indptr, int nrows, float omega) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < nrows) {
+        float rsum = 0.0;
+        float diag = 0.0;
+        for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
+            size_t j = indices[n];
+            if (j != i) {
+                rsum += data[n] * x_old[j];
+            }
+            else {
+                diag = data[n];
+            }
+        }
+        // FIXME: should use x_new to avoid race condition
+        if (diag != 0.0)
+        {
+            x[i] =  omega / diag * (b[i] - rsum)  + (1.0 - omega) * x_old[i];
+        }
+    }
+}
+
+__global__ void copy_field(float *dst, const float *src, int size) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        dst[i] = src[i];
+    }
+}
+
+
+void jacobi_serial(const int Ap[], const int Ap_size,
+            const int Aj[], const int Aj_size,
+            const float Ax[], const int Ax_size,
+                  float  x[], const int  x_size,
+            const float  b[], const int  b_size,
+                  float temp[], const int temp_size,
+            const int row_start,
+            const int row_stop,
+            const int row_step,
+            const float omega)
+{
+    float one = 1.0;
+
+    for(int i = row_start; i != row_stop; i += row_step) {
+        temp[i] = x[i];
+    }
+
+    for(int i = row_start; i != row_stop; i += row_step) {
+        int start = Ap[i];
+        int end   = Ap[i+1];
+        float rsum = 0;
+        float diag = 0;
+
+        for(int jj = start; jj < end; jj++){
+            int j = Aj[jj];
+            if (i == j)
+                diag  = Ax[jj];
+            else
+                rsum += Ax[jj]*temp[j];
+        }
+
+        if (diag != (float) 0.0){
+            x[i] = (one - omega) * temp[i] + omega * ((b[i] - rsum)/diag);
+        }
+    }
+}
+
+
+
+// https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/amg_core/relaxation.h#L45
+void gauss_seidel_serial(const int Ap[], const int Ap_size,
+                  const int Aj[], const int Aj_size,
+                  const float Ax[], const int Ax_size,
+                        float  x[], const int  x_size,
+                  const float  b[], const int  b_size,
+                  const int row_start,
+                  const int row_stop,
+                  const int row_step)
+{
+    for(int i = row_start; i != row_stop; i += row_step) {
+        int start = Ap[i];
+        int end   = Ap[i+1];
+        float rsum = 0;
+        float diag = 0;
+
+        for(int jj = start; jj < end; jj++){
+            int j = Aj[jj];
+            if (i == j)
+                diag  = Ax[jj];
+            else
+                rsum += Ax[jj]*x[j];
+        }
+
+        if (diag != (float) 0.0){
+            x[i] = (b[i] - rsum)/diag;
+        }
+    }
+}

@@ -203,7 +203,6 @@ def init_extlib_argtypes():
 
     extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
     extlib.fastFill_run.argtypes = [arr2d_float]
-    extlib.fastFill_init.restype = c_int
     extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
     extlib.fastFill_init_from_python_cache.argtypes = [arr2d_int, arr_int, arr2d_int, c_int, arr_float, arr_int, arr_int, arr_int, arr_int, c_int, c_int]
 
@@ -1399,12 +1398,6 @@ def fill_A_mfree(v2e, num_v2e, ii, jj, vv, pos, edge, inv_mass):
 
 
 
-# def fill_A_csr_cuda_and_fetch():
-#     extlib.fastFill_run(pos.to_numpy())
-#     extlib.fastFill_fetch_A(spmat_data, spmat_indices, spmat_indptr)
-#     A = scipy.sparse.csr_matrix((spmat_data, spmat_indices, spmat_indptr), shape=(NE, NE))
-#     return A
-
 def fastFill_fetch():
     global spmat_data, spmat_indices, spmat_indptr
     extlib.fastFill_fetch_A(spmat_data, spmat_indices, spmat_indptr)
@@ -1873,52 +1866,44 @@ def init_set_P_R_manually():
             # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 
-# SpMatData = namedtuple("SpMatData",['adj','nadj','adjabc','nnz','data','indices','indptr','ii','jj'])
-# spmatdata = None
-def init_direct_fill_A():
-    # global spmatdata
+def initFill_python():
     tic1 = perf_counter()
     print("Initializing adjacent edge and abc...")
     adjacent_edge, v2e_dict = init_adj_edge(edges=edge.to_numpy())
     adjacent_edge,num_adjacent_edge = dict_to_ndarr(adjacent_edge)
     v2e_np, num_v2e = dict_to_ndarr(v2e_dict)
-    print(f"init_adjacent_edge time: {perf_counter()-tic1:.3f}s")
 
     adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
     adjacent_edge_abc.fill(-1)
     init_adjacent_edge_abc_kernel(NE,edge,adjacent_edge,num_adjacent_edge,adjacent_edge_abc)
-    # required by fill_A_csr_ti
 
-    tic2 = perf_counter()
-    #calculate number of nonzeros by counting number of adjacent edges
     num_nonz = calc_num_nonz(num_adjacent_edge) 
-    nnz_each_row = calc_nnz_each_row(num_adjacent_edge)
-
-    # init csr pattern. In the future we will replace all ijv pattern with csr
     data, indices, indptr = init_A_CSR_pattern(num_adjacent_edge, adjacent_edge)
     ii, jj = csr_index_to_coo_index(indptr, indices)
-
-    # spMatA = SpMat(num_nonz, NE)
-    # spMatA._init_pattern()
-    # fill_A_diag_kernel(spMatA.diags)
-
-    print(f"init A CSR pattern time: {perf_counter()-tic2:.3f}s")
-    print(f"init_direct_fill_A time: {perf_counter()-tic1:.3f}s")
-    # spmatdata = SpMatData(adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj)
-    print("caching init_direct_fill_A...")
-    tic = perf_counter() # savez_compressed will save 10x space(1.4G->140MB), but much slower(33s)
-    np.savez(f'cache_initFill_N{N}.npz', adjacent_edge=adjacent_edge, num_adjacent_edge=num_adjacent_edge, adjacent_edge_abc=adjacent_edge_abc, num_nonz=num_nonz, spmat_data=data, spmat_indices=indices, spmat_indptr=indptr, spmat_ii=ii, spmat_jj=jj)
-    print("time of caching:", perf_counter()-tic)
+    print(f"initFill time: {perf_counter()-tic1:.3f}s")
     return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj, v2e_np, num_v2e
 
 
-def init_direct_fill_A_cuda():
+def initFill_cpp():
     extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
-    nonz = extlib.fastFill_init()
+    tic1 = perf_counter()
+    print("Initializing adjacent edge and abc...")
+    adjacent_edge, v2e_dict = init_adj_edge(edges=edge.to_numpy())
+    adjacent_edge,num_adjacent_edge = dict_to_ndarr(adjacent_edge)
+    v2e_np, num_v2e = dict_to_ndarr(v2e_dict)
+
+    adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
+    adjacent_edge_abc.fill(-1)
+    init_adjacent_edge_abc_kernel(NE,edge,adjacent_edge,num_adjacent_edge,adjacent_edge_abc)
+
+    num_nonz = calc_num_nonz(num_adjacent_edge) 
+    data, indices, indptr = init_A_CSR_pattern(num_adjacent_edge, adjacent_edge)
+    ii, jj = csr_index_to_coo_index(indptr, indices)
+    print(f"initFill time: {perf_counter()-tic1:.3f}s")
+    return adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, data, indices, indptr, ii, jj, v2e_np, num_v2e
 
 
-
-def cache_and_init_direct_fill_A():
+def cache_and_initFill():
     global adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e
     if  os.path.exists(f'cache_initFill_N{N}.npz') and args.use_cache:
         npzfile= np.load(f'cache_initFill_N{N}.npz')
@@ -1926,12 +1911,16 @@ def cache_and_init_direct_fill_A():
         num_nonz = int(num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
         print(f"load cache_initFill_N{N}.npz")
     else:
-        adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e = init_direct_fill_A()
+        adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e = initFill_python()
+        print("caching initFill_python...")
+        tic = perf_counter() # savez_compressed will save 10x space(1.4G->140MB), but much slower(33s)
+        np.savez(f'cache_initFill_N{N}.npz', adjacent_edge=adjacent_edge, num_adjacent_edge=num_adjacent_edge, adjacent_edge_abc=adjacent_edge_abc, num_nonz=num_nonz, spmat_data=spmat_data, spmat_indices=spmat_indices, spmat_indptr=spmat_indptr, spmat_ii=spmat_ii, spmat_jj=spmat_jj)
+        print("time of caching:", perf_counter()-tic)
 
 
-def load_cache_init_and_to_cuda():
+def load_cache_initFill_to_cuda():
     global adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e
-    cache_and_init_direct_fill_A()
+    cache_and_initFill()
     extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
     extlib.fastFill_init_from_python_cache(adjacent_edge,
                                            num_adjacent_edge,
@@ -1944,7 +1933,7 @@ def load_cache_init_and_to_cuda():
                                            spmat_jj,
                                            NE,
                                            NV)
-    
+
 
 
 
@@ -1998,11 +1987,10 @@ def init():
 
     tic = time.perf_counter()
     if args.use_cuda and args.use_fastFill:
-        # init_direct_fill_A_cuda()
-        load_cache_init_and_to_cuda()
+        load_cache_initFill_to_cuda()
     else:
-        cache_and_init_direct_fill_A()
-    print(f"init_direct_fill_A time: {time.perf_counter()-tic:.3f}s")
+        cache_and_initFill()
+    print(f"initFill_python time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:
         if args.restart_from_last_frame :

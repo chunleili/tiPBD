@@ -1172,46 +1172,9 @@ struct FastFill : Kernels {
     Vec<float> d_pos;
     Vec<int> d_adjacent_edge_abc;
     Vec<int> d_num_adjacent_edge;
-
     void fetch_A(float *data_in, int *indices_in, int *indptr_in) {
-        // std::copy(data.begin(), data.end(), data_in);
-        // std::copy(indices.begin(), indices.end(), indices_in);
-        // std::copy(indptr.begin(), indptr.end(), indptr_in);
         CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
     }
-
-    void set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
-    {
-        NE = NE_in;
-        NV = NV_in;
-        nrows = NE;
-        ncols = NE;
-
-        edges.resize(NE);
-        for(int i=0; i<NE; i++)
-        {
-            edges[i][0] = edges_in[i*2];
-            edges[i][1] = edges_in[i*2+1];
-        }
-
-        inv_mass.resize(NV_in);
-        for(int i=0; i<NV_in; i++)
-        {
-            inv_mass[i] = inv_mass_in[i];
-        }
-
-        pos.resize(NV);
-        for(int i=0; i<NV; i++)
-        {
-            pos[i][0] = pos_in[i*3];
-            pos[i][1] = pos_in[i*3+1];
-            pos[i][2] = pos_in[i*3+2];
-        }
-
-        alpha = alpha_in;
-    }
-
-
     void set_data_v2(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
     {
         NE = NE_in;
@@ -1226,16 +1189,6 @@ struct FastFill : Kernels {
         alpha = alpha_in;
     }
 
-    void update_pos(float* pos_in)
-    {
-        for(int i=0; i<NV; i++)
-        {
-            pos[i][0] = pos_in[i*3];
-            pos[i][1] = pos_in[i*3+1];
-            pos[i][2] = pos_in[i*3+2];
-        }
-    }
-
     void update_pos_v2(float* pos_in)
     {
         d_pos.assign(pos_in, NV*3);
@@ -1244,89 +1197,6 @@ struct FastFill : Kernels {
         CHECK_CUDA(cudaMemcpy(pos.data(), d_pos.data(), sizeof(float) * NV*3, cudaMemcpyDeviceToHost));
     }
 
-
-    // init_direct_fill_A
-    int init()
-    {
-        init_adj_edge(edges);
-        init_adjacent_edge_abc();
-        calc_num_nonz();
-        init_A_CSR_pattern();
-        csr_index_to_coo_index();
-
-        // transfer data to device
-        host_to_device();
-        return num_nonz;
-    }
-
-    // init_direct_fill_A
-    // (adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj)
-    void init_from_python_cache(
-        int *adjacent_edge_in,
-        int *num_adjacent_edge_in,
-        int *adjacent_edge_abc_in,
-        int num_nonz_in,
-        float *spmat_data_in,
-        int *spmat_indices_in,
-        int *spmat_indptr_in,
-        int *spmat_ii_in,
-        int *spmat_jj_in,
-        int NE_in,
-        int NV_in)
-    {
-        NE = NE_in;
-        NV = NV_in;
-        num_nonz = num_nonz_in;
-
-        adjacent_edge_abc.resize(NE);
-        num_adjacent_edge.resize(NE);
-        adjacent_edges.resize(NE);
-        printf("loading adj from python cache\n");
-        for(int i=0; i<NE; i++)
-        {
-            num_adjacent_edge[i] = num_adjacent_edge_in[i];
-
-            int n = num_adjacent_edge[i];
-            adjacent_edges[i].resize(n);
-            for(int j=0; j<n; j++)
-            {
-                adjacent_edges[i][j] = adjacent_edge_in[i*n+j];
-            }
-
-            adjacent_edge_abc[i].resize(20*3);
-            for(int j=0; j<20*3; j++)
-            {
-                adjacent_edge_abc[i][j] = adjacent_edge_abc_in[i*20*3+j];
-            }
-        }
-        printf("Finish loading adj from python cache\n");
-
-        num_nonz = num_nonz_in;
-        data.resize(num_nonz);
-        indices.resize(num_nonz);
-        indptr.resize(NE+1);
-        ii.resize(num_nonz);
-        jj.resize(num_nonz);
-
-        printf("loading spmat from python cache\n");
-        for(int i=0; i<num_nonz; i++)
-        {
-            data[i] = spmat_data_in[i];
-            indices[i] = spmat_indices_in[i];
-            ii[i] = spmat_ii_in[i];
-            jj[i] = spmat_jj_in[i];
-        }
-
-        for(int i=0; i<NE+1; i++)
-        {
-            indptr[i] = spmat_indptr_in[i];
-        }
-        printf("Finish loading spmat from python cache\n");
-
-        printf("Copying host to device\n");
-        host_to_device();
-        printf("Finish copying host to device\n");
-    }
 
 
     void init_from_python_cache_v2(
@@ -1454,31 +1324,6 @@ struct FastFill : Kernels {
     }
 
 
-    void fill_A_CSR_cpu()
-    {
-        for(int cnt=0; cnt<num_nonz; cnt++)
-        {
-            int i = ii[cnt]; // row index
-            int j = jj[cnt]; // col index
-            int k = cnt - indptr[i]; //k-th non-zero element of i-th row. 
-            // Because the diag is the final element of each row, 
-            // it is also the k-th adjacent edge of i-th edge.
-            if (i == j) // diag
-            {
-                data[cnt] = inv_mass[edges[i][0]] + inv_mass[edges[i][1]] + alpha;
-                continue;
-            }
-            int a = adjacent_edge_abc[i][k*3];
-            int b = adjacent_edge_abc[i][k*3+1];
-            int c = adjacent_edge_abc[i][k*3+2];
-            auto g_ab = normalize_diff(pos[a], pos[b]);
-            auto g_ac = normalize_diff(pos[a], pos[c]);
-            auto offdiag = inv_mass[a] * dot(g_ab, g_ac);
-            data[cnt] = offdiag;
-        }
-    }
-
-
     void init_A_CSR_pattern()
     {
         indptr.resize(NE+1);
@@ -1557,20 +1402,20 @@ struct FastFill : Kernels {
         }
     }
 
-    void calc_num_nonz()
+    int calc_num_nonz(std::vector<int> &num_adjacent_edge)
     {
-        num_nonz = 0;
+        int num_nonz = 0;
         for(auto num_adj:num_adjacent_edge)
         {
             num_nonz += num_adj;
         }
         num_nonz += num_adjacent_edge.size();
 
-        A.numnonz = num_nonz;
+        return num_nonz;
     }
 
 
-    void init_adjacent_edge_abc()
+    void init_adjacent_edge_abc(std::vector<std::array<int,2>> &edges, std::vector<std::vector<int>> &adjacent_edges, std::vector<int> &num_adjacent_edge, std::vector<std::vector<int>> &adjacent_edge_abc)
     {
         for(int i=0; i<edges.size(); i++)
         {
@@ -2258,11 +2103,6 @@ extern "C" DLLEXPORT void fastFill_set_data(int* edges_in, int NE_in, float* inv
     fastFill->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
 }
 
-// init_direct_fill_A
-extern "C" DLLEXPORT int fastFill_init() {
-    int nnz = fastFill->init();
-    return nnz;
-}
 
 extern "C" DLLEXPORT void fastFill_init_from_python_cache(
     int *adjacent_edge_in,

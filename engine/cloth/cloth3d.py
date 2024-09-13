@@ -1869,8 +1869,23 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     max_n_outer = max(n_outer_all)
     max_n_outer_index = n_outer_all.index(max_n_outer)
 
-    s = f"\n-------\nTime: {(time.perf_counter() - timer_loop):.2f}s = {(time.perf_counter() - timer_loop)/60:.2f}min. \nFrame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames). \nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame. \nStart\t{start_date},\nEnd\t{end_date}.\nTime of exporting: {t_export_total:.3f}s" + \
-    f"\nSum n_outer: {sum_n_outer}\nAvg n_outer: {avg_n_outer:.1f}\nMax n_outer: {max_n_outer}. \nMax n_outer frame: {max_n_outer_index + initial_frame}.\n"
+    sim_cost_time = time.perf_counter() - timer_loop
+
+    s = f"\n-------\n"+\
+    f"Time: {(sim_cost_time):.2f}s = {(sim_cost_time)/60:.2f}min.\n" + \
+    f"Frame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames)."+\
+    f"\nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame."+\
+    f"\nStart\t{start_date},\nEnd\t{end_date}."+\
+    f"\nTime of exporting: {t_export_total:.3f}s" + \
+    f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
+    f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
+    f"\nCloth-N{N}" + \
+    f"\ndt={delta_t}\n"
+
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    file_name = f"result/meta/{current_time}.txt"
+    with open(file_name, "w", encoding="utf-8") as file:
+        file.write(s)
 
     logging.info(s)
 
@@ -1898,6 +1913,7 @@ def do_restart():
 def make_and_clean_dirs(out_dir):
     import shutil
     from pathlib import Path
+    global prj_path
 
     shutil.rmtree(out_dir, ignore_errors=True)
 
@@ -1906,6 +1922,7 @@ def make_and_clean_dirs(out_dir):
     Path(out_dir + "/A/").mkdir(parents=True, exist_ok=True)
     Path(out_dir + "/state/").mkdir(parents=True, exist_ok=True)
     Path(out_dir + "/mesh/").mkdir(parents=True, exist_ok=True)
+    Path(prj_path + "/result/meta/").mkdir(parents=True, exist_ok=True)
 
 
 def process_dirs():

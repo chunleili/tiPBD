@@ -976,7 +976,7 @@ struct VCycle : Kernels {
     float max_eig;
 
     void setup_smoothers_cuda(int type) {
-        cout<<"Setting up smoothers..."<<endl;
+        cout<<"\nSetting up smoothers..."<<endl;
         if(smoother_type == 1)
         {
             setup_chebyshev_cuda(levels[0].A);
@@ -997,7 +997,7 @@ struct VCycle : Kernels {
         chebyshev_polynomial_coefficients(a, b);
         
         max_eig = rho;
-        cout<<"\nmax eigenvalue: "<<max_eig<<endl;
+        cout<<"max eigenvalue: "<<max_eig<<endl;
     }
 
 

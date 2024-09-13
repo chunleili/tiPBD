@@ -36,16 +36,14 @@ paused = False
 save_P, load_P = False, False
 use_viewer = False
 export_mesh = True
-use_offdiag = True
-reduce_offdiag = False
-early_stop = True
 use_PXPBD = False
 use_geometric_stiffness = False
 dont_clean_results = False
-report_time = True
 export_fullr = False
+calc_r_xpbd = True
 num_levels = 0
 t_export = 0.0
+use_cpp_initFill = True
 
 
 #parse arguments to change default values
@@ -70,12 +68,11 @@ parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 parser.add_argument("-use_json", type=int, default=False, help="json configs will overwrite the command line args")
 parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
-parser.add_argument("-arch", type=str, default="cpu", help="taichi arch: cuda or cpu")
+parser.add_argument("-arch", type=str, default="cpu", help="taichi arch: gpu or cpu")
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
-parser.add_argument("-use_fastFill", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
 
 
@@ -111,8 +108,8 @@ global_vars = globals().copy()
 
 
 
-if args.arch == "cuda":
-    ti.init(arch=ti.cuda)
+if args.arch == "gpu":
+    ti.init(arch=ti.gpu)
 else:
     ti.init(arch=ti.cpu)
 
@@ -158,6 +155,9 @@ M_inv = scipy.sparse.diags(inv_mass_np)
 alpha_tilde_np = np.array([alpha] * NCONS)
 ALPHA = scipy.sparse.diags(alpha_tilde_np)
 
+
+ResidualData = namedtuple('residual', ['dual', 'niter','t'])
+r_alltime = []
 
 def init_extlib_argtypes():
     global extlib
@@ -208,8 +208,7 @@ def init_extlib_argtypes():
 
     extlib.fastmg_new()
 
-    if args.use_fastFill:
-        extlib.fastFill_new()
+    extlib.fastFill_new()
 
 if args.use_cuda:
     init_extlib_argtypes()
@@ -597,9 +596,31 @@ def calc_primary_residual(G,M_inv):
     primary_residual = np.delete(primary_residual, where_zeros)
     return primary_residual
 
-ResidualLess = namedtuple('ResidualLess', ['dual', 'obj', 't']) 
+
+def xpbd_calcr(tic_iter, fulldual0, r):
+    global ite, frame, t_export
+    tic_calcr = perf_counter()
+    t_iter = perf_counter()-tic_iter
+    dualr = np.linalg.norm(dual_residual.to_numpy()).astype(float)
+    
+    if export_fullr:
+        np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
+
+    dualr0 = np.linalg.norm(fulldual0).astype(float)
+
+    if export_fullr:
+        np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
+
+    r.append(ResidualData(dualr, 1, t_iter))
+    if args.export_log:
+        logging.info(f"{frame}-{ite}  dualr0:{dualr0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
+    t_export += perf_counter() - tic_calcr
+    return dualr, dualr0
+
+
 
 def substep_xpbd():
+    global ite, t_export
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
 
@@ -609,40 +630,19 @@ def substep_xpbd():
     r = []
     for ite in range(args.maxiter):
         tic_iter = perf_counter()
+
         reset_dpos(dpos)
         solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
         update_pos(inv_mass, dpos, pos)
-        
-        calc_r_xpbd = True
+
         if calc_r_xpbd:
-            tic_calcr = perf_counter()
-            t_iter = perf_counter()-tic_iter
-            # calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-            dualr = np.linalg.norm(dual_residual.to_numpy()).astype(float)
-            # compute_potential_energy()
-            # compute_inertial_energy()
-            # robj = (potential_energy[None]+inertial_energy[None])
-            
-            if ite==0:
-                dualr0 = dualr
-
-            if export_fullr:
-                np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
-
-            # r.append(ResidualLess(dual_r, robj, t_iter))
-            if args.export_log:
-                logging.info(f"{frame}-{ite}  dualr0:{dualr0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
+            dualr, dualr0 = xpbd_calcr(tic_iter, fulldual0, r)
 
         if dualr < 0.1*dualr0 or dualr<1e-5:
             break
 
     if args.export_residual:
-        tic = time.perf_counter()
-        serialized_r = [r[i]._asdict() for i in range(len(r))]
-        r_json = json.dumps(serialized_r)
-        with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
-            file.write(r_json)
-        print(f"export residual time: {time.perf_counter()-tic:.2f}s")
+        do_export_r(r)
 
     update_vel(old_pos, inv_mass, vel, pos)
 
@@ -1519,6 +1519,7 @@ def should_setup():
     return ((frame%args.setup_interval==0) and (ite==0))
 
 
+
 def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     global t_export
     tic = time.perf_counter()
@@ -1527,9 +1528,9 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     tic_calcr = perf_counter()
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
     dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
-    compute_potential_energy()
-    compute_inertial_energy()
-    robj = (potential_energy[None]+inertial_energy[None])
+    # compute_potential_energy()
+    # compute_inertial_energy()
+    # robj = (potential_energy[None]+inertial_energy[None])
     r_Axb = r_Axb.tolist()
     # if use_PXPBD:
     #     primary_residual = calc_primary_residual(G, M_inv)
@@ -1544,22 +1545,21 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
 
     if args.export_log:
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
-        logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)}")
-    r.append(Residual([0.,0.], dual_r, robj, r_Axb, len(r_Axb), t_iter))
-
-    if args.export_residual:
-        do_export_r(r)
+        logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
+    r.append(ResidualData(dual_r, len(r_Axb), t_iter))
 
     t_export += perf_counter()-tic
     
 
 
 def do_export_r(r):
+    global t_export
+    tic = time.perf_counter()
     serialized_r = [r[i]._asdict() for i in range(len(r))]
     r_json = json.dumps(serialized_r)
     with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
         file.write(r_json)
-
+    t_export += time.perf_counter()-tic
 
 
 @ti.kernel
@@ -1611,10 +1611,8 @@ def PXPBD_transfer_back_to_pos_mfree_kernel(Minv_gg:ti.template()):
 def AMG_setup_phase():
     global Ps, num_levels
     tic = time.perf_counter()
-    if args.use_fastFill:
-        A = fastFill_fetch()
-    else:
-        A = fill_A_csr_ti()
+    # A = fill_A_csr_ti() taichi version
+    A = fastFill_fetch()
     Ps = build_Ps(A)
     num_levels = len(Ps)+1
     logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
@@ -1675,10 +1673,9 @@ def calc_dual0():
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
     return dual_residual.to_numpy()
 
-Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb', 'niters','t'])
 
 def substep_all_solver():
-    global ite
+    global ite, t_export
     tic1 = time.perf_counter()
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
@@ -1704,9 +1701,12 @@ def substep_all_solver():
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
         print(f"    iter {ite} time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
+    
     tic = time.perf_counter()
+    if args.export_residual:
+        do_export_r(r)
     update_vel(old_pos, inv_mass, vel, pos)
-    print(f"    update_vel time: {(time.perf_counter()-tic)*1000:.0f}ms")
+    print(f"    post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
 
 
 def mkdir_if_not_exist(path=None):
@@ -1921,7 +1921,6 @@ def cache_and_initFill():
         num_nonz = int(num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
         print(f"load cache_initFill_N{N}.npz")
     else:
-        use_cpp_initFill = True
         if use_cpp_initFill:
             initFill = initFill_cpp
         else:
@@ -1988,6 +1987,18 @@ timer_all = time.perf_counter()
 start_wall_time = datetime.datetime.now()
 
 
+def do_restart():
+    global frame
+    if args.restart_from_last_frame :
+        args.restart_frame =  find_last_frame(out_dir)
+    if args.restart_frame == 0:
+        print("No restart file found.")
+    else:
+        load_state(args.restart_dir + f"{args.restart_frame:04d}.npz")
+        frame = args.restart_frame
+        logging.info(f"restart from last frame: {args.restart_frame}")
+
+
 def init():
     global frame
     print("\nInitializing...")
@@ -1995,27 +2006,21 @@ def init():
     init_pos(inv_mass,pos)
     init_tri(tri)
     init_edge(edge, rest_len, pos)
-    write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
-    print("Initializing pos and edge done")
     if args.setup_num == 1:
         init_scale()
+    write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
+    print("Initializing pos and edge done")
 
     tic = time.perf_counter()
-    if args.use_cuda and args.use_fastFill:
-        load_cache_initFill_to_cuda()
-    else:
-        cache_and_initFill()
+    if args.solver_type == "AMG":
+        if args.use_cuda:
+            load_cache_initFill_to_cuda()
+        else:
+            cache_and_initFill()
     print(f"init fill time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:
-        if args.restart_from_last_frame :
-            args.restart_frame =  find_last_frame(out_dir)
-        if args.restart_frame == 0:
-            print("No restart file found.")
-        else:
-            load_state(args.restart_dir + f"{args.restart_frame:04d}.npz")
-            frame = args.restart_frame
-            logging.info(f"restart from last frame: {args.restart_frame}")
+        do_restart()
 
     print(f"Initialization done. Cost time:  {time.perf_counter() - timer_all:.3f}s") 
 

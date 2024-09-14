@@ -41,6 +41,7 @@ calc_r_xpbd = True
 num_levels = 0
 t_export = 0.0
 use_cpp_initFill = True
+PXPBD_ksi = 0.0
 
 
 #parse arguments to change default values
@@ -123,7 +124,8 @@ omega = 0.5
 tri = ti.field(ti.i32, shape=3 * NT)
 edge        = ti.Vector.field(2, dtype=int, shape=(NE))
 pos         = ti.Vector.field(3, dtype=float, shape=(NV))
-dpos     = ti.Vector.field(3, dtype=float, shape=(NV))
+dpos        = ti.Vector.field(3, dtype=float, shape=(NV))
+dpos_withg  = ti.Vector.field(3, dtype=float, shape=(NV))
 old_pos     = ti.Vector.field(3, dtype=float, shape=(NV))
 vel         = ti.Vector.field(3, dtype=float, shape=(NV))
 pos_mid     = ti.Vector.field(3, dtype=float, shape=(NV))
@@ -526,6 +528,19 @@ def update_pos(
     for i in range(NV):
         if inv_mass[i] != 0.0:
             pos[i] += omega * dpos[i]
+
+
+@ti.kernel
+def update_pos_blend(
+    inv_mass:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+    dpos_withg:ti.template(),
+):
+    for i in range(NV):
+        if inv_mass[i] != 0.0:
+            pos[i] += omega *((1-PXPBD_ksi) * dpos[i] + PXPBD_ksi * dpos_withg[i])
+
 
 @ti.kernel
 def update_vel(
@@ -1085,6 +1100,22 @@ def transfer_back_to_pos_mfree_kernel():
             dpos[idx1] -= invM1 * delta_lagrangian * gradient
 
 
+@ti.kernel
+def transfer_back_to_pos_mfree_kernel_withg():
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        gradient = gradC[i, 0]
+        if invM0 != 0.0:
+            dpos_withg[idx0] += invM0 * lagrangian[i] * gradient 
+        if invM1 != 0.0:
+            dpos_withg[idx1] -= invM1 * lagrangian[i] * gradient
+
+    for i in range(NV):
+        if inv_mass[i] != 0.0:
+            dpos_withg[i] += predict_pos[i] - old_pos[i]
+
+
 def transfer_back_to_pos_mfree(x):
     dLambda.from_numpy(x)
     reset_dpos(dpos)
@@ -1559,9 +1590,18 @@ def AMG_dlam2dpos(x):
     logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
 
 
+def AMG_dlam2dpos_PXPBD_blend(x):
+    tic = time.perf_counter()
+    dLambda.from_numpy(x)
+    reset_dpos(dpos)
+    transfer_back_to_pos_mfree_kernel()
+    transfer_back_to_pos_mfree_kernel_withg()
+    update_pos_blend(inv_mass, dpos, pos, dpos_withg)
+    logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
+
 # def AMG_PXPBD_dlam2dpos():
-    #  PXPBD_transfer_back_to_pos_mfree(x)
-    #  transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
+#      PXPBD_transfer_back_to_pos_mfree(x)
+#      transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
 
 
 def AMG_b():
@@ -1610,6 +1650,7 @@ def substep_all_solver():
                 AMG_setup_phase()
             AMG_presolve()
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
+            # AMG_dlam2dpos_PXPBD_blend(x)
             AMG_dlam2dpos(x)
             AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")

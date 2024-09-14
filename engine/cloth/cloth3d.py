@@ -55,10 +55,10 @@ parser.add_argument("-export_residual", type=int, default=False)
 parser.add_argument("-end_frame", type=int, default=100)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
 parser.add_argument("-auto_another_outdir", type=int, default=False)
-parser.add_argument("-restart", type=int, default=False)
-parser.add_argument("-restart_frame", type=int, default=10)
-parser.add_argument("-restart_dir", type=str, default="result/latest/state/")
-parser.add_argument("-restart_from_last_frame", type=int, default=True)
+parser.add_argument("-restart", type=int, default=True)
+parser.add_argument("-restart_frame", type=int, default=20)
+parser.add_argument("-restart_dir", type=str, default="result/meta/")
+parser.add_argument("-restart_from_last_frame", type=int, default=False)
 parser.add_argument("-maxiter", type=int, default=1000)
 parser.add_argument("-maxiter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
@@ -989,9 +989,10 @@ def AMG_solve(b, x0=None, tol=1e-5, maxiter=100):
 
     # get result
     x = np.empty_like(x0, dtype=np.float32)
-    residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
+    residuals = np.zeros(shape=(maxiter,), dtype=np.float32)
     niter = extlib.fastmg_get_data(x, residuals)
-    residuals = residuals[:niter+1]
+    niter += 1
+    residuals = residuals[:niter]
     logging.info(f"    inner iter: {niter}")
     logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
     return (x),  residuals  

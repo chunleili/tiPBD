@@ -960,10 +960,10 @@ struct VCycle : Kernels {
     size_t smoother_type = 1; //1:chebyshev, 2:jacobi, 3:gauss_seidel
     float jacobi_omega;
     size_t jacobi_niter;
-    Vec<float> init_x;
-    Vec<float> init_b;
+    Vec<float> z;
+    Vec<float> r;
     Vec<float> outer_x;
-    Vec<float> final_x;
+    Vec<float> x_new;
     Vec<float> outer_b;
     float save_rho_prev;
     Vec<float> save_p;
@@ -1205,8 +1205,8 @@ struct VCycle : Kernels {
 
     void vcycle_down() {
         for (int lv = 0; lv < nlvs-1; ++lv) {
-            Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : init_x;
-            Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : init_b;
+            Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : z;
+            Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : r;
 
             _smooth(lv, x, b);
 
@@ -1223,8 +1223,8 @@ struct VCycle : Kernels {
 
     void vcycle_up() {
         for (int lv = nlvs-2; lv >= 0; --lv) {
-            Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : init_x;
-            Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : init_b;
+            Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : z;
+            Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : r;
             spmv(x, 1, levels.at(lv).P, levels.at(lv).x, 1, buff); // x += P@coarse_x
             _smooth(lv, x, b);
         }
@@ -1244,14 +1244,10 @@ struct VCycle : Kernels {
         spsolve(x, A, b);
     }
 
-    void copy_outer2init_x() {
-        copy(init_x, outer_x);
-    }
-
     void set_outer_x(float const *x, size_t n) {
         outer_x.resize(n);
         CHECK_CUDA(cudaMemcpy(outer_x.data(), x, n * sizeof(float), cudaMemcpyHostToDevice));
-        copy(final_x, outer_x);
+        copy(x_new, outer_x);
     }
 
     void set_outer_b(float const *b, size_t n) {
@@ -1262,24 +1258,24 @@ struct VCycle : Kernels {
     float init_cg_iter0(float *residuals) {
         float bnrm2 = vnorm(outer_b);
         // r = b - A@(x)
-        copy(init_b, outer_b);
+        copy(r, outer_b);
         spmv(outer_b, -1, levels.at(0).A, outer_x, 1, buff);
-        float normr = vnorm(init_b);
+        float normr = vnorm(r);
         residuals[0] = normr;
         return bnrm2;
     }
 
     void do_cg_itern(float *residuals, size_t iteration) {
-        float rho_cur = vdot(init_b, init_x);
+        float rho_cur = vdot(r, z);
         if (iteration > 0) {
             float beta = rho_cur / save_rho_prev;
             // p *= beta
             // p += z
             scal(save_p, beta);
-            axpy(save_p, 1, init_x);
+            axpy(save_p, 1, z);
         } else {
             // p = move(z)
-            save_p.swap(init_x);
+            save_p.swap(z);
         }
         // q = A@(p)
         save_q.resize(levels.at(0).A.nrows);
@@ -1287,19 +1283,11 @@ struct VCycle : Kernels {
         save_rho_prev = rho_cur;
         float alpha = rho_cur / vdot(save_p, save_q);
         // x += alpha*p
-        axpy(final_x, alpha, save_p);
+        axpy(x_new, alpha, save_p);
         // r -= alpha*q
-        axpy(init_b, -alpha, save_q);
-        float normr = vnorm(init_b);
+        axpy(r, -alpha, save_q);
+        float normr = vnorm(r);
         residuals[iteration + 1] = normr;
-    }
-
-    void fetch_cg_final_x(float *x) {
-        CHECK_CUDA(cudaMemcpy(x, final_x.data(), final_x.size() * sizeof(float), cudaMemcpyDeviceToHost));
-    }
-
-    void fetch_cg_final_r(float *r) {
-        std::copy(residuals.begin(), residuals.end(), r);
     }
 
     void compute_RAP(size_t lv) {
@@ -1335,10 +1323,10 @@ struct VCycle : Kernels {
         return  computeMaxEigenvaluePowerMethodOptimized(levels.at(0).A, 100);
     }
 
-    size_t get_data(float* x_, float* r_)
+    size_t get_data(float* x_out, float* r_out)
     {
-        fetch_cg_final_x(x_);
-        fetch_cg_final_r(r_);
+        CHECK_CUDA(cudaMemcpy(x_out, x_new.data(), x_new.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        std::copy(residuals.begin(), residuals.end(), r_out);
         return niter;
     }
 
@@ -1363,9 +1351,9 @@ struct VCycle : Kernels {
                 niter = iter;
                 break;
             }
-            copy_outer2init_x();  //reset x to x0
+            copy(z, outer_x);
             vcycle();
-            do_cg_itern(residuals.data(), iter); //first r is r[0], then r[iter+1]
+            do_cg_itern(residuals.data(), iter); 
             niter = iter;
         }
     }

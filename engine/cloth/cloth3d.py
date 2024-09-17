@@ -34,14 +34,14 @@ paused = False
 save_P, load_P = False, False
 use_viewer = False
 export_mesh = True
-use_PXPBD = False
+use_PXPBD_v1 = False
 use_geometric_stiffness = False
 export_fullr = False
 calc_r_xpbd = True
 num_levels = 0
 t_export = 0.0
 use_cpp_initFill = True
-PXPBD_ksi = 0.0
+PXPBD_ksi = 1.0
 
 
 #parse arguments to change default values
@@ -1130,16 +1130,25 @@ def spy_A(A,b):
     exit()
 
 
+def fill_G():
+    tic = time.perf_counter()
+    compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len)
+    G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
+    fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
+    G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
+    print(f"fill_G: {time.perf_counter() - tic:.4f}s")
+    return G
+
+
 # legacy
 def fill_A_by_spmm(M_inv, ALPHA):
     tic = time.perf_counter()
     G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
-
     print(f"fill_G: {time.perf_counter() - tic:.4f}s")
-    tic = time.perf_counter()
 
+    tic = time.perf_counter()
     if use_geometric_stiffness:
         # Geometric Stiffness: K = NCONS - H, we only use diagonal of H and then replace M_inv with K_inv
         # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
@@ -1480,6 +1489,7 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     # if use_PXPBD:
     #     primary_residual = calc_primary_residual(G, M_inv)
     #     primary_r = np.linalg.norm(primary_residual).astype(float)
+    dual0 = np.linalg.norm(fulldual0)
 
     if export_fullr:
         fulldual_final = dual_residual.to_numpy()
@@ -1490,7 +1500,7 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
 
     if args.export_log:
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
-        logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
+        logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
     r.append(ResidualData(dual_r, len(r_Axb), t_iter))
 
     t_export += perf_counter()-tic
@@ -1528,15 +1538,17 @@ def PXPBD_b_kernel(pos:ti.template(), predict_pos:ti.template(), lagrangian:ti.t
         #     b += G @ Minv_gg
 
 
-def PXPBD_transfer_back_to_pos_mfree(x):
+# v1-mfree
+def PXPBD_v1_mfree_transfer_back_to_pos(x, Minv_gg):
     dLambda.from_numpy(x)
     reset_dpos(dpos)
-    PXPBD_transfer_back_to_pos_mfree_kernel(Minv_gg)
+    PXPBD_v1_mfree_transfer_back_to_pos_kernel(Minv_gg)
     update_pos(inv_mass, dpos, pos)
 
 
+# v1-mfree
 @ti.kernel
-def PXPBD_transfer_back_to_pos_mfree_kernel(Minv_gg:ti.template()):
+def PXPBD_v1_mfree_transfer_back_to_pos_kernel(Minv_gg:ti.template()):
     for i in range(NE):
         idx0, idx1 = edge[i]
         invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
@@ -1584,13 +1596,25 @@ def AMG_presolve():
     logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
 
 
+# original XPBD dlam2dpos
 def AMG_dlam2dpos(x):
     tic = time.perf_counter()
     transfer_back_to_pos_mfree(x)
     logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
 
 
-def AMG_dlam2dpos_PXPBD_blend(x):
+# v1: with g, modify b and dpos
+def AMG_PXPBD_v1_dlam2dpos(x,G, Minv_gg):
+    dLambda_ = x.copy()
+    lagrangian.from_numpy(lagrangian.to_numpy() + dLambda_)
+    dpos = M_inv @ G.transpose() @ dLambda_ 
+    dpos -=  Minv_gg
+    dpos = dpos.reshape(-1, 3)
+    pos.from_numpy(pos_mid.to_numpy() + omega*dpos)
+
+
+# v2: blended, only modify dpos
+def AMG_PXPBD_v2_dlam2dpos(x):
     tic = time.perf_counter()
     dLambda.from_numpy(x)
     reset_dpos(dpos)
@@ -1599,10 +1623,6 @@ def AMG_dlam2dpos_PXPBD_blend(x):
     update_pos_blend(inv_mass, dpos, pos, dpos_withg)
     logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
 
-# def AMG_PXPBD_dlam2dpos():
-#      PXPBD_transfer_back_to_pos_mfree(x)
-#      transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg) #Chen2023 Primal XPBD
-
 
 def AMG_b():
     update_constraints_kernel(pos, edge, rest_len, constraints)
@@ -1610,12 +1630,15 @@ def AMG_b():
     return b
 
 
-# def AMG_PXPBD_b():
-    # # #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
-    # if use_PXPBD:
-    #     PXPBD_b_kernel(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
-    # #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
-    # #     b += G @ Minv_gg
+def AMG_PXPBD_v1_b(G):
+    # #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
+    update_constraints_kernel(pos, edge, rest_len, constraints)
+    b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
+
+    # PXPBD_b_kernel(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
+    Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
+    b += G @ Minv_gg
+    return b, Minv_gg
     
 
 def AMG_A():
@@ -1639,9 +1662,14 @@ def substep_all_solver():
     for ite in range(args.maxiter):
         tic_assemble = perf_counter()
         tic_iter = perf_counter()
+        if use_PXPBD_v1:
+            copy_field(pos_mid, pos)
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len) # required by dlam2dpos
         AMG_A()
         b = AMG_b()
+        if use_PXPBD_v1:
+            G = fill_G()
+            b, Minv_gg = AMG_PXPBD_v1_b(G)
         logging.info(f"    Assemble time: {(perf_counter()-tic_assemble)*1000:.0f}ms")
         if not args.use_cuda:
             x, r_Axb = AMG_python(b)
@@ -1650,8 +1678,10 @@ def substep_all_solver():
                 AMG_setup_phase()
             AMG_presolve()
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
-            # AMG_dlam2dpos_PXPBD_blend(x)
-            AMG_dlam2dpos(x)
+            if use_PXPBD_v1:
+                AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
+            else:
+                AMG_dlam2dpos(x)
             AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:

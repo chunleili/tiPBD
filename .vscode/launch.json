@@ -8,12 +8,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": [
-                "-N=64",
-                "-use_cuda=1",
-                "-use_cache=1",
-                "-arch=cuda"
-            ]
+            "args": []
         },
         {
             "name": "profile",

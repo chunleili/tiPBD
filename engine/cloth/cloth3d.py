@@ -1955,7 +1955,8 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
     f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
     f"\nCloth-N{N}" + \
-    f"\ndt={delta_t}\n"
+    f"\ndt={delta_t}" \
+    f"\nSolver: {args.solver_type}\n" 
 
     current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     file_name = f"result/meta/{current_time}.txt"

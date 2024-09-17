@@ -55,9 +55,9 @@ parser.add_argument("-export_state", type=int, default=False)
 parser.add_argument("-export_residual", type=int, default=False)
 parser.add_argument("-end_frame", type=int, default=100)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
-parser.add_argument("-auto_another_outdir", type=int, default=False)
+parser.add_argument("-auto_another_outdir", type=int, default=True)
 parser.add_argument("-restart", type=int, default=True)
-parser.add_argument("-restart_frame", type=int, default=20)
+parser.add_argument("-restart_frame", type=int, default=21)
 parser.add_argument("-restart_dir", type=str, default="result/meta/")
 parser.add_argument("-restart_from_last_frame", type=int, default=False)
 parser.add_argument("-maxiter", type=int, default=1000)
@@ -1470,7 +1470,7 @@ def report_multilevel_details(Ps, num_levels):
 
 
 def should_setup():
-    return ((frame%args.setup_interval==0) and (ite==0))
+    return ((frame%args.setup_interval==0 or frame==args.restart_frame) and (ite==0))
 
 
 

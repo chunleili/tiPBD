@@ -1869,6 +1869,9 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     max_n_outer = max(n_outer_all)
     max_n_outer_index = n_outer_all.index(max_n_outer)
 
+    n_outer_all_np = np.array(n_outer_all, np.int32)    
+    np.savetxt(out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
+
     sim_cost_time = time.perf_counter() - timer_loop
 
     s = f"\n-------\n"+\

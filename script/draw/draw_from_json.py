@@ -15,27 +15,39 @@ get_col0 = lambda data: get_col(data, 0)
 get_col1 = lambda data: get_col(data, 1)
 
 frame=21
-
+draw_time = True
+draw_dual = False
 
 # %% draw dual
 def draw():
     fig,ax = plt.subplots(1)
 
     df= pd.read_json(prj_path + f"/result/latest_5/r/{frame}.json")
-    ax.plot(df['dual'],linestyle='-')
-    # plt.tight_layout()
-    # set marker for each frame
-    ax.legend(['AMG-XPBD'])
-    # ax.set_yscale('log')
+    if draw_time:
+        ax.plot(df['t'],linestyle='-')
+    if draw_dual: 
+        ax.plot(df['dual'],linestyle='-')
+
     ax.set_xlabel('iteration')
-    ax.set_ylabel('residual')
-    ax.set_title(f'dual residual')
+    if draw_time:
+        ax.set_ylabel('time')
+        ax.legend(['time'])
+
+    if draw_dual:
+        ax.set_ylabel('dual')
+        ax.legend(['dual'])
+
+    # ax.set_yscale('log')
+    # plt.tight_layout()
+    ax.set_title(f'AMG-XPBD')
+
     # 设定y轴采用科学计数法
     plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
     # 设定x轴只能用整数
     plt.gca().xaxis.get_major_locator().set_params(integer=True)
 
     plt.show()
+
 
 # %%
 if __name__ == "__main__":

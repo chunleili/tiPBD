@@ -55,7 +55,7 @@ parser.add_argument("-export_state", type=int, default=False)
 parser.add_argument("-export_residual", type=int, default=False)
 parser.add_argument("-end_frame", type=int, default=100)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
-parser.add_argument("-auto_another_outdir", type=int, default=True)
+parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-restart", type=int, default=True)
 parser.add_argument("-restart_frame", type=int, default=21)
 parser.add_argument("-restart_dir", type=str, default="result/meta/")
@@ -2052,7 +2052,7 @@ def init():
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_all:.3f}s") 
 
 
-def export_after_substep(tic_frame):
+def export_after_substep(tic_frame, t_export, t_export_total):
     tic_export = time.perf_counter()
     if export_mesh:
         write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
@@ -2115,7 +2115,7 @@ def run():
             tic_frame = time.perf_counter()
             t_export = 0.0
 
-            viewer.do_render_control(viewer)
+            viewer.do_render_control()
 
             if not paused:
                 if args.solver_type == "XPBD":
@@ -2124,7 +2124,7 @@ def run():
                     substep_all_solver()
                 frame += 1
                 
-                export_after_substep(tic_frame)
+                export_after_substep(tic_frame, t_export, t_export_total)
 
             if frame == args.end_frame:
                 print("Normallly end.")

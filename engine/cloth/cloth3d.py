@@ -1645,7 +1645,7 @@ def AMG_A():
     fastFill_run()
     logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
-def calc_dual0():
+def calc_dual():
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
     return dual_residual.to_numpy()
 
@@ -1656,7 +1656,7 @@ def substep_all_solver():
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
     r = [] # residual list of one frame
-    fulldual0 = calc_dual0()
+    fulldual0 = calc_dual()
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     for ite in range(args.maxiter):
         tic_assemble = perf_counter()

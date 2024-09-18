@@ -34,14 +34,15 @@ python engine/cloth/cloth3d.py -N=64
 
 - `-N=1024` 设定布料分辨率。顶点数为N^2。
 - `-use_cuda=1` 使用cuda，默认使用。
-- `-solver_type=xpbd` 使用xpbd求解器而非AMG
+- `-solver_type=XPBD` 使用xpbd求解器而非AMG
 - `-cuda_dir` 指定cuda安装目录。默认为`C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin`
 - `-out_dir` 输出目录，默认为`result/latest`
 - `-auto_another_outdir=1` 每次运行自动创建一个新的输出目录，防止覆盖之前的结果。例如`result/latest_1`
 - `-export_residual=1` （默认为0）每帧输出残差到文件，例如`result/latest/r/1.json`。
 - `-end_frame=1000` 结束帧数
 - `-setup_interval=20` 每隔多少帧更新一次AMG setup phase
-- `-max_iter=1000` 每帧最大迭代次数
+- `-maxiter=1000` 每帧最大迭代次数
+- `-maxiter_Axb=100` 每个Ax=b最大迭代次数
 
 
 ## 模型分辨率

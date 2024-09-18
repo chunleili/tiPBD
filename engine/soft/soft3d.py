@@ -32,7 +32,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
 # "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node" "data/model/bunny85w/bunny85w.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=100)
@@ -1005,6 +1005,7 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     r.append(ResidualData(dual_r, len(r_Axb), t_iter))
 
     t_export += perf_counter()-tic
+    return dual0
 
 
 
@@ -1057,9 +1058,9 @@ def substep_all_solver(ist):
         AMG_presolve()
         x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
         AMG_dlam2dpos(x)
-        AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
+        dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        if r[-1].dual<1e-5:
+        if r[-1].dual<1e-5 or r[-1].dual <  0.1 * dual0:
             break
     
     tic = time.perf_counter()

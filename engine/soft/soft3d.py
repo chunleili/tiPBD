@@ -27,7 +27,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-maxiter", type=int, default=1000)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
-parser.add_argument("-dt", type=float, default=3e-3)
+parser.add_argument("-delta_t", type=float, default=3e-3)
 parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
@@ -76,9 +76,9 @@ def init_extlib_argtypes():
     global extlib
 
     # # DEBUG only
-    os.chdir(prj_path+'/cpp/mgcg_cuda')
-    os.system("cmake --build build --config Debug")
-    os.chdir(prj_path)
+    # os.chdir(prj_path+'/cpp/mgcg_cuda')
+    # os.system("cmake --build build --config Debug")
+    # os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
@@ -138,8 +138,8 @@ class Meta:
         self.omega = self.args.omega  # SOR factor, default 0.1
         self.mu = self.args.mu  # Lame's second parameter, default 1e6
         self.inv_mu = 1.0 / self.mu
-        self.h = self.args.dt  # time step size, default 3e-3
-        self.inv_h2 = 1.0 / self.h / self.h
+        self.delta_t = self.args.delta_t  # time step size, default 3e-3
+        self.inv_h2 = 1.0 / self.delta_t / self.delta_t
         self.gravity = ti.Vector(self.args.gravity)  # gravity, default (0, 0, 0)
         self.damping_coeff = self.args.damping_coeff  # damping coefficient, default 1.0
         self.total_mass = self.args.total_mass  # total mass, default 16000.0
@@ -550,7 +550,7 @@ def compute_gradient(U, S, V, B):
 
 @ti.kernel
 def semi_euler(
-    h: ti.f32,
+    delta_t: ti.f32,
     pos: ti.template(),
     predict_pos: ti.template(),
     old_pos: ti.template(),
@@ -558,17 +558,17 @@ def semi_euler(
     damping_coeff: ti.f32,
 ):
     for i in pos:
-        vel[i] += h * meta.gravity
+        vel[i] += delta_t * meta.gravity
         vel[i] *= damping_coeff
         old_pos[i] = pos[i]
-        pos[i] += h * vel[i]
+        pos[i] += delta_t * vel[i]
         predict_pos[i] = pos[i]
 
 
 @ti.kernel
-def update_vel(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
+def update_vel(delta_t: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
     for i in pos:
-        vel[i] = (pos[i] - old_pos[i]) / h
+        vel[i] = (pos[i] - old_pos[i]) / delta_t
 
 
 @ti.kernel
@@ -1040,7 +1040,7 @@ def AMG_python(b):
 def substep_all_solver(ist):
     global t_export, n_outer_all
     tic1 = time.perf_counter()
-    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
     r = [] # residual list of one frame
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
@@ -1061,7 +1061,8 @@ def substep_all_solver(ist):
         AMG_dlam2dpos(x)
         dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        if r[-1].dual<1e-5 or r[-1].dual <  0.1 * dual0:
+        # if r[-1].dual<1e-5 or r[-1].dual <  0.1 * dual0:
+        if r[-1].dual<1e-4:
             break
     
     tic = time.perf_counter()
@@ -1070,13 +1071,13 @@ def substep_all_solver(ist):
     if args.export_residual:
         do_export_r(r)
     collsion_response(ist.pos)
-    update_vel(meta.h, ist.pos, ist.old_pos, ist.vel)
+    update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
 
 
 # def substep_all_solver(ist, maxiter=1, solver_type="GaussSeidel", P=None, R=None):
 #     # ist is instance of fine or coarse
-#     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+#     semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
 #     reset_lagrangian(ist.lagrangian)
 
 #     # fill M_inv and ALPHA
@@ -1160,7 +1161,7 @@ def substep_all_solver(ist):
 #             calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
 #             dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
 #             compute_potential_energy(ist.potential_energy, ist.alpha_tilde, ist.lagrangian)
-#             compute_inertial_energy(ist.inertial_energy, ist.inv_mass, ist.pos, ist.predict_pos, meta.h)
+#             compute_inertial_energy(ist.inertial_energy, ist.inv_mass, ist.pos, ist.predict_pos, meta.delta_t)
 #             robj = (ist.potential_energy[None]+ist.inertial_energy[None])
 #             r_Axb = r_Axb.tolist()
 #             if export_log:
@@ -1181,11 +1182,11 @@ def substep_all_solver(ist):
 #         t_export_residual = time.perf_counter()-tic
 
 #     collsion_response(ist.pos)
-#     update_vel(meta.h, ist.pos, ist.old_pos, ist.vel)
+#     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 
 
 def substep_xpbd(ist):
-    semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
     for meta.ite in range(args.maxiter):
         tic = time.perf_counter()
@@ -1213,7 +1214,7 @@ def substep_xpbd(ist):
         logging.info(f"{meta.frame}-{meta.ite} r0:{dualr0:.2e} r:{dualr:.2e} t:{toc-tic:.2e}s")
         if dualr< 0.1*dualr0 or dualr < 1e-5:
             break
-    update_vel(meta.h, ist.pos, ist.old_pos, ist.vel)
+    update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 
 # ---------------------------------------------------------------------------- #
 #                                    amgpcg                                    #
@@ -1931,7 +1932,7 @@ def csr_index_to_coo_index(indptr, indices):
 def init_direct_fill_A(ist):
     if args.use_cache and os.path.exists(f'cache_initFill_{os.path.basename(args.model_path)}.npz'):
         tic = perf_counter()
-        print(f"Found cache cache_initFill_{os.path.basename(args.model_path)}.npz'. Loading cached data...")
+        print(f"Found cache cache_initFill_{os.path.basename(args.model_path)}.npz. Loading cached data...")
         npzfile = np.load(f'cache_initFill_{os.path.basename(args.model_path)}.npz')
         adjacent = npzfile['adjacent']
         num_adjacent = npzfile['num_adjacent']

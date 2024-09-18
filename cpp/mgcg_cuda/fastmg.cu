@@ -972,7 +972,7 @@ struct VCycle : Kernels {
     size_t niter; //final number of iterations to break the loop
     float max_eig;
 
-    void setup_smoothers_cuda(int type) {
+    void setup_smoothers(int type) {
         cout<<"\nSetting up smoothers..."<<endl;
         smoother_type = type;
         if(smoother_type == 1)
@@ -981,8 +981,7 @@ struct VCycle : Kernels {
         }
         else if (smoother_type == 2)
         {
-            //TODO:setup jacobi
-            setup_jacobi_v2(levels[0].A, 100);
+            setup_jacobi_cuda(levels[0].A, jacobi_niter);
         }
     }
 
@@ -1124,7 +1123,7 @@ struct VCycle : Kernels {
     }
 
 
-    void setup_jacobi_v2(CSR<float>&A, size_t const n) {
+    void setup_jacobi_cuda(CSR<float>&A, size_t const n) {
         // smoother_type = 2;
         GpuTimer timer;
         timer.start();
@@ -1156,7 +1155,7 @@ struct VCycle : Kernels {
         cout<<"DinvA_rho: "<<DinvA_rho<<endl;
         cout<<"jacobi_omega: "<<jacobi_omega<<endl; 
         timer.stop();
-        cout<<"setup_jacobi_v2 time: "<<timer.elapsed()<<" ms"<<endl;
+        cout<<"setup_jacobi_cuda time: "<<timer.elapsed()<<" ms"<<endl;
     }
 
     void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
@@ -1467,7 +1466,7 @@ extern "C" DLLEXPORT void fastmg_set_P(int lv, float* data, int* indices, int* i
 
 
 extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
-    fastmg->setup_smoothers_cuda(type);
+    fastmg->setup_smoothers(type);
 }
 
 

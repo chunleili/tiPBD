@@ -181,3 +181,41 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         }
     }
 }
+
+
+
+__global__ void calc_diag_kernel(float *diag, const float *data, const int *indices, const int *indptr, const int nrows) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < nrows) {
+        for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
+            size_t j = indices[n];
+            if (j == i) {
+                diag[i] = data[n];
+            }
+        }
+    }
+}
+
+
+// diag(A)^-1 * A, which is equal to A each row is scaled by the 1./(diagonal element)
+__global__ void calc_DinvA_kernel(float *data_new, float *data, const int *indices, const int *indptr, const int nrows, float* diag) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (i < nrows) {
+        for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
+            size_t j = indices[n];
+            if (j == i) {
+                diag[i] = data[n];
+            }
+        }
+    }
+
+    __syncthreads();
+
+    if (i < nrows) {
+        for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
+            size_t j = indices[n];
+             data_new[n] = data[n] / diag[i];
+        }
+    }
+}

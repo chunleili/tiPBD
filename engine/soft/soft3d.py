@@ -58,7 +58,6 @@ args = parser.parse_args()
 
 out_dir = args.out_dir
 Path(out_dir).mkdir(parents=True, exist_ok=True)
-smoother_type = args.smoother_type
 build_P_method = args.build_P_method
 use_cuda = args.use_cuda
 
@@ -77,9 +76,9 @@ def init_extlib_argtypes():
     global extlib
 
     # DEBUG only
-    # os.chdir(prj_path+'/cpp/mgcg_cuda')
-    # os.system("cmake --build build --config Debug")
-    # os.chdir(prj_path)
+    os.chdir(prj_path+'/cpp/mgcg_cuda')
+    os.system("cmake --build build --config Debug")
+    os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
@@ -910,6 +909,7 @@ def AMG_setup_phase():
     global Ps, num_levels
     tic = time.perf_counter()
     A = fill_A_csr_ti(ist) #taichi version
+    A = A.copy()
     # A = fastFill_fetch()
     Ps = build_Ps(A)
     num_levels = len(Ps)+1
@@ -923,7 +923,9 @@ def AMG_setup_phase():
 
     tic = time.perf_counter()
     cuda_set_A0(A)
-    extlib.fastmg_setup_smoothers(1) # 1 means chebyshev
+    # extlib.fastmg_setup_smoothers(2) # 1 means chebyshev, 2 means w-jacobi
+    omega = setup_jacobi_python(A)
+    extlib.fastmg_setup_jacobi(omega, 100)
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
     report_multilevel_details(Ps, num_levels)
@@ -1005,6 +1007,35 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     t_export += perf_counter()-tic
 
 
+
+def AMG_python(b):
+    global Ps, num_levels
+
+    A = fill_A_csr_ti(ist)
+    A = A.copy()
+
+    if should_setup():
+        tic = time.perf_counter()
+        Ps = build_Ps(A)
+        num_levels = len(Ps)+1
+        logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+    
+    tic = time.perf_counter()
+    levels = build_levels(A, Ps)
+    logging.info(f"    build_levels time:{time.perf_counter()-tic}")
+
+    if should_setup():
+        tic = time.perf_counter()
+        setup_smoothers(A)
+        logging.info(f"    setup smoothers time:{perf_counter()-tic}")
+    x0 = np.zeros_like(b)
+    tic = time.perf_counter()
+    x, r_Axb = old_amg_cg_solve(levels, b, x0=x0, maxiter=args.maxiter_Axb, tol=1e-6)
+    toc = time.perf_counter()
+    logging.info(f"    mgsolve time {toc-tic}")
+    return  x, r_Axb
+
+
 def substep_all_solver(ist):
     global t_export, n_outer_all
     tic1 = time.perf_counter()
@@ -1020,6 +1051,7 @@ def substep_all_solver(ist):
         AMG_A()
         b = AMG_b(ist)
         logging.info(f"    Assemble time: {(perf_counter()-tic_assemble)*1000:.0f}ms")
+        # x, r_Axb = AMG_python(b)
         if should_setup():
             AMG_setup_phase()
         AMG_presolve()
@@ -1027,7 +1059,7 @@ def substep_all_solver(ist):
         AMG_dlam2dpos(x)
         AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
+        if r[-1].dual<1e-5:
             break
     
     tic = time.perf_counter()
@@ -1219,13 +1251,15 @@ def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
     return coefficients
 
 
-def setup_jacobi(A):
+def setup_jacobi_python(A):
     from pyamg.relaxation.smoothing import rho_D_inv_A
     global jacobi_omega
     rho = rho_D_inv_A(A)
     print("rho:", rho)
     jacobi_omega = 1.0/(rho)
     print("omega:", jacobi_omega)
+    return jacobi_omega
+
 
 def calc_near_nullspace_GS(A):
     n=6
@@ -1243,7 +1277,7 @@ def calc_near_nullspace_GS(A):
     print("Calculating near nullspace Time:", toc-tic)
     return B
 
-def build_Ps(A, method='nullspace'):
+def build_Ps(A, method='SA'):
     """Build a list of prolongation matrices Ps from A """
     print("build P by method:", method)
     if method == 'UA':
@@ -1306,11 +1340,20 @@ def build_levels_cuda(A, Ps=[]):
 def setup_AMG(A):
     global chebyshev_coeff, build_P_method
     Ps = build_Ps(A, method=build_P_method)
-    if smoother_type == 'chebyshev':
+    if args.smoother_type == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
-    elif smoother_type == 'jacobi':
-        setup_jacobi(A)
+    elif args.smoother_type == 'jacobi':
+        setup_jacobi_python(A)
     return Ps
+
+
+def setup_smoothers(A):
+    global chebyshev_coeff
+    if args.smoother_type == 'chebyshev':
+        setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
+    elif args.smoother_type == 'jacobi':
+        setup_jacobi_python(A)
+
 
 
 def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
@@ -1359,20 +1402,21 @@ def diag_sweep(A,x,b,iterations=1):
     x[:] = b / diag
 
 def presmoother(A,x,b):
+    A = A.astype(np.float32)
     from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
-    if smoother_type == 'gauss_seidel':
+    if args.smoother_type == 'gauss_seidel':
         gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
-    elif smoother_type == 'jacobi':
+    elif args.smoother_type == 'jacobi':
         jacobi(A,x,b,iterations=10, omega=jacobi_omega)
-    elif smoother_type == 'sor_vanek':
+    elif args.smoother_type == 'sor_vanek':
         for _ in range(1):
             sor(A,x,b,omega=1.0,iterations=1,sweep='forward')
             sor(A,x,b,omega=1.85,iterations=1,sweep='backward')
-    elif smoother_type == 'sor':
+    elif args.smoother_type == 'sor':
         sor(A,x,b,omega=1.33,sweep='symmetric',iterations=1)
-    elif smoother_type == 'diag_sweep':
+    elif args.smoother_type == 'diag_sweep':
         diag_sweep(A,x,b,iterations=1)
-    elif smoother_type == 'chebyshev':
+    elif args.smoother_type == 'chebyshev':
         chebyshev(A,x,b)
 
 
@@ -1436,16 +1480,16 @@ def init_g_vcycle(levels):
 
         g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
 
-    if smoother_type == 'chebyshev' and cached_cheby_id != id(chebyshev_coeff):
+    if args.smoother_type == 'chebyshev' and cached_cheby_id != id(chebyshev_coeff):
         cached_cheby_id = id(chebyshev_coeff)
         coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
         g_vcycle.fastmg_setup_chebyshev(coeff_contig.ctypes.data, coeff_contig.shape[0])
 
-    if smoother_type == 'jacobi' and cached_jacobi_omega_id != id(jacobi_omega):
+    if args.smoother_type == 'jacobi' and cached_jacobi_omega_id != id(jacobi_omega):
         cached_jacobi_omega_id = id(jacobi_omega)
         g_vcycle.fastmg_setup_jacobi(jacobi_omega, 10)
 
-    if smoother_type == 'GS' and (((meta.frame%20==0)) and (meta.ite==0)):
+    if args.smoother_type == 'GS' and (((meta.frame%20==0)) and (meta.ite==0)):
         g_vcycle.fastmg_setup_gauss_seidel()
 
     # set P

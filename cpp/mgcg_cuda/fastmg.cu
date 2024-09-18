@@ -317,7 +317,7 @@ struct HostVec {
 
 
 template <typename T=float>
-void debug_cuda_vec(Vec<T> &v, std::string name) {
+std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {
     std::vector<T> v_host(v.size());
     v.tohost(v_host);
     cout<<name<<": ";
@@ -330,6 +330,7 @@ void debug_cuda_vec(Vec<T> &v, std::string name) {
         k++;
     }
     std::cout<<endl;
+    return v_host;
 }
 
 struct DnVec {
@@ -402,8 +403,8 @@ struct ConstDnVec {
 // Data of csr matrix
 template <class T>
 struct CSR {
-    Vec<T> data;
     Vec<int> indices;
+    Vec<T> data;
     Vec<int> indptr;
     int64_t nrows;
     int64_t ncols;
@@ -916,7 +917,6 @@ struct FastFillCloth : Kernels {
         d_num_adjacent_edge.assign(num_adjacent_edge_in, NE);
         d_adjacent_edge_abc.resize(NE*60);
         CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data(), adjacent_edge_abc_in, sizeof(int) * NE * 60, cudaMemcpyHostToDevice));
-        // debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc111");
         cout<<"Finish."<<endl;
     }
 
@@ -946,9 +946,6 @@ struct FastFillCloth : Kernels {
                                                  d_pos.data());
         cudaDeviceSynchronize();
         launch_check();
-        // debug_cuda_vec(A.data, "A.data");
-        // debug_cuda_vec(d_adjacent_edge_abc, "d_adjacent_edge_abc");
-        // cout<<"finish fill A kernel"<<endl;
     }
 }; //FastFill struct
 
@@ -959,7 +956,7 @@ struct VCycle : Kernels {
     std::vector<float> chebyshev_coeff;
     size_t smoother_type = 1; //1:chebyshev, 2:jacobi, 3:gauss_seidel
     float jacobi_omega;
-    size_t jacobi_niter;
+    size_t jacobi_niter=100;
     Vec<float> z;
     Vec<float> r;
     Vec<float> outer_x;
@@ -984,6 +981,7 @@ struct VCycle : Kernels {
         else if (smoother_type == 2)
         {
             //TODO:setup jacobi
+            // setup_jacobi_v2(levels[0].A, 100);
         }
     }
 
@@ -1124,6 +1122,29 @@ struct VCycle : Kernels {
         jacobi_niter = n;
     }
 
+
+    void setup_jacobi_v2(CSR<float>&A, size_t const n) {
+        // smoother_type = 2;
+        jacobi_niter = n;
+
+        // calc Dinv@A
+        Vec<float> Dinv;
+        Vec<float> data_new;
+        Vec<float> diag;
+        Dinv.resize(A.nrows);
+        data_new.resize(A.data.size());
+        diag.resize(A.nrows);
+        calc_DinvA_kernel<<<(A.nrows + 255) / 256, 256>>>(data_new.data(), A.data.data(), A.indices.data(), A.indptr.data(), A.nrows, diag.data());
+
+        CSR<float> DinvA;
+        DinvA.assign(data_new.data(), A.numnonz, A.indices.data(), A.numnonz, A.indptr.data(), A.nrows+1, A.nrows, A.ncols, A.numnonz);
+
+        float DinvA_rho = calc_max_eig(DinvA);
+        jacobi_omega = 1.0 / (DinvA_rho);
+        cout<<"DinvA_rho: "<<DinvA_rho<<endl;
+        cout<<"jacobi_omega: "<<jacobi_omega<<endl; 
+    }
+
     void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
         Vec<float> x_old;
         x_old.resize(x.size());
@@ -1185,10 +1206,12 @@ struct VCycle : Kernels {
 
     void _smooth(int lv, Vec<float> &x, Vec<float> const &b) {
         if(smoother_type == 1)
+        {
             chebyshev(lv, x, b);
+        }
         else if (smoother_type == 2)
         {
-            jacobi(lv, x, b);
+            jacobi_cpu(lv, x, b);
         }
         else if (smoother_type == 3)
         {
@@ -1318,9 +1341,9 @@ struct VCycle : Kernels {
         residuals.resize(maxiter+1);
     }
 
-    float get_max_eig()
+    float calc_max_eig(CSR<float>& A)
     {
-        return  computeMaxEigenvaluePowerMethodOptimized(levels.at(0).A, 100);
+        return  computeMaxEigenvaluePowerMethodOptimized(A, 100);
     }
 
     size_t get_data(float* x_out, float* r_out)

@@ -21,17 +21,6 @@
                     "${file}"]
         },
         {
-            "name": "debugpy: cloth3d",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "engine/cloth/cloth3d.py",
-            "console": "integratedTerminal",
-            "args": [
-                "-N=64",
-                "-use_cache=0",
-            ]
-        },
-        {
             "name": "Python C++ Debug",
             "type": "pythoncpp",
             "request": "launch",

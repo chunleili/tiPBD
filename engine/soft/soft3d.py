@@ -51,16 +51,13 @@ parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-export_residual", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=-1)
 parser.add_argument("-restart", type=int, default=True)
-
+parser.add_argument("-use_cache", type=int, default=True)
+parser.add_argument("-export_mesh", type=int, default=True)
 
 args = parser.parse_args()
 
 out_dir = args.out_dir
 Path(out_dir).mkdir(parents=True, exist_ok=True)
-export_matrix = bool(args.export_matrix)
-export_mesh = True
-use_cache= False
-cuda_dir = args.cuda_dir
 smoother_type = args.smoother_type
 build_P_method = args.build_P_method
 use_cuda = args.use_cuda
@@ -1410,7 +1407,7 @@ def init_g_vcycle(levels):
     global cached_P_id, cached_cheby_id, cached_jacobi_omega_id
 
     if g_vcycle is None:
-        os.add_dll_directory(cuda_dir)
+        os.add_dll_directory(args.cuda_dir)
         extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
         g_vcycle = extlib
 
@@ -1883,7 +1880,7 @@ def csr_index_to_coo_index(indptr, indices):
 
 
 def init_direct_fill_A(ist):
-    if use_cache and os.path.exists(f'cache_initFill_{os.path.basename(args.model_path)}.npz'):
+    if args.use_cache and os.path.exists(f'cache_initFill_{os.path.basename(args.model_path)}.npz'):
         tic = perf_counter()
         print(f"Found cache cache_initFill_{os.path.basename(args.model_path)}.npz'. Loading cached data...")
         npzfile = np.load(f'cache_initFill_{os.path.basename(args.model_path)}.npz')
@@ -1956,7 +1953,7 @@ def init_direct_fill_A(ist):
     ist.shared_v_order_in_cur = shared_v_order_in_cur
     ist.shared_v_order_in_adj = shared_v_order_in_adj
 
-    if use_cache:
+    if args.use_cache:
         np.savez(f'cache_initFill_{os.path.basename(args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
         print(f"cache_initFill_{os.path.basename(args.model_path)}.npz saved")
 
@@ -2080,7 +2077,7 @@ def main():
     ist = SoftBody(args.model_path)
     ist.initialize()
 
-    if export_mesh:
+    if args.export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
     if args.solver_type == "AMG":
@@ -2103,7 +2100,7 @@ def main():
             else:
                 substep_all_solver(ist)
 
-            if export_mesh:
+            if args.export_mesh:
                 write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
             
             info(f"step time: {perf_counter() - t:.2f} s")

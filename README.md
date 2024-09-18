@@ -42,3 +42,13 @@ python engine/cloth/cloth3d.py -N=64
 - `-end_frame=1000` 结束帧数
 - `-setup_interval=20` 每隔多少帧更新一次AMG setup phase
 - `-max_iter=1000` 每帧最大迭代次数
+
+
+## 模型分辨率
+建议在初次运行时采用较小的分辨率尝试。
+- 布料：-N=64为较小规模，N=1024为较大规模。
+- 软体：-model_path=xxx 指定模型文件路径。
+    - 最小 8 vertices "data/model/cube/minicube.node"
+    - 其次 1353 vertices "data/model/bunny1k2k/coarse.node"
+    - 较大 27w vertices "data/model/bunnyBig/bunnyBig.node"
+    - 最大 85w vertices"data/model/bunny85w/bunny85w.node"

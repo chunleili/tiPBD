@@ -32,7 +32,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
 # "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node" "data/model/bunny85w/bunny85w.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=100)
@@ -863,7 +863,7 @@ def csr_is_equal(A, B, ist):
     return True
 
 
-def calc_dual0(ist):
+def calc_dual(ist):
     calc_dual_residual(ist.dual_residual, ist.lagrangian, ist.constraint, ist.dual_residual)
     return ist.dual_residual.to_numpy()
 
@@ -1043,12 +1043,13 @@ def substep_all_solver(ist):
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
     r = [] # residual list of one frame
-    fulldual0 = calc_dual0(ist)
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     for meta.ite in range(args.maxiter):
         tic_assemble = perf_counter()
         tic_iter = perf_counter()
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
+        if meta.ite==0:
+            fulldual0 = calc_dual(ist)
         AMG_A()
         b = AMG_b(ist)
         logging.info(f"    Assemble time: {(perf_counter()-tic_assemble)*1000:.0f}ms")

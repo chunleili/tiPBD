@@ -1928,6 +1928,11 @@ def csr_index_to_coo_index(indptr, indices):
 #     ...
 
 
+def initFill_tocuda(ist):
+    use_fastFill_cuda = True
+    if use_fastFill_cuda:
+        extlib.init_from_python_cache_v2(ist.adjacent, ist.num_adjacent, ist.data, ist.indices, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.nnz_each_row, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
+
 
 def init_direct_fill_A(ist):
     if args.use_cache and os.path.exists(f'cache_initFill_{os.path.basename(args.model_path)}.npz'):
@@ -1960,6 +1965,9 @@ def init_direct_fill_A(ist):
         ist.shared_v = shared_v
         ist.shared_v_order_in_cur = shared_v_order_in_cur
         ist.shared_v_order_in_adj = shared_v_order_in_adj
+        print(f"MAX_ADJ: {adjacent.shape[1]}")
+        # TODO
+        # initFill_tocuda(ist)
         print(f"Loading cache time: {perf_counter()-tic:.3f}s")
         return
 
@@ -2002,6 +2010,9 @@ def init_direct_fill_A(ist):
     ist.shared_v = shared_v
     ist.shared_v_order_in_cur = shared_v_order_in_cur
     ist.shared_v_order_in_adj = shared_v_order_in_adj
+
+    # TODO
+    # initFill_tocuda(ist)
 
     if args.use_cache:
         np.savez(f'cache_initFill_{os.path.basename(args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)

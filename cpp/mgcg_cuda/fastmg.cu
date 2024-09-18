@@ -424,6 +424,21 @@ struct CSR {
         numnonz = nnz;
     }
 
+    void assign_v2(T const *datap,  int const *indicesp,  int const *indptrp, size_t rows, size_t cols, size_t nnz) {
+        int ndat = nnz;
+        int nind = nnz;
+        int nptr = rows + 1;
+        indices.resize(nind);
+        indptr.resize(nptr);
+        data.resize(ndat);
+        CHECK_CUDA(cudaMemcpy(data.data(), datap, data.size() * sizeof(T), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(indices.data(), indicesp, indices.size() * sizeof(int), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(indptr.data(), indptrp, indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
+        nrows = rows;
+        ncols = cols;
+        numnonz = nnz;
+    }
+
     void resize(size_t rows, size_t cols, size_t nnz) {
         nrows = rows;
         ncols = cols;
@@ -947,7 +962,99 @@ struct FastFillCloth : Kernels {
         cudaDeviceSynchronize();
         launch_check();
     }
-}; //FastFill struct
+}; //FastFillCloth struct
+
+
+struct FastFillSoft : Kernels {
+    CSR<float> A;
+    float alpha;
+    int NT;
+    int NV;
+    int num_nonz;
+    int nrows, ncols;
+    Vec<float> d_inv_mass;
+    Vec<int> d_ii, d_jj;
+    Vec<float> d_pos;
+    Vec<int> d_adjacent;
+    Vec<int> d_num_adjacent;
+    Vec<int> d_shared_v;
+    Vec<int> d_shared_v_order_in_cur;
+    Vec<int> d_shared_v_order_in_adj;
+    Vec<int> d_nnz_each_row;
+    Vec<int> d_n_shared_v;
+    Vec<int> d_tet;
+
+
+    void fetch_A(float *data_in, int *indices_in, int *indptr_in) {
+        CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
+    }
+
+    void set_data_v2(int* tet_in, int NT_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+    {
+        NT = NT_in;
+        NV = NV_in;
+        nrows = NT;
+        ncols = NT;
+        alpha = alpha_in;
+        d_inv_mass.assign(inv_mass_in, NV);
+        d_pos.assign(pos_in, NV*3);
+        d_tet.assign(tet_in, NT*4);
+    }
+
+    void update_pos_v2(float* pos_in)
+    {
+        d_pos.assign(pos_in, NV*3);
+        CHECK_CUDA(cudaMemcpy(pos_in, d_pos.data(), sizeof(float) * NV*3, cudaMemcpyDeviceToHost));
+    }
+
+
+    void init_from_python_cache_v2(
+        const int* adjacent_in,
+        const int* num_adjacent_in,
+        const float* data_in,
+        const int* indices_in,
+        const int* indptr_in,
+        const int* ii_in,
+        const int* jj_in,
+        const int num_nonz_in,
+        const int* nnz_each_row_in,
+        const int* n_shared_v_in,
+        const int* shared_v_in,
+        const int* shared_v_order_in_cur,
+        const int* shared_v_order_in_adj
+        )
+    {
+        const int MAX_ADJ = 280;
+        num_nonz = num_nonz_in;
+        A.assign_v2(data_in, indices_in, indptr_in, NT, NT, num_nonz);
+        d_ii.assign(ii_in, num_nonz_in);
+        d_jj.assign(jj_in, num_nonz_in);
+        d_nnz_each_row.assign(nnz_each_row_in, NT);
+
+        d_num_adjacent.assign(num_adjacent_in, NT);
+        d_adjacent.assign(adjacent_in, NT*MAX_ADJ*3);
+        d_n_shared_v.assign(n_shared_v_in, NT*MAX_ADJ);
+        d_shared_v.assign(shared_v_in, NT*MAX_ADJ*3);
+        d_shared_v_order_in_cur.assign(shared_v_order_in_cur, NT*MAX_ADJ*3);
+        d_shared_v_order_in_adj.assign(shared_v_order_in_adj, NT*MAX_ADJ*3);
+    }
+
+
+    void run(float* pos_in)
+    {
+        update_pos_v2(pos_in);
+        fill_A_CSR_gpu();
+    }
+
+
+    void fill_A_CSR_gpu()
+    {
+        // TODO
+        // fill_A_CSR_soft_kernel<<<num_nonz / 256 + 1, 256>>>();
+        cudaDeviceSynchronize();
+        launch_check();
+    }
+}; //FastFillSoft struct
 
 
 struct VCycle : Kernels {

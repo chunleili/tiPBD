@@ -34,7 +34,7 @@ paused = False
 save_P, load_P = False, False
 use_viewer = False
 export_mesh = True
-use_PXPBD_v1 = True
+use_PXPBD_v1 = False
 use_geometric_stiffness = False
 export_fullr = False
 calc_r_xpbd = True
@@ -1499,7 +1499,10 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
 
     if args.export_log:
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
-        logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} primal:{primary_r:.2e} Newton:{Newton_r:.2e} iter:{len(r_Axb)}")
+        if use_PXPBD_v1:
+            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} primal:{primary_r:.2e} Newton:{Newton_r:.2e} iter:{len(r_Axb)}")
+        else:
+            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e}  iter:{len(r_Axb)}")
     r.append(ResidualData(dual_r, len(r_Axb), t_iter))
 
     t_export += perf_counter()-tic
@@ -1679,7 +1682,8 @@ def substep_all_solver():
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
             if use_PXPBD_v1:
                 AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
-            # AMG_dlam2dpos(x)
+            else:
+                AMG_dlam2dpos(x)
             AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:

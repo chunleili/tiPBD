@@ -15,8 +15,8 @@ get_col0 = lambda data: get_col(data, 0)
 get_col1 = lambda data: get_col(data, 1)
 
 frame=21
-draw_time = True
-draw_dual = False
+draw_time = False
+draw_dual = True
 
 # %% draw dual
 def draw():

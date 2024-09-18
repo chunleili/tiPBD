@@ -793,7 +793,7 @@ float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
   CHECK_CUDA( cudaMalloc(&dBuffer, bufferSize) )
 
   float max_eigenvalue(0.0f), max_eigenvalue_prev(0.0f);
-  float tol = 1e-3;  // tolerance for convergence
+  float tol = 1e-4;  // tolerance for convergence
   int itr = 0;
   float err = 0.0f;
   // Power iteration method
@@ -818,7 +818,7 @@ float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
 
 
     err = std::abs(max_eigenvalue - max_eigenvalue_prev);
-    if (err < tol) {
+    if (err < tol && itr >= 10) {
       std::cout << ("[NOTE]: ") << "Converged at iterations: " << itr << std::endl;
       return max_eigenvalue;
     }
@@ -974,6 +974,7 @@ struct VCycle : Kernels {
 
     void setup_smoothers_cuda(int type) {
         cout<<"\nSetting up smoothers..."<<endl;
+        smoother_type = type;
         if(smoother_type == 1)
         {
             setup_chebyshev_cuda(levels[0].A);
@@ -981,7 +982,7 @@ struct VCycle : Kernels {
         else if (smoother_type == 2)
         {
             //TODO:setup jacobi
-            // setup_jacobi_v2(levels[0].A, 100);
+            setup_jacobi_v2(levels[0].A, 100);
         }
     }
 
@@ -1125,24 +1126,37 @@ struct VCycle : Kernels {
 
     void setup_jacobi_v2(CSR<float>&A, size_t const n) {
         // smoother_type = 2;
+        GpuTimer timer;
+        timer.start();
         jacobi_niter = n;
 
         // calc Dinv@A
         Vec<float> Dinv;
         Vec<float> data_new;
-        Vec<float> diag;
+        Vec<float> diag_inv;
         Dinv.resize(A.nrows);
         data_new.resize(A.data.size());
-        diag.resize(A.nrows);
-        calc_DinvA_kernel<<<(A.nrows + 255) / 256, 256>>>(data_new.data(), A.data.data(), A.indices.data(), A.indptr.data(), A.nrows, diag.data());
+        diag_inv.resize(A.nrows);
+        calc_diag_inv_kernel<<<(A.nrows + 255) / 256, 256>>>(diag_inv.data(),A.data.data(), A.indices.data(), A.indptr.data(), A.nrows);
+        cudaDeviceSynchronize();
+
+        scale_csr_by_row<<<(A.nrows + 255) / 256, 256>>>(data_new.data(), A.data.data(), A.indices.data(), A.indptr.data(), A.nrows, diag_inv.data());
+        cudaDeviceSynchronize();
+        // launch_check();
+
+        // debug_cuda_vec(diag_inv, "diag_inv");
 
         CSR<float> DinvA;
         DinvA.assign(data_new.data(), A.numnonz, A.indices.data(), A.numnonz, A.indptr.data(), A.nrows+1, A.nrows, A.ncols, A.numnonz);
+
+        // debug_cuda_vec(DinvA.data, "DinvA.data");
 
         float DinvA_rho = calc_max_eig(DinvA);
         jacobi_omega = 1.0 / (DinvA_rho);
         cout<<"DinvA_rho: "<<DinvA_rho<<endl;
         cout<<"jacobi_omega: "<<jacobi_omega<<endl; 
+        timer.stop();
+        cout<<"setup_jacobi_v2 time: "<<timer.elapsed()<<" ms"<<endl;
     }
 
     void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
@@ -1211,7 +1225,8 @@ struct VCycle : Kernels {
         }
         else if (smoother_type == 2)
         {
-            jacobi_cpu(lv, x, b);
+            // jacobi_cpu(lv, x, b);
+            jacobi(lv, x, b);
         }
         else if (smoother_type == 3)
         {

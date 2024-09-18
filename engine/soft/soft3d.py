@@ -32,7 +32,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
 # "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node" "data/model/bunny85w/bunny85w.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=100)
@@ -75,7 +75,7 @@ ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one 
 def init_extlib_argtypes():
     global extlib
 
-    # DEBUG only
+    # # DEBUG only
     os.chdir(prj_path+'/cpp/mgcg_cuda')
     os.system("cmake --build build --config Debug")
     os.chdir(prj_path)
@@ -923,9 +923,9 @@ def AMG_setup_phase():
 
     tic = time.perf_counter()
     cuda_set_A0(A)
-    # extlib.fastmg_setup_smoothers(2) # 1 means chebyshev, 2 means w-jacobi
-    omega = setup_jacobi_python(A)
-    extlib.fastmg_setup_jacobi(omega, 100)
+    extlib.fastmg_setup_smoothers(2) # 1 means chebyshev, 2 means w-jacobi
+    # omega = setup_jacobi_python(A) # cuda version is 10x faster: 213ms vs 2.84s
+    # extlib.fastmg_setup_jacobi(omega, 100)
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
     report_multilevel_details(Ps, num_levels)
@@ -1256,10 +1256,13 @@ def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
 def setup_jacobi_python(A):
     from pyamg.relaxation.smoothing import rho_D_inv_A
     global jacobi_omega
+    tic = perf_counter()
     rho = rho_D_inv_A(A)
     print("rho:", rho)
     jacobi_omega = 1.0/(rho)
     print("omega:", jacobi_omega)
+    toc = perf_counter()
+    print("Calculating jacobi omega Time:", toc-tic)
     return jacobi_omega
 
 

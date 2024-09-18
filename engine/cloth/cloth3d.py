@@ -1470,7 +1470,7 @@ def report_multilevel_details(Ps, num_levels):
 
 
 def should_setup():
-    return ((frame%args.setup_interval==0 or frame==args.restart_frame) and (ite==0))
+    return ((frame%args.setup_interval==0 or (args.restart==True and frame==args.restart_frame)) and (ite==0))
 
 
 
@@ -1662,14 +1662,14 @@ def substep_all_solver():
     for ite in range(args.maxiter):
         tic_assemble = perf_counter()
         tic_iter = perf_counter()
-        if use_PXPBD_v1:
-            copy_field(pos_mid, pos)
+        # if use_PXPBD_v1:
+        #     copy_field(pos_mid, pos)
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len) # required by dlam2dpos
         AMG_A()
         b = AMG_b()
-        if use_PXPBD_v1:
-            G = fill_G()
-            b, Minv_gg = AMG_PXPBD_v1_b(G)
+        # if use_PXPBD_v1:
+        #     G = fill_G()
+        #     b, Minv_gg = AMG_PXPBD_v1_b(G)
         logging.info(f"    Assemble time: {(perf_counter()-tic_assemble)*1000:.0f}ms")
         if not args.use_cuda:
             x, r_Axb = AMG_python(b)
@@ -1678,10 +1678,10 @@ def substep_all_solver():
                 AMG_setup_phase()
             AMG_presolve()
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
-            if use_PXPBD_v1:
-                AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
-            else:
-                AMG_dlam2dpos(x)
+            # if use_PXPBD_v1:
+            #     AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
+            # else:
+            AMG_dlam2dpos(x)
             AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
@@ -2052,6 +2052,19 @@ def init():
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_all:.3f}s") 
 
 
+def export_after_substep(tic_frame):
+    tic_export = time.perf_counter()
+    if export_mesh:
+        write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
+    if args.export_state:
+        save_state(out_dir+'/state/' + f"{frame:04d}.npz")
+    t_export += time.perf_counter()-tic_export
+    t_export_total += t_export
+    t_frame = time.perf_counter()-tic_frame
+    if args.export_log:
+        logging.info(f"Time of exporting: {t_export:.3f}s")
+        logging.info(f"Time of frame-{frame}: {t_frame:.3f}s")
+
 class Viewer:
     if use_viewer:
         window = ti.ui.Window("Display Mesh", (1024, 1024))
@@ -2065,8 +2078,31 @@ class Viewer:
         camera.lookat(0.5, 0.5, 0.0)
         camera.fov(90)
         gui = window.get_gui()
+    
+    def do_render_taichi(viewer):
+        if use_viewer:
+            viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
+            viewer.scene.set_camera(viewer.camera)
+            viewer.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
+            viewer.scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
+            viewer.canvas.scene(viewer.scene)
+            # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
+            viewer.window.show()
+            if save_image:
+                file_path = out_dir + f"{frame:04d}.png"
+                viewer.window.save_image(file_path)  # export and show in GUI
+        
+    def do_render_control(viewer):
+        if use_viewer:
+            for e in viewer.window.get_events(ti.ui.PRESS):
+                if e.key in [ti.ui.ESCAPE]:
+                    exit()
+                if e.key == ti.ui.SPACE:
+                    paused = not paused
+                    print("paused:",paused)
 
 viewer = Viewer()
+
 
 def run():
     global frame, paused, ite, t_export
@@ -2079,13 +2115,8 @@ def run():
             tic_frame = time.perf_counter()
             t_export = 0.0
 
-            if use_viewer:
-                for e in viewer.window.get_events(ti.ui.PRESS):
-                    if e.key in [ti.ui.ESCAPE]:
-                        exit()
-                    if e.key == ti.ui.SPACE:
-                        paused = not paused
-                        print("paused:",paused)
+            viewer.do_render_control(viewer)
+
             if not paused:
                 if args.solver_type == "XPBD":
                     substep_xpbd()
@@ -2093,32 +2124,16 @@ def run():
                     substep_all_solver()
                 frame += 1
                 
-                tic_export = time.perf_counter()
-                if export_mesh:
-                    write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
-                if args.export_state:
-                    save_state(out_dir+'/state/' + f"{frame:04d}.npz")
-                t_export += time.perf_counter()-tic_export
-                t_export_total += t_export
-                t_frame = time.perf_counter()-tic_frame
-                if args.export_log:
-                    logging.info(f"Time of exporting: {t_export:.3f}s")
-                    logging.info(f"Time of frame-{frame}: {t_frame:.3f}s")
+                export_after_substep(tic_frame)
+
             if frame == args.end_frame:
                 print("Normallly end.")
                 ending(timer_loop, start_wall_time, initial_frame, t_export_total)
                 exit()
+
             if use_viewer:
-                viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
-                viewer.scene.set_camera(viewer.camera)
-                viewer.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
-                viewer.scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
-                viewer.canvas.scene(viewer.scene)
-                # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
-                viewer.window.show()
-                if save_image:
-                    file_path = out_dir + f"{frame:04d}.png"
-                    viewer.window.save_image(file_path)  # export and show in GUI
+                viewer.do_render_taichi(viewer)
+
             logging.info("\n")
             step_pbar.update(1)
             logging.info("")

@@ -21,10 +21,10 @@ import ctypes
 import numpy.ctypeslib as ctl
 import datetime
 
-proj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-max_iter", type=int, default=1000)
+parser.add_argument("-maxiter", type=int, default=1000)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
 parser.add_argument("-dt", type=float, default=3e-3)
@@ -32,7 +32,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
 # "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node" "data/model/bunny85w/bunny85w.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=100)
@@ -45,6 +45,13 @@ parser.add_argument("-smoother_type", type=str, default="jacobi")
 parser.add_argument("-build_P_method", type=str, default="UA")
 parser.add_argument("-max_iter_Axb", type=int, default=100)
 parser.add_argument("-arch", type=str, default="cpu")
+parser.add_argument("-setup_interval", type=int, default=20)
+parser.add_argument("-maxiter_Axb", type=int, default=100)
+parser.add_argument("-export_log", type=int, default=True)
+parser.add_argument("-export_residual", type=int, default=False)
+parser.add_argument("-restart_frame", type=int, default=-1)
+parser.add_argument("-restart", type=int, default=True)
+
 
 args = parser.parse_args()
 
@@ -52,26 +59,76 @@ out_dir = args.out_dir
 Path(out_dir).mkdir(parents=True, exist_ok=True)
 export_matrix = bool(args.export_matrix)
 export_mesh = True
-export_residual = True
-early_stop = True
-export_log = True
 use_cache= False
 cuda_dir = args.cuda_dir
-max_iter_Axb = args.max_iter_Axb
 smoother_type = args.smoother_type
 build_P_method = args.build_P_method
 use_cuda = args.use_cuda
 
-t_export_matrix = 0.0
-t_calc_residual = 0.0
-t_export_residual = 0.0
-t_export_mesh = 0.0
-t_save_state = 0.0
+t_export = 0.0
 
 if args.arch == "cuda":
     ti.init(arch=ti.cuda)
 else:
     ti.init(arch=ti.cpu)
+
+
+n_outer_all = []
+ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
+
+def init_extlib_argtypes():
+    global extlib
+
+    # DEBUG only
+    # os.chdir(prj_path+'/cpp/mgcg_cuda')
+    # os.system("cmake --build build --config Debug")
+    # os.chdir(prj_path)
+
+    os.add_dll_directory(args.cuda_dir)
+    extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
+
+    arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
+    arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+    arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
+    arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
+    c_size_t = ctypes.c_size_t
+    c_float = ctypes.c_float
+    c_int = ctypes.c_int
+    argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
+                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
+                    ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                    ]
+
+    extlib.fastmg_set_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
+    extlib.fastmg_get_data.argtypes = [arr_float]*2
+    extlib.fastmg_get_data.restype = c_size_t
+    extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
+    extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
+    extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
+    extlib.fastmg_set_A0.argtypes = argtypes_of_csr
+    extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
+    extlib.fastmg_setup_smoothers.argtypes = [c_int]
+    extlib.fastmg_update_A0.argtypes = [arr_float]
+
+    extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
+    extlib.fastFill_run.argtypes = [arr2d_float]
+    extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
+    extlib.fastFill_init_from_python_cache.argtypes = [arr2d_int, arr_int, arr2d_int, c_int, arr_float, arr_int, arr_int, arr_int, arr_int, c_int, c_int]
+
+
+    extlib.initFillCloth_set.argtypes = [arr2d_int, c_int]
+    extlib.initFillCloth_get.argtypes = [arr2d_int, arr_int, arr2d_int, c_int] + [arr_int]*4 + [arr2d_int, arr_int]
+    extlib.fastmg_get_data.restype = c_int
+
+    extlib.initFillCloth_new()
+
+    extlib.fastmg_new()
+
+    extlib.fastFill_new()
+
+if args.use_cuda:
+    init_extlib_argtypes()
 
 
 class Meta:
@@ -334,6 +391,8 @@ class SoftBody:
             # init by enlarge 1.5x
             self.pos.from_numpy(self.model_pos * 1.5)
 
+        self.alpha_tilde_np = ist.alpha_tilde.to_numpy()
+
 
     def solve_constraints(self):
         solve_constraints_kernel(
@@ -511,7 +570,7 @@ def semi_euler(
 
 
 @ti.kernel
-def update_velocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
+def update_vel(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
     for i in pos:
         vel[i] = (pos[i] - old_pos[i]) / h
 
@@ -808,123 +867,296 @@ def csr_is_equal(A, B, ist):
     return True
 
 
+def calc_dual0(ist):
+    calc_dual_residual(ist.dual_residual, ist.lagrangian, ist.constraint, ist.dual_residual)
+    return ist.dual_residual.to_numpy()
 
-Residual = namedtuple('residual', ['sys', 'dual', 'obj', 'r_Axb','niters','t'])
 
-def substep_all_solver(ist, max_iter=1, solver_type="GaussSeidel", P=None, R=None):
-    # ist is instance of fine or coarse
+def AMG_A():
+    tic2 = perf_counter()
+    # fastFill_run()
+    A = fill_A_csr_ti(ist)
+    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
+    return A
+
+
+def AMG_b(ist):
+    # update_constraints_kernel(pos, edge, rest_len, constraints)
+    b = -ist.constraint.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
+    return b
+
+
+def should_setup():
+    return ((meta.frame%args.setup_interval==0 or (args.restart==True and meta.frame==args.restart_frame)) and (meta.ite==0))
+
+def update_P(Ps):
+    for lv in range(len(Ps)):
+        P_ = Ps[lv].tocsr()
+        extlib.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
+
+
+def cuda_set_A0(A0):
+    extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
+
+
+def report_multilevel_details(Ps, num_levels):
+    logging.info(f"    num_levels:{num_levels}")
+    num_points_level = []
+    for i in range(len(Ps)):
+        num_points_level.append(Ps[i].shape[0])
+    num_points_level.append(Ps[-1].shape[1])
+    for i in range(num_levels):
+        logging.info(f"    num points of level {i}: {num_points_level[i]}")
+
+
+def AMG_setup_phase():
+    global Ps, num_levels
+    tic = time.perf_counter()
+    A = fill_A_csr_ti(ist) #taichi version
+    # A = fastFill_fetch()
+    Ps = build_Ps(A)
+    num_levels = len(Ps)+1
+    logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+
+    extlib.fastmg_setup_nl(num_levels)
+
+    tic = time.perf_counter()
+    update_P(Ps)
+    logging.info(f"    update_P time: {time.perf_counter()-tic:.2f}s")
+
+    tic = time.perf_counter()
+    cuda_set_A0(A)
+    extlib.fastmg_setup_smoothers(1) # 1 means chebyshev
+    logging.info(f"    setup smoothers time:{perf_counter()-tic}")
+
+    report_multilevel_details(Ps, num_levels)
+
+
+def AMG_presolve():
+    tic3 = time.perf_counter()
+    # TODO: set A0 from fastfill
+    A = fill_A_csr_ti(ist)
+    cuda_set_A0(A)
+    for lv in range(num_levels-1):
+        extlib.fastmg_RAP(lv) 
+    logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
+
+
+def AMG_dlam2dpos(x):
+    tic = time.perf_counter()
+    transfer_back_to_pos_mfree(x, ist)
+    logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
+
+
+def AMG_solve(b, x0=None, tol=1e-5, maxiter=100):
+    if x0 is None:
+        x0 = np.zeros(b.shape[0], dtype=np.float32)
+
+    tic4 = time.perf_counter()
+    # set data
+    x0 = x0.astype(np.float32)
+    b = b.astype(np.float32)
+    extlib.fastmg_set_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
+
+    # solve
+    extlib.fastmg_solve()
+
+    # get result
+    x = np.empty_like(x0, dtype=np.float32)
+    residuals = np.zeros(shape=(maxiter,), dtype=np.float32)
+    niter = extlib.fastmg_get_data(x, residuals)
+    niter += 1
+    residuals = residuals[:niter]
+    logging.info(f"    inner iter: {niter}")
+    logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
+    return (x),  residuals  
+
+
+def do_export_r(r):
+    global t_export
+    tic = time.perf_counter()
+    serialized_r = [r[i]._asdict() for i in range(len(r))]
+    r_json = json.dumps(serialized_r)
+    with open(out_dir+'/r/'+ f'{meta.frame}.json', 'w') as file:
+        file.write(r_json)
+    t_export += time.perf_counter()-tic
+
+
+def calc_conv(r):
+    return (r[-1]/r[0])**(1.0/(len(r)-1))
+
+
+def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
+    global t_export
+    tic = time.perf_counter()
+
+    t_iter = perf_counter()-tic_iter
+    tic_calcr = perf_counter()
+    calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
+    dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
+    r_Axb = r_Axb.tolist()
+    dual0 = np.linalg.norm(fulldual0)
+
+    logging.info(f"    convergence factor: {calc_conv(r_Axb):.2f}")
+    logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
+
+    if args.export_log:
+        logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
+        logging.info(f"{meta.frame}-{meta.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
+    r.append(ResidualData(dual_r, len(r_Axb), t_iter))
+
+    t_export += perf_counter()-tic
+
+
+def substep_all_solver(ist):
+    global t_export, n_outer_all
+    tic1 = time.perf_counter()
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
-
-    # fill M_inv and ALPHA
-    inv_mass_np = ist.inv_mass.to_numpy()
-    inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-    M_inv = scipy.sparse.diags(inv_mass_np)
-
-    alpha_tilde_np = ist.alpha_tilde.to_numpy()
-    ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-    r=[]
-    for meta.ite in range(max_iter):
-        global t_calc_residual, t_export_residual, t_save_state
-        t_iter_start = perf_counter()
-        # ----------------------------- prepare matrices ----------------------------- #
-        ist.pos_mid.from_numpy(ist.pos.to_numpy())
-
+    r = [] # residual list of one frame
+    fulldual0 = calc_dual0(ist)
+    logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
+    for meta.ite in range(args.maxiter):
+        tic_assemble = perf_counter()
+        tic_iter = perf_counter()
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-        # TODO:
-        tic1 = time.perf_counter()
-        # A = fill_A_by_spmm(ist, M_inv, ALPHA)
-        A = fill_A_csr(ist)
-        A = A.copy()    #∠(°ゝ°）  FIXME: I really don't know why, but without this line, the result is wrong!!!
-        print(f"    assemble matrix time:{time.perf_counter()-tic1}")
-        # csr_is_equal(A, A2, ist)
-
-        b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
-
-        if export_matrix:
-            export_A_b(A,b,postfix=f"F{meta.frame}-{meta.ite}")
-
-        # -------------------------------- solve Ax=b -------------------------------- #
-        x0 = np.zeros_like(b)
-        rsys0 = np.linalg.norm(b-A @ x0)
-
-        if solver_type == "GaussSeidel":
-            x = np.zeros_like(b)
-            for _ in range(1):
-                amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
-                r_norm = np.linalg.norm(A @ x - b)
-                print(f"{meta.ite} r:{r_norm:.2g}")
-        elif solver_type == "Direct":
-            x = scipy.sparse.linalg.spsolve(A, b)
-        if solver_type == "AMG":
-            global Ps
-            if (((meta.frame%20==0)) and (meta.ite==0)):
-                tic = time.perf_counter()
-                Ps = setup_AMG(A)
-                logging.info(f"    setup AMG time:{perf_counter()-tic}")
-            tic = time.perf_counter()
-            if use_cuda:
-                levels = build_levels_cuda(A, Ps)
-            else:
-                levels = build_levels(A, Ps)
-            logging.info(f"    build_levels time:{time.perf_counter()-tic}")
-            x0 = np.zeros_like(b)
-            tic2 = time.perf_counter()
-            if use_cuda:
-                mgsolve = new_amg_cg_solve
-            else:
-                mgsolve = old_amg_cg_solve
-            x,residuals = mgsolve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
-            toc2 = time.perf_counter()
-            logging.info(f"    mgsolve time {toc2-tic2}")
-            r_Axb = residuals
-
-
-        # dlambda = x
-        # ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-        # dpos = M_inv @ G.transpose() @ dlambda
-        # ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-        transfer_back_to_pos_mfree(x, ist)
-
-        rsys2 = np.linalg.norm(b - A @ x)
-        
-
-        if export_residual:
-            tic_calcr = perf_counter()
-            t_iter = perf_counter()-t_iter_start
-            calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
-            dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
-            compute_potential_energy(ist.potential_energy, ist.alpha_tilde, ist.lagrangian)
-            compute_inertial_energy(ist.inertial_energy, ist.inv_mass, ist.pos, ist.predict_pos, meta.h)
-            robj = (ist.potential_energy[None]+ist.inertial_energy[None])
-            r_Axb = r_Axb.tolist()
-            if export_log:
-                logging.info(f"{meta.frame}-{meta.ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
-            r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb, len(r_Axb), t_iter))
-
-        x_prev = x.copy()
-
+        AMG_A()
+        b = AMG_b(ist)
+        logging.info(f"    Assemble time: {(perf_counter()-tic_assemble)*1000:.0f}ms")
+        if should_setup():
+            AMG_setup_phase()
+        AMG_presolve()
+        x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
+        AMG_dlam2dpos(x)
+        AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
+        logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break
-
-    if export_residual:
-        tic = time.perf_counter()
-        serialized_r = [r[i]._asdict() for i in range(len(r))]
-        r_json = json.dumps(serialized_r,   default=to_serializable)
-        with open(out_dir+'/r/'+ f'{meta.frame}.json', 'w') as file:
-            file.write(r_json)
-        t_export_residual = time.perf_counter()-tic
-
+    
+    tic = time.perf_counter()
+    logging.info(f"n_outer: {len(r)}")
+    n_outer_all.append(len(r))
+    if args.export_residual:
+        do_export_r(r)
     collsion_response(ist.pos)
-    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
+    update_vel(meta.h, ist.pos, ist.old_pos, ist.vel)
+    logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
+
+
+# def substep_all_solver(ist, maxiter=1, solver_type="GaussSeidel", P=None, R=None):
+#     # ist is instance of fine or coarse
+#     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+#     reset_lagrangian(ist.lagrangian)
+
+#     # fill M_inv and ALPHA
+#     inv_mass_np = ist.inv_mass.to_numpy()
+#     inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
+#     M_inv = scipy.sparse.diags(inv_mass_np)
+
+#     alpha_tilde_np = ist.alpha_tilde.to_numpy()
+#     ALPHA = scipy.sparse.diags(alpha_tilde_np)
+
+#     r=[]
+#     for meta.ite in range(maxiter):
+#         global t_calc_residual, t_export_residual, t_save_state
+#         t_iter_start = perf_counter()
+#         # ----------------------------- prepare matrices ----------------------------- #
+#         ist.pos_mid.from_numpy(ist.pos.to_numpy())
+
+#         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
+
+#         # TODO:
+#         tic1 = time.perf_counter()
+#         # A = fill_A_by_spmm(ist, M_inv, ALPHA)
+#         A = fill_A_csr(ist)
+#         A = A.copy()    #∠(°ゝ°）  FIXME: I really don't know why, but without this line, the result is wrong!!!
+#         print(f"    assemble matrix time:{time.perf_counter()-tic1}")
+#         # csr_is_equal(A, A2, ist)
+
+#         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
+
+#         if export_matrix:
+#             export_A_b(A,b,postfix=f"F{meta.frame}-{meta.ite}")
+
+#         # -------------------------------- solve Ax=b -------------------------------- #
+#         x0 = np.zeros_like(b)
+#         rsys0 = np.linalg.norm(b-A @ x0)
+
+#         if solver_type == "GaussSeidel":
+#             x = np.zeros_like(b)
+#             for _ in range(1):
+#                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
+#                 r_norm = np.linalg.norm(A @ x - b)
+#                 print(f"{meta.ite} r:{r_norm:.2g}")
+#         elif solver_type == "Direct":
+#             x = scipy.sparse.linalg.spsolve(A, b)
+#         if solver_type == "AMG":
+#             global Ps
+#             if (((meta.frame%20==0)) and (meta.ite==0)):
+#                 tic = time.perf_counter()
+#                 Ps = setup_AMG(A)
+#                 logging.info(f"    setup AMG time:{perf_counter()-tic}")
+#             tic = time.perf_counter()
+#             if use_cuda:
+#                 levels = build_levels_cuda(A, Ps)
+#             else:
+#                 levels = build_levels(A, Ps)
+#             logging.info(f"    build_levels time:{time.perf_counter()-tic}")
+#             x0 = np.zeros_like(b)
+#             tic2 = time.perf_counter()
+#             if use_cuda:
+#                 mgsolve = new_amg_cg_solve
+#             else:
+#                 mgsolve = old_amg_cg_solve
+#             x,residuals = mgsolve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
+#             toc2 = time.perf_counter()
+#             logging.info(f"    mgsolve time {toc2-tic2}")
+#             r_Axb = residuals
+
+
+#         # dlambda = x
+#         # ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
+#         # dpos = M_inv @ G.transpose() @ dlambda
+#         # ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
+#         transfer_back_to_pos_mfree(x, ist)
+
+#         rsys2 = np.linalg.norm(b - A @ x)
+        
+
+#         if export_residual:
+#             tic_calcr = perf_counter()
+#             t_iter = perf_counter()-t_iter_start
+#             calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
+#             dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
+#             compute_potential_energy(ist.potential_energy, ist.alpha_tilde, ist.lagrangian)
+#             compute_inertial_energy(ist.inertial_energy, ist.inv_mass, ist.pos, ist.predict_pos, meta.h)
+#             robj = (ist.potential_energy[None]+ist.inertial_energy[None])
+#             r_Axb = r_Axb.tolist()
+#             if export_log:
+#                 logging.info(f"{meta.frame}-{meta.ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
+#             r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb, len(r_Axb), t_iter))
+
+#         x_prev = x.copy()
+
+#         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
+#             break
+
+#     if export_residual:
+#         tic = time.perf_counter()
+#         serialized_r = [r[i]._asdict() for i in range(len(r))]
+#         r_json = json.dumps(serialized_r,   default=to_serializable)
+#         with open(out_dir+'/r/'+ f'{meta.frame}.json', 'w') as file:
+#             file.write(r_json)
+#         t_export_residual = time.perf_counter()-tic
+
+#     collsion_response(ist.pos)
+#     update_vel(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 
 def substep_xpbd(ist):
     semi_euler(meta.h, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
-    for meta.ite in range(meta.args.max_iter):
+    for meta.ite in range(args.maxiter):
         tic = time.perf_counter()
         project_constraints(
             ist.pos_mid,
@@ -950,7 +1182,7 @@ def substep_xpbd(ist):
         logging.info(f"{meta.frame}-{meta.ite} r0:{dualr0:.2e} r:{dualr:.2e} t:{toc-tic:.2e}s")
         if dualr< 0.1*dualr0 or dualr < 1e-5:
             break
-    update_velocity(meta.h, ist.pos, ist.old_pos, ist.vel)
+    update_vel(meta.h, ist.pos, ist.old_pos, ist.vel)
 
 # ---------------------------------------------------------------------------- #
 #                                    amgpcg                                    #
@@ -1123,44 +1355,6 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     return (x),  residuals  
 
 
-def new_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
-    tic1 = time.perf_counter()
-    init_g_vcycle(levels)
-    print(f"    init_g_vcycle time: {time.perf_counter()-tic1:.2f}s")
-    assert g_vcycle
-
-    tic2 = time.perf_counter()
-    # set A0
-    g_vcycle.fastmg_set_A0(levels[0].A.data.astype(np.float32), levels[0].A.indices, levels[0].A.indptr, levels[0].A.shape[0], levels[0].A.shape[1], levels[0].A.nnz)
-    print(f"    set A0 time: {time.perf_counter()-tic2:.2f}s")
-    
-    # compute RAP   (R=P.T)
-    tic3 = time.perf_counter()
-    for lv in range(len(levels)-1):
-        g_vcycle.fastmg_RAP(lv)
-    print(f"    compute RAP time: {time.perf_counter()-tic3:.2f}s")
-
-    if x0 is None:
-        x0 = np.zeros(b.shape[0], dtype=np.float32)
-
-    tic4 = time.perf_counter()
-    # set data
-    x0 = x0.astype(np.float32)
-    b = b.astype(np.float32)
-    g_vcycle.fastmg_set_mgcg_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
-    
-    # solve
-    g_vcycle.fastmg_mgcg_solve()
-
-    # get result
-    x = np.empty_like(x0, dtype=np.float32)
-    residuals = np.empty(shape=(maxiter+1,), dtype=np.float32)
-    niter = g_vcycle.fastmg_get_mgcg_data(x, residuals)
-    residuals = residuals[:niter+1]
-    print(f"    niter", niter) #FIXME: always 1
-    print(f"    pure solve time: {time.perf_counter()-tic4:.2f}s")
-    return (x),  residuals  
-
 
 def diag_sweep(A,x,b,iterations=1):
     diag = A.diagonal()
@@ -1217,7 +1411,7 @@ def init_g_vcycle(levels):
 
     if g_vcycle is None:
         os.add_dll_directory(cuda_dir)
-        extlib = ctl.load_library("fastmg.dll", proj_dir+'/cpp/mgcg_cuda/lib')
+        extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
         g_vcycle = extlib
 
         arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
@@ -1535,13 +1729,42 @@ def create_another_outdir(out_dir):
     print(f"\ncreate another outdir: {out_dir}\n")
     return out_dir
 
-def ending(timer_all, start_date, initial_frame=0):
-    t_all = time.perf_counter() - timer_all
+
+def ending(timer_loop, start_date, initial_frame, t_export_total):
+    global n_outer_all
+    t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now()
-    meta.args.end_frame = meta.frame
-    s = f"Time all: {(time.perf_counter() - timer_all):.2f}s = {(time.perf_counter() - timer_all)/60:.2f}min. \nFrom frame {initial_frame} to {meta.args.end_frame}, total {meta.args.end_frame-initial_frame} frames. Avg time per frame: {t_all/(meta.args.end_frame-initial_frame):.2f}s. Start at {start_date},\n end at {end_date}."
-    if export_log:
-        logging.info(s)
+    args.end_frame = meta.frame
+
+    sum_n_outer = sum(n_outer_all)
+    avg_n_outer = sum_n_outer / len(n_outer_all)
+    max_n_outer = max(n_outer_all)
+    max_n_outer_index = n_outer_all.index(max_n_outer)
+
+    n_outer_all_np = np.array(n_outer_all, np.int32)    
+    np.savetxt(out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
+
+    sim_cost_time = time.perf_counter() - timer_loop
+
+    s = f"\n-------\n"+\
+    f"Time: {(sim_cost_time):.2f}s = {(sim_cost_time)/60:.2f}min.\n" + \
+    f"Frame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames)."+\
+    f"\nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame."+\
+    f"\nStart\t{start_date},\nEnd\t{end_date}."+\
+    f"\nTime of exporting: {t_export_total:.3f}s" + \
+    f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
+    f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
+    f"\nmodel_path{args.model_path}" + \
+    f"\ndt={ist.delta_t}" + \
+    f"\nSolver: {args.solver_type}" + \
+    f"\nout_dir: {out_dir}" 
+
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    file_name = f"result/meta/{current_time}.txt"
+    with open(file_name, "w", encoding="utf-8") as file:
+        file.write(s)
+
+    logging.info(s)
 
 
 # ---------------------------------------------------------------------------- #
@@ -1571,6 +1794,7 @@ def init_adj_ele(eles):
         adjacent_eles = vertex_to_eles[v1] | vertex_to_eles[v2] | vertex_to_eles[v3] | vertex_to_eles[v4]
         adjacent_eles.remove(ele_index)  # 移除本身
         all_adjacent_eles[ele_index] = list(adjacent_eles)
+    return all_adjacent_eles
 
 
 def init_adj_ele_ti(eles):
@@ -1659,10 +1883,10 @@ def csr_index_to_coo_index(indptr, indices):
 
 
 def init_direct_fill_A(ist):
-    if use_cache and os.path.exists(f'cache_initFill_{os.path.basename(meta.args.model_path)}.npz'):
+    if use_cache and os.path.exists(f'cache_initFill_{os.path.basename(args.model_path)}.npz'):
         tic = perf_counter()
-        print(f"Found cache cache_initFill_{os.path.basename(meta.args.model_path)}.npz'. Loading cached data...")
-        npzfile = np.load(f'cache_initFill_{os.path.basename(meta.args.model_path)}.npz')
+        print(f"Found cache cache_initFill_{os.path.basename(args.model_path)}.npz'. Loading cached data...")
+        npzfile = np.load(f'cache_initFill_{os.path.basename(args.model_path)}.npz')
         adjacent = npzfile['adjacent']
         num_adjacent = npzfile['num_adjacent']
         data = npzfile['data']
@@ -1733,31 +1957,11 @@ def init_direct_fill_A(ist):
     ist.shared_v_order_in_adj = shared_v_order_in_adj
 
     if use_cache:
-        np.savez(f'cache_initFill_{os.path.basename(meta.args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
-        print(f"cache_initFill_{os.path.basename(meta.args.model_path)}.npz saved")
+        np.savez(f'cache_initFill_{os.path.basename(args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
+        print(f"cache_initFill_{os.path.basename(args.model_path)}.npz saved")
 
 
-def fill_A_csr(ist):
-    # for n in range(ist.nnz):
-    #     i = ist.ii[n] # row index,  current element id
-    #     j = ist.jj[n] # col index,  adjacent element id, adj_id
-    #     k = n - ist.indptr[i] # k: 第几个非零元
-    #     if i == j: # diag
-    #         i1,i2,i3,i4 = ist.ele[i]
-    #         m1,m2,m3,m4 = ist.inv_mass[i1], ist.inv_mass[i2], ist.inv_mass[i3], ist.inv_mass[i4]
-    #         alpha = ist.alpha_tilde[i]
-    #         d = m1+m2+m3+m4 + alpha
-    #         ist.data[n] = m1+m2+m3+m4 + ist.alpha_tilde[i]
-    #         continue
-    #     offdiag=0.0
-    #     for kv in range(ist.n_shared_v[i, k]): #kv 第几个共享点
-    #         o1 = ist.shared_v_order_in_cur[i,k,kv]
-    #         o2 = ist.shared_v_order_in_adj[i,k,kv]
-    #         sv = ist.shared_v[i,k,kv]  #sv: 共享的顶点id    shared vertex
-    #         sm = ist.inv_mass[sv]      #sm: 共享的顶点的质量倒数 shared inv mass
-    #         offdiag += sm*ist.gradC[i,o1].dot(ist.gradC[j,o2])
-    #     ist.data[n] = offdiag
-
+def fill_A_csr_ti(ist):
     fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.adjacent, ist.num_adjacent, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
     A = scipy.sparse.csr_matrix((ist.data, ist.indices, ist.indptr), shape=(ist.NT, ist.NT))
     return A
@@ -1870,19 +2074,21 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-    start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    logging.info(start_date)
+    start_wall_time = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    logging.info(start_wall_time)
 
-    ist = SoftBody(meta.args.model_path)
+    ist = SoftBody(args.model_path)
     ist.initialize()
 
     if export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
-    if meta.args.solver_type == "AMG":
+    if args.solver_type == "AMG":
         init_direct_fill_A(ist)
 
     print(f"initialize time:", perf_counter()-tic)
+    initial_frame = meta.frame
+    t_export_total = 0.0
 
     timer_all = perf_counter()
     try:
@@ -1890,11 +2096,12 @@ def main():
             info("\n\n----------------------")
             info(f"frame {meta.frame}")
             t = perf_counter()
+            t_export = 0.0
 
-            if meta.args.solver_type == "XPBD":
+            if args.solver_type == "XPBD":
                 substep_xpbd(ist)
             else:
-                substep_all_solver(ist, meta.args.max_iter, meta.args.solver_type)
+                substep_all_solver(ist)
 
             if export_mesh:
                 write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
@@ -1902,11 +2109,12 @@ def main():
             info(f"step time: {perf_counter() - t:.2f} s")
             meta.frame += 1
                 
-            if meta.frame == meta.args.end_frame:
-                ending(timer_all, start_date)
+            if meta.frame == args.end_frame:
+                print("Normallly end.")
+                ending(timer_all, start_wall_time, initial_frame, t_export_total)
                 exit()
     except KeyboardInterrupt:
-        ending(timer_all, start_date)
+        ending(timer_all, start_wall_time, initial_frame, t_export_total)
         exit()
 
 if __name__ == "__main__":

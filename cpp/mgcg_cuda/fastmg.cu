@@ -1324,7 +1324,7 @@ struct VCycle : Kernels {
 
         scale_csr_by_row<<<(A.nrows + 255) / 256, 256>>>(data_new.data(), A.data.data(), A.indices.data(), A.indptr.data(), A.nrows, diag_inv.data());
         cudaDeviceSynchronize();
-        // launch_check();
+        launch_check();
 
         // debug_cuda_vec(diag_inv, "diag_inv");
 
@@ -1522,11 +1522,10 @@ struct VCycle : Kernels {
             spgemm(R, AP, RAP);
     }
 
-    // void fetch_A_size(size_t lv, int nnz_out, int n_out) {
-    //     CSR<float> &A = levels.at(lv).A;
-    //     nnz_out = A.numnonz;
-    //     n_out = A.nrows; // rows == cols
-    // }
+    void fetch_A_data(float *data) {
+        CSR<float> &A = levels.at(0).A;
+        CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
+    }
 
     // In python end, before you call fetch A, you should call get_nnz and get_matsize first to determine the size of the csr matrix. 
     void fetch_A(size_t lv, float *data, int *indices, int *indptr) {
@@ -1638,6 +1637,9 @@ extern "C" DLLEXPORT void fastmg_fetch_A(size_t lv, float* data, int* indices, i
     fastmg->fetch_A(lv, data, indices, indptr);
 }
 
+extern "C" DLLEXPORT void fastmg_fetch_A_data(float* data) {
+    fastmg->fetch_A_data(data);
+}
 
 extern "C" DLLEXPORT void fastmg_solve() {
     fastmg->solve();

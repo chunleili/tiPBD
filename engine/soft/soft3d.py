@@ -922,8 +922,9 @@ def fetch_A_from_cuda():
     return A
 
 
-def fastFill_fetch():
-    extlib.fastFillSoft_fetch_A_data(ist.data)
+def fastmg_fetch():
+    extlib.fastmg_fetch_A_data.argtypes = [arr_float]
+    extlib.fastmg_fetch_A_data(ist.data)
     A = scipy.sparse.csr_matrix((ist.data, ist.indices, ist.indptr), shape=(ist.NT, ist.NT))
     return A
 
@@ -1052,9 +1053,9 @@ def substep_all_solver(ist):
         # x, r_Axb = AMG_python(b)
         if should_setup():
             AMG_setup_phase()
-        A2 = fastFill_fetch()
-        csr_is_equal(A, A2)
         AMG_presolve()
+        A2 = fastmg_fetch()
+        csr_is_equal(A, A2)
         x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
         AMG_dlam2dpos(x)
         dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)

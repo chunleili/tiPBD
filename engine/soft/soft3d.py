@@ -32,8 +32,11 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
-# "data/model/bunnyBig/bunnyBig.node" "data/model/cube/minicube.node" "data/model/bunny1k2k/coarse.node" "data/model/bunny85w/bunny85w.node"
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
+# "data/model/cube/minicube.node"
+# "data/model/bunny1k2k/coarse.node"
+# "data/model/bunnyBig/bunnyBig.node"
+# "data/model/bunny85w/bunny85w.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)
 parser.add_argument("-end_frame", type=int, default=100)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
@@ -87,6 +90,7 @@ def init_extlib_argtypes():
     arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
     arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
     arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
+    arr3d_int = ctl.ndpointer(dtype=np.int32, ndim=3, flags='aligned, c_contiguous')
     c_size_t = ctypes.c_size_t
     c_float = ctypes.c_float
     c_int = ctypes.c_int
@@ -107,21 +111,14 @@ def init_extlib_argtypes():
     extlib.fastmg_setup_smoothers.argtypes = [c_int]
     extlib.fastmg_update_A0.argtypes = [arr_float]
 
-    extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
-    extlib.fastFill_run.argtypes = [arr2d_float]
-    extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
-    extlib.fastFill_init_from_python_cache.argtypes = [arr2d_int, arr_int, arr2d_int, c_int, arr_float, arr_int, arr_int, arr_int, arr_int, c_int, c_int]
-
-
-    extlib.initFillCloth_set.argtypes = [arr2d_int, c_int]
-    extlib.initFillCloth_get.argtypes = [arr2d_int, arr_int, arr2d_int, c_int] + [arr_int]*4 + [arr2d_int, arr_int]
-    extlib.fastmg_get_data.restype = c_int
-
-    extlib.initFillCloth_new()
+    extlib.fastFillSoft_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
+    extlib.fastFillSoft_run.argtypes = [arr2d_float]
+    extlib.fastFillSoft_fetch_A_data.argtypes = [arr_float]
+    extlib.fastFillSoft_init_from_python_cache.argtypes = [c_int]*2 + [arr2d_int]  +  [arr_int] + [arr_float] + [arr_int]*4 + [c_int] + [arr_int] + [arr2d_int] + [arr3d_int]*3
 
     extlib.fastmg_new()
 
-    extlib.fastFill_new()
+    extlib.fastFillSoft_new()
 
 if args.use_cuda:
     init_extlib_argtypes()
@@ -639,8 +636,6 @@ def compute_C_and_gradC_kernel(
         gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0_, g1_, g2_, g3_
 
 
-
-
 @ti.kernel
 def compute_dual_residual(
     constraint: ti.template(),
@@ -650,7 +645,6 @@ def compute_dual_residual(
 ):
     for t in range(dual_residual.shape[0]):
         dual_residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
-
 
 
 @ti.kernel
@@ -1008,7 +1002,6 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     return dual0
 
 
-
 def AMG_python(b):
     global Ps, num_levels
 
@@ -1153,7 +1146,7 @@ def substep_all_solver(ist):
 #         transfer_back_to_pos_mfree(x, ist)
 
 #         rsys2 = np.linalg.norm(b - A @ x)
-        
+
 
 #         if export_residual:
 #             tic_calcr = perf_counter()
@@ -1361,7 +1354,6 @@ def setup_smoothers(A):
         setup_jacobi_python(A)
 
 
-
 def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
     assert x0 is not None
     x = x0.copy()
@@ -1399,7 +1391,6 @@ def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
         residuals[iteration+1] = normr
     residuals = residuals[:iteration+1]
     return (x),  residuals  
-
 
 
 def diag_sweep(A,x,b,iterations=1):
@@ -1625,7 +1616,6 @@ def compute_R_kernel_new(
                 break
         if not flag:
             print("Warning: fine tet centroid {i} not in any coarse tet")
-
 
 
 @ti.kernel
@@ -1864,11 +1854,6 @@ def init_adj_ele_ti(eles):
     calc_vertex_to_eles_kernel(eles, v2e, nv2e)
     # v2e = v2e.to_numpy()
     # nv2e = nv2e.to_numpy()
-    
-
-
-
-
 
 
 def dict_to_ndarr(d:dict)->np.ndarray:
@@ -1921,7 +1906,7 @@ def csr_index_to_coo_index(indptr, indices):
 #                 k = nv2e[v]
 #                 v2e[v, k] = e
 #                 nv2e[v] += 1
-    
+
 #     calc_vertex_to_eles_kernel(eles, v2e, nv2e)
 #     v2e = v2e.to_numpy()
 #     nv2e = nv2e.to_numpy()
@@ -1929,9 +1914,23 @@ def csr_index_to_coo_index(indptr, indices):
 
 
 def initFill_tocuda(ist):
-    use_fastFill_cuda = True
-    if use_fastFill_cuda:
-        extlib.init_from_python_cache_v2(ist.adjacent, ist.num_adjacent, ist.data, ist.indices, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.nnz_each_row, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
+    extlib.fastFillSoft_init_from_python_cache(
+        ist.NT,
+        ist.MAX_ADJ,
+        ist.adjacent,
+        ist.num_adjacent,
+        ist.data,
+        ist.indices,
+        ist.indptr,
+        ist.ii,
+        ist.jj,
+        ist.nnz,
+        ist.nnz_each_row,
+        ist.n_shared_v,
+        ist.shared_v,
+        ist.shared_v_order_in_cur,
+        ist.shared_v_order_in_adj,
+    )
 
 
 def init_direct_fill_A(ist):
@@ -1965,9 +1964,10 @@ def init_direct_fill_A(ist):
         ist.shared_v = shared_v
         ist.shared_v_order_in_cur = shared_v_order_in_cur
         ist.shared_v_order_in_adj = shared_v_order_in_adj
+        ist.MAX_ADJ = adjacent.shape[1]
         print(f"MAX_ADJ: {adjacent.shape[1]}")
         # TODO
-        # initFill_tocuda(ist)
+        initFill_tocuda(ist)
         print(f"Loading cache time: {perf_counter()-tic:.3f}s")
         return
 
@@ -1997,6 +1997,7 @@ def init_direct_fill_A(ist):
 
 
     # for now, we save them to the instance
+    ist.MAX_ADJ = adjacent.shape[1]
     ist.adjacent = adjacent
     ist.num_adjacent = num_adjacent
     ist.data = data
@@ -2012,7 +2013,7 @@ def init_direct_fill_A(ist):
     ist.shared_v_order_in_adj = shared_v_order_in_adj
 
     # TODO
-    # initFill_tocuda(ist)
+    initFill_tocuda(ist)
 
     if args.use_cache:
         np.savez(f'cache_initFill_{os.path.basename(args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)

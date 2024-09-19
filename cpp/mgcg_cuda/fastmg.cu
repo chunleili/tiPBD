@@ -970,6 +970,7 @@ struct FastFillSoft : Kernels {
     float alpha;
     int NT;
     int NV;
+    int MAX_ADJ;
     int num_nonz;
     int nrows, ncols;
     Vec<float> d_inv_mass;
@@ -1009,6 +1010,8 @@ struct FastFillSoft : Kernels {
 
 
     void init_from_python_cache_v2(
+        const int NT_in,
+        const int MAX_ADJ_in,
         const int* adjacent_in,
         const int* num_adjacent_in,
         const float* data_in,
@@ -1024,7 +1027,9 @@ struct FastFillSoft : Kernels {
         const int* shared_v_order_in_adj
         )
     {
-        const int MAX_ADJ = 280;
+        NT = NT_in;
+        MAX_ADJ = MAX_ADJ_in;
+
         num_nonz = num_nonz_in;
         A.assign_v2(data_in, indices_in, indptr_in, NT, NT, num_nonz);
         d_ii.assign(ii_in, num_nonz_in);
@@ -1032,11 +1037,25 @@ struct FastFillSoft : Kernels {
         d_nnz_each_row.assign(nnz_each_row_in, NT);
 
         d_num_adjacent.assign(num_adjacent_in, NT);
-        d_adjacent.assign(adjacent_in, NT*MAX_ADJ*3);
+        d_adjacent.assign(adjacent_in, NT*MAX_ADJ);
         d_n_shared_v.assign(n_shared_v_in, NT*MAX_ADJ);
         d_shared_v.assign(shared_v_in, NT*MAX_ADJ*3);
         d_shared_v_order_in_cur.assign(shared_v_order_in_cur, NT*MAX_ADJ*3);
         d_shared_v_order_in_adj.assign(shared_v_order_in_adj, NT*MAX_ADJ*3);
+
+        auto v1 = debug_cuda_vec(A.data, "A.data");
+        auto v2 = debug_cuda_vec(A.indices, "A.indices");
+        auto v3 = debug_cuda_vec(A.indptr, "A.indptr");
+        auto v4 = debug_cuda_vec(d_ii, "d_ii");
+        auto v5 = debug_cuda_vec(d_jj, "d_jj");
+        auto v6 = debug_cuda_vec(d_nnz_each_row, "d_nnz_each_row");
+        auto v7 = debug_cuda_vec(d_num_adjacent, "d_num_adjacent");
+        auto v8 = debug_cuda_vec(d_adjacent, "d_adjacent");
+        auto v9 = debug_cuda_vec(d_n_shared_v, "d_n_shared_v");
+        auto v10 = debug_cuda_vec(d_shared_v, "d_shared_v");
+        auto v11 = debug_cuda_vec(d_shared_v_order_in_cur, "d_shared_v_order_in_cur");
+        auto v12 = debug_cuda_vec(d_shared_v_order_in_adj, "d_shared_v_order_in_adj");
+        cout<<"Finish."<<endl;
     }
 
 
@@ -1633,47 +1652,58 @@ extern "C" DLLEXPORT void fastFillCloth_fetch_A_data(float* data) {
 
 
 // ------------------------------------------------------------------------------
-// extern "C" DLLEXPORT void fastFillSoft_new() {
-//     if (!fastFillSoft)
-//         fastFillSoft = new FastFillSoft{};
-// }
+extern "C" DLLEXPORT void fastFillSoft_new() {
+    if (!fastFillSoft)
+        fastFillSoft = new FastFillSoft{};
+}
 
-// extern "C" DLLEXPORT void fastFillSoft_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
-// {
-//     fastFillSoft->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
-// }
+extern "C" DLLEXPORT void fastFillSoft_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+{
+    fastFillSoft->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
+}
 
 
-// extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache(
-//     int *adjacent_edge_in,
-//     int *num_adjacent_edge_in,
-//     int *adjacent_edge_abc_in,
-//     int num_nonz_in,
-//     float *spmat_data_in,
-//     int *spmat_indices_in,
-//     int *spmat_indptr_in,
-//     int *spmat_ii_in,
-//     int *spmat_jj_in,
-//     int NE_in,
-//     int NV_in)
-// {
-//     fastFillSoft->init_from_python_cache_v2(adjacent_edge_in,
-//                                      num_adjacent_edge_in,
-//                                      adjacent_edge_abc_in,
-//                                      num_nonz_in,
-//                                      spmat_data_in,
-//                                      spmat_indices_in,
-//                                      spmat_indptr_in,
-//                                      spmat_ii_in,
-//                                      spmat_jj_in,
-//                                      NE_in,
-//                                      NV_in);
-// }
+extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache(
+        const int NT_in,
+        const int MAX_ADJ_in,
+        const int* adjacent_in,
+        const int* num_adjacent_in,
+        const float* data_in,
+        const int* indices_in,
+        const int* indptr_in,
+        const int* ii_in,
+        const int* jj_in,
+        const int num_nonz_in,
+        const int* nnz_each_row_in,
+        const int* n_shared_v_in,
+        const int* shared_v_in,
+        const int* shared_v_order_in_cur,
+        const int* shared_v_order_in_adj
+        )
+{
+    fastFillSoft->init_from_python_cache_v2(
+        NT_in,
+        MAX_ADJ_in,
+        adjacent_in,
+        num_adjacent_in,
+        data_in,
+        indices_in,
+        indptr_in,
+        ii_in,
+        jj_in,
+        num_nonz_in,
+        nnz_each_row_in,
+        n_shared_v_in,
+        shared_v_in,
+        shared_v_order_in_cur,
+        shared_v_order_in_adj
+        );
+}
 
-// extern "C" DLLEXPORT void fastFillSoft_run(float* pos_in) {
-//     fastFillSoft->run(pos_in);
-// }
+extern "C" DLLEXPORT void fastFillSoft_run(float* pos_in) {
+    fastFillSoft->run(pos_in);
+}
 
-// extern "C" DLLEXPORT void fastFillSoft_fetch_A_data(float* data) {
-//     fastFillSoft->fetch_A_data(data);
-// }
+extern "C" DLLEXPORT void fastFillSoft_fetch_A_data(float* data) {
+    fastFillSoft->fetch_A_data(data);
+}

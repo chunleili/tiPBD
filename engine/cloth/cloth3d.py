@@ -1666,7 +1666,6 @@ def substep_all_solver():
         if use_PXPBD_v1:
             copy_field(pos_mid, pos)
         compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len) # required by dlam2dpos
-        AMG_A()
         b = AMG_b()
         if use_PXPBD_v1:
             G = fill_G()
@@ -1675,15 +1674,16 @@ def substep_all_solver():
         if not args.use_cuda:
             x, r_Axb = AMG_python(b)
         else:
+            AMG_A()
             if should_setup():
                 AMG_setup_phase()
             AMG_presolve()
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
-            if use_PXPBD_v1:
-                AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
-            else:
-                AMG_dlam2dpos(x)
-            AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
+        if use_PXPBD_v1:
+            AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
+        else:
+            AMG_dlam2dpos(x)
+        AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
             break

@@ -75,6 +75,21 @@ else:
 n_outer_all = []
 ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
 
+arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
+arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
+arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
+arr3d_int = ctl.ndpointer(dtype=np.int32, ndim=3, flags='aligned, c_contiguous')
+arr3d_float = ctl.ndpointer(dtype=np.float32, ndim=3, flags='aligned, c_contiguous')
+c_size_t = ctypes.c_size_t
+c_float = ctypes.c_float
+c_int = ctypes.c_int
+argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
+                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
+                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
+                ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
+                ]
+
 def init_extlib_argtypes():
     global extlib
 
@@ -86,19 +101,6 @@ def init_extlib_argtypes():
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
-    arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
-    arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
-    arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
-    arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
-    arr3d_int = ctl.ndpointer(dtype=np.int32, ndim=3, flags='aligned, c_contiguous')
-    c_size_t = ctypes.c_size_t
-    c_float = ctypes.c_float
-    c_int = ctypes.c_int
-    argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
-                    ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
-                    ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                    ]
 
     extlib.fastmg_set_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
     extlib.fastmg_get_data.argtypes = [arr_float]*2
@@ -111,10 +113,12 @@ def init_extlib_argtypes():
     extlib.fastmg_setup_smoothers.argtypes = [c_int]
     extlib.fastmg_update_A0.argtypes = [arr_float]
 
-    extlib.fastFillSoft_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
-    extlib.fastFillSoft_run.argtypes = [arr2d_float]
+
+    extlib.fastFillSoft_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, arr_float]
     extlib.fastFillSoft_fetch_A_data.argtypes = [arr_float]
     extlib.fastFillSoft_init_from_python_cache.argtypes = [c_int]*2 + [arr2d_int]  +  [arr_int] + [arr_float] + [arr_int]*4 + [c_int] + [arr_int] + [arr2d_int] + [arr3d_int]*3
+    extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
+
 
     extlib.fastmg_new()
 
@@ -815,45 +819,19 @@ def fill_A_by_spmm(ist,  M_inv, ALPHA):
     return A
 
 
-def csr_is_equal(A, B, ist):
+def csr_is_equal(A, B):
     if A.shape != B.shape:
         print("shape not equal")
-        return False
-    
-    A_ = A.copy()
-    B_ = B.copy()
-    diff = A_ - B_
+        assert False
+    diff = A - B
     if diff.nnz == 0:
-        print("diff matrix nnz=0")
+        print("csr is equal! nnz=0")
         return True
-    print("diff matrix nnz:", diff.nnz)
-
-    diff = A_ - B_
     maxdiff = np.abs(diff.data).max()
     print("maxdiff: ", maxdiff)
     if maxdiff > 1e-6:
-        where = np.where(np.abs(diff.data) > 1e-6)
-        # print("In these places, the difference is larger than 1e-6: ", where)
-        diff = diff.tocoo()
-        i = diff.row[where]
-        j = diff.col[where]
-        d = diff.data[where]
-        print("i:", i)
-        print("j:", j)
-        print("d:", d)
-        print("A[i,j]:", A_[i,j])
-        print("B[i,j]:", B_[i,j])
-        reldiff = d/A_[i,j]
-        # print("reldiff:", reldiff)
-        maxreldiff = np.abs(reldiff).max()
-        print("maxreldiff:", maxreldiff)
-        if maxreldiff > 1e-6:
-            print("maxreldiff > 1e-6!")
-            raise ValueError("maxreldiff > 1e-6!")
-            return False
-        else: 
-            print("Although maxdiff > 1e-6, maxreldiff < 1e-6. We still consider them equal.")
-            return True
+        assert False
+    print("csr is equal!")
     return True
 
 
@@ -864,8 +842,9 @@ def calc_dual(ist):
 
 def AMG_A():
     tic2 = perf_counter()
-    # fastFill_run()
     A = fill_A_csr_ti(ist)
+    extlib.fastFillSoft_run(ist.pos.to_numpy(), ist.gradC.to_numpy())
+    extlib.fastmg_set_A0_from_fastFillSoft()
     logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
     return A
 
@@ -904,7 +883,6 @@ def AMG_setup_phase():
     tic = time.perf_counter()
     A = fill_A_csr_ti(ist) #taichi version
     A = A.copy()
-    # A = fastFill_fetch()
     Ps = build_Ps(A)
     num_levels = len(Ps)+1
     logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
@@ -925,11 +903,36 @@ def AMG_setup_phase():
     report_multilevel_details(Ps, num_levels)
 
 
+def fetch_A_from_cuda():
+    extlib.fastmg_get_nnz.argtypes = [ctypes.c_int]
+    extlib.fastmg_get_nnz.restype = ctypes.c_int
+    extlib.fastmg_get_matsize.argtypes = [ctypes.c_int]
+    extlib.fastmg_get_matsize.restype = ctypes.c_int
+    extlib.fastmg_fetch_A.argtypes = [c_int, arr_float, arr_int, arr_int]
+
+    nnz = extlib.fastmg_get_nnz(0)
+    matsize = extlib.fastmg_get_matsize(0)
+
+    A_data = np.zeros(nnz, dtype=np.float32)
+    A_indices = np.zeros(nnz, dtype=np.int32)
+    A_indptr = np.zeros(matsize+1, dtype=np.int32)
+
+    extlib.fastmg_fetch_A(0, A_data, A_indices, A_indptr)
+    A = scipy.sparse.csr_matrix((A_data, A_indices, A_indptr), shape=(matsize, matsize))
+    return A
+
+
+def fastFill_fetch():
+    extlib.fastFillSoft_fetch_A_data(ist.data)
+    A = scipy.sparse.csr_matrix((ist.data, ist.indices, ist.indptr), shape=(ist.NT, ist.NT))
+    return A
+
+
 def AMG_presolve():
     tic3 = time.perf_counter()
-    # TODO: set A0 from fastfill
-    A = fill_A_csr_ti(ist)
-    cuda_set_A0(A)
+    # A = fill_A_csr_ti(ist)
+    # cuda_set_A0(A)
+
     for lv in range(num_levels-1):
         extlib.fastmg_RAP(lv) 
     logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
@@ -1043,12 +1046,14 @@ def substep_all_solver(ist):
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
         if meta.ite==0:
             fulldual0 = calc_dual(ist)
-        AMG_A()
+        A = AMG_A()
         b = AMG_b(ist)
         logging.info(f"    Assemble time: {(perf_counter()-tic_assemble)*1000:.0f}ms")
         # x, r_Axb = AMG_python(b)
         if should_setup():
             AMG_setup_phase()
+        A2 = fastFill_fetch()
+        csr_is_equal(A, A2)
         AMG_presolve()
         x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
         AMG_dlam2dpos(x)
@@ -1931,6 +1936,7 @@ def initFill_tocuda(ist):
         ist.shared_v_order_in_cur,
         ist.shared_v_order_in_adj,
     )
+    extlib.fastFillSoft_set_data(ist.tet_indices.to_numpy(), ist.NT, ist.inv_mass.to_numpy(), ist.NV, ist.pos.to_numpy(), ist.alpha_tilde.to_numpy())
 
 
 def init_direct_fill_A(ist):

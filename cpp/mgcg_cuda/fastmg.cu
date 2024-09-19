@@ -320,7 +320,7 @@ template <typename T=float>
 std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {
     std::vector<T> v_host(v.size());
     v.tohost(v_host);
-    cout<<name<<": ";
+    cout<<name<<"("<<v.size()<<") :";
     int k=0;
     for(auto i:v_host)
     {
@@ -898,10 +898,9 @@ struct FastFillCloth : Kernels {
         alpha = alpha_in;
     }
 
-    void update_pos_v2(float* pos_in)
+    void update_pos_py2cu(float* pos_in)
     {
         d_pos.assign(pos_in, NV*3);
-        CHECK_CUDA(cudaMemcpy(pos_in, d_pos.data(), sizeof(float) * NV*3, cudaMemcpyDeviceToHost));
     }
 
 
@@ -938,14 +937,14 @@ struct FastFillCloth : Kernels {
 
     void run(float* pos_in)
     {
-        update_pos_v2(pos_in);
+        update_pos_py2cu(pos_in);
         fill_A_CSR_gpu();
     }
 
 
     void fill_A_CSR_gpu()
     {
-        fill_A_CSR_kernel<<<num_nonz / 256 + 1, 256>>>(A.data.data(),
+        fill_A_CSR_cloth_kernel<<<num_nonz / 256 + 1, 256>>>(A.data.data(),
                                                  A.indptr.data(),
                                                  A.indices.data(),
                                                  d_ii.data(),
@@ -967,7 +966,6 @@ struct FastFillCloth : Kernels {
 
 struct FastFillSoft : Kernels {
     CSR<float> A;
-    float alpha;
     int NT;
     int NV;
     int MAX_ADJ;
@@ -984,28 +982,32 @@ struct FastFillSoft : Kernels {
     Vec<int> d_nnz_each_row;
     Vec<int> d_n_shared_v;
     Vec<int> d_tet;
+    Vec<float> d_gradC;
+    Vec<float> d_alpha_tilde;
 
 
     void fetch_A_data(float *data_in) {
         CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
     }
 
-    void set_data_v2(int* tet_in, int NT_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+    void set_data_v2(int* tet_in, int NT_in, float* inv_mass_in, int NV_in, float* pos_in, float* alpha_tilde_in)
     {
         NT = NT_in;
         NV = NV_in;
         nrows = NT;
         ncols = NT;
-        alpha = alpha_in;
+        d_alpha_tilde.assign(alpha_tilde_in, NT);
         d_inv_mass.assign(inv_mass_in, NV);
         d_pos.assign(pos_in, NV*3);
         d_tet.assign(tet_in, NT*4);
     }
 
-    void update_pos_v2(float* pos_in)
+    void update_pos_and_gradC(float* pos_in, float* gradC_in)
     {
         d_pos.assign(pos_in, NV*3);
-        CHECK_CUDA(cudaMemcpy(pos_in, d_pos.data(), sizeof(float) * NV*3, cudaMemcpyDeviceToHost));
+        d_gradC.assign(gradC_in, NT*4*3);
+        // debug_cuda_vec(d_gradC, "d_gradC");
+        // debug_cuda_vec(d_pos, "d_pos");
     }
 
 
@@ -1031,6 +1033,8 @@ struct FastFillSoft : Kernels {
         MAX_ADJ = MAX_ADJ_in;
 
         num_nonz = num_nonz_in;
+        ncols = NT;
+        nrows = NT;
         A.assign_v2(data_in, indices_in, indptr_in, NT, NT, num_nonz);
         d_ii.assign(ii_in, num_nonz_in);
         d_jj.assign(jj_in, num_nonz_in);
@@ -1043,25 +1047,13 @@ struct FastFillSoft : Kernels {
         d_shared_v_order_in_cur.assign(shared_v_order_in_cur, NT*MAX_ADJ*3);
         d_shared_v_order_in_adj.assign(shared_v_order_in_adj, NT*MAX_ADJ*3);
 
-        auto v1 = debug_cuda_vec(A.data, "A.data");
-        auto v2 = debug_cuda_vec(A.indices, "A.indices");
-        auto v3 = debug_cuda_vec(A.indptr, "A.indptr");
-        auto v4 = debug_cuda_vec(d_ii, "d_ii");
-        auto v5 = debug_cuda_vec(d_jj, "d_jj");
-        auto v6 = debug_cuda_vec(d_nnz_each_row, "d_nnz_each_row");
-        auto v7 = debug_cuda_vec(d_num_adjacent, "d_num_adjacent");
-        auto v8 = debug_cuda_vec(d_adjacent, "d_adjacent");
-        auto v9 = debug_cuda_vec(d_n_shared_v, "d_n_shared_v");
-        auto v10 = debug_cuda_vec(d_shared_v, "d_shared_v");
-        auto v11 = debug_cuda_vec(d_shared_v_order_in_cur, "d_shared_v_order_in_cur");
-        auto v12 = debug_cuda_vec(d_shared_v_order_in_adj, "d_shared_v_order_in_adj");
-        cout<<"Finish."<<endl;
+        cout<<"Finish load python cache to cuda."<<endl;
     }
 
 
-    void run(float* pos_in)
+    void run(float* pos_in, float* gradC_in)
     {
-        update_pos_v2(pos_in);
+        update_pos_and_gradC(pos_in, gradC_in);
         fill_A_CSR_gpu();
     }
 
@@ -1069,9 +1061,45 @@ struct FastFillSoft : Kernels {
     void fill_A_CSR_gpu()
     {
         // TODO
-        // fill_A_CSR_soft_kernel<<<num_nonz / 256 + 1, 256>>>();
+        fill_A_CSR_soft_kernel<<<num_nonz / 256 + 1, 256>>>(
+                A.data.data(),
+                A.indptr.data(),
+                A.indices.data(),
+                d_ii.data(),
+                d_jj.data(),
+                d_adjacent.data(),
+                d_num_adjacent.data(),
+                num_nonz,
+                d_inv_mass.data(),
+                d_alpha_tilde.data(),
+                NV,
+                NT,
+                MAX_ADJ,
+                d_tet.data(),
+                d_pos.data(),
+                d_gradC.data(),
+                d_n_shared_v.data(),
+                d_shared_v.data(),
+                d_shared_v_order_in_cur.data(),
+                d_shared_v_order_in_adj.data()
+        );
         cudaDeviceSynchronize();
         launch_check();
+        
+        // auto v1 = debug_cuda_vec(A.data, "A.data");
+        // auto v2 = debug_cuda_vec(A.indices, "A.indices");
+        // auto v3 = debug_cuda_vec(A.indptr, "A.indptr");
+        // auto v4 = debug_cuda_vec(d_ii, "d_ii");
+        // auto v5 = debug_cuda_vec(d_jj, "d_jj");
+        // auto v6 = debug_cuda_vec(d_nnz_each_row, "d_nnz_each_row");
+        // auto v7 = debug_cuda_vec(d_num_adjacent, "d_num_adjacent");
+        // auto v8 = debug_cuda_vec(d_adjacent, "d_adjacent");
+        // auto v9 = debug_cuda_vec(d_n_shared_v, "d_n_shared_v");
+        // auto v10 = debug_cuda_vec(d_shared_v, "d_shared_v");
+        // auto v11 = debug_cuda_vec(d_shared_v_order_in_cur, "d_shared_v_order_in_cur");
+        // auto v12 = debug_cuda_vec(d_shared_v_order_in_adj, "d_shared_v_order_in_adj");
+        cout<<"Finish."<<endl;
+
     }
 }; //FastFillSoft struct
 
@@ -1210,17 +1238,42 @@ struct VCycle : Kernels {
     }
 
 
+    int get_nnz(int lv) {
+        return levels.at(lv).A.numnonz;
+    }
+
+    int get_nrows(int lv) {
+        return levels.at(lv).A.nrows;
+    }
+
     // only update the data of A0
     void update_A0(float const *datap) {
         CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), datap, levels.at(0).A.data.size() * sizeof(float), cudaMemcpyHostToDevice));
     }
 
 
-    void set_A0_from_fastFill(FastFillCloth *ff) {
+    void set_A0_from_fastFillCloth(FastFillCloth *ff) {
         levels.at(0).A.data.swap( (ff->A).data);
         levels.at(0).A.indices.swap( (ff->A).indices);
         levels.at(0).A.indptr.swap((ff->A).indptr);
         levels.at(0).A.numnonz = ( ff->num_nonz);
+        levels.at(0).A.nrows = ( ff->nrows);
+    }
+
+    void set_A0_from_fastFillSoft(FastFillSoft *ff) {
+        debug_cuda_vec((ff->A).data, "ff->A.data");
+        debug_cuda_vec((ff->A).indices, "ff->A.indices");
+        debug_cuda_vec((ff->A).indptr, "ff->A.indptr");
+
+
+        levels.at(0).A.data.swap( (ff->A).data);
+        levels.at(0).A.indices.swap( (ff->A).indices);
+        levels.at(0).A.indptr.swap((ff->A).indptr);
+        levels.at(0).A.numnonz = ( ff->num_nonz);
+        levels.at(0).A.nrows = ( ff->nrows);
+        debug_cuda_vec(levels.at(0).A.data, "A0.data");
+        debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
+        debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
     }
 
 
@@ -1465,6 +1518,13 @@ struct VCycle : Kernels {
             spgemm(R, AP, RAP);
     }
 
+    // void fetch_A_size(size_t lv, int nnz_out, int n_out) {
+    //     CSR<float> &A = levels.at(lv).A;
+    //     nnz_out = A.numnonz;
+    //     n_out = A.nrows; // rows == cols
+    // }
+
+    // In python end, before you call fetch A, you should call get_nnz and get_matsize first to determine the size of the csr matrix. 
     void fetch_A(size_t lv, float *data, int *indices, int *indptr) {
         CSR<float> &A = levels.at(lv).A;
         CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
@@ -1557,6 +1617,19 @@ extern "C" DLLEXPORT void fastmg_RAP(size_t lv) {
     fastmg->compute_RAP(lv);
 }
 
+
+extern "C" DLLEXPORT int fastmg_get_nnz(size_t lv) {
+    int nnz = fastmg->get_nnz(lv);
+    std::cout<<"nnz: "<<nnz<<std::endl;
+    return nnz;
+}
+
+extern "C" DLLEXPORT int fastmg_get_matsize(size_t lv) {
+    int n = fastmg->get_nrows(lv);
+    std::cout<<"matsize: "<<n<<std::endl;
+    return n;
+}
+
 extern "C" DLLEXPORT void fastmg_fetch_A(size_t lv, float* data, int* indices, int* indptr) {
     fastmg->fetch_A(lv, data, indices, indptr);
 }
@@ -1597,9 +1670,10 @@ extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
 }
 
 
-extern "C" DLLEXPORT void fastmg_set_A0_from_fastFill() {
-    fastmg->set_A0_from_fastFill(fastFillCloth);
+extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
+    fastmg->set_A0_from_fastFillCloth(fastFillCloth);
 }
+
 
 
 // ------------------------------------------------------------------------------
@@ -1657,9 +1731,9 @@ extern "C" DLLEXPORT void fastFillSoft_new() {
         fastFillSoft = new FastFillSoft{};
 }
 
-extern "C" DLLEXPORT void fastFillSoft_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+extern "C" DLLEXPORT void fastFillSoft_set_data(int* tet_in, int NT_in, float* inv_mass_in, int NV_in, float* pos_in, float* alpha_tilde_in)
 {
-    fastFillSoft->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
+    fastFillSoft->set_data_v2(tet_in, NT_in, inv_mass_in, NV_in, pos_in, alpha_tilde_in);
 }
 
 
@@ -1700,8 +1774,8 @@ extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache(
         );
 }
 
-extern "C" DLLEXPORT void fastFillSoft_run(float* pos_in) {
-    fastFillSoft->run(pos_in);
+extern "C" DLLEXPORT void fastFillSoft_run(float* pos_in, float* gradC_in) {
+    fastFillSoft->run(pos_in, gradC_in);
 }
 
 extern "C" DLLEXPORT void fastFillSoft_fetch_A_data(float* data) {

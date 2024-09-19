@@ -14,9 +14,14 @@ __device__ float inline d_dot(float3 a, float3 b)
     return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
+// norm sqr 
+__device__ float inline d_norm_sqr(float3 a)
+{
+    return a.x*a.x + a.y*a.y + a.z*a.z;
+}
 
 
-__global__ void fill_A_CSR_kernel(
+__global__ void fill_A_CSR_cloth_kernel(
     float *data,
     const int *indptr,
     const int *indices,
@@ -71,6 +76,75 @@ __global__ void fill_A_CSR_kernel(
 }
 
 
+
+
+__global__ void fill_A_CSR_soft_kernel(
+    float *data,
+    const int *indptr,
+    const int *indices,
+    const int *ii,
+    const int *jj,
+    const int *adjacent,
+    const int *num_adjacent,
+    const int nnz,
+    const float *inv_mass,
+    const float *alpha_tilde,
+    const int NV,
+    const int NT,
+    const int MAX_ADJ,
+    const int *tet,
+    const float *pos,
+    const float *gradC,
+    const int * n_shared_v,
+    const int * shared_v,
+    const int * shared_v_order_in_cur,
+    const int * shared_v_order_in_adj
+    )
+{
+    size_t cnt = blockIdx.x * blockDim.x + threadIdx.x;
+
+
+    if(cnt >= nnz)
+    {
+        return;
+    }
+
+    int i = ii[cnt]; // row index
+    int j = jj[cnt]; // col index
+
+
+    if(i==j) // diag
+    {
+        float m1 = inv_mass[tet[i*4 + 0]];
+        float m2 = inv_mass[tet[i*4 + 1]];
+        float m3 = inv_mass[tet[i*4 + 2]];
+        float m4 = inv_mass[tet[i*4 + 3]];
+        float alpha = alpha_tilde[i];
+        float3 g1 = make_float3(gradC[i*4*3 + 0*3 + 0], gradC[i*4*3 + 0*3 + 1], gradC[i*4*3 + 0*3 + 2]);
+        float3 g2 = make_float3(gradC[i*4*3 + 1*3 + 0], gradC[i*4*3 + 1*3 + 1], gradC[i*4*3 + 1*3 + 2]);
+        float3 g3 = make_float3(gradC[i*4*3 + 2*3 + 0], gradC[i*4*3 + 2*3 + 1], gradC[i*4*3 + 2*3 + 2]);
+        float3 g4 = make_float3(gradC[i*4*3 + 3*3 + 0], gradC[i*4*3 + 3*3 + 1], gradC[i*4*3 + 3*3 + 2]);
+        float diag = m1* d_norm_sqr(g1) + m2* d_norm_sqr(g2) + m3* d_norm_sqr(g3) + m4* d_norm_sqr(g4) + alpha;
+        data[cnt] = diag;
+    }
+    else // offdiag 
+    {
+        int k = cnt - indptr[i]; // k-th element in row i
+
+        float offdiag = 0.0;
+        for(int kv=0; kv < n_shared_v[i* MAX_ADJ + k]; kv++)
+        {
+            int o1 = shared_v_order_in_cur[i* MAX_ADJ* 3 + k * 3 + kv]; // shared vertex order in current tet
+            int o2 = shared_v_order_in_adj[i* MAX_ADJ* 3 + k * 3 + kv]; // shared vertex order in adjacent tet
+            int sv = shared_v[i* MAX_ADJ* 3 + k * 3 + kv]; // shared vertex index
+            float sm = inv_mass[sv]; //shared vertex inv mass
+            float3 go1 = make_float3(gradC[i*4*3 + o1*3 + 0], gradC[i*4*3 + o1*3 + 1], gradC[i*4*3 + o1*3 + 2]);
+            float3 go2 = make_float3(gradC[j*4*3 + o2*3 + 0], gradC[j*4*3 + o2*3 + 1], gradC[j*4*3 + o2*3 + 2]);
+            offdiag += sm * d_dot(go1, go2);
+        }
+        data[cnt] = offdiag;
+    }
+}
 
 
 

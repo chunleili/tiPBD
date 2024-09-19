@@ -137,7 +137,7 @@ dLambda     = ti.field(dtype=float, shape=(NE))
 # numerator   = ti.field(dtype=float, shape=(NE))
 # denominator = ti.field(dtype=float, shape=(NE))
 gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
-# edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
+edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
 dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * lagrangian
 nnz_each_row = np.zeros(NE, dtype=int)
 potential_energy = ti.field(dtype=float, shape=())
@@ -146,7 +146,7 @@ predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
 # primary_residual = np.zeros(dtype=float, shape=(3*NV))
 # K = ti.Matrix.field(3, 3, float, (NV, NV)) 
 # geometric stiffness, only retain diagonal elements
-# K_diag = np.zeros((NV*3), dtype=float)
+K_diag = np.zeros((NV*3), dtype=float)
 # Minv_gg = ti.Vector.field(3, dtype=float, shape=(NV))
 
 
@@ -1074,7 +1074,7 @@ def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg=None):
     dLambda_ = x.copy()
     lagrangian.from_numpy(lagrangian.to_numpy() + dLambda_)
     dpos = M_inv @ G.transpose() @ dLambda_ 
-    if use_PXPBD:
+    if use_PXPBD_v1:
         dpos -=  Minv_gg
     dpos = dpos.reshape(-1, 3)
     pos.from_numpy(pos_mid.to_numpy() + omega*dpos)
@@ -1591,7 +1591,7 @@ def AMG_setup_phase():
 
 def AMG_presolve():
     tic3 = time.perf_counter()
-    extlib.fastmg_set_A0_from_fastFill()
+    extlib.fastmg_set_A0_from_fastFillCloth()
     for lv in range(num_levels-1):
         extlib.fastmg_RAP(lv) 
     logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")

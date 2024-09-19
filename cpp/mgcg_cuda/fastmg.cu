@@ -880,7 +880,7 @@ struct FastFillCloth : Kernels {
     Vec<int> d_adjacent_edge_abc;
     Vec<int> d_num_adjacent_edge;
 
-    void fetch_A(float *data_in, int *indices_in, int *indptr_in) {
+    void fetch_A_data(float *data_in) {
         CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
     }
 
@@ -985,7 +985,7 @@ struct FastFillSoft : Kernels {
     Vec<int> d_tet;
 
 
-    void fetch_A(float *data_in, int *indices_in, int *indptr_in) {
+    void fetch_A_data(float *data_in) {
         CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
     }
 
@@ -1508,6 +1508,7 @@ struct VCycle : Kernels {
 
 static VCycle *fastmg = nullptr;
 static FastFillCloth *fastFillCloth = nullptr;
+static FastFillSoft *fastFillSoft = nullptr;
 
 #if _WIN32
 #define DLLEXPORT __declspec(dllexport)
@@ -1583,18 +1584,18 @@ extern "C" DLLEXPORT void fastmg_set_A0_from_fastFill() {
 
 
 // ------------------------------------------------------------------------------
-extern "C" DLLEXPORT void fastFill_new() {
+extern "C" DLLEXPORT void fastFillCloth_new() {
     if (!fastFillCloth)
         fastFillCloth = new FastFillCloth{};
 }
 
-extern "C" DLLEXPORT void fastFill_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+extern "C" DLLEXPORT void fastFillCloth_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
 {
     fastFillCloth->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
 }
 
 
-extern "C" DLLEXPORT void fastFill_init_from_python_cache(
+extern "C" DLLEXPORT void fastFillCloth_init_from_python_cache(
     int *adjacent_edge_in,
     int *num_adjacent_edge_in,
     int *adjacent_edge_abc_in,
@@ -1620,10 +1621,59 @@ extern "C" DLLEXPORT void fastFill_init_from_python_cache(
                                      NV_in);
 }
 
-extern "C" DLLEXPORT void fastFill_run(float* pos_in) {
+extern "C" DLLEXPORT void fastFillCloth_run(float* pos_in) {
     fastFillCloth->run(pos_in);
 }
 
-extern "C" DLLEXPORT void fastFill_fetch_A(float* data, int* indices, int* indptr) {
-    fastFillCloth->fetch_A(data, indices, indptr);
+extern "C" DLLEXPORT void fastFillCloth_fetch_A_data(float* data) {
+    fastFillCloth->fetch_A_data(data);
 }
+
+
+
+
+// ------------------------------------------------------------------------------
+// extern "C" DLLEXPORT void fastFillSoft_new() {
+//     if (!fastFillSoft)
+//         fastFillSoft = new FastFillSoft{};
+// }
+
+// extern "C" DLLEXPORT void fastFillSoft_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+// {
+//     fastFillSoft->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
+// }
+
+
+// extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache(
+//     int *adjacent_edge_in,
+//     int *num_adjacent_edge_in,
+//     int *adjacent_edge_abc_in,
+//     int num_nonz_in,
+//     float *spmat_data_in,
+//     int *spmat_indices_in,
+//     int *spmat_indptr_in,
+//     int *spmat_ii_in,
+//     int *spmat_jj_in,
+//     int NE_in,
+//     int NV_in)
+// {
+//     fastFillSoft->init_from_python_cache_v2(adjacent_edge_in,
+//                                      num_adjacent_edge_in,
+//                                      adjacent_edge_abc_in,
+//                                      num_nonz_in,
+//                                      spmat_data_in,
+//                                      spmat_indices_in,
+//                                      spmat_indptr_in,
+//                                      spmat_ii_in,
+//                                      spmat_jj_in,
+//                                      NE_in,
+//                                      NV_in);
+// }
+
+// extern "C" DLLEXPORT void fastFillSoft_run(float* pos_in) {
+//     fastFillSoft->run(pos_in);
+// }
+
+// extern "C" DLLEXPORT void fastFillSoft_fetch_A_data(float* data) {
+//     fastFillSoft->fetch_A_data(data);
+// }

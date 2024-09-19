@@ -56,7 +56,7 @@ parser.add_argument("-export_residual", type=int, default=True)
 parser.add_argument("-end_frame", type=int, default=100)
 parser.add_argument("-out_dir", type=str, default=f"result/latest/")
 parser.add_argument("-auto_another_outdir", type=int, default=True)
-parser.add_argument("-restart", type=int, default=True)
+parser.add_argument("-restart", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=21)
 parser.add_argument("-restart_dir", type=str, default="result/meta/")
 parser.add_argument("-restart_from_last_frame", type=int, default=False)
@@ -190,22 +190,21 @@ def init_extlib_argtypes():
     extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
     extlib.fastmg_setup_smoothers.argtypes = [c_int]
     extlib.fastmg_update_A0.argtypes = [arr_float]
+    extlib.fastmg_get_data.restype = c_int
 
-    extlib.fastFill_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
-    extlib.fastFill_run.argtypes = [arr2d_float]
-    extlib.fastFill_fetch_A.argtypes = [arr_float, arr_int, arr_int]
-    extlib.fastFill_init_from_python_cache.argtypes = [arr2d_int, arr_int, arr2d_int, c_int, arr_float, arr_int, arr_int, arr_int, arr_int, c_int, c_int]
-
+    extlib.fastFillCloth_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
+    extlib.fastFillCloth_run.argtypes = [arr2d_float]
+    extlib.fastFillCloth_fetch_A_data.argtypes = [arr_float]
+    extlib.fastFillCloth_init_from_python_cache.argtypes = [arr2d_int, arr_int, arr2d_int, c_int, arr_float, arr_int, arr_int, arr_int, arr_int, c_int, c_int]
 
     extlib.initFillCloth_set.argtypes = [arr2d_int, c_int]
     extlib.initFillCloth_get.argtypes = [arr2d_int, arr_int, arr2d_int, c_int] + [arr_int]*4 + [arr2d_int, arr_int]
-    extlib.fastmg_get_data.restype = c_int
 
     extlib.initFillCloth_new()
 
     extlib.fastmg_new()
 
-    extlib.fastFill_new()
+    extlib.fastFillCloth_new()
 
 if args.use_cuda:
     init_extlib_argtypes()
@@ -1350,13 +1349,13 @@ def fill_A_mfree(v2e, num_v2e, ii, jj, vv, pos, edge, inv_mass):
 
 def fastFill_fetch():
     global spmat_data, spmat_indices, spmat_indptr
-    extlib.fastFill_fetch_A(spmat_data, spmat_indices, spmat_indptr)
+    extlib.fastFillCloth_fetch_A_data(spmat_data)
     A = scipy.sparse.csr_matrix((spmat_data, spmat_indices, spmat_indptr), shape=(NE, NE))
     return A
 
 
-def fastFill_run():
-    extlib.fastFill_run(pos.to_numpy())
+def fastFillCloth_run():
+    extlib.fastFillCloth_run(pos.to_numpy())
 
 
 @ti.kernel
@@ -1645,7 +1644,7 @@ def AMG_PXPBD_v1_b(G):
 
 def AMG_A():
     tic2 = perf_counter()
-    fastFill_run()
+    fastFillCloth_run()
     logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
 def calc_dual():
@@ -1918,8 +1917,8 @@ def cache_and_initFill():
 def load_cache_initFill_to_cuda():
     global adjacent_edge, num_adjacent_edge, adjacent_edge_abc, num_nonz, spmat_data, spmat_indices, spmat_indptr, spmat_ii, spmat_jj, v2e, num_v2e
     cache_and_initFill()
-    extlib.fastFill_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
-    extlib.fastFill_init_from_python_cache(adjacent_edge,
+    extlib.fastFillCloth_set_data(edge.to_numpy(), NE, inv_mass.to_numpy(), NV, pos.to_numpy(), alpha)
+    extlib.fastFillCloth_init_from_python_cache(adjacent_edge,
                                            num_adjacent_edge,
                                            adjacent_edge_abc,
                                            num_nonz,

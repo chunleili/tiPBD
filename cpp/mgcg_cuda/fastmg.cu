@@ -1265,12 +1265,16 @@ struct VCycle : Kernels {
         debug_cuda_vec((ff->A).indices, "ff->A.indices");
         debug_cuda_vec((ff->A).indptr, "ff->A.indptr");
 
+        if (levels.size() < 1) {
+            levels.resize(1);
+        }
 
         levels.at(0).A.data.swap( (ff->A).data);
         levels.at(0).A.indices.swap( (ff->A).indices);
         levels.at(0).A.indptr.swap((ff->A).indptr);
         levels.at(0).A.numnonz = ( ff->num_nonz);
         levels.at(0).A.nrows = ( ff->nrows);
+
         debug_cuda_vec(levels.at(0).A.data, "A0.data");
         debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
         debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
@@ -1674,7 +1678,9 @@ extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
     fastmg->set_A0_from_fastFillCloth(fastFillCloth);
 }
 
-
+extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillSoft() {
+    fastmg->set_A0_from_fastFillSoft(fastFillSoft);
+}
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastFillCloth_new() {

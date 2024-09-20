@@ -32,7 +32,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
 # "data/model/cube/minicube.node"
 # "data/model/bunny1k2k/coarse.node"
 # "data/model/bunnyBig/bunnyBig.node"
@@ -1794,7 +1794,7 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
     f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
     f"\nmodel_path{args.model_path}" + \
-    f"\ndt={ist.delta_t}" + \
+    f"\ndt={meta.delta_t}" + \
     f"\nSolver: {args.solver_type}" + \
     f"\nout_dir: {out_dir}" 
 

@@ -1901,7 +1901,7 @@ def cache_and_initFill():
         num_nonz = int(num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
         print(f"load cache_initFill_N{N}.npz")
     else:
-        if use_cpp_initFill:
+        if args.use_cuda and use_cpp_initFill:
             initFill = initFill_cpp
         else:
             initFill = initFill_python

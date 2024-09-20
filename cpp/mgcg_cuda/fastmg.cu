@@ -1290,15 +1290,20 @@ struct VCycle : Kernels {
             levels.resize(1);
         }
 
-        levels.at(0).A.data.swap( (ff->A).data);
-        levels.at(0).A.indices.swap( (ff->A).indices);
-        levels.at(0).A.indptr.swap((ff->A).indptr);
+        // levels.at(0).A.data.swap( (ff->A).data);
+        // levels.at(0).A.indices.swap( (ff->A).indices);
+        // levels.at(0).A.indptr.swap((ff->A).indptr);
         levels.at(0).A.numnonz = ( ff->num_nonz);
         levels.at(0).A.nrows = ( ff->nrows);
 
         // debug_cuda_vec(levels.at(0).A.data, "A0.data");
         // debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
         // debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
+
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), (ff->A).data.data(), levels.at(0).A.data.size() * sizeof(float), cudaMemcpyDeviceToDevice));
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indices.data(), (ff->A).indices.data(), levels.at(0).A.indices.size() * sizeof(int), cudaMemcpyDeviceToDevice));
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indptr.data(), (ff->A).indptr.data(), levels.at(0).A.indptr.size() * sizeof(int), cudaMemcpyDeviceToDevice));
+
     }
 
 

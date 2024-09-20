@@ -1793,7 +1793,7 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     f"\nTime of exporting: {t_export_total:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
     f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
-    f"\nmodel_path{args.model_path}" + \
+    f"\nmodel_path: {args.model_path}" + \
     f"\ndt={meta.delta_t}" + \
     f"\nSolver: {args.solver_type}" + \
     f"\nout_dir: {out_dir}" 

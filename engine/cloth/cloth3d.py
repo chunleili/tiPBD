@@ -151,8 +151,13 @@ K_diag = np.zeros((NV*3), dtype=float)
 
 
 
+if use_PXPBD_v1:
+    ResidualDataPrimal = namedtuple('residual', ['dual','primal','Newton', 'ninner','t'])
+    Residual0DataPrimal = namedtuple('residual', ['dual','primal','Newton'])
+else:
+    ResidualData = namedtuple('residual', ['dual', 'ninner','t'])
+    Residual0Data = namedtuple('residual', ['dual'])
 
-ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
 n_outer_all = []
 
 
@@ -1132,7 +1137,7 @@ def fill_G():
     G_ii, G_jj, G_vv = np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.int32), np.zeros(NCONS*6, dtype=np.float32)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3 * NV))
-    print(f"fill_G: {time.perf_counter() - tic:.4f}s")
+    print(f"    fill_G: {time.perf_counter() - tic:.4f}s")
     return G
 
 
@@ -1470,7 +1475,7 @@ def should_setup():
 
 
 
-def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
+def AMG_calc_r(r, r0, tic_iter, r_Axb):
     global t_export
     tic = time.perf_counter()
 
@@ -1485,13 +1490,12 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     if use_PXPBD_v1:
         G = fill_G()
         primary_residual = calc_primary_residual(G, M_inv)
-        primary_r = np.linalg.norm(primary_residual).astype(float)
-        Newton_r = np.sqrt(primary_r**2 + dual_r**2)
-    dual0 = np.linalg.norm(fulldual0)
+        primal_r = np.linalg.norm(primary_residual).astype(float)
+        Newton_r = np.sqrt(primal_r**2 + dual_r**2)
 
-    if export_fullr:
-        fulldual_final = dual_residual.to_numpy()
-        np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
+    # if export_fullr:
+    #     fulldual_final = dual_residual.to_numpy()
+    #     np.savez_compressed(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0, fulldual_final)
 
     logging.info(f"    convergence factor: {calc_conv(r_Axb):.2f}")
     logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
@@ -1499,13 +1503,33 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     if args.export_log:
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
         if use_PXPBD_v1:
-            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} primal:{primary_r:.2e} Newton:{Newton_r:.2e} iter:{len(r_Axb)}")
+            r.append(ResidualDataPrimal(dual_r, primal_r, Newton_r, len(r_Axb), t_iter))
+            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} r0:{r0.Newton:.2e} dual:{dual_r:.2e} primal:{primal_r:.2e} Newton:{Newton_r:.2e} iter:{len(r_Axb)}")
         else:
-            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e}  iter:{len(r_Axb)}")
-    r.append(ResidualData(dual_r, len(r_Axb), t_iter))
+            r.append(ResidualData(dual_r, len(r_Axb), t_iter))
+            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} r0:{r0.dual:.2e} dual:{dual_r:.2e}  iter:{len(r_Axb)}")
 
     t_export += perf_counter()-tic
-    
+
+
+
+def AMG_calc_r0():
+    global t_export
+    calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
+    dual_r = np.linalg.norm(dual_residual.to_numpy()).astype(float)
+    # compute_potential_energy()
+    # compute_inertial_energy()
+    # robj = (potential_energy[None]+inertial_energy[None])
+    if use_PXPBD_v1:
+        G = fill_G()
+        primary_residual = calc_primary_residual(G, M_inv)
+        primal_r = np.linalg.norm(primary_residual).astype(float)
+        Newton_r = np.sqrt(primal_r**2 + dual_r**2)
+
+        r0 = (Residual0DataPrimal(dual_r, primal_r, Newton_r))
+    else:
+        r0 = (Residual0Data(dual_r))
+    return r0
 
 
 def do_export_r(r):
@@ -1657,8 +1681,10 @@ def substep_all_solver():
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
     r = [] # residual list of one frame
-    fulldual0 = calc_dual()
+    # fulldual0 = calc_dual()
+    # print("dual0: ", np.linalg.norm(fulldual0))
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
+    r0 = AMG_calc_r0()
     for ite in range(args.maxiter):
         tic_iter = perf_counter()
         if use_PXPBD_v1:
@@ -1681,10 +1707,15 @@ def substep_all_solver():
             AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
         else:
             AMG_dlam2dpos(x)
-        AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
+        AMG_calc_r(r, r0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
-            break
+
+        if use_PXPBD_v1:
+            if r[-1].Newton < 0.1*r0.Newton or r[-1].Newton<1e-5:
+                break
+        else:
+            if r[-1].dual < 0.1*r0.dual or r[-1].dual<1e-5:
+                break
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {ite+1}")

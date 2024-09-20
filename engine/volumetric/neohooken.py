@@ -1,5 +1,8 @@
 import taichi as ti
 from taichi.lang.ops import sqrt
+
+import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from engine.mesh_io import read_tetgen
 
 

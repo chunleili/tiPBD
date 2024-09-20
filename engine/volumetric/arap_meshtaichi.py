@@ -2,8 +2,11 @@ import taichi as ti
 import meshtaichi_patcher as patcher
 import numpy as np
 import taichi.math as tm
-from engine.util import meta
 import logging
+import os, sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from engine.util import meta
 
 meta.dt = meta.common["dt"]
 meta.relax_factor = meta.common["relax_factor"]

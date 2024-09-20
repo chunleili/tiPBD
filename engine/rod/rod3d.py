@@ -581,7 +581,7 @@ while True:
         viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
         viewer.scene.set_camera(viewer.camera)
         viewer.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
-        viewer.scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
+        # viewer.scene.mesh(pos, tri, color=(1.0,0,0), two_sided=True)
         viewer.canvas.scene(viewer.scene)
         # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
         viewer.window.show()

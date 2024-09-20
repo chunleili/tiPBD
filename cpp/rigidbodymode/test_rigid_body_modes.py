@@ -6,8 +6,8 @@ thisdir = Path(__file__).resolve().parent
 print(thisdir/'build/Release')
 sys.path.append(str(thisdir/'build/Release'))  # 添加模块搜索路径
 sys.path.append(str(thisdir/'build/Debug'))  # 添加模块搜索路径
-
-import pymgpbd
+sys.path.append(thisdir)
+import rigid_body_modes
 import numpy as np
 ndim = 2
 coo = [0.0, 1.0, 2.0, 3.0]  # 示例坐标向量
@@ -16,5 +16,5 @@ B = np.zeros(shape=coo.shape)  # 输出矩阵将填充到这个列表中
 transpose = False  # 可选参数
 
 # 调用函数
-B = pymgpbd.rigid_body_modes(ndim, coo, B, transpose)
+B = rigid_body_modes.rigid_body_modes(ndim, coo, B, transpose)
 print(B)  # 输出结果

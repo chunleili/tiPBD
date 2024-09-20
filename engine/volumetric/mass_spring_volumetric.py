@@ -3,6 +3,8 @@ import taichi.math as tm
 import numpy as np
 import logging
 
+import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from data.model.mass_spring_volumetric_meshdata import bunnyMesh
 from engine.util import meta
 
@@ -257,37 +259,39 @@ class MassSpring:
         substep_()
 
 
-# window = ti.ui.Window("pbd", (1024, 1024),vsync=False)
-# canvas = window.get_canvas()
-# scene = ti.ui.Scene()
-# camera = ti.ui.make_camera()
+def main():
+    window = ti.ui.Window("pbd", (1024, 1024),vsync=False)
+    canvas = window.get_canvas()
+    scene = ti.ui.Scene()
+    camera = ti.ui.Camera()
 
-# #initial camera position
-# camera.position(0.5, 1.0, 1.95)
-# camera.lookat(0.5, 0.3, 0.5)
-# camera.fov(45)
-# def main():
-#     while window.running:
-#         #do the simulation in each step
-#         for _ in range(numSubsteps):
-#             substep()
+    #initial camera position
+    camera.position(0.5, 1.0, 1.95)
+    camera.lookat(0.5, 0.3, 0.5)
+    camera.fov(45)
+    
+    mass_spring = MassSpring()
+    while window.running:
+        #do the simulation in each step
+        for _ in range(numSubsteps):
+            mass_spring.substep()
 
-#         #set the camera, you can move around by pressing 'wasdeq'
-#         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
-#         scene.set_camera(camera)
+        #set the camera, you can move around by pressing 'wasdeq'
+        camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
+        scene.set_camera(camera)
 
-#         #set the light
-#         scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
-#         scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
-#         scene.ambient_light((0.5, 0.5, 0.5))
+        #set the light
+        scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
+        scene.point_light(pos=(0.5, 1.5, 0.5), color=(0.5, 0.5, 0.5))
+        scene.ambient_light((0.5, 0.5, 0.5))
 
-#         #draw
-#         # scene.particles(pos, radius=0.02, color=(0, 1, 1))
-#         scene.mesh(pos, indices=surf_show, color=(1,1,0))
+        #draw
+        # scene.particles(pos, radius=0.02, color=(0, 1, 1))
+        scene.mesh(pos, indices=surf_show, color=(1,1,0))
 
-#         #show the frame
-#         canvas.scene(scene)
-#         window.show()
+        #show the frame
+        canvas.scene(scene)
+        window.show()
 
-# if __name__ == '__main__':
-#     main()
+if __name__ == '__main__':
+    main()

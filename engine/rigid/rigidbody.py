@@ -1,7 +1,7 @@
 import taichi as ti
 import math
 
-# ti.init()
+ti.init()
 
 num_particles = 2000
 dim = 3
@@ -38,8 +38,10 @@ read_mesh_from_file = True
 
 def init_particles():
     if read_mesh_from_file:
+        import os, sys
+        sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
         from engine.mesh_io import read_mesh
-        from engine.metadata import meta
+        from engine.util import meta
 
         scale = meta.get_materials("scale")
         shift = meta.get_materials("translation")

@@ -43,3 +43,5 @@ data/*
 perf.exe
 NVprof.ncu-rep
 poetry.lock
+cloth3d.spec
+.gitignore

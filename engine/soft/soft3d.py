@@ -94,9 +94,9 @@ def init_extlib_argtypes():
     global extlib
 
     # # DEBUG only
-    # os.chdir(prj_path+'/cpp/mgcg_cuda')
-    # os.system("cmake --build build --config Debug")
-    # os.chdir(prj_path)
+    os.chdir(prj_path+'/cpp/mgcg_cuda')
+    os.system("cmake --build build --config Debug")
+    os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
@@ -842,15 +842,13 @@ def calc_dual(ist):
 
 def AMG_A():
     tic2 = perf_counter()
-    A = fill_A_csr_ti(ist)
+    # A = fill_A_csr_ti(ist)
     extlib.fastFillSoft_run(ist.pos.to_numpy(), ist.gradC.to_numpy())
-    extlib.fastmg_set_A0_from_fastFillSoft()
     logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
-    return A
+    # return A
 
 
 def AMG_b(ist):
-    # update_constraints_kernel(pos, edge, rest_len, constraints)
     b = -ist.constraint.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
     return b
 
@@ -929,11 +927,10 @@ def fastmg_fetch():
     return A
 
 
-def AMG_presolve():
+def AMG_RAP():
     tic3 = time.perf_counter()
     # A = fill_A_csr_ti(ist)
     # cuda_set_A0(A)
-
     for lv in range(num_levels-1):
         extlib.fastmg_RAP(lv) 
     logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
@@ -994,7 +991,7 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     r_Axb = r_Axb.tolist()
     dual0 = np.linalg.norm(fulldual0)
 
-    logging.info(f"    convergence factor: {calc_conv(r_Axb):.2f}")
+    logging.info(f"    convergence factor: {calc_conv(r_Axb):.2g}")
     logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
 
     if args.export_log:
@@ -1010,7 +1007,7 @@ def AMG_python(b):
     global Ps, num_levels
 
     A = fill_A_csr_ti(ist)
-    A = A.copy()
+    # A = A.copy()
 
     if should_setup():
         tic = time.perf_counter()
@@ -1042,25 +1039,23 @@ def substep_all_solver(ist):
     r = [] # residual list of one frame
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     for meta.ite in range(args.maxiter):
-        tic_assemble = perf_counter()
         tic_iter = perf_counter()
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
         if meta.ite==0:
             fulldual0 = calc_dual(ist)
-        A = AMG_A()
         b = AMG_b(ist)
-        logging.info(f"    Assemble time: {(perf_counter()-tic_assemble)*1000:.0f}ms")
-        # x, r_Axb = AMG_python(b)
-        if should_setup():
-            AMG_setup_phase()
-        AMG_presolve()
-        A2 = fastmg_fetch()
-        csr_is_equal(A, A2)
-        x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
+        if not use_cuda:
+            x, r_Axb = AMG_python(b)
+        else:
+            AMG_A()
+            if should_setup():
+                AMG_setup_phase()
+            extlib.fastmg_set_A0_from_fastFillSoft()
+            AMG_RAP()
+            x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
         AMG_dlam2dpos(x)
         dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        # if r[-1].dual<1e-5 or r[-1].dual <  0.1 * dual0:
         if r[-1].dual<1e-4:
             break
     
@@ -1779,8 +1774,9 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     end_date = datetime.datetime.now()
     args.end_frame = meta.frame
 
+    len_n_outer_all = len(n_outer_all) if len(n_outer_all) > 0 else 1
     sum_n_outer = sum(n_outer_all)
-    avg_n_outer = sum_n_outer / len(n_outer_all)
+    avg_n_outer = sum_n_outer / len_n_outer_all
     max_n_outer = max(n_outer_all)
     max_n_outer_index = n_outer_all.index(max_n_outer)
 
@@ -1973,8 +1969,8 @@ def init_direct_fill_A(ist):
         ist.shared_v_order_in_adj = shared_v_order_in_adj
         ist.MAX_ADJ = adjacent.shape[1]
         print(f"MAX_ADJ: {adjacent.shape[1]}")
-        # TODO
-        initFill_tocuda(ist)
+        if args.use_cuda:
+            initFill_tocuda(ist)
         print(f"Loading cache time: {perf_counter()-tic:.3f}s")
         return
 
@@ -2019,8 +2015,8 @@ def init_direct_fill_A(ist):
     ist.shared_v_order_in_cur = shared_v_order_in_cur
     ist.shared_v_order_in_adj = shared_v_order_in_adj
 
-    # TODO
-    initFill_tocuda(ist)
+    if args.use_cuda:
+        initFill_tocuda(ist)
 
     if args.use_cache:
         np.savez(f'cache_initFill_{os.path.basename(args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)

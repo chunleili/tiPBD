@@ -53,3 +53,42 @@ python engine/cloth/cloth3d.py -N=64
     - 其次 1353 vertices "data/model/bunny1k2k/coarse.node"
     - 较大 27w vertices "data/model/bunnyBig/bunnyBig.node"
     - 最大 85w vertices"data/model/bunny85w/bunny85w.node"
+
+
+### 输出结果
+- `result/latest` 为默认的最新的输出目录。
+  - `result/latest/mesh/1.ply` 输出每帧的网格。可用windows自带3D查看器查看，或者加载到Houdini查看。
+  - `result/latest/latest.log` 打印到终端的输出同时也会输出到该文件。可用于后处理。
+  - `result/latest/r/1.json` 如果`-export_residual=1`，每帧残差输出。
+  - `result/latest/A/` 如果`-export_matrix=1`，每帧输出A矩阵和b到该目录。用于观察矩阵。可用`A = scipy.sparse.load_npz("A.npz") `和 `b = np.load("b.npy")` 读取。
+  - `result/latest/state/` 如果`-export_state=1`，每帧输出状态（包括顶点位置等）到该目录。用于重启。`-restart=1`可以开启重启。配合`-restart_frame=100`指定重启帧数。`restart_dir`指定重启目录。
+
+
+## 调试（VSCode）
+**调试时输入命令行选项**
+.vscode/launch.json中的"Python: Current File" args选项中添加。
+
+**调试python+cpp**
+1）安装插件python c++ debugger。2）以debug模式编译cpp。3）左侧调试选python C++ Debug之后F5启动。
+
+## profiling
+ **cProfile**
+
+使用cProfile进行性能分析python代码。
+```python -m cProfile -o profile xxx.py```
+输出profile文件后，用snakeviz查看
+```snakeviz profile```
+
+（仅可分析python函数的耗时，对于cpp代码无效）
+
+ **time.perf_counter()**
+ 在python中打印出
+ ```python
+    tic = time.perf_counter()
+    xxxx
+    logging.info(f"    xxx time:{time.perf_counter()-tic}")
+```
+
+**GpuTimer**
+
+见fastmg.cu中的GpuTimer类。用于测量cuda代码的运行时间。

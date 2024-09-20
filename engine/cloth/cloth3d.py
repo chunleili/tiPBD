@@ -1589,9 +1589,8 @@ def AMG_setup_phase():
     report_multilevel_details(Ps, num_levels)
 
 
-def AMG_presolve():
+def AMG_RAP():
     tic3 = time.perf_counter()
-    extlib.fastmg_set_A0_from_fastFillCloth()
     for lv in range(num_levels-1):
         extlib.fastmg_RAP(lv) 
     logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
@@ -1661,7 +1660,6 @@ def substep_all_solver():
     fulldual0 = calc_dual()
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     for ite in range(args.maxiter):
-        tic_assemble = perf_counter()
         tic_iter = perf_counter()
         if use_PXPBD_v1:
             copy_field(pos_mid, pos)
@@ -1670,14 +1668,14 @@ def substep_all_solver():
         if use_PXPBD_v1:
             G = fill_G()
             b, Minv_gg = AMG_PXPBD_v1_b(G)
-        logging.info(f"    Assemble time: {(perf_counter()-tic_assemble)*1000:.0f}ms")
         if not args.use_cuda:
             x, r_Axb = AMG_python(b)
         else:
             AMG_A()
             if should_setup():
                 AMG_setup_phase()
-            AMG_presolve()
+            extlib.fastmg_set_A0_from_fastFillCloth()
+            AMG_RAP()
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
         if use_PXPBD_v1:
             AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)

@@ -2,15 +2,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "debugpy: 当前文件",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": []
-        },
-        {
             "name": "profile",
             "type": "debugpy",
             "request": "launch",

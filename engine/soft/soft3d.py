@@ -24,7 +24,7 @@ import datetime
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-maxiter", type=int, default=2000)
+parser.add_argument("-maxiter", type=int, default=3000)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
 parser.add_argument("-delta_t", type=float, default=3e-3)
@@ -1207,10 +1207,9 @@ def substep_xpbd(ist):
             dualr0 = np.linalg.norm(ist.dual_residual.to_numpy())
         toc = time.perf_counter()
         logging.info(f"{meta.frame}-{meta.ite} r0:{dualr0:.2e} r:{dualr:.2e} t:{toc-tic:.2e}s")
-        # if dualr< 0.1*dualr0 or dualr < 1e-5:
         if dualr < 1e-5:
-            n_outer_all.append(meta.ite)
             break
+    n_outer_all.append(meta.ite+1)
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 
 # ---------------------------------------------------------------------------- #

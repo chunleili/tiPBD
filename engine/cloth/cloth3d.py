@@ -604,7 +604,7 @@ def xpbd_calcr(tic_iter, fulldual0, r):
 
 
 def substep_xpbd():
-    global ite, t_export
+    global ite, t_export, n_outer_all
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
 
@@ -624,10 +624,10 @@ def substep_xpbd():
 
         if dualr < 0.1*dualr0 or dualr<1e-5:
             break
+    n_outer_all.append(ite+1)
 
     if args.export_residual:
         do_export_r(r)
-
     update_vel(old_pos, inv_mass, vel, pos)
 
 
@@ -1687,8 +1687,8 @@ def substep_all_solver():
             break
     
     tic = time.perf_counter()
-    logging.info(f"n_outer: {len(r)}")
-    n_outer_all.append(len(r))
+    logging.info(f"n_outer: {ite+1}")
+    n_outer_all.append(ite+1)
     if args.export_residual:
         do_export_r(r)
     update_vel(old_pos, inv_mass, vel, pos)

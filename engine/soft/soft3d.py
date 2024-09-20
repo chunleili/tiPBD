@@ -24,7 +24,7 @@ import datetime
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-maxiter", type=int, default=1000)
+parser.add_argument("-maxiter", type=int, default=2000)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
 parser.add_argument("-delta_t", type=float, default=3e-3)
@@ -93,10 +93,10 @@ argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # d
 def init_extlib_argtypes():
     global extlib
 
-    # # DEBUG only
-    os.chdir(prj_path+'/cpp/mgcg_cuda')
-    os.system("cmake --build build --config Debug")
-    os.chdir(prj_path)
+    # # # DEBUG only
+    # os.chdir(prj_path+'/cpp/mgcg_cuda')
+    # os.system("cmake --build build --config Debug")
+    # os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
@@ -1180,6 +1180,7 @@ def substep_all_solver(ist):
 
 
 def substep_xpbd(ist):
+    global n_outer_all
     semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
     for meta.ite in range(args.maxiter):
@@ -1206,7 +1207,9 @@ def substep_xpbd(ist):
             dualr0 = np.linalg.norm(ist.dual_residual.to_numpy())
         toc = time.perf_counter()
         logging.info(f"{meta.frame}-{meta.ite} r0:{dualr0:.2e} r:{dualr:.2e} t:{toc-tic:.2e}s")
-        if dualr< 0.1*dualr0 or dualr < 1e-5:
+        # if dualr< 0.1*dualr0 or dualr < 1e-5:
+        if dualr < 1e-5:
+            n_outer_all.append(meta.ite)
             break
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 

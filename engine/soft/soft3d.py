@@ -1007,7 +1007,7 @@ def AMG_python(b):
     global Ps, num_levels
 
     A = fill_A_csr_ti(ist)
-    # A = A.copy()
+    A = A.copy()
 
     if should_setup():
         tic = time.perf_counter()

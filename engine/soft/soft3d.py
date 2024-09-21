@@ -2173,12 +2173,12 @@ def main():
                 substep_xpbd(ist)
             else:
                 substep_all_solver(ist)
+            meta.frame += 1
 
             if args.export_mesh:
                 write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
             
             info(f"step time: {perf_counter() - t:.2f} s")
-            meta.frame += 1
             step_pbar.update(1)
                 
             if meta.frame == args.end_frame:

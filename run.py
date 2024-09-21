@@ -37,15 +37,21 @@ end_frame = parser.parse_args().end_frame
 
 allargs = [None]
 
+# naming convention: case{case_num}-{date:4 digits}-{object_type:cloth or soft}{resolution}-{solver_type:AMG or XPBD}
+
 # case1: cloth 1024 
 args = ["engine/cloth/cloth3d.py",
-                f"-end_frame={end_frame}"
+                f"-end_frame={end_frame}",
+                "-out_dir=result/case1-0921-cloth1024-AMG",
+                "-auto_another_outdir=1"
         ]
 allargs.append(args)
 
 # case2: soft 85w
 args = ["engine/soft/soft3d.py",
-                f"-end_frame={end_frame}"
+        f"-end_frame={end_frame}",
+        "-out_dir=result/case2-0921-soft85w-AMG",
+        "-auto_another_outdir=1"
         ]
 allargs.append(args)
 
@@ -53,14 +59,18 @@ allargs.append(args)
 # case3: cloth 1024 XPBD
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=XPBD",
-        f"-end_frame={end_frame}"
+        f"-end_frame={end_frame}",
+        "-out_dir=result/case3-0921-cloth1024-XPBD",
+        "-auto_another_outdir=1"
         ]
 allargs.append(args)
 
 # case4: soft 85w XPBD
 args = ["engine/soft/soft3d.py",
         "-solver_type=XPBD",
-                f"-end_frame={end_frame}"
+        f"-end_frame={end_frame}",
+        "-out_dir=result/case4-0921-soft85w-XPBD",
+        "-auto_another_outdir=1"
         ]
 allargs.append(args)
 

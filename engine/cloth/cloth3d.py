@@ -66,12 +66,13 @@ parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 parser.add_argument("-use_json", type=int, default=False, help="json configs will overwrite the command line args")
 parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
-parser.add_argument("-arch", type=str, default="cpu", help="taichi arch: gpu or cpu")
+parser.add_argument("-arch", type=str, default="gpu", help="taichi arch: gpu or cpu")
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
+parser.add_argument("-maxerror", type=float, default=1e-5)
 
 
 args = parser.parse_args()
@@ -627,7 +628,7 @@ def substep_xpbd():
         if calc_r_xpbd:
             dualr, dualr0 = xpbd_calcr(tic_iter, fulldual0, r)
 
-        if dualr < 0.1*dualr0 or dualr<1e-5:
+        if dualr<args.maxerror:
             break
     n_outer_all.append(ite+1)
 
@@ -1504,10 +1505,10 @@ def AMG_calc_r(r, r0, tic_iter, r_Axb):
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
         if use_PXPBD_v1:
             r.append(ResidualDataPrimal(dual_r, primal_r, Newton_r, len(r_Axb), t_iter))
-            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} r0:{r0.Newton:.2e} dual:{dual_r:.2e} primal:{primal_r:.2e} Newton:{Newton_r:.2e} iter:{len(r_Axb)}")
+            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} Newton0:{r0.Newton:.2e} dual:{dual_r:.2e} primal:{primal_r:.2e} Newton:{Newton_r:.2e} iter:{len(r_Axb)}")
         else:
             r.append(ResidualData(dual_r, len(r_Axb), t_iter))
-            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} r0:{r0.dual:.2e} dual:{dual_r:.2e}  iter:{len(r_Axb)}")
+            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{r0.dual:.2e} dual:{dual_r:.2e}  iter:{len(r_Axb)}")
 
     t_export += perf_counter()-tic
 
@@ -1711,10 +1712,10 @@ def substep_all_solver():
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
 
         if use_PXPBD_v1:
-            if r[-1].Newton < 0.1*r0.Newton or r[-1].Newton<1e-5:
+            if  r[-1].Newton<args.maxerror:
                 break
         else:
-            if r[-1].dual < 0.1*r0.dual or r[-1].dual<1e-5:
+            if r[-1].dual<args.maxerror:
                 break
     
     tic = time.perf_counter()
@@ -1975,9 +1976,12 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     np.savetxt(out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
 
     sim_cost_time = time.perf_counter() - timer_loop
+    sim_time_wo_export = sim_cost_time - t_export_total
+
 
     s = f"\n-------\n"+\
     f"Time: {(sim_cost_time):.2f}s = {(sim_cost_time)/60:.2f}min.\n" + \
+    f"Time without exporting: {(sim_time_wo_export):.2f}s = {(sim_time_wo_export)/60:.2f}min.\n" + \
     f"Frame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames)."+\
     f"\nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame."+\
     f"\nStart\t{start_date},\nEnd\t{end_date}."+\
@@ -1989,8 +1993,10 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     f"\nSolver: {args.solver_type}" + \
     f"\nout_dir: {out_dir}" 
 
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    file_name = f"result/meta/{current_time}.txt"
+    start_date = start_date.strftime("%Y-%m-%d_%H-%M-%S")
+    out_dir_name = Path(out_dir).name
+    name = start_date + "_" +  str(out_dir_name) 
+    file_name = f"result/meta/{name}.txt"
     with open(file_name, "w", encoding="utf-8") as file:
         file.write(s)
 

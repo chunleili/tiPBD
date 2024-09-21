@@ -20,11 +20,12 @@ import pyamg
 import ctypes
 import numpy.ctypeslib as ctl
 import datetime
+import tqdm
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-maxiter", type=int, default=3000)
+parser.add_argument("-maxiter", type=int, default=1000)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
 parser.add_argument("-delta_t", type=float, default=3e-3)
@@ -47,7 +48,7 @@ parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU 
 parser.add_argument("-smoother_type", type=str, default="jacobi")
 parser.add_argument("-build_P_method", type=str, default="UA")
 parser.add_argument("-max_iter_Axb", type=int, default=100)
-parser.add_argument("-arch", type=str, default="cpu")
+parser.add_argument("-arch", type=str, default="gpu")
 parser.add_argument("-setup_interval", type=int, default=20)
 parser.add_argument("-maxiter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
@@ -56,6 +57,8 @@ parser.add_argument("-restart_frame", type=int, default=-1)
 parser.add_argument("-restart", type=int, default=True)
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-export_mesh", type=int, default=True)
+parser.add_argument("-reinit", type=str, default="", choices=["", "random", "enlarge"])
+parser.add_argument("-maxerror", type=float, default=1e-5)
 
 args = parser.parse_args()
 
@@ -66,8 +69,8 @@ use_cuda = args.use_cuda
 
 t_export = 0.0
 
-if args.arch == "cuda":
-    ti.init(arch=ti.cuda)
+if args.arch == "gpu":
+    ti.init(arch=ti.gpu)
 else:
     ti.init(arch=ti.cpu)
 
@@ -355,7 +358,7 @@ class SoftBody:
 
         info(f"Creating instance done")
 
-    def initialize(self, reinit_style="enlarge"):
+    def initialize(self):
         info(f"Initializing mesh")
 
         # read models
@@ -380,11 +383,11 @@ class SoftBody:
         )
 
         # reinit pos
-        if reinit_style == "random":
+        if args.reinit == "random":
             # random init
             random_val = np.random.rand(self.pos.shape[0], 3)
             self.pos.from_numpy(random_val)
-        elif reinit_style == "enlarge":
+        elif args.reinit == "enlarge":
             # init by enlarge 1.5x
             self.pos.from_numpy(self.model_pos * 1.5)
 
@@ -1056,7 +1059,7 @@ def substep_all_solver(ist):
         AMG_dlam2dpos(x)
         dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        if r[-1].dual<1e-4:
+        if r[-1].dual<args.maxerror:
             break
     
     tic = time.perf_counter()
@@ -1206,8 +1209,8 @@ def substep_xpbd(ist):
             calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
             dualr0 = np.linalg.norm(ist.dual_residual.to_numpy())
         toc = time.perf_counter()
-        logging.info(f"{meta.frame}-{meta.ite} r0:{dualr0:.2e} r:{dualr:.2e} t:{toc-tic:.2e}s")
-        if dualr < 1e-5:
+        logging.info(f"{meta.frame}-{meta.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
+        if dualr < args.maxerror:
             break
     n_outer_all.append(meta.ite+1)
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
@@ -1773,7 +1776,8 @@ def create_another_outdir(out_dir):
 def ending(timer_loop, start_date, initial_frame, t_export_total):
     global n_outer_all
     t_all = time.perf_counter() - timer_loop
-    end_date = datetime.datetime.now()
+    end_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    start_date = start_date.strftime("%Y-%m-%d_%H-%M-%S")
     args.end_frame = meta.frame
 
     len_n_outer_all = len(n_outer_all) if len(n_outer_all) > 0 else 1
@@ -1786,9 +1790,11 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     np.savetxt(out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
 
     sim_cost_time = time.perf_counter() - timer_loop
+    sim_time_wo_export = sim_cost_time - t_export_total
 
     s = f"\n-------\n"+\
     f"Time: {(sim_cost_time):.2f}s = {(sim_cost_time)/60:.2f}min.\n" + \
+    f"Time without exporting: {(sim_time_wo_export):.2f}s = {(sim_time_wo_export)/60:.2f}min.\n" + \
     f"Frame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames)."+\
     f"\nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame."+\
     f"\nStart\t{start_date},\nEnd\t{end_date}."+\
@@ -1800,8 +1806,9 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     f"\nSolver: {args.solver_type}" + \
     f"\nout_dir: {out_dir}" 
 
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    file_name = f"result/meta/{current_time}.txt"
+    out_dir_name = Path(out_dir).name
+    name = start_date + "_" +  str(out_dir_name) 
+    file_name = f"result/meta/{name}.txt"
     with open(file_name, "w", encoding="utf-8") as file:
         file.write(s)
 
@@ -2153,8 +2160,9 @@ def main():
     print(f"initialize time:", perf_counter()-tic)
     initial_frame = meta.frame
     t_export_total = 0.0
-
+    
     timer_all = perf_counter()
+    step_pbar = tqdm.tqdm(total=args.end_frame, initial=initial_frame)
     try:
         while True:
             info("\n\n----------------------")
@@ -2172,6 +2180,7 @@ def main():
             
             info(f"step time: {perf_counter() - t:.2f} s")
             meta.frame += 1
+            step_pbar.update(1)
                 
             if meta.frame == args.end_frame:
                 print("Normallly end.")

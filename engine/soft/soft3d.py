@@ -25,7 +25,7 @@ import tqdm
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-maxiter", type=int, default=1000)
+parser.add_argument("-maxiter", type=int, default=3000)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
 parser.add_argument("-delta_t", type=float, default=3e-3)
@@ -48,7 +48,7 @@ parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU 
 parser.add_argument("-smoother_type", type=str, default="jacobi")
 parser.add_argument("-build_P_method", type=str, default="UA")
 parser.add_argument("-max_iter_Axb", type=int, default=100)
-parser.add_argument("-arch", type=str, default="gpu")
+parser.add_argument("-arch", type=str, default="cpu")
 parser.add_argument("-setup_interval", type=int, default=20)
 parser.add_argument("-maxiter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
@@ -58,7 +58,7 @@ parser.add_argument("-restart", type=int, default=True)
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-export_mesh", type=int, default=True)
 parser.add_argument("-reinit", type=str, default="", choices=["", "random", "enlarge"])
-parser.add_argument("-maxerror", type=float, default=1e-5)
+parser.add_argument("-maxerror", type=float, default=1e-4)
 
 args = parser.parse_args()
 

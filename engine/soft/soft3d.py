@@ -1776,8 +1776,7 @@ def create_another_outdir(out_dir):
 def ending(timer_loop, start_date, initial_frame, t_export_total):
     global n_outer_all
     t_all = time.perf_counter() - timer_loop
-    end_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    start_date = start_date.strftime("%Y-%m-%d_%H-%M-%S")
+    end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     args.end_frame = meta.frame
 
     len_n_outer_all = len(n_outer_all) if len(n_outer_all) > 0 else 1
@@ -2145,8 +2144,8 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-    start_wall_time = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    logging.info(start_wall_time)
+    start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    logging.info(start_date)
 
     ist = SoftBody(args.model_path)
     ist.initialize()
@@ -2184,10 +2183,10 @@ def main():
                 
             if meta.frame == args.end_frame:
                 print("Normallly end.")
-                ending(timer_all, start_wall_time, initial_frame, t_export_total)
+                ending(timer_all, start_date, initial_frame, t_export_total)
                 exit()
     except KeyboardInterrupt:
-        ending(timer_all, start_wall_time, initial_frame, t_export_total)
+        ending(timer_all, start_date, initial_frame, t_export_total)
         exit()
 
 if __name__ == "__main__":

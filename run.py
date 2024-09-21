@@ -30,7 +30,7 @@ parser.add_argument("-case", type=int, default=1,help=f"case number")
 parser.add_argument("-list", action="store_true", help="list all cases")
 parser.add_argument("-profile", action="store_true", help="profiling")
 parser.add_argument("-multi_cases", type=int, nargs='*',help=f"multiple cases number")
-parser.add_argument("-end_frame", type=int, default=100, help=f"end frame")
+parser.add_argument("-end_frame", type=int, default=2, help=f"end frame")
 
 case_num = parser.parse_args().case
 end_frame = parser.parse_args().end_frame

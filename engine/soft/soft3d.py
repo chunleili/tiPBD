@@ -1234,8 +1234,7 @@ def substep_xpbd(ist):
         calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
         dualr = np.linalg.norm(ist.residual.to_numpy())
         if meta.ite == 0:
-            calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
-            dualr0 = np.linalg.norm(ist.dual_residual.to_numpy())
+            dualr0 = dualr.copy()
         toc = time.perf_counter()
         logging.info(f"{meta.frame}-{meta.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
         r.append(ResidualData(dualr, 0, toc-tic))
@@ -1813,21 +1812,23 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
 
     len_n_outer_all = len(n_outer_all) if len(n_outer_all) > 0 else 1
     sum_n_outer = sum(n_outer_all)
-    avg_n_outer = sum_n_outer / len_n_outer_all
+    avg_n_outer = sum_n_outer / len(n_outer_all)
     max_n_outer = max(n_outer_all)
     max_n_outer_index = n_outer_all.index(max_n_outer)
 
     n_outer_all_np = np.array(n_outer_all, np.int32)    
     np.savetxt(out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
 
-    sim_cost_time = time.perf_counter() - timer_loop
-    sim_time_wo_export = sim_cost_time - t_export_total
+    sim_time_with_export = time.perf_counter() - timer_loop
+    sim_time = sim_time_with_export - t_export_total
+    avg_sim_time = sim_time / (args.end_frame - initial_frame)
+
 
     s = f"\n-------\n"+\
-    f"Time: {(sim_cost_time):.2f}s = {(sim_cost_time)/60:.2f}min.\n" + \
-    f"Time without exporting: {(sim_time_wo_export):.2f}s = {(sim_time_wo_export)/60:.2f}min.\n" + \
+    f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
+    f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
     f"Frame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames)."+\
-    f"\nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame."+\
+    f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{start_date},\nEnd\t{end_date}."+\
     f"\nTime of exporting: {t_export_total:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
@@ -2182,7 +2183,7 @@ def init_adj_share_v_ti(adj, nadj, ele):
 # ---------------------------------------------------------------------------- #
 def main():
     tic = perf_counter()
-    global out_dir, ist
+    global out_dir, ist, t_export_total, t_export
     if args.auto_another_outdir:
         out_dir = create_another_outdir(out_dir)
     make_and_clean_dirs(out_dir)
@@ -2222,17 +2223,21 @@ def main():
             meta.frame += 1
 
             if args.export_mesh:
+                tic = perf_counter()
                 write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
-            
+                t_export += perf_counter() - tic
+
+            t_export_total += t_export
+
             info(f"step time: {perf_counter() - t:.2f} s")
             step_pbar.update(1)
                 
             if meta.frame == args.end_frame:
                 print("Normallly end.")
-                ending(timer_all, start_date, initial_frame, t_export_total)
+                ending(timer_all, start_date, initial_frame)
                 exit()
     except KeyboardInterrupt:
-        ending(timer_all, start_date, initial_frame, t_export_total)
+        ending(timer_all, start_date, initial_frame)
         exit()
 
 if __name__ == "__main__":

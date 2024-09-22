@@ -72,7 +72,7 @@ parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU 
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
-parser.add_argument("-tol", type=float, default=1e-5)
+parser.add_argument("-tol", type=float, default=1e-4)
 
 
 args = parser.parse_args()
@@ -599,7 +599,7 @@ def xpbd_calcr(tic_iter, dual0, r):
 
     r.append(ResidualData(dualr, 1, t_iter))
     if args.export_log:
-        logging.info(f"{frame}-{ite}  dualr0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
+        logging.info(f"{frame}-{ite}  dual0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
     t_export += perf_counter() - tic_calcr
     return dualr, dual0
 
@@ -1990,29 +1990,31 @@ def load_cache_initFill_to_cuda():
                                            NV)
 
 
-def ending(timer_loop, start_date, initial_frame, t_export_total):
-    global n_outer_all
+def ending(timer_loop, start_date, initial_frame):
+    global n_outer_all, t_export_total
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     args.end_frame = frame
 
+    len_n_outer_all = len(n_outer_all) if len(n_outer_all) > 0 else 1
     sum_n_outer = sum(n_outer_all)
-    avg_n_outer = sum_n_outer / len(n_outer_all)
+    avg_n_outer = sum_n_outer / len_n_outer_all
     max_n_outer = max(n_outer_all)
     max_n_outer_index = n_outer_all.index(max_n_outer)
 
     n_outer_all_np = np.array(n_outer_all, np.int32)    
     np.savetxt(out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
 
-    sim_cost_time = time.perf_counter() - timer_loop
-    sim_time_wo_export = sim_cost_time - t_export_total
+    sim_time_with_export = time.perf_counter() - timer_loop
+    sim_time = sim_time_with_export - t_export_total
+    avg_sim_time = sim_time / (args.end_frame - initial_frame)
 
 
     s = f"\n-------\n"+\
-    f"Time: {(sim_cost_time):.2f}s = {(sim_cost_time)/60:.2f}min.\n" + \
-    f"Time without exporting: {(sim_time_wo_export):.2f}s = {(sim_time_wo_export)/60:.2f}min.\n" + \
+    f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
+    f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
     f"Frame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames)."+\
-    f"\nAvg: {t_all/(args.end_frame-initial_frame):.2f}s/frame."+\
+    f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{start_date},\nEnd\t{end_date}."+\
     f"\nTime of exporting: {t_export_total:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
@@ -2126,7 +2128,8 @@ def init():
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_all:.3f}s") 
 
 
-def export_after_substep(tic_frame, t_export, t_export_total):
+def export_after_substep(tic_frame, t_export):
+    global t_export_total
     tic_export = time.perf_counter()
     if export_mesh:
         write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())
@@ -2179,7 +2182,7 @@ viewer = Viewer()
 
 
 def run():
-    global frame, paused, ite, t_export
+    global frame, paused, ite, t_export, t_export_total
     timer_loop = time.perf_counter()
     initial_frame = frame
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=frame)
@@ -2198,11 +2201,11 @@ def run():
                     substep_all_solver()
                 frame += 1
                 
-                export_after_substep(tic_frame, t_export, t_export_total)
+                export_after_substep(tic_frame, t_export)
 
             if frame == args.end_frame:
                 print("Normallly end.")
-                ending(timer_loop, start_wall_time, initial_frame, t_export_total)
+                ending(timer_loop, start_wall_time, initial_frame)
                 exit()
 
             if use_viewer:
@@ -2214,7 +2217,7 @@ def run():
 
     except KeyboardInterrupt:
         print("KeyboardInterrupt")
-        ending(timer_loop, start_wall_time, initial_frame, t_export_total)
+        ending(timer_loop, start_wall_time, initial_frame)
 
 
 def main():

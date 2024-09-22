@@ -44,7 +44,7 @@ allargs = [None]
 args = ["engine/cloth/cloth3d.py",
                 f"-end_frame={end_frame}",
                 "-out_dir=result/case1-0921-cloth1024-AMG",
-                f"-auto_another_outdir={auto_another_outdir}"
+                f"-auto_another_outdir={auto_another_outdir}",
         ]
 allargs.append(args)
 
@@ -53,7 +53,7 @@ args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
         "-out_dir=result/case2-0921-soft85w-AMG",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-model_path=data/model/bunny85w/bunny85w.node"
+        "-model_path=data/model/bunny85w/bunny85w.node",
         ]
 allargs.append(args)
 
@@ -64,7 +64,7 @@ args = ["engine/cloth/cloth3d.py",
         f"-end_frame={end_frame}",
         "-out_dir=result/case3-0921-cloth1024-XPBD",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-arch=gpu"
+        "-arch=gpu",
         ]
 allargs.append(args)
 
@@ -75,7 +75,29 @@ args = ["engine/soft/soft3d.py",
         "-out_dir=result/case4-0921-soft85w-XPBD",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
-        "-arch=gpu"
+        "-arch=gpu",
+        ]
+allargs.append(args)
+
+
+# case5: cloth 1024 scale
+args = ["engine/cloth/cloth3d.py",
+                f"-end_frame={end_frame}",
+                "-out_dir=result/case5-0921-cloth1024-AMG-scale",
+                f"-auto_another_outdir={auto_another_outdir}",
+                "-setup_num=1",
+        ]
+allargs.append(args)
+
+
+# case6: cloth 1024 XPBD scale
+args = ["engine/cloth/cloth3d.py",
+        "-solver_type=XPBD",
+        f"-end_frame={end_frame}",
+        "-out_dir=result/case6-0921-cloth1024-XPBD-scale",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-arch=gpu",
+         "-setup_num=1"
         ]
 allargs.append(args)
 

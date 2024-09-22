@@ -72,7 +72,7 @@ parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU 
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
-parser.add_argument("-maxerror", type=float, default=1e-5)
+parser.add_argument("-tol", type=float, default=1e-4)
 
 
 args = parser.parse_args()
@@ -650,7 +650,7 @@ def substep_xpbd():
         if calc_r_xpbd:
             dualr, dualr0 = xpbd_calcr(tic_iter, dual0, r)
 
-        if dualr<args.maxerror:
+        if dualr<args.tol:
             break
         if is_stall(r):
             logging.info("Stall detected, break")
@@ -1737,10 +1737,10 @@ def substep_all_solver():
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
 
         if use_PXPBD_v1:
-            if  r[-1].Newton<args.maxerror:
+            if  r[-1].Newton<args.tol:
                 break
         else:
-            if r[-1].dual<args.maxerror:
+            if r[-1].dual<args.tol:
                 break
 
         if is_stall(r):

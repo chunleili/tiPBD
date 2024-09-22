@@ -59,7 +59,7 @@ parser.add_argument("-restart", type=int, default=True)
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-export_mesh", type=int, default=True)
 parser.add_argument("-reinit", type=str, default="enlarge", choices=["", "random", "enlarge"])
-parser.add_argument("-maxerror", type=float, default=1e-4)
+parser.add_argument("-tol", type=float, default=1e-4)
 
 args = parser.parse_args()
 
@@ -1065,7 +1065,7 @@ def substep_all_solver(ist):
         AMG_dlam2dpos(x)
         dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        if r[-1].dual<args.maxerror:
+        if r[-1].dual<args.tol:
             break
         if is_stall(r):
             logging.info("Stall detected, break")
@@ -1239,7 +1239,7 @@ def substep_xpbd(ist):
         toc = time.perf_counter()
         logging.info(f"{meta.frame}-{meta.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
         r.append(ResidualData(dualr, 0, toc-tic))
-        if dualr < args.maxerror:
+        if dualr < args.tol:
             break
         if is_stall(r):
             logging.info("Stall detected, break")

@@ -19,6 +19,7 @@ import os,sys,shutil
 import subprocess
 from subprocess import call
 import argparse
+from time import perf_counter
 
 pythonExe = "python"
 if sys.platform == "darwin":
@@ -99,12 +100,14 @@ def log_args(args:list):
 
 if __name__=='__main__':
     if parser.parse_args().multi_cases:
+        tic = perf_counter()
         for case_num in parser.parse_args().multi_cases:
             if 0 < case_num < len(allargs):
                 run_case(case_num)
             else:
                 print(f'Invalid case number {case_num}. Exiting...')
                 sys.exit(1)
+        print(f"Batch run time: {(perf_counter()-tic)/60:.2f} min")
         sys.exit(0)
     
     if parser.parse_args().list:
@@ -116,7 +119,9 @@ if __name__=='__main__':
     print(f'Running case {case_num}...')
     
     if 0 < case_num < len(allargs):
+        tic = perf_counter()
         run_case(case_num)
+        print(f"Batch run time: {(perf_counter()-tic)/60:.2f} min")
     else:
         print('Invalid case number. Exiting...')
         sys.exit(1)

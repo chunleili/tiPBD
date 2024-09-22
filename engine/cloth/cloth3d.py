@@ -34,7 +34,7 @@ paused = False
 save_P, load_P = False, False
 use_viewer = False
 export_mesh = True
-use_PXPBD_v1 = False
+
 use_geometric_stiffness = False
 export_fullr = False
 calc_r_xpbd = True
@@ -73,7 +73,8 @@ parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
 parser.add_argument("-tol", type=float, default=1e-4)
-
+parser.add_argument("-use_PXPBD_v1", type=int, default=False)
+parser.add_argument("-use_PXPBD_v2", type=int, default=False)
 
 args = parser.parse_args()
 N = args.N
@@ -82,7 +83,8 @@ gravity = [0.0, -9.8, 0.0]
 if args.setup_num==1: gravity = [0.0, 0.0, 0.0]
 else : gravity = [0.0, -9.8, 0.0]
 out_dir =  args.out_dir + "/"
-
+use_PXPBD_v1 = args.use_PXPBD_v1
+use_PXPBD_v2 = args.use_PXPBD_v2
 
 def parse_json_params(path, vars_to_overwrite):
     if not os.path.exists(path):
@@ -120,7 +122,7 @@ NCONS = NE
 new_M = int(NE / 100)
 compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
 alpha = compliance * (1.0 / delta_t / delta_t)  # timestep related compliance, see XPBD paper
-omega = 0.5
+omega = 0.25
 
 tri = ti.field(ti.i32, shape=3 * NT)
 edge        = ti.Vector.field(2, dtype=int, shape=(NE))
@@ -152,7 +154,7 @@ K_diag = np.zeros((NV*3), dtype=float)
 
 
 
-if use_PXPBD_v1:
+if use_PXPBD_v1 or use_PXPBD_v2:
     ResidualDataPrimal = namedtuple('residual', ['dual','primal','Newton', 'ninner','t'])
     Residual0DataPrimal = namedtuple('residual', ['dual','primal','Newton'])
 else:
@@ -623,6 +625,11 @@ def is_stall(r):
     inc2 = r[-2].dual/r[-3].dual
     inc3 = r[-3].dual/r[-4].dual
     inc4 = r[-4].dual/r[-5].dual
+    if use_PXPBD_v1:
+        inc1 = r[-1].Newton/r[-2].Newton
+        inc2 = r[-2].Newton/r[-3].Newton
+        inc3 = r[-3].Newton/r[-4].Newton
+        inc4 = r[-4].Newton/r[-5].Newton
     
     # if all incs is in [0.999,1.001]
     if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
@@ -1513,11 +1520,11 @@ def AMG_calc_r(r, r0, tic_iter, r_Axb):
     # compute_inertial_energy()
     # robj = (potential_energy[None]+inertial_energy[None])
     r_Axb = r_Axb.tolist()
-    if use_PXPBD_v1:
+    if use_PXPBD_v1 or use_PXPBD_v2:
         G = fill_G()
         primary_residual = calc_primary_residual(G, M_inv)
         primal_r = np.linalg.norm(primary_residual).astype(float)
-        Newton_r = np.sqrt(primal_r**2 + dual_r**2)
+        Newton_r = np.linalg.norm(np.concatenate((dual_residual.to_numpy(), primary_residual))).astype(float)
 
     # if export_fullr:
     #     fulldual_final = dual_residual.to_numpy()
@@ -1528,9 +1535,9 @@ def AMG_calc_r(r, r0, tic_iter, r_Axb):
 
     if args.export_log:
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
-        if use_PXPBD_v1:
+        if use_PXPBD_v1 or use_PXPBD_v2:
             r.append(ResidualDataPrimal(dual_r, primal_r, Newton_r, len(r_Axb), t_iter))
-            logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} Newton0:{r0.Newton:.2e} dual:{dual_r:.2e} primal:{primal_r:.2e} Newton:{Newton_r:.2e} iter:{len(r_Axb)}")
+            logging.info(f"{frame}-{ite} Newton:{Newton_r:.2e} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} primal:{primal_r:.2e} iter:{len(r_Axb)}")
         else:
             r.append(ResidualData(dual_r, len(r_Axb), t_iter))
             logging.info(f"{frame}-{ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{r0.dual:.2e} dual:{dual_r:.2e}  iter:{len(r_Axb)}")
@@ -1546,11 +1553,11 @@ def AMG_calc_r0():
     # compute_potential_energy()
     # compute_inertial_energy()
     # robj = (potential_energy[None]+inertial_energy[None])
-    if use_PXPBD_v1:
+    if use_PXPBD_v1 or use_PXPBD_v2:
         G = fill_G()
         primary_residual = calc_primary_residual(G, M_inv)
         primal_r = np.linalg.norm(primary_residual).astype(float)
-        Newton_r = np.sqrt(primal_r**2 + dual_r**2)
+        Newton_r = np.linalg.norm(np.concatenate((dual_residual.to_numpy(), primary_residual))).astype(float)
 
         r0 = (Residual0DataPrimal(dual_r, primal_r, Newton_r))
     else:
@@ -1668,9 +1675,16 @@ def AMG_PXPBD_v2_dlam2dpos(x):
     tic = time.perf_counter()
     dLambda.from_numpy(x)
     reset_dpos(dpos)
+    dpos_withg.fill(0)
     transfer_back_to_pos_mfree_kernel()
+    update_pos(inv_mass, dpos, pos)
+    compute_C_and_gradC_kernel(pos, gradC, edge, constraints, rest_len) # required by dlam2dpos
+    # G = fill_G()
     transfer_back_to_pos_mfree_kernel_withg()
+    # dpos_withg_np = (predict_pos.to_numpy() - pos.to_numpy()).flatten() + M_inv @ G.transpose() @ lagrangian.to_numpy()
+    # dpos_withg.from_numpy(dpos_withg_np.reshape(-1, 3))
     update_pos_blend(inv_mass, dpos, pos, dpos_withg)
+    update_pos(inv_mass, dpos_withg, pos)
     logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
 
 
@@ -1731,13 +1745,16 @@ def substep_all_solver():
             x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
         if use_PXPBD_v1:
             AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
+        elif use_PXPBD_v2:
+            AMG_PXPBD_v2_dlam2dpos(x)
         else:
             AMG_dlam2dpos(x)
         AMG_calc_r(r, r0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
 
         if use_PXPBD_v1:
-            if  r[-1].Newton<args.tol:
+            rtol = 1e-1
+            if  r[-1].Newton<rtol*r[0].Newton:
                 break
         else:
             if r[-1].dual<args.tol:

@@ -8,13 +8,17 @@ prj_dir = Path(__file__).parent.parent.parent
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("-case_name", type=str, default="case3-0921-cloth1024-XPBD")
-parser.add_argument("-frame", type=int, default=20)
+parser.add_argument("-case_name", type=str, default="case6-0921-cloth1024-AMG-PXPBD_v2_8")
+parser.add_argument("-frame", type=int, default=21)
+parser.add_argument("-type", type=str, default="dual") 
+# "Newton" or "dual" or "primal"
 
 case_name = parser.parse_args().case_name
 log_file = prj_dir / f"result/{case_name}/latest.log"
 
 frame = parser.parse_args().frame
+r_type = parser.parse_args().type
+with0 = False
 
 with open(log_file, "r") as f:
     # 读取所有字符串
@@ -29,20 +33,23 @@ with open(log_file, "r") as f:
     # print(lines)
 
     # 提取出dual_r后面的数字， dual_r在行中间
-    dual = [line for line in lines if "dual:" in line]
-    dual0 = []
-    for i,l in enumerate(dual):
-        dual[i] = float(l.split("dual:")[1].split()[0])
-        dual0.append( float(l.split("dualr0:")[1].split()[0]))
-    print(dual)
-    print("dual0:", dual0[0])
+    r = [line for line in lines if f"{r_type}:" in line]
+    r0 = []
+    for i,l in enumerate(r):
+        r[i] = float(l.split(f"{r_type}:")[1].split()[0])
+        if with0:
+            r0.append( float(l.split(f"{r_type}0:")[1].split()[0]))
+    
+print(r)
+if with0:
+    print("initial:",r0[0])
+    r.insert(0, r0[0])
 
-dual.insert(0, dual0[0])
-
-dual = np.array(dual)
-plt.plot(dual[:])
+r = np.array(r)
+plt.plot(r[:])
 plt.xlabel("Outer iteration")
-plt.ylabel("Dual residual")
+plt.ylabel(f"{r_type} Residual")
+plt.legend([f"{r_type}"])
 plt.title(f"{case_name} frame {frame}")
 # 设定y轴采用科学计数法
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))

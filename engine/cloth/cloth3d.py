@@ -72,7 +72,7 @@ parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU 
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
-parser.add_argument("-tol", type=float, default=1e-4)
+parser.add_argument("-tol", type=float, default=1e-5)
 
 
 args = parser.parse_args()

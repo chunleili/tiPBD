@@ -25,7 +25,7 @@ import tqdm
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-maxiter", type=int, default=3000)
+parser.add_argument("-maxiter", type=int, default=1000)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
 parser.add_argument("-delta_t", type=float, default=3e-3)
@@ -1066,6 +1066,9 @@ def substep_all_solver(ist):
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual<args.maxerror:
             break
+        if (meta.ite > 20)and (r[-1].dual / r[-5].dual < 0.999):
+            logging.info("Stall detected, break")
+            break
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {len(r)}")
@@ -1191,6 +1194,7 @@ def substep_xpbd(ist):
     global n_outer_all
     semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
+    r=[]
     for meta.ite in range(args.maxiter):
         tic = time.perf_counter()
         project_constraints(
@@ -1215,7 +1219,11 @@ def substep_xpbd(ist):
             dualr0 = np.linalg.norm(ist.dual_residual.to_numpy())
         toc = time.perf_counter()
         logging.info(f"{meta.frame}-{meta.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
+        r.append(ResidualData(dualr, 0, toc-tic))
         if dualr < args.maxerror:
+            break
+        if (meta.ite > 20)and (r[-1].dual / r[-5].dual < 0.999):
+            logging.info("Stall detected, break")
             break
     n_outer_all.append(meta.ite+1)
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)

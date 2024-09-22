@@ -1742,7 +1742,7 @@ def substep_all_solver():
         else:
             if r[-1].dual<args.maxerror:
                 break
-            
+
         if is_stall(r):
             logging.info("Stall detected, break")
             break
@@ -1993,7 +1993,7 @@ def load_cache_initFill_to_cuda():
 def ending(timer_loop, start_date, initial_frame, t_export_total):
     global n_outer_all
     t_all = time.perf_counter() - timer_loop
-    end_date = datetime.datetime.now()
+    end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     args.end_frame = frame
 
     sum_n_outer = sum(n_outer_all)
@@ -2021,15 +2021,18 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     f"\ndt={delta_t}" + \
     f"\nSolver: {args.solver_type}" + \
     f"\nout_dir: {out_dir}" 
+    logging.info(s)
 
-    start_date = start_date.strftime("%Y-%m-%d_%H-%M-%S")
+    start_date = start_date.strftime("%Y-%m-%d-%H-%M-%S")
     out_dir_name = Path(out_dir).name
     name = start_date + "_" +  str(out_dir_name) 
     file_name = f"result/meta/{name}.txt"
     with open(file_name, "w", encoding="utf-8") as file:
         file.write(s)
 
-    logging.info(s)
+    file_name2 = f"{out_dir}/meta.txt"
+    with open(file_name2, "w", encoding="utf-8") as file:
+        file.write(s)
 
 
 

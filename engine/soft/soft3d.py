@@ -1836,6 +1836,7 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     f"\ndt={meta.delta_t}" + \
     f"\nSolver: {args.solver_type}" + \
     f"\nout_dir: {out_dir}" 
+    logging.info(s)
 
     out_dir_name = Path(out_dir).name
     name = start_date + "_" +  str(out_dir_name) 
@@ -1843,7 +1844,9 @@ def ending(timer_loop, start_date, initial_frame, t_export_total):
     with open(file_name, "w", encoding="utf-8") as file:
         file.write(s)
 
-    logging.info(s)
+    file_name2 = f"{out_dir}/meta.txt"
+    with open(file_name2, "w", encoding="utf-8") as file:
+        file.write(s)
 
 
 # ---------------------------------------------------------------------------- #

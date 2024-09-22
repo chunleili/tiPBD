@@ -31,10 +31,10 @@ parser.add_argument("-list", action="store_true", help="list all cases")
 parser.add_argument("-profile", action="store_true", help="profiling")
 parser.add_argument("-multi_cases", type=int, nargs='*',help=f"multiple cases number")
 parser.add_argument("-end_frame", type=int, default=100, help=f"end frame")
-
+parser.add_argument("-auto_another_outdir", type=int, default=0, help=f"auto create another outdir")
 case_num = parser.parse_args().case
 end_frame = parser.parse_args().end_frame
-
+auto_another_outdir = parser.parse_args().auto_another_outdir
 allargs = [None]
 
 # naming convention: case{case_num}-{date:4 digits}-{object_type:cloth or soft}{resolution}-{solver_type:AMG or XPBD}
@@ -43,7 +43,7 @@ allargs = [None]
 args = ["engine/cloth/cloth3d.py",
                 f"-end_frame={end_frame}",
                 "-out_dir=result/case1-0921-cloth1024-AMG",
-                "-auto_another_outdir=1"
+                f"-auto_another_outdir={auto_another_outdir}"
         ]
 allargs.append(args)
 
@@ -51,7 +51,7 @@ allargs.append(args)
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
         "-out_dir=result/case2-0921-soft85w-AMG",
-        "-auto_another_outdir=1",
+        f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node"
         ]
 allargs.append(args)
@@ -62,7 +62,8 @@ args = ["engine/cloth/cloth3d.py",
         "-solver_type=XPBD",
         f"-end_frame={end_frame}",
         "-out_dir=result/case3-0921-cloth1024-XPBD",
-        "-auto_another_outdir=1"
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-arch=gpu"
         ]
 allargs.append(args)
 
@@ -71,8 +72,9 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=XPBD",
         f"-end_frame={end_frame}",
         "-out_dir=result/case4-0921-soft85w-XPBD",
-        "-auto_another_outdir=1",
-        "-model_path=data/model/bunny85w/bunny85w.node"
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-arch=gpu"
         ]
 allargs.append(args)
 

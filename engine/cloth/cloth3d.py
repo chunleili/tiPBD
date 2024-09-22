@@ -587,27 +587,49 @@ def calc_primary_residual(G,M_inv):
     return primary_residual
 
 
-def xpbd_calcr(tic_iter, fulldual0, r):
+def xpbd_calcr(tic_iter, dual0, r):
     global ite, frame, t_export
     tic_calcr = perf_counter()
     t_iter = perf_counter()-tic_iter
-    dualr = np.linalg.norm(dual_residual.to_numpy()).astype(float)
+    # dualr = np.linalg.norm(dual_residual.to_numpy())
+    dualr = calc_norm(dual_residual)
     
-    if export_fullr:
-        np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
-
-    dualr0 = np.linalg.norm(fulldual0).astype(float)
-
-    if export_fullr:
-        np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
+    # if export_fullr:
+    #     np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
 
     r.append(ResidualData(dualr, 1, t_iter))
     if args.export_log:
-        logging.info(f"{frame}-{ite}  dualr0:{dualr0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
+        logging.info(f"{frame}-{ite}  dualr0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
     t_export += perf_counter() - tic_calcr
-    return dualr, dualr0
+    return dualr, dual0
 
 
+@ti.kernel
+def calc_norm(a:ti.template())->ti.f32:
+    sum = 0.0
+    for i in range(a.shape[0]):
+        sum += a[i] * a[i]
+    sum = ti.sqrt(sum)
+    return sum
+
+
+all_stalled = []
+# if in last 5 iters, residuals not change 0.1%, then it is stalled
+def is_stall(r):
+    if (ite < 5):
+        return False
+    # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
+    inc1 = r[-1].dual/r[-2].dual
+    inc2 = r[-2].dual/r[-3].dual
+    inc3 = r[-3].dual/r[-4].dual
+    inc4 = r[-4].dual/r[-5].dual
+    
+    # if all incs is in [0.999,1.001]
+    if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
+        logging.info(f"Stall at {frame}-{ite}")
+        all_stalled.append((frame, ite))
+        return True
+    return False
 
 def substep_xpbd():
     global ite, t_export, n_outer_all
@@ -616,7 +638,7 @@ def substep_xpbd():
 
     calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
     fulldual0 = dual_residual.to_numpy()
-
+    dual0 = np.linalg.norm(fulldual0).astype(float)
     r = []
     for ite in range(args.maxiter):
         tic_iter = perf_counter()
@@ -626,9 +648,12 @@ def substep_xpbd():
         update_pos(inv_mass, dpos, pos)
 
         if calc_r_xpbd:
-            dualr, dualr0 = xpbd_calcr(tic_iter, fulldual0, r)
+            dualr, dualr0 = xpbd_calcr(tic_iter, dual0, r)
 
         if dualr<args.maxerror:
+            break
+        if is_stall(r):
+            logging.info("Stall detected, break")
             break
     n_outer_all.append(ite+1)
 
@@ -1717,6 +1742,10 @@ def substep_all_solver():
         else:
             if r[-1].dual<args.maxerror:
                 break
+            
+        if is_stall(r):
+            logging.info("Stall detected, break")
+            break
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {ite+1}")

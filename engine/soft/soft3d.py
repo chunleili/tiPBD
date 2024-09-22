@@ -1950,7 +1950,7 @@ def initFill_tocuda(ist):
 
 
 def init_direct_fill_A(ist):
-    cache_file_name = f'cache_initFill_{os.path.basename(args.model_path)}{args.reinit}.npz'
+    cache_file_name = f'cache_initFill_{os.path.basename(args.model_path)}.npz'
     if args.use_cache and os.path.exists(cache_file_name):
         tic = perf_counter()
         print(f"Found cache {cache_file_name}. Loading cached data...")
@@ -2011,7 +2011,7 @@ def init_direct_fill_A(ist):
     tic = perf_counter()
     n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
     print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
-
+    print(f"initFill done")
 
     # for now, we save them to the instance
     ist.MAX_ADJ = adjacent.shape[1]
@@ -2029,12 +2029,13 @@ def init_direct_fill_A(ist):
     ist.shared_v_order_in_cur = shared_v_order_in_cur
     ist.shared_v_order_in_adj = shared_v_order_in_adj
 
-    if args.use_cuda:
-        initFill_tocuda(ist)
 
     if args.use_cache:
+        print(f"Saving cache to {cache_file_name}...")
         np.savez(cache_file_name, adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
         print(f"{cache_file_name} saved")
+    if args.use_cuda:
+        initFill_tocuda(ist)
 
 
 def fill_A_csr_ti(ist):

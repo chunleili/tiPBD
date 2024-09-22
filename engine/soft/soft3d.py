@@ -25,7 +25,7 @@ import tqdm
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-maxiter", type=int, default=1000)
+parser.add_argument("-maxiter", type=int, default=3000)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
 parser.add_argument("-delta_t", type=float, default=3e-3)
@@ -1190,14 +1190,24 @@ def substep_all_solver(ist):
 #     collsion_response(ist.pos)
 #     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 
+all_stalled = []
+# if in last 5 iters, residuals not change 0.1%, then it is stalled
 def is_stall(r):
     if (meta.ite < 5):
         return False
-    s=sum([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
-    avg = s/5
-    incr = r[-1].dual/avg
-    if incr < 0.999:
+    # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
+    inc1 = r[-1].dual/r[-2].dual
+    inc2 = r[-2].dual/r[-3].dual
+    inc3 = r[-3].dual/r[-4].dual
+    inc4 = r[-4].dual/r[-5].dual
+    
+    # if all incs is in [0.999,1.001]
+    if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
+        logging.info(f"Stall at {meta.frame}-{meta.ite}")
+        all_stalled.append((meta.frame, meta.ite))
         return True
+    return False
+
 
 def substep_xpbd(ist):
     global n_outer_all

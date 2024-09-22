@@ -30,7 +30,7 @@ parser.add_argument("-case", type=int, default=1,help=f"case number")
 parser.add_argument("-list", action="store_true", help="list all cases")
 parser.add_argument("-profile", action="store_true", help="profiling")
 parser.add_argument("-multi_cases", type=int, nargs='*',help=f"multiple cases number")
-parser.add_argument("-end_frame", type=int, default=2, help=f"end frame")
+parser.add_argument("-end_frame", type=int, default=100, help=f"end frame")
 
 case_num = parser.parse_args().case
 end_frame = parser.parse_args().end_frame
@@ -51,7 +51,8 @@ allargs.append(args)
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
         "-out_dir=result/case2-0921-soft85w-AMG",
-        "-auto_another_outdir=1"
+        "-auto_another_outdir=1",
+        "-model_path=data/model/bunny85w/bunny85w.node"
         ]
 allargs.append(args)
 
@@ -70,7 +71,8 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=XPBD",
         f"-end_frame={end_frame}",
         "-out_dir=result/case4-0921-soft85w-XPBD",
-        "-auto_another_outdir=1"
+        "-auto_another_outdir=1",
+        "-model_path=data/model/bunny85w/bunny85w.node"
         ]
 allargs.append(args)
 

@@ -33,7 +33,9 @@ parser.add_argument(
 # default_model = "bunny1k2k" # "cube" "bunny1k2k" "toy"
 # parser.add_argument("--coarse_model_path", type=str, default=f"data/model/{default_model}/coarse.node")
 # parser.add_argument("--fine_model_path", type=str, default=f"data/model/{default_model}/fine.node")
-parser.add_argument("--model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
+# "data/model/bunny1k2k/coarse.node"
+# "data/model/bunny_small/bunny_small.node"
+parser.add_argument("--model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
 parser.add_argument("--auto_another_outdir", type=int, default=False)
 

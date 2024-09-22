@@ -33,7 +33,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
 # "data/model/cube/minicube.node"
 # "data/model/bunny1k2k/coarse.node"
 # "data/model/bunny_small/bunny_small.node"
@@ -58,7 +58,7 @@ parser.add_argument("-restart_frame", type=int, default=-1)
 parser.add_argument("-restart", type=int, default=True)
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-export_mesh", type=int, default=True)
-parser.add_argument("-reinit", type=str, default="", choices=["", "random", "enlarge"])
+parser.add_argument("-reinit", type=str, default="enlarge", choices=["", "random", "enlarge"])
 parser.add_argument("-maxerror", type=float, default=1e-4)
 
 args = parser.parse_args()
@@ -637,11 +637,7 @@ def compute_C_and_gradC_kernel(
         U, S, V = ti.svd(F)
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
-        g0_ = g0/g0.norm()
-        g1_ = g1/g1.norm()
-        g2_ = g2/g2.norm()
-        g3_ = g3/g3.norm()
-        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0_, g1_, g2_, g3_
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
 
 
 @ti.kernel
@@ -1044,6 +1040,7 @@ def substep_all_solver(ist):
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     for meta.ite in range(args.maxiter):
         tic_iter = perf_counter()
+        ist.pos_mid.from_numpy(ist.pos.to_numpy())
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
         if meta.ite==0:
             fulldual0 = calc_dual(ist)

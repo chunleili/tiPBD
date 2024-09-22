@@ -734,8 +734,9 @@ def project_constraints(
 @ti.kernel
 def collsion_response(pos: ti.template()):
     for i in pos:
-        if pos[i][1] < -1.3:
-            pos[i][1] = -1.3
+        ...
+        # if pos[i][1] < -1.3:
+        #     pos[i][1] = -1.3
 
 
 @ti.kernel

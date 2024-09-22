@@ -1300,6 +1300,8 @@ struct VCycle : Kernels {
         // debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
         // debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
 
+        //FIXME: As in python code, we need copy A, why?
+
         CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), (ff->A).data.data(), levels.at(0).A.data.size() * sizeof(float), cudaMemcpyDeviceToDevice));
         CHECK_CUDA(cudaMemcpy(levels.at(0).A.indices.data(), (ff->A).indices.data(), levels.at(0).A.indices.size() * sizeof(int), cudaMemcpyDeviceToDevice));
         CHECK_CUDA(cudaMemcpy(levels.at(0).A.indptr.data(), (ff->A).indptr.data(), levels.at(0).A.indptr.size() * sizeof(int), cudaMemcpyDeviceToDevice));

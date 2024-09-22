@@ -383,6 +383,7 @@ class SoftBody:
             self.par_2_tet,
         )
 
+        # FIXME: no reinit will cause bug, why?
         # reinit pos
         if args.reinit == "random":
             # random init
@@ -637,7 +638,12 @@ def compute_C_and_gradC_kernel(
         U, S, V = ti.svd(F)
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
-        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
+        g0_ = g0/g0.norm()
+        g1_ = g1/g1.norm()
+        g2_ = g2/g2.norm()
+        g3_ = g3/g3.norm()
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0_, g1_, g2_, g3_
+
 
 
 @ti.kernel
@@ -713,8 +719,9 @@ def project_constraints(
 @ti.kernel
 def collsion_response(pos: ti.template()):
     for i in pos:
-        if pos[i][1] < -1.3:
-            pos[i][1] = -1.3
+        ...
+        # if pos[i][1] < -1.3:
+        #     pos[i][1] = -1.3
 
 
 def reset_dpos(dpos):
@@ -880,7 +887,7 @@ def AMG_setup_phase():
     global Ps, num_levels
     tic = time.perf_counter()
     A = fill_A_csr_ti(ist) #taichi version
-    A = A.copy()
+    A = A.copy() #FIXME: no copy will cause bug, why?
     Ps = build_Ps(A)
     num_levels = len(Ps)+1
     logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
@@ -1007,7 +1014,7 @@ def AMG_python(b):
     global Ps, num_levels
 
     A = fill_A_csr_ti(ist)
-    A = A.copy()
+    A = A.copy()#FIXME: no copy will cause bug, why?
 
     if should_setup():
         tic = time.perf_counter()
@@ -1943,10 +1950,11 @@ def initFill_tocuda(ist):
 
 
 def init_direct_fill_A(ist):
-    if args.use_cache and os.path.exists(f'cache_initFill_{os.path.basename(args.model_path)}.npz'):
+    cache_file_name = f'cache_initFill_{os.path.basename(args.model_path)}{args.reinit}.npz'
+    if args.use_cache and os.path.exists(cache_file_name):
         tic = perf_counter()
-        print(f"Found cache cache_initFill_{os.path.basename(args.model_path)}.npz. Loading cached data...")
-        npzfile = np.load(f'cache_initFill_{os.path.basename(args.model_path)}.npz')
+        print(f"Found cache {cache_file_name}. Loading cached data...")
+        npzfile = np.load(cache_file_name)
         adjacent = npzfile['adjacent']
         num_adjacent = npzfile['num_adjacent']
         data = npzfile['data']
@@ -2025,8 +2033,8 @@ def init_direct_fill_A(ist):
         initFill_tocuda(ist)
 
     if args.use_cache:
-        np.savez(f'cache_initFill_{os.path.basename(args.model_path)}.npz', adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
-        print(f"cache_initFill_{os.path.basename(args.model_path)}.npz saved")
+        np.savez(cache_file_name, adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
+        print(f"{cache_file_name} saved")
 
 
 def fill_A_csr_ti(ist):

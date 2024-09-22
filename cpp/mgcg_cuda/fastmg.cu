@@ -977,8 +977,8 @@ struct FastFillSoft : Kernels {
     Vec<int> d_adjacent;
     Vec<int> d_num_adjacent;
     Vec<int> d_shared_v;
-    Vec<int> d_shared_v_order_in_cur;
-    Vec<int> d_shared_v_order_in_adj;
+    Vec<int8_t> d_shared_v_order_in_cur;
+    Vec<int8_t> d_shared_v_order_in_adj;
     Vec<int> d_nnz_each_row;
     Vec<int> d_n_shared_v;
     Vec<int> d_tet;
@@ -1025,8 +1025,8 @@ struct FastFillSoft : Kernels {
         const int* nnz_each_row_in,
         const int* n_shared_v_in,
         const int* shared_v_in,
-        const int* shared_v_order_in_cur,
-        const int* shared_v_order_in_adj
+        const int8_t* shared_v_order_in_cur,
+        const int8_t* shared_v_order_in_adj
         )
     {
         NT = NT_in;
@@ -1061,7 +1061,7 @@ struct FastFillSoft : Kernels {
     void fill_A_CSR_gpu()
     {
         // TODO
-        cout<<"Begin fill_A_CSR_gpu soft."<<endl;
+        // cout<<"Begin fill_A_CSR_gpu soft."<<endl;
         // auto v1_ = debug_cuda_vec(A.data, "A.data");
         // auto v2_ = debug_cuda_vec(A.indices, "A.indices");
         // auto v3_ = debug_cuda_vec(A.indptr, "A.indptr");
@@ -1112,7 +1112,7 @@ struct FastFillSoft : Kernels {
         // auto v10 = debug_cuda_vec(d_shared_v, "d_shared_v");
         // auto v11 = debug_cuda_vec(d_shared_v_order_in_cur, "d_shared_v_order_in_cur");
         // auto v12 = debug_cuda_vec(d_shared_v_order_in_adj, "d_shared_v_order_in_adj");
-        cout<<"Finish fill_A_CSR_gpu soft."<<endl;
+        // cout<<"Finish fill_A_CSR_gpu soft."<<endl;
 
     }
 }; //FastFillSoft struct
@@ -1787,8 +1787,8 @@ extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache(
         const int* nnz_each_row_in,
         const int* n_shared_v_in,
         const int* shared_v_in,
-        const int* shared_v_order_in_cur,
-        const int* shared_v_order_in_adj
+        const int8_t* shared_v_order_in_cur,
+        const int8_t* shared_v_order_in_adj
         )
 {
     fastFillSoft->init_from_python_cache_v2(

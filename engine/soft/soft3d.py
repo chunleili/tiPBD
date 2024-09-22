@@ -84,6 +84,7 @@ arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous
 arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
 arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
 arr3d_int = ctl.ndpointer(dtype=np.int32, ndim=3, flags='aligned, c_contiguous')
+arr3d_int8 = ctl.ndpointer(dtype=np.int8, ndim=3, flags='aligned, c_contiguous')
 arr3d_float = ctl.ndpointer(dtype=np.float32, ndim=3, flags='aligned, c_contiguous')
 c_size_t = ctypes.c_size_t
 c_float = ctypes.c_float
@@ -120,7 +121,7 @@ def init_extlib_argtypes():
 
     extlib.fastFillSoft_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, arr_float]
     extlib.fastFillSoft_fetch_A_data.argtypes = [arr_float]
-    extlib.fastFillSoft_init_from_python_cache.argtypes = [c_int]*2 + [arr2d_int]  +  [arr_int] + [arr_float] + [arr_int]*4 + [c_int] + [arr_int] + [arr2d_int] + [arr3d_int]*3
+    extlib.fastFillSoft_init_from_python_cache.argtypes = [c_int]*2 + [arr2d_int]  +  [arr_int] + [arr_float] + [arr_int]*4 + [c_int] + [arr_int] + [arr2d_int] + [arr3d_int] + [arr3d_int8]*2
     extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
 
 
@@ -1190,9 +1191,9 @@ def substep_all_solver(ist):
 #     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 
 def is_stall(r):
-    if (meta.ite < 20):
+    if (meta.ite < 5):
         return False
-    s=sum(r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual)
+    s=sum([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
     avg = s/5
     incr = r[-1].dual/avg
     if incr < 0.999:
@@ -1999,6 +2000,11 @@ def init_direct_fill_A(ist):
         ist.shared_v_order_in_adj = shared_v_order_in_adj
         ist.MAX_ADJ = adjacent.shape[1]
         print(f"MAX_ADJ: {adjacent.shape[1]}")
+        AVG_ADJ = np.mean(num_adjacent)
+        MAX_ADJ = max(num_adjacent)
+        np.savetxt("num_adjacent.txt", num_adjacent, fmt="%d")
+        print(f"MAX_ADJ: {MAX_ADJ}")
+        print(f"AVG_ADJ: {AVG_ADJ}")
         if args.use_cuda:
             initFill_tocuda(ist)
         print(f"Loading cache time: {perf_counter()-tic:.3f}s")
@@ -2011,6 +2017,10 @@ def init_direct_fill_A(ist):
     adjacent = init_adj_ele(eles=ist.tet_indices.to_numpy())
     # adjacent = init_adj_ele_ti(eles=ist.tet_indices)
     num_adjacent = np.array([len(v) for v in adjacent.values()])
+    AVG_ADJ = np.mean(num_adjacent)
+    MAX_ADJ = max(num_adjacent)
+    print(f"max_adj: {MAX_ADJ}")
+    print(f"AVG_ADJ: {AVG_ADJ}")
     print(f"init_adjacent time: {perf_counter()-tic1:.3f}s")
 
     tic = perf_counter()
@@ -2107,9 +2117,9 @@ def init_adj_share_v_ti(adj, nadj, ele):
     # 共享顶点的个数， 用法：n_shared_v[i,j]表示第i个ele的j个adj ele共享的顶点个数
     n_shared_v = np.zeros((nele, max_nadj), dtype=np.int32)
     # 共享顶点在当前ele中是四面体的第几个(0-3)顶点, 用法：order_shared_v_in_cur[i,j,:] 表示第i个ele的第j个adj ele共享的顶点在当前ele中是第几个顶点。
-    shared_v_order_in_cur = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
+    shared_v_order_in_cur = np.ones((nele, max_nadj, 3), dtype=np.int8) * (-1)
     # 共享顶点在邻接ele中是四面体的第几个(0-3)顶点, 用法：order_shared_v_in_adj[i,j,:] 表示第i个ele的第j个adj ele共享的顶点在邻接ele中是第几个顶点。
-    shared_v_order_in_adj = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
+    shared_v_order_in_adj = np.ones((nele, max_nadj, 3), dtype=np.int8) * (-1)
 
     # 求两个长度为4的数组的交集
     @ti.func

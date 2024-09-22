@@ -97,8 +97,8 @@ __global__ void fill_A_CSR_soft_kernel(
     const float *gradC,
     const int * n_shared_v,
     const int * shared_v,
-    const int * shared_v_order_in_cur,
-    const int * shared_v_order_in_adj
+    const int8_t * shared_v_order_in_cur,
+    const int8_t * shared_v_order_in_adj
     )
 {
     size_t cnt = blockIdx.x * blockDim.x + threadIdx.x;

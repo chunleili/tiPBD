@@ -6,10 +6,10 @@ from pathlib import Path
 
 prj_dir = Path(__file__).parent.parent.parent
 
-case_name = "case2-0921-soft85w-AMG_1"
+case_name = "case2-0921-soft85w-AMG_7"
 log_file = prj_dir / f"result/{case_name}/latest.log"
 
-frame = 84
+frame = 18
 
 with open(log_file, "r") as f:
     # 读取所有字符串
@@ -35,7 +35,7 @@ with open(log_file, "r") as f:
 dual.insert(0, dual0[0])
 
 dual = np.array(dual)
-plt.plot(dual)
+plt.plot(dual[:10])
 plt.xlabel("Outer iteration")
 plt.ylabel("Dual residual")
 plt.title(f"{case_name} frame {frame}")

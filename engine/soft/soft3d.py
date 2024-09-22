@@ -33,9 +33,10 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
 # "data/model/cube/minicube.node"
 # "data/model/bunny1k2k/coarse.node"
+# "data/model/bunny_small/bunny_small.node"
 # "data/model/bunnyBig/bunnyBig.node"
 # "data/model/bunny85w/bunny85w.node"
 parser.add_argument("-kmeans_k", type=int, default=1000)

@@ -1066,7 +1066,7 @@ def substep_all_solver(ist):
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual<args.maxerror:
             break
-        if (meta.ite > 20)and (r[-1].dual / r[-5].dual < 0.999):
+        if is_stall(r):
             logging.info("Stall detected, break")
             break
     
@@ -1189,6 +1189,14 @@ def substep_all_solver(ist):
 #     collsion_response(ist.pos)
 #     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 
+def is_stall(r):
+    if (meta.ite < 20):
+        return False
+    s=sum(r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual)
+    avg = s/5
+    incr = r[-1].dual/avg
+    if incr < 0.999:
+        return True
 
 def substep_xpbd(ist):
     global n_outer_all
@@ -1222,7 +1230,7 @@ def substep_xpbd(ist):
         r.append(ResidualData(dualr, 0, toc-tic))
         if dualr < args.maxerror:
             break
-        if (meta.ite > 20)and (r[-1].dual / r[-5].dual < 0.999):
+        if is_stall(r):
             logging.info("Stall detected, break")
             break
     n_outer_all.append(meta.ite+1)

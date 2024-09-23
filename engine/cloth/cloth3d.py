@@ -2018,7 +2018,7 @@ def load_cache_initFill_to_cuda():
 
 
 def ending(timer_loop, start_date, initial_frame):
-    global n_outer_all, t_export_total
+    global n_outer_all, t_export_total, all_stalled
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     args.end_frame = frame
@@ -2046,10 +2046,12 @@ def ending(timer_loop, start_date, initial_frame):
     f"\nTime of exporting: {t_export_total:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
     f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
+    f"\nstalled at {all_stalled}"+\
     f"\nCloth-N{N}" + \
     f"\ndt={delta_t}" + \
     f"\nSolver: {args.solver_type}" + \
     f"\nout_dir: {out_dir}" 
+
     logging.info(s)
 
     start_date = start_date.strftime("%Y-%m-%d-%H-%M-%S")

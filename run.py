@@ -71,7 +71,8 @@ args = ["engine/soft/soft3d.py",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
         "-tol_Axb=1e-8",
-        "-rtol=1e-2"
+        "-rtol=1e-2",
+        "-delta_t=3e-3"
         ]
 allargs.append(args)
 
@@ -82,7 +83,10 @@ args = ["engine/soft/soft3d.py",
         "-out_dir=result/case4-0921-soft85w-XPBD",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol_Axb=1e-8",
+        "-rtol=1e-2",
         "-arch=gpu",
+        "-delta_t=3e-3"
         ]
 allargs.append(args)
 
@@ -131,18 +135,22 @@ def log_args(args:list):
 if __name__=='__main__':
     if parser.parse_args().cases:
         tic = perf_counter()
-        for case_num in parser.parse_args().cases:
-            if 0 < case_num < len(allargs):
-                print(f'Running case {case_num}...')
-                run_case(case_num)
-            else:
-                print(f'Invalid case number {case_num}. Exiting...')
-                sys.exit(1)
-        print(f"Batch run time: {(perf_counter()-tic)/60:.2f} min")
-        sys.exit(0)
+        try:
+            for case_num in parser.parse_args().cases:
+                if 0 < case_num < len(allargs):
+                    print(f'Running case {case_num}...')
+                    run_case(case_num)
+                else:
+                    print(f'Invalid case number {case_num}. Exiting...')
+                    sys.exit(1)
+            print(f"Batch run time: {(perf_counter()-tic)/60:.2f} min")
+        except KeyboardInterrupt:
+            print("KeyboardInterrupt")
+            print(f"At case {case_num}")
+            print(f"Batch run time: {(perf_counter()-tic)/60:.2f} min")
+            
     
     if parser.parse_args().list:
         print("All cases:")
         for i in range(len(allargs)):
             print(f"case {i}: {allargs[i]}")
-        sys.exit(0)

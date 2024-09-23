@@ -1819,7 +1819,7 @@ def create_another_outdir(out_dir):
 
 
 def ending(timer_loop, start_date, initial_frame):
-    global n_outer_all, t_export_total
+    global n_outer_all, t_export_total, all_stalled
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     args.end_frame = meta.frame
@@ -1847,6 +1847,7 @@ def ending(timer_loop, start_date, initial_frame):
     f"\nTime of exporting: {t_export_total:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
     f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
+    f"\nstalled at {all_stalled}"+\
     f"\nmodel_path: {args.model_path}" + \
     f"\ndt={meta.delta_t}" + \
     f"\nSolver: {args.solver_type}" + \

@@ -611,14 +611,14 @@ def solve_constraints_kernel(
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
         gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
-        denorminator = (
+        denominator = (
             inv_mass[p0] * g0.norm_sqr()
             + inv_mass[p1] * g1.norm_sqr()
             + inv_mass[p2] * g2.norm_sqr()
             + inv_mass[p3] * g3.norm_sqr()
         )
         residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
-        dlambda[t] = residual[t] / (denorminator + alpha_tilde[t])
+        dlambda[t] = residual[t] / (denominator + alpha_tilde[t])
         lagrangian[t] += dlambda[t]
 
 

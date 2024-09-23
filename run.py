@@ -58,7 +58,7 @@ allargs.append(args)
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=XPBD",
         f"-end_frame={end_frame}",
-        "-out_dir=result/case3-0921-cloth1024-XPBD",
+        "-out_dir=result/case2-0921-cloth1024-XPBD",
         f"-auto_another_outdir={auto_another_outdir}",
         "-arch=gpu",
         ]
@@ -67,7 +67,7 @@ allargs.append(args)
 # case3: soft 85w
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
-        "-out_dir=result/case2-0921-soft85w-AMG",
+        "-out_dir=result/case3-0921-soft85w-AMG",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
         ]

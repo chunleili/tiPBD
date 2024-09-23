@@ -1812,20 +1812,30 @@ def clean_result_dir(folder_path):
     logging.info(f"clean {folder_path} done")
     os.chdir(pwd)
 
-def use_another_outdir(out_dir):
+def create_another_outdir(out_dir):
+    import re
     path = Path(out_dir)
     if path.exists():
-        # add a number to the end of the folder name
-        path = path.parent / (path.name + "_1")
-        if path.exists():
-            i = 2
-            while True:
-                path = path.parent / (path.name[:-2] + f"_{i}")
-                if not path.exists():
-                    break
-                i += 1
-    # path.mkdir(parents=True, exist_ok=True)
+        # 使用正则表达式匹配文件夹名称中的数字后缀
+        base_name = path.name
+        match = re.search(r'_(\d+)$', base_name)
+        if match:
+            base_name = base_name[:match.start()]
+            i = int(match.group(1)) + 1
+        else:
+            base_name = base_name
+            i = 1
+
+        while True:
+            new_name = f"{base_name}_{i}"
+            path = path.parent / new_name
+            if not path.exists():
+                break
+            i += 1
+
+    path.mkdir(parents=True, exist_ok=True)
     out_dir = str(path)
+    print(f"\ncreate another outdir: {out_dir}\n")
     return out_dir
 
 @ti.kernel
@@ -2092,7 +2102,7 @@ def make_and_clean_dirs(out_dir):
 def process_dirs():
     global out_dir
     if args.auto_another_outdir:
-        out_dir = use_another_outdir(out_dir)
+        out_dir = create_another_outdir(out_dir)
     make_and_clean_dirs(out_dir)
 
 

@@ -60,6 +60,8 @@ parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-export_mesh", type=int, default=True)
 parser.add_argument("-reinit", type=str, default="enlarge", choices=["", "random", "enlarge"])
 parser.add_argument("-tol", type=float, default=1e-4)
+parser.add_argument("-rtol", type=float, default=1e-4)
+parser.add_argument("-tol_Axb", type=float, default=1e-5)
 
 args = parser.parse_args()
 
@@ -1062,7 +1064,7 @@ def substep_all_solver(ist):
                 AMG_setup_phase()
             extlib.fastmg_set_A0_from_fastFillSoft()
             AMG_RAP()
-            x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
+            x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
         AMG_dlam2dpos(x)
         dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
@@ -1070,6 +1072,8 @@ def substep_all_solver(ist):
             break
         if is_stall(r):
             logging.info("Stall detected, break")
+            break
+        if r[-1].dual / r[0].dual <args.rtol:
             break
     
     tic = time.perf_counter()
@@ -1788,17 +1792,26 @@ def export_A_b(A,b,postfix="", binary=True):
 
 
 def create_another_outdir(out_dir):
+    import re
     path = Path(out_dir)
     if path.exists():
-        # add a number to the end of the folder name
-        path = path.parent / (path.name + "_1")
-        if path.exists():
-            i = 2
-            while True:
-                path = path.parent / (path.name[:-2] + f"_{i}")
-                if not path.exists():
-                    break
-                i += 1
+        # 使用正则表达式匹配文件夹名称中的数字后缀
+        base_name = path.name
+        match = re.search(r'_(\d+)$', base_name)
+        if match:
+            base_name = base_name[:match.start()]
+            i = int(match.group(1)) + 1
+        else:
+            base_name = base_name
+            i = 1
+
+        while True:
+            new_name = f"{base_name}_{i}"
+            path = path.parent / new_name
+            if not path.exists():
+                break
+            i += 1
+
     path.mkdir(parents=True, exist_ok=True)
     out_dir = str(path)
     print(f"\ncreate another outdir: {out_dir}\n")

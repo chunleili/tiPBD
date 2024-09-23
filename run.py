@@ -70,6 +70,8 @@ args = ["engine/soft/soft3d.py",
         "-out_dir=result/case3-0921-soft85w-AMG",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol_Axb=1e-8",
+        "-rtol=1e-2"
         ]
 allargs.append(args)
 

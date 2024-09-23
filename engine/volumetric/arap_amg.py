@@ -1436,22 +1436,31 @@ def compute_R_and_P_kmeans(ist):
     return R, P
 
 
-def create_another_outdir(dir):
-    path = Path(dir)
+def create_another_outdir(out_dir):
+    import re
+    path = Path(out_dir)
     if path.exists():
-        # add a number to the end of the folder name
-        path = path.parent / (path.name + "_1")
-        if path.exists():
-            i = 2
-            while True:
-                path = path.parent / (path.name[:-2] + f"_{i}")
-                if not path.exists():
-                    break
-                i += 1
+        # 使用正则表达式匹配文件夹名称中的数字后缀
+        base_name = path.name
+        match = re.search(r'_(\d+)$', base_name)
+        if match:
+            base_name = base_name[:match.start()]
+            i = int(match.group(1)) + 1
+        else:
+            base_name = base_name
+            i = 1
+
+        while True:
+            new_name = f"{base_name}_{i}"
+            path = path.parent / new_name
+            if not path.exists():
+                break
+            i += 1
+
     path.mkdir(parents=True, exist_ok=True)
-    dir = str(path)
-    print(f"\ncreate another outdir: {dir}\n")
-    return dir
+    out_dir = str(path)
+    print(f"\ncreate another outdir: {out_dir}\n")
+    return out_dir
 
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #

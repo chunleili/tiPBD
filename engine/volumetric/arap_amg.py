@@ -38,12 +38,14 @@ parser.add_argument(
 parser.add_argument("--model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
 parser.add_argument("--kmeans_k", type=int, default=1000)
 parser.add_argument("--auto_another_outdir", type=int, default=False)
+parser.add_argument("--out_dir", type=str, default=f"result/latest/")
 
 
 
 export_mesh = True
 proj_dir_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-out_dir = proj_dir_path + "/result/latest/"
+# out_dir = proj_dir_path + "/result/latest/"
+out_dir = parser.parse_args().out_dir
 stop_frame = 50
 export_matrix = True
 

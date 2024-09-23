@@ -638,12 +638,13 @@ def compute_C_and_gradC_kernel(
         F = D_s @ B[t]
         U, S, V = ti.svd(F)
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
-        g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
-        g0_ = g0/g0.norm()
-        g1_ = g1/g1.norm()
-        g2_ = g2/g2.norm()
-        g3_ = g3/g3.norm()
-        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0_, g1_, g2_, g3_
+        gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
+        # g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
+        # g0_ = g0/g0.norm()
+        # g1_ = g1/g1.norm()
+        # g2_ = g2/g2.norm()
+        # g3_ = g3/g3.norm()
+        # gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0_, g1_, g2_, g3_
 
 
 
@@ -1804,8 +1805,8 @@ def create_another_outdir(out_dir):
     return out_dir
 
 
-def ending(timer_loop, start_date, initial_frame, t_export_total):
-    global n_outer_all
+def ending(timer_loop, start_date, initial_frame):
+    global n_outer_all, t_export_total
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     args.end_frame = meta.frame

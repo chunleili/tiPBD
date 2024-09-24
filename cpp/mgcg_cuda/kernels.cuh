@@ -149,6 +149,172 @@ __global__ void fill_A_CSR_soft_kernel(
 
 
 
+// intersect
+/// 求两个长度为4的数组的交集
+/// @param a: 4个顶点的id
+/// @param b: 4个顶点的id
+/// @return n: 有几个共享的顶点， 0, 1, 2, 3
+/// @return shared_v: 共享的顶点id, 最多有三个共享的顶点，分别是shared_v[0], shared_v[1], shared_v[2]
+/// @return o1: 共享的顶点是当前ele的第几个顶点，分别对应三个共享的顶点
+/// @return o2: 共享的顶点是邻接ele的第几个顶点，分别对应三个共享的顶点
+__device__ int inline d_compare_find_shared_4x4(int* a, int* b, int* shared_v, int* o1, int* o2)
+{
+    int n=0; 
+    for(int i=0; i<4; i++)
+    {
+        for(int j=0; j<4; j++)
+        {
+            if(a[i] == b[j])
+            {
+                shared_v[n] = a[i];
+                o1[n] = i;
+                o2[n] = j;
+                n++;
+            }
+        }
+    }
+    return n;
+}
+
+    // # 求两个长度为4的数组的交集
+    // @ti.func
+    // def intersect(a, b):   
+    //     # a,b: 4个顶点的id, e:当前ele的id
+    //     k=0 # 第几个共享的顶点， 0, 1, 2, 3
+    //     c = ti.Vector([-1,-1,-1])         # 共享的顶点id存在c中
+    //     order = ti.Vector([-1,-1,-1])     # 共享的顶点是当前ele的第几个顶点
+    //     order2 = ti.Vector([-1,-1,-1])    # 共享的顶点是邻接ele的第几个顶点
+    //     for i in ti.static(range(4)):     # i:当前ele的第i个顶点
+    //         for j in ti.static(range(4)): # j:邻接ele的第j个顶点
+    //             if a[i] == b[j]:
+    //                 c[k] = a[i]         
+    //                 order[k] = i          
+    //                 order2[k] = j
+    //                 k += 1
+    //     return k, c, order, order2
+
+
+__global__ void fill_A_CSR_soft_lessmem_kernel(
+    float *data,
+    const int *indptr,
+    const int *indices,
+    const int *ii,
+    const int *jj,
+    const int nnz,
+    const float *inv_mass,
+    const float *alpha_tilde,
+    const int NV,
+    const int NT,
+    const int MAX_ADJ,
+    const int *tet,
+    const float *pos,
+    const float *gradC
+    )
+    // const int *adjacent,
+    // const int *num_adjacent,
+    // const int * n_shared_v,
+    // const int * shared_v,
+    // const int8_t * shared_v_order_in_cur,
+    // const int8_t * shared_v_order_in_adj
+    // )
+{
+    size_t cnt = blockIdx.x * blockDim.x + threadIdx.x;
+
+
+    if(cnt >= nnz)
+    {
+        return;
+    }
+
+    int i = ii[cnt]; // row index
+    int j = jj[cnt]; // col index
+
+
+    if(i==j) // diag
+    {
+        float m1 = inv_mass[tet[i*4 + 0]];
+        float m2 = inv_mass[tet[i*4 + 1]];
+        float m3 = inv_mass[tet[i*4 + 2]];
+        float m4 = inv_mass[tet[i*4 + 3]];
+        float alpha = alpha_tilde[i];
+        float3 g1 = make_float3(gradC[i*4*3 + 0*3 + 0], gradC[i*4*3 + 0*3 + 1], gradC[i*4*3 + 0*3 + 2]);
+        float3 g2 = make_float3(gradC[i*4*3 + 1*3 + 0], gradC[i*4*3 + 1*3 + 1], gradC[i*4*3 + 1*3 + 2]);
+        float3 g3 = make_float3(gradC[i*4*3 + 2*3 + 0], gradC[i*4*3 + 2*3 + 1], gradC[i*4*3 + 2*3 + 2]);
+        float3 g4 = make_float3(gradC[i*4*3 + 3*3 + 0], gradC[i*4*3 + 3*3 + 1], gradC[i*4*3 + 3*3 + 2]);
+        float diag = m1* d_norm_sqr(g1) + m2* d_norm_sqr(g2) + m3* d_norm_sqr(g3) + m4* d_norm_sqr(g4) + alpha;
+        data[cnt] = diag;
+    }
+    else // offdiag 
+    {
+        int k = cnt - indptr[i]; // k-th element in row i
+
+        float offdiag = 0.0;
+
+        int a[4] = {tet[i*4 + 0], tet[i*4 + 1], tet[i*4 + 2], tet[i*4 + 3]};
+        int b[4] = {tet[j*4 + 0], tet[j*4 + 1], tet[j*4 + 2], tet[j*4 + 3]};
+        int shared_v[3] = {-1,-1,-1};
+        int shared_v_order_in_cur[3] = {-1,-1,-1};
+        int shared_v_order_in_adj[3] = {-1,-1,-1};
+
+        int n_shared_v = d_compare_find_shared_4x4(a, b, shared_v, shared_v_order_in_cur, shared_v_order_in_adj);
+
+        // for(int kv=0; kv < n_shared_v[i* MAX_ADJ + k]; kv++)
+        for(int kv=0; kv < n_shared_v; kv++) //kv: 第几个共享的顶点 0, 1, 2 最多有三个共享的顶点
+        {
+            int o1 = shared_v_order_in_cur[kv]; // shared vertex order in current tet
+            int o2 = shared_v_order_in_adj[kv]; // shared vertex order in adjacent tet
+            int sv = shared_v[kv]; // shared vertex index
+
+            // int o1 = shared_v_order_in_cur[i* MAX_ADJ* 3 + k * 3 + kv]; // shared vertex order in current tet
+            // int o2 = shared_v_order_in_adj[i* MAX_ADJ* 3 + k * 3 + kv]; // shared vertex order in adjacent tet
+            // int sv = shared_v[i* MAX_ADJ* 3 + k * 3 + kv]; // shared vertex index
+            float sm = inv_mass[sv]; //shared vertex inv mass
+            float3 go1 = make_float3(gradC[i*4*3 + o1*3 + 0], gradC[i*4*3 + o1*3 + 1], gradC[i*4*3 + o1*3 + 2]);
+            float3 go2 = make_float3(gradC[j*4*3 + o2*3 + 0], gradC[j*4*3 + o2*3 + 1], gradC[j*4*3 + o2*3 + 2]);
+            offdiag += sm * d_dot(go1, go2);
+        }
+        data[cnt] = offdiag;
+    }
+}
+
+// def fill_A_lessmem_kernel(v2e, num_v2e, ii, jj, vv, pos, edge, inv_mass):
+//     cnt=0
+//     for v in range(NV):
+//         es = v2e[v] # a list of edges
+//         if inv_mass[v] == 0: # no mass, no force
+//             continue
+//         if num_v2e[v] == 0: #only one edge, no shared edge
+//             continue
+//         else:
+//             for i in range(num_v2e[v]):
+//                 for j in range(num_v2e[v]):
+//                     if i == j:
+//                         continue
+//                     e1 = es[i]
+//                     e2 = es[j]
+
+//                     o1,o2 = compare_find_shared_v_order(v,e1,e2,edge)
+//                     o1 = 1-o1 # 0->1, 1->0, because we want to find the other point
+//                     o2 = 1-o2
+
+//                     g1 = normalize(pos[v] - pos[edge[e1][o1]])
+//                     g2 = normalize(pos[v] - pos[edge[e2][o2]])
+
+//                     ii[cnt]=e1
+//                     jj[cnt]=e2 # A[e1, e2]
+//                     vv[cnt] = inv_mass[v] * g1.dot(g2) 
+//                     cnt+=1
+
+//     # diagonal
+//     for i in range(NE):
+//         ii[cnt]=i
+//         jj[cnt]=i
+//         vv[cnt]=inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+//         cnt+=1
+
+
+
+
 
 
 // weighted Jacobi for csr matrix

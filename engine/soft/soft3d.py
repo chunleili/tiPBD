@@ -33,7 +33,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
 # "data/model/cube/minicube.node"
 # "data/model/bunny1k2k/coarse.node"
 # "data/model/bunny_small/bunny_small.node"
@@ -69,6 +69,7 @@ out_dir = args.out_dir
 Path(out_dir).mkdir(parents=True, exist_ok=True)
 build_P_method = args.build_P_method
 use_cuda = args.use_cuda
+use_lessmem = True
 
 t_export = 0.0
 
@@ -123,9 +124,10 @@ def init_extlib_argtypes():
 
     extlib.fastFillSoft_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, arr_float]
     extlib.fastFillSoft_fetch_A_data.argtypes = [arr_float]
-    extlib.fastFillSoft_init_from_python_cache.argtypes = [c_int]*2 + [arr2d_int]  +  [arr_int] + [arr_float] + [arr_int]*4 + [c_int] + [arr_int] + [arr2d_int] + [arr3d_int] + [arr3d_int8]*2
+
     extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
 
+    extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
 
     extlib.fastmg_new()
 
@@ -1975,24 +1977,94 @@ def csr_index_to_coo_index(indptr, indices):
 
 
 def initFill_tocuda(ist):
-    extlib.fastFillSoft_init_from_python_cache(
-        ist.NT,
-        ist.MAX_ADJ,
-        ist.adjacent,
-        ist.num_adjacent,
-        ist.data,
-        ist.indices,
-        ist.indptr,
-        ist.ii,
-        ist.jj,
-        ist.nnz,
-        ist.nnz_each_row,
-        ist.n_shared_v,
-        ist.shared_v,
-        ist.shared_v_order_in_cur,
-        ist.shared_v_order_in_adj,
-    )
+    if not use_lessmem:
+        extlib.fastFillSoft_init_from_python_cache.argtypes = [c_int]*2 + [arr2d_int]  +  [arr_int] + [arr_float] + [arr_int]*4 + [c_int] + [arr_int] + [arr2d_int] + [arr3d_int] + [arr3d_int8]*2
+    if use_lessmem:
+        extlib.fastFillSoft_init_from_python_cache_lessmem.argtypes = [c_int]*2  + [arr_float] + [arr_int]*4 + [c_int]
+
+    if not use_lessmem:
+        extlib.fastFillSoft_init_from_python_cache(
+            ist.NT,
+            ist.MAX_ADJ,
+            ist.adjacent,
+            ist.num_adjacent,
+            ist.data,
+            ist.indices,
+            ist.indptr,
+            ist.ii,
+            ist.jj,
+            ist.nnz,
+            ist.nnz_each_row,
+            ist.n_shared_v,
+            ist.shared_v,
+            ist.shared_v_order_in_cur,
+            ist.shared_v_order_in_adj,
+        )
+    else:
+        extlib.fastFillSoft_init_from_python_cache_lessmem(
+            ist.NT,
+            ist.MAX_ADJ,
+            ist.data,
+            ist.indices,
+            ist.indptr,
+            ist.ii,
+            ist.jj,
+            ist.nnz)
     extlib.fastFillSoft_set_data(ist.tet_indices.to_numpy(), ist.NT, ist.inv_mass.to_numpy(), ist.NV, ist.pos.to_numpy(), ist.alpha_tilde.to_numpy())
+
+
+def mem_usage():
+    # 内存占用（字节）
+    data_memory = ist.data.nbytes
+    indices_memory = ist.indices.nbytes
+    indptr_memory = ist.indptr.nbytes
+    ii_memory = ist.ii.nbytes
+    jj_memory = ist.jj.nbytes
+    total_memory = data_memory + indices_memory + indptr_memory + ii_memory + jj_memory 
+    if not use_lessmem:
+        adjacent_memory = ist.adjacent.nbytes
+        num_adjacent_memory = ist.num_adjacent.nbytes
+        nnz_each_row_memory = ist.nnz_each_row.nbytes
+        n_shared_v_memory = ist.n_shared_v.nbytes
+        shared_v_memory = ist.shared_v.nbytes
+        shared_v_order_in_cur_memory = ist.shared_v_order_in_cur.nbytes
+        shared_v_order_in_adj_memory = ist.shared_v_order_in_adj.nbytes
+        total_memory += nnz_each_row_memory + n_shared_v_memory + shared_v_memory + shared_v_order_in_cur_memory + shared_v_order_in_adj_memory
+
+    # 将字节转换为GB
+    def bytes_to_gb(bytes):
+        return bytes / (1024 ** 3)
+
+    data_memory_gb = bytes_to_gb(data_memory)
+    indices_memory_gb = bytes_to_gb(indices_memory)
+    indptr_memory_gb = bytes_to_gb(indptr_memory)
+    ii_memory_gb = bytes_to_gb(ii_memory)
+    jj_memory_gb = bytes_to_gb(jj_memory)
+    if not use_lessmem:
+        adjacent_memory_gb = bytes_to_gb(adjacent_memory)
+        num_adjacent_memory_gb = bytes_to_gb(num_adjacent_memory)
+        nnz_each_row_memory_gb = bytes_to_gb(nnz_each_row_memory)
+        n_shared_v_memory_gb = bytes_to_gb(n_shared_v_memory)
+        shared_v_memory_gb = bytes_to_gb(shared_v_memory)
+        shared_v_order_in_cur_memory_gb = bytes_to_gb(shared_v_order_in_cur_memory)
+        shared_v_order_in_adj_memory_gb = bytes_to_gb(shared_v_order_in_adj_memory)
+    total_memory_gb = bytes_to_gb(total_memory)
+
+    # 打印每个数组的内存占用和总内存占用（GB）
+    print(f"data memory: {data_memory_gb:.2f} GB")
+    print(f"indices memory: {indices_memory_gb:.2f} GB")
+    print(f"indptr memory: {indptr_memory_gb:.2f} GB")
+    print(f"ii memory: {ii_memory_gb:.2f} GB")
+    print(f"jj memory: {jj_memory_gb:.2f} GB")
+    if not use_lessmem:
+        print(f"adjacent memory: {adjacent_memory_gb:.2f} GB")
+        print(f"num_adjacent memory: {num_adjacent_memory_gb:.2f} GB")
+        print(f"nnz_each_row memory: {nnz_each_row_memory_gb:.2f} GB")
+        print(f"n_shared_v memory: {n_shared_v_memory_gb:.2f} GB")
+        print(f"shared_v memory: {shared_v_memory_gb:.2f} GB")
+        print(f"shared_v_order_in_cur memory: {shared_v_order_in_cur_memory_gb:.2f} GB")
+        print(f"shared_v_order_in_adj memory: {shared_v_order_in_adj_memory_gb:.2f} GB")
+    print(f"Total memory: {total_memory_gb:.2f} GB")
 
 
 def init_direct_fill_A(ist):
@@ -2001,39 +2073,39 @@ def init_direct_fill_A(ist):
         tic = perf_counter()
         print(f"Found cache {cache_file_name}. Loading cached data...")
         npzfile = np.load(cache_file_name)
-        adjacent = npzfile['adjacent']
-        num_adjacent = npzfile['num_adjacent']
         data = npzfile['data']
         indices = npzfile['indices']
         indptr = npzfile['indptr']
         ii = npzfile['ii']
         jj = npzfile['jj']
         nnz = int(npzfile['nnz'])
-        nnz_each_row = npzfile['nnz_each_row']
-        n_shared_v = npzfile['n_shared_v']
-        shared_v = npzfile['shared_v']
-        shared_v_order_in_cur = npzfile['shared_v_order_in_cur']
-        shared_v_order_in_adj = npzfile['shared_v_order_in_adj']
-        ist.adjacent = adjacent
-        ist.num_adjacent = num_adjacent
+        if not use_lessmem:
+            adjacent = npzfile['adjacent']
+            num_adjacent = npzfile['num_adjacent']
+            nnz_each_row = npzfile['nnz_each_row']
+            n_shared_v = npzfile['n_shared_v']
+            shared_v = npzfile['shared_v']
+            shared_v_order_in_cur = npzfile['shared_v_order_in_cur']
+            shared_v_order_in_adj = npzfile['shared_v_order_in_adj']
+            ist.adjacent = adjacent
+            ist.num_adjacent = num_adjacent
         ist.data = data
         ist.indices = indices
         ist.indptr = indptr
         ist.ii = ii
         ist.jj = jj
         ist.nnz = int(nnz)
-        ist.nnz_each_row = nnz_each_row
-        ist.n_shared_v = n_shared_v
-        ist.shared_v = shared_v
-        ist.shared_v_order_in_cur = shared_v_order_in_cur
-        ist.shared_v_order_in_adj = shared_v_order_in_adj
-        ist.MAX_ADJ = adjacent.shape[1]
-        print(f"MAX_ADJ: {adjacent.shape[1]}")
-        AVG_ADJ = np.mean(num_adjacent)
-        MAX_ADJ = max(num_adjacent)
-        np.savetxt("num_adjacent.txt", num_adjacent, fmt="%d")
-        print(f"MAX_ADJ: {MAX_ADJ}")
-        print(f"AVG_ADJ: {AVG_ADJ}")
+        ist.MAX_ADJ = int(npzfile['MAX_ADJ'])
+        print(f"MAX_ADJ: {ist.MAX_ADJ}")
+        if not use_lessmem:
+            ist.nnz_each_row = nnz_each_row
+            ist.n_shared_v = n_shared_v
+            ist.shared_v = shared_v
+            ist.shared_v_order_in_cur = shared_v_order_in_cur
+            ist.shared_v_order_in_adj = shared_v_order_in_adj
+            AVG_ADJ = np.mean(num_adjacent)
+            print(f"AVG_ADJ: {AVG_ADJ}")
+        mem_usage()
         if args.use_cuda:
             initFill_tocuda(ist)
         print(f"Loading cache time: {perf_counter()-tic:.3f}s")
@@ -2064,41 +2136,98 @@ def init_direct_fill_A(ist):
     print(f"dict_to_ndarr time: {perf_counter()-tic:.3f}s")
 
     tic = perf_counter()
-    n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
+    if not use_lessmem:
+        n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
     print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
     print(f"initFill done")
 
     # for now, we save them to the instance
-    ist.MAX_ADJ = adjacent.shape[1]
-    ist.adjacent = adjacent
-    ist.num_adjacent = num_adjacent
+    ist.MAX_ADJ = MAX_ADJ
     ist.data = data
     ist.indices = indices
     ist.indptr = indptr
     ist.ii = ii
     ist.jj = jj
     ist.nnz = nnz
-    ist.nnz_each_row = nnz_each_row
-    ist.n_shared_v = n_shared_v
-    ist.shared_v = shared_v
-    ist.shared_v_order_in_cur = shared_v_order_in_cur
-    ist.shared_v_order_in_adj = shared_v_order_in_adj
-
+    if not use_lessmem:
+        ist.adjacent = adjacent
+        ist.num_adjacent = num_adjacent
+        ist.nnz_each_row = nnz_each_row
+        ist.n_shared_v = n_shared_v
+        ist.shared_v = shared_v
+        ist.shared_v_order_in_cur = shared_v_order_in_cur
+        ist.shared_v_order_in_adj = shared_v_order_in_adj
+    mem_usage()
 
     if args.use_cache:
         print(f"Saving cache to {cache_file_name}...")
-        np.savez(cache_file_name, adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
+        if not use_lessmem:
+            np.savez(cache_file_name, adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
+        else:
+            np.savez(cache_file_name, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, MAX_ADJ=MAX_ADJ)
         print(f"{cache_file_name} saved")
     if args.use_cuda:
         initFill_tocuda(ist)
 
 
 def fill_A_csr_ti(ist):
-    fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.adjacent, ist.num_adjacent, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
+    if not use_lessmem:
+        fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
+    else:
+        fill_A_csr_lessmem_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices)
     A = scipy.sparse.csr_matrix((ist.data, ist.indices, ist.indptr), shape=(ist.NT, ist.NT))
     return A
 
 
+# 求两个长度为4的数组的交集
+@ti.func
+def intersect(a, b):   
+    # a,b: 4个顶点的id, e:当前ele的id
+    k=0 # 第几个共享的顶点， 0, 1, 2, 3
+    c = ti.Vector([-1,-1,-1])         # 共享的顶点id存在c中
+    order = ti.Vector([-1,-1,-1])     # 共享的顶点是当前ele的第几个顶点
+    order2 = ti.Vector([-1,-1,-1])    # 共享的顶点是邻接ele的第几个顶点
+    for i in ti.static(range(4)):     # i:当前ele的第i个顶点
+        for j in ti.static(range(4)): # j:邻接ele的第j个顶点
+            if a[i] == b[j]:
+                c[k] = a[i]         
+                order[k] = i          
+                order2[k] = j
+                k += 1
+    return k, c, order, order2
+
+# for cnt version, require init_A_CSR_pattern() to be called first
+@ti.kernel
+def fill_A_csr_lessmem_kernel(data:ti.types.ndarray(dtype=ti.f32), 
+                      indptr:ti.types.ndarray(dtype=ti.i32), 
+                      ii:ti.types.ndarray(dtype=ti.i32), 
+                      jj:ti.types.ndarray(dtype=ti.i32),
+                      nnz:ti.i32,
+                      alpha_tilde:ti.template(),
+                      inv_mass:ti.template(),
+                      gradC:ti.template(),
+                      ele: ti.template()
+                    ):
+    for n in range(nnz):
+        i = ii[n] # row index,  current element id
+        j = jj[n] # col index,  adjacent element id, adj_id
+        k = n - indptr[i] # k: 第几个非零元
+        if i == j: # diag
+            m1,m2,m3,m4 = inv_mass[ele[i][0]], inv_mass[ele[i][1]], inv_mass[ele[i][2]], inv_mass[ele[i][3]]
+            g1,g2,g3,g4 = gradC[i,0], gradC[i,1], gradC[i,2], gradC[i,3]
+            data[n] = m1*g1.norm_sqr() + m2*g2.norm_sqr() + m3*g3.norm_sqr() + m4*g4.norm_sqr() + alpha_tilde[i]
+            continue
+        offdiag=0.0
+        n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj = intersect(ele[i], ele[j])
+        for kv in range(n_shared_v): #kv 第几个共享点
+            o1 = shared_v_order_in_cur[kv]
+            o2 = shared_v_order_in_adj[kv]
+            sv = shared_v[kv]  #sv: 共享的顶点id    shared vertex
+            sm = inv_mass[sv]      #sm: 共享的顶点的质量倒数 shared inv mass
+            offdiag += sm*gradC[i,o1].dot(gradC[j,o2])
+        data[n] = offdiag
+
+    
 # for cnt version, require init_A_CSR_pattern() to be called first
 @ti.kernel
 def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32), 
@@ -2110,8 +2239,6 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
                       inv_mass:ti.template(),
                       gradC:ti.template(),
                       ele: ti.template(),
-                      adj: ti.types.ndarray(),
-                      nadj:ti.types.ndarray(),
                       n_shared_v:ti.types.ndarray(),
                       shared_v:ti.types.ndarray(),
                       shared_v_order_in_cur:ti.types.ndarray(),

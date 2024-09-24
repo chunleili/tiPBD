@@ -31,6 +31,8 @@
 using std::cout;
 using std::endl;
 
+#define USE_LESSMEM 1
+
 
 namespace {
 
@@ -972,15 +974,18 @@ struct FastFillSoft : Kernels {
     int num_nonz;
     int nrows, ncols;
     Vec<float> d_inv_mass;
-    Vec<int> d_ii, d_jj;
+    Vec<int> d_ii;
     Vec<float> d_pos;
-    Vec<int> d_adjacent;
-    Vec<int> d_num_adjacent;
+    #ifndef USE_LESSMEM
+    Vec<int> d_jj; //dont need jj, it is the same as indices
+    Vec<int> d_adjacent;   
+    Vec<int> d_num_adjacent; 
     Vec<int> d_n_shared_v;
     Vec<int> d_shared_v;
     Vec<int8_t> d_shared_v_order_in_cur;
     Vec<int8_t> d_shared_v_order_in_adj;
     Vec<int> d_nnz_each_row;
+    #endif
     Vec<int> d_tet;
     Vec<float> d_gradC;
     Vec<float> d_alpha_tilde;
@@ -1010,7 +1015,7 @@ struct FastFillSoft : Kernels {
         // debug_cuda_vec(d_pos, "d_pos");
     }
 
-
+    #ifndef USE_LESSMEM
     void init_from_python_cache_v2(
         const int NT_in,
         const int MAX_ADJ_in,
@@ -1049,7 +1054,7 @@ struct FastFillSoft : Kernels {
 
         cout<<"Finish load python cache to cuda."<<endl;
     }
-
+    #endif
 
     void init_from_python_cache_lessmem(
         const int NT_in,
@@ -1058,9 +1063,9 @@ struct FastFillSoft : Kernels {
         const int* indices_in,
         const int* indptr_in,
         const int* ii_in,
-        const int* jj_in,
         const int num_nonz_in
         )
+        // const int* jj_in, //jj is the same as indicies
         // const int* nnz_each_row_in
         // const int* adjacent_in,
         // const int* num_adjacent_in,
@@ -1077,7 +1082,7 @@ struct FastFillSoft : Kernels {
         nrows = NT;
         A.assign_v2(data_in, indices_in, indptr_in, NT, NT, num_nonz);
         d_ii.assign(ii_in, num_nonz_in);
-        d_jj.assign(jj_in, num_nonz_in);
+        // d_jj.assign(jj_in, num_nonz_in);
         // d_nnz_each_row.assign(nnz_each_row_in, NT);
         // d_num_adjacent.assign(num_adjacent_in, NT);
         // d_adjacent.assign(adjacent_in, NT*MAX_ADJ);
@@ -1114,34 +1119,35 @@ struct FastFillSoft : Kernels {
         // auto v11_ = debug_cuda_vec(d_shared_v_order_in_cur, "d_shared_v_order_in_cur");
         // auto v12_ = debug_cuda_vec(d_shared_v_order_in_adj, "d_shared_v_order_in_adj");
 
-        // fill_A_CSR_soft_kernel<<<num_nonz / 256 + 1, 256>>>(
-        //         A.data.data(),
-        //         A.indptr.data(),
-        //         A.indices.data(),
-        //         d_ii.data(),
-        //         d_jj.data(),
-        //         d_adjacent.data(),
-        //         d_num_adjacent.data(),
-        //         num_nonz,
-        //         d_inv_mass.data(),
-        //         d_alpha_tilde.data(),
-        //         NV,
-        //         NT,
-        //         MAX_ADJ,
-        //         d_tet.data(),
-        //         d_pos.data(),
-        //         d_gradC.data(),
-        //         d_n_shared_v.data(),
-        //         d_shared_v.data(),
-        //         d_shared_v_order_in_cur.data(),
-        //         d_shared_v_order_in_adj.data()
-        // );
-        fill_A_CSR_soft_lessmem_kernel<<<num_nonz / 256 + 1, 256>>>(
+        #ifndef USE_LESSMEM
+        fill_A_CSR_soft_kernel<<<num_nonz / 256 + 1, 256>>>(
                 A.data.data(),
                 A.indptr.data(),
                 A.indices.data(),
                 d_ii.data(),
                 d_jj.data(),
+                d_adjacent.data(),
+                d_num_adjacent.data(),
+                num_nonz,
+                d_inv_mass.data(),
+                d_alpha_tilde.data(),
+                NV,
+                NT,
+                MAX_ADJ,
+                d_tet.data(),
+                d_pos.data(),
+                d_gradC.data(),
+                d_n_shared_v.data(),
+                d_shared_v.data(),
+                d_shared_v_order_in_cur.data(),
+                d_shared_v_order_in_adj.data()
+        );
+        #else
+        fill_A_CSR_soft_lessmem_kernel<<<num_nonz / 256 + 1, 256>>>(
+                A.data.data(),
+                A.indptr.data(),
+                A.indices.data(), //jj is the same as indices
+                d_ii.data(),
                 num_nonz,
                 d_inv_mass.data(),
                 d_alpha_tilde.data(),
@@ -1152,6 +1158,7 @@ struct FastFillSoft : Kernels {
                 d_pos.data(),
                 d_gradC.data()
         );
+        #endif
         cudaDeviceSynchronize();
         launch_check();
         
@@ -1827,7 +1834,7 @@ extern "C" DLLEXPORT void fastFillSoft_set_data(int* tet_in, int NT_in, float* i
     fastFillSoft->set_data_v2(tet_in, NT_in, inv_mass_in, NV_in, pos_in, alpha_tilde_in);
 }
 
-
+#ifndef USE_LESSMEM
 extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache(
         const int NT_in,
         const int MAX_ADJ_in,
@@ -1864,7 +1871,7 @@ extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache(
         shared_v_order_in_adj
         );
 }
-
+#endif
 
 
 extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache_lessmem(
@@ -1874,7 +1881,6 @@ extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache_lessmem(
         const int* indices_in,
         const int* indptr_in,
         const int* ii_in,
-        const int* jj_in,
         const int num_nonz_in
         )
 {
@@ -1885,7 +1891,6 @@ extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache_lessmem(
         indices_in,
         indptr_in,
         ii_in,
-        jj_in,
         num_nonz_in
         );
 }

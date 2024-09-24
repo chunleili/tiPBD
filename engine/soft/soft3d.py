@@ -33,7 +33,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
 # "data/model/cube/minicube.node"
 # "data/model/bunny1k2k/coarse.node"
 # "data/model/bunny_small/bunny_small.node"
@@ -62,6 +62,8 @@ parser.add_argument("-reinit", type=str, default="enlarge", choices=["", "random
 parser.add_argument("-tol", type=float, default=1e-4)
 parser.add_argument("-rtol", type=float, default=1e-4)
 parser.add_argument("-tol_Axb", type=float, default=1e-5)
+parser.add_argument("-large", action="store_true")
+parser.add_argument("-samll", action="store_true")
 
 args = parser.parse_args()
 
@@ -70,6 +72,10 @@ Path(out_dir).mkdir(parents=True, exist_ok=True)
 build_P_method = args.build_P_method
 use_cuda = args.use_cuda
 use_lessmem = True
+if args.large:
+    args.model_path = f"data/model/bunny85w/bunny85w.node"
+if args.samll:
+    args.model_path = f"data/model/bunny1k2k/coarse.node"
 
 t_export = 0.0
 
@@ -1894,7 +1900,7 @@ def init_adj_ele(eles):
         adjacent_eles = vertex_to_eles[v1] | vertex_to_eles[v2] | vertex_to_eles[v3] | vertex_to_eles[v4]
         adjacent_eles.remove(ele_index)  # 移除本身
         all_adjacent_eles[ele_index] = list(adjacent_eles)
-    return all_adjacent_eles
+    return all_adjacent_eles, vertex_to_eles
 
 
 def init_adj_ele_ti(eles):
@@ -1980,7 +1986,7 @@ def initFill_tocuda(ist):
     if not use_lessmem:
         extlib.fastFillSoft_init_from_python_cache.argtypes = [c_int]*2 + [arr2d_int]  +  [arr_int] + [arr_float] + [arr_int]*4 + [c_int] + [arr_int] + [arr2d_int] + [arr3d_int] + [arr3d_int8]*2
     if use_lessmem:
-        extlib.fastFillSoft_init_from_python_cache_lessmem.argtypes = [c_int]*2  + [arr_float] + [arr_int]*4 + [c_int]
+        extlib.fastFillSoft_init_from_python_cache_lessmem.argtypes = [c_int]*2  + [arr_float] + [arr_int]*3 + [c_int]
 
     if not use_lessmem:
         extlib.fastFillSoft_init_from_python_cache(
@@ -2008,55 +2014,40 @@ def initFill_tocuda(ist):
             ist.indices,
             ist.indptr,
             ist.ii,
-            ist.jj,
             ist.nnz)
     extlib.fastFillSoft_set_data(ist.tet_indices.to_numpy(), ist.NT, ist.inv_mass.to_numpy(), ist.NV, ist.pos.to_numpy(), ist.alpha_tilde.to_numpy())
 
 
 def mem_usage():
-    # 内存占用（字节）
-    data_memory = ist.data.nbytes
-    indices_memory = ist.indices.nbytes
-    indptr_memory = ist.indptr.nbytes
-    ii_memory = ist.ii.nbytes
-    jj_memory = ist.jj.nbytes
-    total_memory = data_memory + indices_memory + indptr_memory + ii_memory + jj_memory 
-    if not use_lessmem:
-        adjacent_memory = ist.adjacent.nbytes
-        num_adjacent_memory = ist.num_adjacent.nbytes
-        nnz_each_row_memory = ist.nnz_each_row.nbytes
-        n_shared_v_memory = ist.n_shared_v.nbytes
-        shared_v_memory = ist.shared_v.nbytes
-        shared_v_order_in_cur_memory = ist.shared_v_order_in_cur.nbytes
-        shared_v_order_in_adj_memory = ist.shared_v_order_in_adj.nbytes
-        total_memory += nnz_each_row_memory + n_shared_v_memory + shared_v_memory + shared_v_order_in_cur_memory + shared_v_order_in_adj_memory
-
+    # 内存占用
     # 将字节转换为GB
     def bytes_to_gb(bytes):
         return bytes / (1024 ** 3)
 
-    data_memory_gb = bytes_to_gb(data_memory)
-    indices_memory_gb = bytes_to_gb(indices_memory)
-    indptr_memory_gb = bytes_to_gb(indptr_memory)
-    ii_memory_gb = bytes_to_gb(ii_memory)
-    jj_memory_gb = bytes_to_gb(jj_memory)
+    if use_lessmem:
+        data_memory_gb = bytes_to_gb(ist.data.nbytes)
+        indices_memory_gb = bytes_to_gb(ist.indices.nbytes)
+        indptr_memory_gb = bytes_to_gb(ist.indptr.nbytes)
+        ii_memory_gb = bytes_to_gb(ist.ii.nbytes)
+        total_memory_gb = (data_memory_gb + indices_memory_gb + indptr_memory_gb + ii_memory_gb)
     if not use_lessmem:
-        adjacent_memory_gb = bytes_to_gb(adjacent_memory)
-        num_adjacent_memory_gb = bytes_to_gb(num_adjacent_memory)
-        nnz_each_row_memory_gb = bytes_to_gb(nnz_each_row_memory)
-        n_shared_v_memory_gb = bytes_to_gb(n_shared_v_memory)
-        shared_v_memory_gb = bytes_to_gb(shared_v_memory)
-        shared_v_order_in_cur_memory_gb = bytes_to_gb(shared_v_order_in_cur_memory)
-        shared_v_order_in_adj_memory_gb = bytes_to_gb(shared_v_order_in_adj_memory)
-    total_memory_gb = bytes_to_gb(total_memory)
+        jj_memory_gb = bytes_to_gb(ist.jj.nbytes)
+        adjacent_memory_gb = bytes_to_gb(ist.adjacent.nbytes)
+        num_adjacent_memory_gb = bytes_to_gb(ist.num_adjacent.nbytes)
+        nnz_each_row_memory_gb = bytes_to_gb(ist.nnz_each_row.nbytes)
+        n_shared_v_memory_gb = bytes_to_gb(ist.n_shared_v.nbytes)
+        shared_v_memory_gb = bytes_to_gb(ist.shared_v.nbytes)
+        shared_v_order_in_cur_memory_gb = bytes_to_gb(ist.shared_v_order_in_cur.nbytes)
+        shared_v_order_in_adj_memory_gb = bytes_to_gb(ist.shared_v_order_in_adj.nbytes)
+        total_memory_gb = (data_memory_gb+indices_memory_gb+indptr_memory_gb+ii_memory_gb+jj_memory_gb+adjacent_memory_gb+num_adjacent_memory_gb+nnz_each_row_memory_gb+n_shared_v_memory_gb+shared_v_memory_gb+shared_v_order_in_cur_memory_gb+shared_v_order_in_adj_memory_gb)
 
     # 打印每个数组的内存占用和总内存占用（GB）
     print(f"data memory: {data_memory_gb:.2f} GB")
     print(f"indices memory: {indices_memory_gb:.2f} GB")
     print(f"indptr memory: {indptr_memory_gb:.2f} GB")
     print(f"ii memory: {ii_memory_gb:.2f} GB")
-    print(f"jj memory: {jj_memory_gb:.2f} GB")
     if not use_lessmem:
+        print(f"jj memory: {jj_memory_gb:.2f} GB")
         print(f"adjacent memory: {adjacent_memory_gb:.2f} GB")
         print(f"num_adjacent memory: {num_adjacent_memory_gb:.2f} GB")
         print(f"nnz_each_row memory: {nnz_each_row_memory_gb:.2f} GB")
@@ -2073,30 +2064,23 @@ def init_direct_fill_A(ist):
         tic = perf_counter()
         print(f"Found cache {cache_file_name}. Loading cached data...")
         npzfile = np.load(cache_file_name)
-        data = npzfile['data']
-        indices = npzfile['indices']
-        indptr = npzfile['indptr']
-        ii = npzfile['ii']
-        jj = npzfile['jj']
-        nnz = int(npzfile['nnz'])
-        if not use_lessmem:
-            adjacent = npzfile['adjacent']
-            num_adjacent = npzfile['num_adjacent']
-            nnz_each_row = npzfile['nnz_each_row']
-            n_shared_v = npzfile['n_shared_v']
-            shared_v = npzfile['shared_v']
-            shared_v_order_in_cur = npzfile['shared_v_order_in_cur']
-            shared_v_order_in_adj = npzfile['shared_v_order_in_adj']
-            ist.adjacent = adjacent
-            ist.num_adjacent = num_adjacent
-        ist.data = data
-        ist.indices = indices
-        ist.indptr = indptr
-        ist.ii = ii
-        ist.jj = jj
-        ist.nnz = int(nnz)
+        ist.data = npzfile['data']
+        ist.indices = npzfile['indices']
+        ist.indptr = npzfile['indptr']
+        ist.ii = npzfile['ii']
+        ist.nnz = int(npzfile['nnz'])
+        ist.jj = ist.indices # No need to save jj,  indices is the same as jj
         ist.MAX_ADJ = int(npzfile['MAX_ADJ'])
         print(f"MAX_ADJ: {ist.MAX_ADJ}")
+        if not use_lessmem:
+            ist.jj = npzfile['jj']
+            ist.adjacent = npzfile['adjacent']
+            ist.num_adjacent = npzfile['num_adjacent']
+            ist.nnz_each_row = npzfile['nnz_each_row']
+            ist.n_shared_v = npzfile['n_shared_v']
+            ist.shared_v = npzfile['shared_v']
+            ist.shared_v_order_in_cur = npzfile['shared_v_order_in_cur']
+            ist.shared_v_order_in_adj = npzfile['shared_v_order_in_adj']
         if not use_lessmem:
             ist.nnz_each_row = nnz_each_row
             ist.n_shared_v = n_shared_v
@@ -2115,7 +2099,7 @@ def init_direct_fill_A(ist):
 
     tic1 = perf_counter()
     print("Initializing adjacent elements and abc...")
-    adjacent = init_adj_ele(eles=ist.tet_indices.to_numpy())
+    adjacent, v2e = init_adj_ele(eles=ist.tet_indices.to_numpy())
     # adjacent = init_adj_ele_ti(eles=ist.tet_indices)
     num_adjacent = np.array([len(v) for v in adjacent.values()])
     AVG_ADJ = np.mean(num_adjacent)
@@ -2164,7 +2148,7 @@ def init_direct_fill_A(ist):
         if not use_lessmem:
             np.savez(cache_file_name, adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
         else:
-            np.savez(cache_file_name, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, MAX_ADJ=MAX_ADJ)
+            np.savez(cache_file_name, data=data, indices=indices, indptr=indptr, ii=ii, nnz=nnz, MAX_ADJ=MAX_ADJ)
         print(f"{cache_file_name} saved")
     if args.use_cuda:
         initFill_tocuda(ist)

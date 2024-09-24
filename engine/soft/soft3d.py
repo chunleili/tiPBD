@@ -1894,7 +1894,7 @@ def init_adj_ele(eles):
         adjacent_eles = vertex_to_eles[v1] | vertex_to_eles[v2] | vertex_to_eles[v3] | vertex_to_eles[v4]
         adjacent_eles.remove(ele_index)  # 移除本身
         all_adjacent_eles[ele_index] = list(adjacent_eles)
-    return all_adjacent_eles
+    return all_adjacent_eles, vertex_to_eles
 
 
 def init_adj_ele_ti(eles):
@@ -2115,7 +2115,7 @@ def init_direct_fill_A(ist):
 
     tic1 = perf_counter()
     print("Initializing adjacent elements and abc...")
-    adjacent = init_adj_ele(eles=ist.tet_indices.to_numpy())
+    adjacent, v2e = init_adj_ele(eles=ist.tet_indices.to_numpy())
     # adjacent = init_adj_ele_ti(eles=ist.tet_indices)
     num_adjacent = np.array([len(v) for v in adjacent.values()])
     AVG_ADJ = np.mean(num_adjacent)

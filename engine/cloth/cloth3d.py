@@ -46,7 +46,7 @@ PXPBD_ksi = 1.0
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=16)
+parser.add_argument("-N", type=int, default=64)
 parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
@@ -228,6 +228,7 @@ class SpMat():
         self.jj = np.zeros(nnz, dtype=np.int32) #coo.col or csr.indices
         self.data = np.zeros(nnz, dtype=np.float32) #coo.data
         self.indptr = np.zeros(nrow+1, dtype=np.int32) # csr.indptr, start index of each row
+        self.indices = self.jj
 
         # number of non-zeros in each row
         self.nnz_row = np.zeros(nrow, dtype=np.int32) 
@@ -1517,7 +1518,7 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
         n += 1 
 
 
-def export_A_b(A,b,postfix="", binary=args.export_matrix_binary):
+def export_A_b(A,b,postfix=f"{frame}-{ite}", binary=args.export_matrix_binary):
     tic = time.perf_counter()
     dir = out_dir + "/A/"
     if binary:
@@ -1529,7 +1530,6 @@ def export_A_b(A,b,postfix="", binary=args.export_matrix_binary):
     else:
         scipy.io.mmwrite(dir + f"A_{postfix}.mtx", A, symmetry='symmetric')
         np.savetxt(dir + f"b_{postfix}.txt", b)
-    t_calc_residual += time.perf_counter()-tic
     print(f"    export_A_b time: {time.perf_counter()-tic:.3f}s")
     
 
@@ -1826,6 +1826,9 @@ def substep_all_solver():
             x, r_Axb = AMG_python(b)
         else:
             AMG_A()
+            if args.export_matrix:
+                A = fastFill_fetch()
+                export_A_b(A, b, f"{frame}-{ite}")
             if should_setup():
                 AMG_setup_phase()
             extlib.fastmg_set_A0_from_fastFillCloth()

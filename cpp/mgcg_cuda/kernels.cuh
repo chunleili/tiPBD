@@ -1,5 +1,7 @@
 #include <cuda_runtime.h>
 
+#define USE_LESSMEM 1
+
 // normalize(v1-v2)
 __device__ float3 inline d_normalize_diff(float3 v1, float3 v2)
 {
@@ -77,7 +79,7 @@ __global__ void fill_A_CSR_cloth_kernel(
 
 
 
-
+#ifndef USE_LESSMEM
 __global__ void fill_A_CSR_soft_kernel(
     float *data,
     const int *indptr,
@@ -145,7 +147,7 @@ __global__ void fill_A_CSR_soft_kernel(
         data[cnt] = offdiag;
     }
 }
-
+#endif
 
 
 
@@ -176,30 +178,12 @@ __device__ int inline d_compare_find_shared_4x4(int* a, int* b, int* shared_v, i
     return n;
 }
 
-    // # 求两个长度为4的数组的交集
-    // @ti.func
-    // def intersect(a, b):   
-    //     # a,b: 4个顶点的id, e:当前ele的id
-    //     k=0 # 第几个共享的顶点， 0, 1, 2, 3
-    //     c = ti.Vector([-1,-1,-1])         # 共享的顶点id存在c中
-    //     order = ti.Vector([-1,-1,-1])     # 共享的顶点是当前ele的第几个顶点
-    //     order2 = ti.Vector([-1,-1,-1])    # 共享的顶点是邻接ele的第几个顶点
-    //     for i in ti.static(range(4)):     # i:当前ele的第i个顶点
-    //         for j in ti.static(range(4)): # j:邻接ele的第j个顶点
-    //             if a[i] == b[j]:
-    //                 c[k] = a[i]         
-    //                 order[k] = i          
-    //                 order2[k] = j
-    //                 k += 1
-    //     return k, c, order, order2
-
 
 __global__ void fill_A_CSR_soft_lessmem_kernel(
     float *data,
     const int *indptr,
-    const int *indices,
+    const int *indices, //jj is the same as indices
     const int *ii,
-    const int *jj,
     const int nnz,
     const float *inv_mass,
     const float *alpha_tilde,
@@ -210,6 +194,7 @@ __global__ void fill_A_CSR_soft_lessmem_kernel(
     const float *pos,
     const float *gradC
     )
+    // const int *jj,
     // const int *adjacent,
     // const int *num_adjacent,
     // const int * n_shared_v,
@@ -227,7 +212,7 @@ __global__ void fill_A_CSR_soft_lessmem_kernel(
     }
 
     int i = ii[cnt]; // row index
-    int j = jj[cnt]; // col index
+    int j = indices[cnt]; // col index
 
 
     if(i==j) // diag
@@ -276,41 +261,6 @@ __global__ void fill_A_CSR_soft_lessmem_kernel(
         data[cnt] = offdiag;
     }
 }
-
-// def fill_A_lessmem_kernel(v2e, num_v2e, ii, jj, vv, pos, edge, inv_mass):
-//     cnt=0
-//     for v in range(NV):
-//         es = v2e[v] # a list of edges
-//         if inv_mass[v] == 0: # no mass, no force
-//             continue
-//         if num_v2e[v] == 0: #only one edge, no shared edge
-//             continue
-//         else:
-//             for i in range(num_v2e[v]):
-//                 for j in range(num_v2e[v]):
-//                     if i == j:
-//                         continue
-//                     e1 = es[i]
-//                     e2 = es[j]
-
-//                     o1,o2 = compare_find_shared_v_order(v,e1,e2,edge)
-//                     o1 = 1-o1 # 0->1, 1->0, because we want to find the other point
-//                     o2 = 1-o2
-
-//                     g1 = normalize(pos[v] - pos[edge[e1][o1]])
-//                     g2 = normalize(pos[v] - pos[edge[e2][o2]])
-
-//                     ii[cnt]=e1
-//                     jj[cnt]=e2 # A[e1, e2]
-//                     vv[cnt] = inv_mass[v] * g1.dot(g2) 
-//                     cnt+=1
-
-//     # diagonal
-//     for i in range(NE):
-//         ii[cnt]=i
-//         jj[cnt]=i
-//         vv[cnt]=inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-//         cnt+=1
 
 
 

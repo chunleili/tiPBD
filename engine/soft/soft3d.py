@@ -2080,8 +2080,6 @@ def init_direct_fill_A(ist):
             ist.shared_v = npzfile['shared_v']
             ist.shared_v_order_in_cur = npzfile['shared_v_order_in_cur']
             ist.shared_v_order_in_adj = npzfile['shared_v_order_in_adj']
-            ist.adjacent = adjacent
-            ist.num_adjacent = num_adjacent
         ist.MAX_ADJ = int(npzfile['MAX_ADJ'])
         print(f"MAX_ADJ: {ist.MAX_ADJ}")
         if not use_lessmem:

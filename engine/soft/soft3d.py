@@ -33,7 +33,7 @@ parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny85w/bunny85w.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
 # "data/model/cube/minicube.node"
 # "data/model/bunny1k2k/coarse.node"
 # "data/model/bunny_small/bunny_small.node"
@@ -62,6 +62,7 @@ parser.add_argument("-reinit", type=str, default="enlarge", choices=["", "random
 parser.add_argument("-tol", type=float, default=1e-4)
 parser.add_argument("-rtol", type=float, default=1e-4)
 parser.add_argument("-tol_Axb", type=float, default=1e-5)
+parser.add_argument("-which_model", type=str, default="")
 
 args = parser.parse_args()
 
@@ -70,6 +71,10 @@ Path(out_dir).mkdir(parents=True, exist_ok=True)
 build_P_method = args.build_P_method
 use_cuda = args.use_cuda
 use_lessmem = True
+if args.which_model == "bunny85w":
+    args.model_path = f"data/model/bunny85w/bunny85w.node"
+elif args.which_model == "coarse":
+    args.model_path = f"data/model/bunny1k2k/coarse.node"
 
 t_export = 0.0
 

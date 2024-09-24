@@ -2233,11 +2233,11 @@ def init():
             cache_and_initFill()
     logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
-    # colors, num_colors = graph_coloring(edge.to_numpy())
-    logging.info(f"start coloring")
-    tic = time.perf_counter()
-    colors = greedy_coloring(edge.to_numpy())
-    logging.info(f"end coloring, time: {time.perf_counter()-tic:.3f}s")
+    # # colors, num_colors = graph_coloring(edge.to_numpy())
+    # logging.info(f"start coloring")
+    # tic = time.perf_counter()
+    # colors = greedy_coloring(edge.to_numpy())
+    # logging.info(f"end coloring, time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:
         do_restart()

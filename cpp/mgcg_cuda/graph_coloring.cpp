@@ -289,7 +289,7 @@ std::unordered_map<int, int> greedyColoring(const std::unordered_map<int, std::u
 }
 
 
-int run(std::string model, int Ks, std::unordered_map<int, int>&result)
+int run(std::string model, int Ks_in, std::unordered_map<int, int>&result)
 {
     cout<<model<<endl;
     eleToDualGraph(model);
@@ -298,17 +298,20 @@ int run(std::string model, int Ks, std::unordered_map<int, int>&result)
 
     std::cout << "nodeNum: " << nodeNum << std::endl;
     std::cout << "edgeNum: " << edgeNum << std::endl;
-    for (int i = 0; i < lineGraphEdges.size(); i++) {
-        //std::cout << lineGraphEdges[i].vertex1 << " " << lineGraphEdges[i].vertex2 << std::endl;
-    }
+    // for (int i = 0; i < lineGraphEdges.size(); i++) {
+    //     std::cout << lineGraphEdges[i].vertex1 << " " << lineGraphEdges[i].vertex2 << std::endl;
+    // }
+    Ks=Ks_in; //FIXME: global variable may cause problem
     std::cout << "Ks: " << Ks << std::endl;
 
+    cout<<"Doing GraphCluster"<<endl;
     GraphCluster();
+    cout<<"Done GraphCluster"<<endl;
     
-    cout << "constraintTag:";
-    for (int i = 1; i <= nodeNum; i++){
-        cout << constraintTag[i] << " ";
-    }
+    // cout << "constraintTag:";
+    // for (int i = 1; i <= nodeNum; i++){
+    //     cout << constraintTag[i] << " ";
+    // }
     
     unordered_map<int, std::unordered_set<int>> graph_Clustered;
     for (int i = 1; i <= nodeNum; i++){
@@ -344,9 +347,10 @@ int main(int argc, char* argv[]) {
     auto model = argv[1];
 
     cout<<"input Ks:";
-    std::cin >> Ks;
+    int Ks_in;
+    std::cin >> Ks_in;
     std::unordered_map<int, int> result;
-    int color_num = run(model, Ks, result);
+    int color_num = run(model, Ks_in, result);
     
     std::ofstream outfile("color.txt");
     outfile << color_num << std::endl;
@@ -357,3 +361,20 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
+
+
+#if _WIN32
+#define DLLEXPORT __declspec(dllexport)
+#else
+#define DLLEXPORT
+#endif
+
+extern "C" DLLEXPORT int graph_coloring(const char* model, int* color) {
+    cout<<"model:"<<model<<endl;
+    std::unordered_map<int, int> result;
+    int color_num = run(model, 5, result);
+    for(int i = 1; i <=nodeNum; i++)
+        color[i-1] = result[constraintTag[i]];
+
+    return color_num;
+}

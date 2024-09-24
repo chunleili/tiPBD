@@ -20,7 +20,7 @@ project(fastmg LANGUAGES CXX CUDA)
 
 add_library(fastmg SHARED fastmg.cu kernels.cuh)
 target_link_libraries(fastmg PUBLIC cusparse cublas cusolver)
-target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
+# target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen)
 # set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 
@@ -31,7 +31,7 @@ target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
 option(cppmgxpbd "Build cpp mgxpbd" OFF)
 if(cppmgxpbd)
     add_executable(mgxpbd mgxpbd.cpp)
-    target_include_directories(mgxpbd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/eigen)
+    target_include_directories(mgxpbd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen)
 endif()
 
 option(test "Build test for debug" OFF)
@@ -49,3 +49,9 @@ if(initFillCloth)
     target_sources(fastmg PRIVATE initFillCloth.cpp)
 endif()
 
+
+set(graph_coloring ON)
+if(graph_coloring)
+    # add_executable(graph_coloring_main graph_coloring.cpp)
+    target_sources(fastmg PRIVATE graph_coloring.cpp)
+endif()

@@ -2304,6 +2304,20 @@ def init_adj_share_v_ti(adj, nadj, ele):
     return n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj
 
 
+def graph_coloring():
+    extlib.graph_coloring.argtypes = [ctypes.c_char_p, arr_int ]
+    extlib.restype = c_int
+    color = np.zeros(ist.NT, dtype=np.int32)
+    abs_path = os.path.abspath(args.model_path)
+    abs_path = abs_path.replace(".node", ".ele")
+    model = abs_path.encode('ascii')
+    tic = perf_counter()
+    ncolor = extlib.graph_coloring(model, color)
+    print(f"ncolor: {ncolor}")
+    print("color of tets:",color)
+    print(f"graph_coloring time: {perf_counter()-tic:.3f}s")
+    return ncolor, color
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -2322,6 +2336,8 @@ def main():
 
     ist = SoftBody(args.model_path)
     ist.initialize()
+    
+    graph_coloring()
 
     if args.export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)

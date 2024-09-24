@@ -46,7 +46,7 @@ PXPBD_ksi = 1.0
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
-parser.add_argument("-N", type=int, default=1024)
+parser.add_argument("-N", type=int, default=16)
 parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
@@ -404,6 +404,94 @@ def init_adj_edge(edges: np.ndarray):
 # edges = np.array([[0, 1], [1, 2], [2, 0], [1, 3]])
 # adjacent_edges_dict = init_adj_edge(edges)
 # print(adjacent_edges_dict)
+
+
+# 生成染色算法所需要的颜色
+# while there exist unmarked constraints
+#   create new set S
+#   clear all particle marks
+#   for all unmarked constraints C
+#       if no adjacent particle is marked
+#           add C to S
+#           mark C
+#           mark all adjacent particles
+def graph_coloring(edge):
+    # 初始化
+    colors = np.zeros(NE, dtype=int)
+    marked = np.zeros(NE, dtype=bool)
+    marked_particles = np.zeros(NV, dtype=bool)
+    num_colors = 0
+
+    # 生成颜色
+    for i in range(NE):
+        if marked[i]:
+            continue
+
+        S = set()
+        for j in range(num_adjacent_edge[i]):
+            ia = adjacent_edge[i, j]
+            if marked_particles[edge[ia, 0]] or marked_particles[edge[ia, 1]]:
+                continue
+            S.add(ia)
+            marked[ia] = True
+            marked_particles[edge[ia, 0]] = True
+            marked_particles[edge[ia, 1]] = True
+
+        for c in S:
+            colors[c] = num_colors
+        num_colors += 1
+
+    return colors, num_colors
+
+
+
+def compute_max_degree(edges):
+    adj_matrix = np.zeros((len(edges), len(edges)), dtype=np.int32)
+    for i in range(len(edges) - 1):
+        for j in range(i + 1, len(edges)):
+            e1, e2 = edges[i], edges[j]
+            if e1[0] == e2[0] or e1[0] == e2[1] or e1[1] == e2[0] or e1[
+                    1] == e2[1]:
+                adj_matrix[i][j] = 1
+                adj_matrix[j][i] = 1
+    non_zeros = np.count_nonzero(adj_matrix, axis=1)
+    max_degree = np.max(non_zeros)
+    min_degree = np.min(non_zeros)
+    return adj_matrix, max_degree, min_degree
+
+
+def greedy_coloring(e):
+    adj_matrix, max_degree, min_degree = compute_max_degree(e)
+    print(f"max degree: {max_degree}")
+    adj_csr = scipy.sparse.csr_matrix(adj_matrix)
+    row_offsets, col_indices = adj_csr.indptr, adj_csr.indices
+    c_v = [-1] * len(e)  # clolors for each vertex
+    W = [i for i in range(len(e))]  # uncolored vertices
+    while len(W) > 0:
+        # Color work queue
+        for w in W:  # in parallel
+            F = []
+            s_col, e_col = row_offsets[w], row_offsets[w + 1]
+            neighbor_idx = col_indices[s_col:e_col]
+            for neighbor in neighbor_idx:
+                if c_v[neighbor] != -1:
+                    F.append(c_v[neighbor])
+            col = 0
+            while col in F:  # first-fit coloring policy
+                col += 1
+            c_v[w] = col
+        # Remove conflicts
+        W_next = []
+        for w in W:  # in parallel
+            s_col, e_col = row_offsets[w], row_offsets[w + 1]
+            neighbor_idx = col_indices[s_col:e_col]
+            for neighbor in neighbor_idx:
+                if c_v[neighbor] == c_v[w] and w > neighbor:
+                    W_next.append(w)
+                    break
+        W = W_next
+    return c_v
+
 
 
 def read_tri_cloth(filename):
@@ -2144,6 +2232,12 @@ def init():
         else:
             cache_and_initFill()
     logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
+
+    # colors, num_colors = graph_coloring(edge.to_numpy())
+    logging.info(f"start coloring")
+    tic = time.perf_counter()
+    colors = greedy_coloring(edge.to_numpy())
+    logging.info(f"end coloring, time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:
         do_restart()

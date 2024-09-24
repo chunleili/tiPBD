@@ -48,3 +48,4 @@ if(initFillCloth)
     # pybind11_add_module(initFillCloth initFillCloth.cpp)
     target_sources(fastmg PRIVATE initFillCloth.cpp)
 endif()
+

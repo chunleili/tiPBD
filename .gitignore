@@ -35,6 +35,7 @@ cache*.npz
 settings.json
 *.node
 *.ele
+!data/config/*.json
 data/*
 .vs
 

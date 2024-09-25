@@ -148,6 +148,10 @@ if __name__=='__main__':
             print("KeyboardInterrupt")
             print(f"At case {case_num}")
             print(f"Batch run time: {(perf_counter()-tic)/60:.2f} min")
+        except AssertionError as e:
+            print(f"AssertionError: {e}")
+            print(f"At case {case_num}")
+            print(f"Batch run time: {(perf_counter()-tic)/60:.2f} min")
             
     
     if parser.parse_args().list:

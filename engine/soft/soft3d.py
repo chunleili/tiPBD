@@ -32,7 +32,7 @@ parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
-parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD", "GaussSeidel", "Direct", "AMG"])
+parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD",  "AMG", "AMGX"])
 parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
 # "data/model/cube/minicube.node"
 # "data/model/bunny1k2k/coarse.node"
@@ -1050,6 +1050,126 @@ def AMG_python(b):
     return  x, r_Axb
 
 
+
+
+class AMGXSolver:
+    def __init__(self, config_file):
+        self.config_file = config_file
+        amgx_lib_dir = "D:/Dev/AMGX/build/Release"
+        cuda_dir = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin"
+        os.add_dll_directory(amgx_lib_dir)
+        os.add_dll_directory(cuda_dir)
+        import pyamgx
+        self.pyamgx = pyamgx
+
+    def update(self, data, rhs):
+        self.A.replace_coefficients(data.astype(np.float64))
+        self.b.upload(rhs.astype(np.float64))
+        
+        self.solver.setup(self.A)
+        self.solver.solve(self.b, self.x)
+        self.niter = self.solver.iterations_number
+        self.status = self.solver.status
+
+        assert self.status == 'success'
+        print("pyamgx status: ", self.status)
+        self.r_Axb = []
+        for i in range(self.niter):
+            self.r_Axb.append(self.solver.get_residual(i))
+        self.x.download(self.sol)
+        return self.sol, self.r_Axb, self.niter
+    
+    def init(self):
+        self.pyamgx.initialize()
+        self.cfg = self.pyamgx.Config().create_from_file(self.config_file)
+        self.rsc = self.pyamgx.Resources().create_simple(self.cfg)
+        # Create matrices and vectors:
+        self.A = self.pyamgx.Matrix().create(self.rsc)
+        self.b = self.pyamgx.Vector().create(self.rsc)
+        self.x = self.pyamgx.Vector().create(self.rsc)
+        # Create solver:
+        self.solver = self.pyamgx.Solver().create(self.rsc, self.cfg)
+
+    def solve(self, M, rhs):
+        # self.pyamgx.initialize()
+        # self.cfg = self.pyamgx.Config().create_from_file(self.config_file)
+        # self.rsc = self.pyamgx.Resources().create_simple(self.cfg)
+        # # Create matrices and vectors:
+        # self.A = self.pyamgx.Matrix().create(self.rsc)
+        # self.b = self.pyamgx.Vector().create(self.rsc)
+        # self.x = self.pyamgx.Vector().create(self.rsc)
+        # # Create solver:
+        # self.solver = self.pyamgx.Solver().create(self.rsc, self.cfg)
+
+        # Upload system:
+        self.M = M.astype(np.float64)
+        self.rhs = rhs.astype(np.float64)
+        self.sol = np.zeros(rhs.shape[0], dtype=np.float64)
+        self.A.upload_CSR(self.M)
+        self.b.upload(self.rhs)
+        self.x.upload(self.sol)
+
+        # Setup and solve system:
+        self.solver.setup(self.A)
+        self.solver.solve(self.b, self.x)
+        self.niter = self.solver.iterations_number
+
+
+        self.r_Axb = []
+        for i in range(self.niter):
+            self.r_Axb.append(self.solver.get_residual(i))
+        # self.r_final = self.solver.get_residual()
+        # self.r0 = self.solver.get_residual(0)
+
+        self.x.download(self.sol)
+        
+        status = self.solver.status
+        assert status == 'success', f"status:{status}, iterations: {self.niter}. The residual is {self.r_Axb}"
+
+        return self.sol, self.r_Axb, self.niter
+
+    def finalize(self):
+        # Clean up:
+        self.A.destroy()
+        self.x.destroy()
+        self.b.destroy()
+        self.solver.destroy()
+        self.rsc.destroy()
+        self.pyamgx.finalize()
+
+
+has_init_amgx = False
+def AMG_amgx(b):
+    tic = time.perf_counter()
+    global has_init_amgx, amgxsolver
+    if not has_init_amgx:
+        # config_file = Path(prj_path + "/data/config/AGGREGATION_JACOBI.json")
+        config_file = Path(prj_path + "/data/config/agg_cheb4.json")
+        config_file = str(config_file)
+        amgxsolver = AMGXSolver(config_file)
+        amgxsolver.init()
+        has_init_amgx = True
+    
+    A = fill_A_csr_ti(ist)
+    A = A.copy()#FIXME: no copy will cause bug, why?
+    # x, r_Axb, niter = amgxsolver.update(A.data, b)
+    x, r_Axb, niter = amgxsolver.solve(A, b)
+    # amgxsolver.finalize()
+    logging.info(f"    AMGX time: {(time.perf_counter()-tic)*1000:.0f}ms")
+    return x, np.array(r_Axb)
+
+
+
+def AMG_cuda(b):
+    AMG_A()
+    if should_setup():
+        AMG_setup_phase()
+    extlib.fastmg_set_A0_from_fastFillSoft()
+    AMG_RAP()
+    x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
+    return x, r_Axb
+
+
 def substep_all_solver(ist):
     global t_export, n_outer_all
     tic1 = time.perf_counter()
@@ -1067,12 +1187,10 @@ def substep_all_solver(ist):
         if not use_cuda:
             x, r_Axb = AMG_python(b)
         else:
-            AMG_A()
-            if should_setup():
-                AMG_setup_phase()
-            extlib.fastmg_set_A0_from_fastFillSoft()
-            AMG_RAP()
-            x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
+            if args.solver_type == "AMG":
+                x, r_Axb = AMG_cuda(b)
+            elif args.solver_type == "AMGX":
+                x, r_Axb = AMG_amgx(b)
         AMG_dlam2dpos(x)
         dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
@@ -2337,12 +2455,14 @@ def main():
     ist = SoftBody(args.model_path)
     ist.initialize()
     
-    graph_coloring()
+    use_graph_coloring = False
+    if use_graph_coloring:
+        graph_coloring()
 
     if args.export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
-    if args.solver_type == "AMG":
+    if args.solver_type != "XPBD":
         init_direct_fill_A(ist)
 
     print(f"initialize time:", perf_counter()-tic)

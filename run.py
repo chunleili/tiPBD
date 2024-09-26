@@ -20,6 +20,8 @@ import subprocess
 from subprocess import call
 import argparse
 from time import perf_counter
+import logging
+import datetime
 
 pythonExe = "python"
 if sys.platform == "darwin":
@@ -32,14 +34,16 @@ parser.add_argument("-profile", action="store_true", help="profiling")
 parser.add_argument("-cases", type=int, nargs='*',help=f"case numbers")
 parser.add_argument("-end_frame", type=int, default=100, help=f"end frame")
 parser.add_argument("-overwrite", action="store_true")
+
 end_frame = parser.parse_args().end_frame
 
 auto_another_outdir = 1
+
 if parser.parse_args().overwrite:
     Warning("Overwrite is enabled. All existing files in the same out_dir name will be overwritten.")
     y = input("Are you sure to overwrite?")
 
-    
+
 
 
 allargs = [None]
@@ -114,6 +118,29 @@ args = ["engine/cloth/cloth3d.py",
 allargs.append(args)
 
 
+# case7: soft 85w AMGX
+# find all config files in data/config/batch/*.json
+for config in os.listdir("data/config/batch"):
+    config_name = os.path.basename(config).split(".")[0]
+    amgx_config = os.path.join("data/config/batch", config)
+    case_num = len(allargs)
+    # print(f"config: {config}")
+    # print(f"amgx_config: {amgx_config}")
+    # print(f"case_num: {len(allargs)}")
+    args = ["engine/soft/soft3d.py",
+            f"-amgx_config={amgx_config}",
+            f"-end_frame={end_frame}",
+            f"-out_dir=result/case{case_num}-0921-soft85w-AMGX-{config_name}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            "-model_path=data/model/bunny85w/bunny85w.node",
+            "-tol_Axb=1e-8",
+            "-rtol=1e-2",
+            "-delta_t=3e-3",
+            "-solver_type=AMGX"
+            ]
+    allargs.append(args)
+
+
 def run_case(case_num:int):
     args = allargs[case_num]
     if parser.parse_args().profile:
@@ -122,7 +149,17 @@ def run_case(case_num:int):
     else:
         args = [pythonExe, *args]
     log_args(args)
-    call(args)
+
+    # call(args)
+
+    date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
+    stderr_file = f"result/meta/stderr_{case_num}.txt"
+    with open(stderr_file, "w") as stderr_file:
+        try:
+            subprocess.check_call(args, stderr=stderr_file)
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Case {case_num} failed with error: {e}\n Date={date} see {stderr_file} for details\n")
+            raise
 
 
 def log_args(args:list):
@@ -133,13 +170,29 @@ def log_args(args:list):
 
 
 if __name__=='__main__':
+    if os.path.exists(f'result/meta/batch_run.log'):
+        os.remove(f'result/meta/batch_run.log')
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=f'result/meta/batch_run.log',filemode='a')
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+
+    date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
+    logging.info(f"Date:{date}\nCommand:{sys.argv}\n\n")
+
     if parser.parse_args().cases:
         tic = perf_counter()
         try:
             for case_num in parser.parse_args().cases:
                 if 0 < case_num < len(allargs):
                     print(f'Running case {case_num}...')
-                    run_case(case_num)
+                    tic1 = perf_counter()
+                    try:
+                        date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
+                        run_case(case_num)
+                    except Exception as e:
+                        logging.error(f"Caught exception{e} at case {case_num}, Date={date} continue to next case.\n")  
+                    tic2 = perf_counter()
+                    logging.info(f"\ncase {case_num} finished. Time={(tic2-tic1)/60:.2f} min\n---------\n\n")
                 else:
                     print(f'Invalid case number {case_num}. Exiting...')
                     sys.exit(1)
@@ -157,4 +210,4 @@ if __name__=='__main__':
     if parser.parse_args().list:
         print("All cases:")
         for i in range(len(allargs)):
-            print(f"case {i}: {allargs[i]}")
+            print(f"case {i}: {allargs[i]}\n")

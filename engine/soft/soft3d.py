@@ -64,6 +64,7 @@ parser.add_argument("-rtol", type=float, default=1e-4)
 parser.add_argument("-tol_Axb", type=float, default=1e-5)
 parser.add_argument("-large", action="store_true")
 parser.add_argument("-samll", action="store_true")
+parser.add_argument("-amgx_config", type=str, default="data/amgx_config/AMG_CONFIG_CG.json")
 
 args = parser.parse_args()
 
@@ -1071,8 +1072,8 @@ class AMGXSolver:
         self.niter = self.solver.iterations_number
         self.status = self.solver.status
 
-        assert self.status == 'success'
-        print("pyamgx status: ", self.status)
+        # assert self.status == 'success'
+        logging.info("pyamgx status: ", self.status)
         self.r_Axb = []
         for i in range(self.niter):
             self.r_Axb.append(self.solver.get_residual(i))
@@ -1110,6 +1111,7 @@ class AMGXSolver:
         self.x.upload(self.sol)
 
         # Setup and solve system:
+        # if should_setup():
         self.solver.setup(self.A)
         self.solver.solve(self.b, self.x)
         self.niter = self.solver.iterations_number
@@ -1124,7 +1126,9 @@ class AMGXSolver:
         self.x.download(self.sol)
         
         status = self.solver.status
-        assert status == 'success', f"status:{status}, iterations: {self.niter}. The residual is {self.r_Axb}"
+        # assert status == 'success', f"status:{status}, iterations: {self.niter}. The residual is {self.r_Axb}"
+        if status != 'success':
+            logging.info(f"status:{status}, iterations: {self.niter}. The residual is {self.r_Axb[-1]}")
 
         return self.sol, self.r_Axb, self.niter
 
@@ -1144,9 +1148,9 @@ def AMG_amgx(b):
     global has_init_amgx, amgxsolver
     if not has_init_amgx:
         # config_file = Path(prj_path + "/data/config/AGGREGATION_JACOBI.json")
-        config_file = Path(prj_path + "/data/config/agg_cheb4.json")
-        config_file = str(config_file)
-        amgxsolver = AMGXSolver(config_file)
+        # config_file = Path(prj_path + "/data/config/agg_cheb4.json")
+        # config_file = str(config_file)
+        amgxsolver = AMGXSolver(args.amgx_config)
         amgxsolver.init()
         has_init_amgx = True
     

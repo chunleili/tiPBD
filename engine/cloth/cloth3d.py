@@ -42,8 +42,6 @@ num_levels = 0
 t_export = 0.0
 use_cpp_initFill = True
 PXPBD_ksi = 1.0
-use_bending = True
-
 
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
@@ -76,6 +74,8 @@ parser.add_argument("-setup_interval", type=int, default=20)
 parser.add_argument("-tol", type=float, default=1e-4)
 parser.add_argument("-use_PXPBD_v1", type=int, default=False)
 parser.add_argument("-use_PXPBD_v2", type=int, default=False)
+parser.add_argument("-use_bending", type=int, default=True)
+
 
 args = parser.parse_args()
 N = args.N
@@ -86,6 +86,9 @@ else : gravity = [0.0, -9.8, 0.0]
 out_dir =  args.out_dir + "/"
 use_PXPBD_v1 = args.use_PXPBD_v1
 use_PXPBD_v2 = args.use_PXPBD_v2
+use_bending = args.use_bending
+
+
 
 def parse_json_params(path, vars_to_overwrite):
     if not os.path.exists(path):
@@ -124,6 +127,8 @@ new_M = int(NE / 100)
 compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
 alpha = compliance * (1.0 / delta_t / delta_t)  # timestep related compliance, see XPBD paper
 omega = 0.25
+alpha_bending = 1.0 * (1.0 / delta_t / delta_t) #TODO: need to be tuned
+
 
 tri = ti.field(ti.i32, shape=3 * NT)
 edge        = ti.Vector.field(2, dtype=int, shape=(NE))
@@ -452,9 +457,9 @@ def init_bending(tri, pos):
     print(f"build_tri_pairs time: {perf_counter() - tic2}")
 
     tic3 = perf_counter()
+    # bending_length = init_bending_length(tri_pairs, pos.to_numpy())
     bending_length = np.zeros(len(tri_pairs), dtype=np.float32)
-    init_bending_length(tri_pairs, pos.to_numpy())
-    # init_bending_length_kernel(tri_pairs, pos, bending_length)
+    init_bending_length_kernel(tri_pairs, pos, bending_length)
     # print("弯曲长度列表:", bending_length)
     print(f"init_bending_length time: {perf_counter() - tic3}")
     print(f"init_bending time: {perf_counter() - tic}")
@@ -697,7 +702,7 @@ def solve_constraints(
 
 
 @ti.kernel
-def solve_constraints_xpbd(
+def solve_distance_constraints_xpbd(
     dual_residual: ti.template(),
     inv_mass:ti.template(),
     edge:ti.template(),
@@ -723,6 +728,40 @@ def solve_constraints_xpbd(
             dpos[idx0] += invM0 * delta_lagrangian * gradient
         if invM1 != 0.0:
             dpos[idx1] -= invM1 * delta_lagrangian * gradient
+
+
+@ti.kernel
+def solve_bending_constraints_xpbd(
+    dual_residual_bending: ti.template(),
+    inv_mass:ti.template(),
+    lagrangian_bending:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+    bending_length:ti.types.ndarray(),
+    tri_pairs:ti.types.ndarray(),
+):
+    for i in range(bending_length.shape[0]):
+        idx0, idx1 = tri_pairs[i, 2], tri_pairs[i, 3]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        if invM0 == 0.0 and invM1 == 0.0:
+            continue
+        dis = pos[idx0] - pos[idx1]
+        constraint = dis.norm() - bending_length[i]
+        gradient = dis.normalized()
+        if gradient.norm() == 0.0:
+            continue
+        l = -constraint / (invM0 + invM1)
+        delta_lagrangian = -(constraint + lagrangian_bending[i] * alpha_bending) / (invM0 + invM1 + alpha_bending)
+        lagrangian_bending[i] += delta_lagrangian
+
+        # residual
+        dual_residual_bending[i] = (constraint + alpha_bending * lagrangian_bending[i])
+        
+        if invM0 != 0.0:
+            dpos[idx0] += invM0 * delta_lagrangian * gradient
+        if invM1 != 0.0:
+            dpos[idx1] -= invM1 * delta_lagrangian * gradient
+
 
 @ti.kernel
 def update_pos(
@@ -852,7 +891,10 @@ def substep_xpbd():
         tic_iter = perf_counter()
 
         reset_dpos(dpos)
-        solve_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
+        if use_bending:
+            # TODO: should use seperate dual_residual_bending and lagrangian_bending
+            solve_bending_constraints_xpbd(dual_residual, inv_mass, lagrangian, dpos, pos, bending_length, tri_pairs)
+        solve_distance_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
         update_pos(inv_mass, dpos, pos)
 
         if calc_r_xpbd:
@@ -2336,6 +2378,7 @@ def init():
     init_tri(tri)
     init_edge(edge, rest_len, pos)
     if use_bending:
+        global tri_pairs, bending_length
         tri_pairs, bending_length = init_bending(tri.to_numpy().reshape(-1, 3), pos)
     if args.setup_num == 1:
         init_scale()

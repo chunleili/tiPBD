@@ -90,25 +90,30 @@ def init_bending(tri, pos):
     return tri_pairs, bending_length
 
 if __name__ == "__main__":
-    # large test
-    # import sys,os
-    # sys.path.append(os.getcwd())
-    # from test_clothdata import vertices, faceTriIds
-    # tri = np.array(faceTriIds, dtype=np.int32).reshape(-1, 3)
-    # pos = np.array(vertices, dtype=np.float32).reshape(-1, 3)
+    large_test = True
 
+    # large test
+    if large_test:
+        import sys,os
+        sys.path.append(os.getcwd())
+        from test_clothdata import vertices, faceTriIds
+        tri = np.array(faceTriIds, dtype=np.int32).reshape(-1, 3)
+        pos = np.array(vertices, dtype=np.float32).reshape(-1, 3)
+    else:
     # small test
-    tri = np.array([
-        [1,3,2],
-        [0,1,2],
-    ], dtype=np.int32)
-    pos = np.array([
-        [0,0, 0],
-        [1,0, 0],
-        [0,1, 0],
-        [1,1, 0],
-    ], dtype=np.float32)
+        tri = np.array([
+            [1,3,2],
+            [0,1,2],
+        ], dtype=np.int32)
+        pos = np.array([
+            [0,0, 0],
+            [1,0, 0],
+            [0,1, 0],
+            [1,1, 0],
+        ], dtype=np.float32)
 
     tri_pairs, bending_length = init_bending(tri, pos)
+    # np.savetxt("tri_pairs.txt", tri_pairs, fmt='%d')
+    # np.savetxt("bending_length.txt", bending_length, fmt='%.3f')
 
     print("Done.")

@@ -418,14 +418,47 @@ def build_tri_pairs(tri, tri_neighbor):
     return tri_pairs
 
 
-def init_bending(tri):
+def init_bending_length(tri_pairs, pos):
+    bending_id = tri_pairs.copy()
+    bending_length = np.zeros(len(bending_id), dtype=np.float32)
+    for i in range(bending_length.shape[0]):
+        v2 = bending_id[i, 2]
+        v3 = bending_id[i, 3]
+        bending_length[i] = np.linalg.norm(pos[v2] - pos[v3])
+    return bending_length
+
+
+@ti.kernel
+def init_bending_length_kernel(tri_pairs:ti.types.ndarray(), pos:ti.template(), bending_length:ti.types.ndarray()):
+    for i in range((tri_pairs).shape[0]):
+        v2 = tri_pairs[i, 2]
+        v3 = tri_pairs[i, 3]
+        bending_length[i] = (pos[v2] - pos[v3]).norm()
+
+
+def init_bending(tri, pos):
+    print("init_bending...")
+    tic = perf_counter()
+    tic1 = perf_counter()
     tri_neighbor = find_tri_neighbors(tri)
-    print("邻居边编号列表:", tri_neighbor)
+    # print("邻居边编号列表:", tri_neighbor)
+    print(f"find_tri_neighbors time: {perf_counter() - tic1}")
 
     # tri_pairs有四个点，第四个点是另一个三角形的点
+    tic2 = perf_counter()
     tri_pairs = build_tri_pairs(tri, tri_neighbor)
-    print("三角形对列表:", tri_pairs)
-    return tri_pairs
+    tri_pairs = np.array(tri_pairs, dtype=np.int32)
+    # print("三角形对列表:", tri_pairs)
+    print(f"build_tri_pairs time: {perf_counter() - tic2}")
+
+    tic3 = perf_counter()
+    bending_length = np.zeros(len(tri_pairs), dtype=np.float32)
+    init_bending_length(tri_pairs, pos.to_numpy())
+    # init_bending_length_kernel(tri_pairs, pos, bending_length)
+    # print("弯曲长度列表:", bending_length)
+    print(f"init_bending_length time: {perf_counter() - tic3}")
+    print(f"init_bending time: {perf_counter() - tic}")
+    return tri_pairs, bending_length
 
 
 
@@ -2303,7 +2336,7 @@ def init():
     init_tri(tri)
     init_edge(edge, rest_len, pos)
     if use_bending:
-        tri_pairs = init_bending(tri.reshpa(-1, 3))
+        tri_pairs, bending_length = init_bending(tri.to_numpy().reshape(-1, 3), pos)
     if args.setup_num == 1:
         init_scale()
     write_mesh(out_dir + f"/mesh/{frame:04d}", pos.to_numpy(), tri.to_numpy())

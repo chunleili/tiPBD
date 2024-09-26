@@ -1,6 +1,5 @@
 import numpy as np
 
-# edge: (num_edge, 2)
 # tri:  (num_tri, 3)
 # https://matthias-research.github.io/pages/tenMinutePhysics/14-cloth.pdf last page
 # https://github.com/matthias-research/pages/blob/master/tenMinutePhysics/14-cloth.html
@@ -67,19 +66,49 @@ def build_tri_pairs(tri, tri_neighbor):
     return tri_pairs
 
 
-def init_bending():
-    tri = np.array([
-        [1,3,2],
-        [0,1,2],
-    ])
+def init_bending_length(tri_pairs, pos):
+    bending_id = tri_pairs.copy()
+    bending_length = np.zeros(len(bending_id), dtype=np.float32)
+    for i in range(bending_length.shape[0]):
+        v2 = bending_id[i, 2]
+        v3 = bending_id[i, 3]
+        bending_length[i] = np.linalg.norm(pos[v2] - pos[v3])
+    return bending_length
 
+
+def init_bending(tri, pos):
     tri_neighbor = find_tri_neighbors(tri)
     print("邻居边编号列表:", tri_neighbor)
 
     # tri_pairs有四个点，第四个点是另一个三角形的点
     tri_pairs = build_tri_pairs(tri, tri_neighbor)
+    tri_pairs = np.array(tri_pairs)
     print("三角形对列表:", tri_pairs)
 
+    bending_length = init_bending_length(tri_pairs, pos)
+    print("弯曲长度:", init_bending_length(tri_pairs, pos))
+    return tri_pairs, bending_length
+
 if __name__ == "__main__":
-    init_bending()
+    # large test
+    # import sys,os
+    # sys.path.append(os.getcwd())
+    # from test_clothdata import vertices, faceTriIds
+    # tri = np.array(faceTriIds, dtype=np.int32).reshape(-1, 3)
+    # pos = np.array(vertices, dtype=np.float32).reshape(-1, 3)
+
+    # small test
+    tri = np.array([
+        [1,3,2],
+        [0,1,2],
+    ], dtype=np.int32)
+    pos = np.array([
+        [0,0, 0],
+        [1,0, 0],
+        [0,1, 0],
+        [1,1, 0],
+    ], dtype=np.float32)
+
+    tri_pairs, bending_length = init_bending(tri, pos)
+
     print("Done.")

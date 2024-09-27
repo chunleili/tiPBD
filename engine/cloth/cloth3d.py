@@ -59,7 +59,7 @@ parser.add_argument("-restart", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=21)
 parser.add_argument("-restart_dir", type=str, default="result/meta/")
 parser.add_argument("-restart_from_last_frame", type=int, default=False)
-parser.add_argument("-maxiter", type=int, default=3000)
+parser.add_argument("-maxiter", type=int, default=50)
 parser.add_argument("-maxiter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
@@ -163,11 +163,20 @@ K_diag = np.zeros((NV*3), dtype=float)
 if use_PXPBD_v1 or use_PXPBD_v2:
     ResidualDataPrimal = namedtuple('residual', ['dual','primal','Newton', 'ninner','t'])
     Residual0DataPrimal = namedtuple('residual', ['dual','primal','Newton'])
-else:
-    ResidualData = namedtuple('residual', ['dual', 'ninner','t'])
-    Residual0Data = namedtuple('residual', ['dual'])
+ResidualData = namedtuple('residual', ['dual', 'ninner','t'])
+Residual0Data = namedtuple('residual', ['dual'])
 
 n_outer_all = []
+
+
+def timeit(f):
+    def timed(*args, **kw):
+        ts = time.time()
+        result = f(*args, **kw)
+        te = time.time()
+        print(f"{f.__name__} took: {te-ts:.2f} sec")
+        return result
+    return timed
 
 
 def init_extlib_argtypes():
@@ -441,6 +450,35 @@ def init_bending_length_kernel(tri_pairs:ti.types.ndarray(), pos:ti.template(), 
         bending_length[i] = (pos[v2] - pos[v3]).norm()
 
 
+def allocate_bending_fields(num_tri_pairs):
+    global NB, dual_residual_bending, dLambda_bending, gradC_bending, constraints_bending, lagrangian_bending
+    NB = num_tri_pairs
+    dual_residual_bending = ti.field(dtype=float, shape=(NB))
+    dLambda_bending = ti.field(dtype=float, shape=(NB))
+    gradC_bending = ti.Vector.field(3, dtype=float, shape=(NB, 2))
+    constraints_bending = ti.field(dtype=float, shape=(NB))
+    lagrangian_bending = ti.field(dtype=float, shape=(NB))
+
+    global NCONS, dual_residual_all, dLambda_all, gradC_all, constraints_all, lagrangian_all,alpha_all
+    NCONS = NB+NE
+    dual_residual_all = ti.field(dtype=float, shape=(NCONS))
+    dLambda_all = ti.field(dtype=float, shape=(NCONS))
+    gradC_all = ti.field(dtype=float, shape=(NCONS, 2))
+    constraints_all = ti.field(dtype=float, shape=(NCONS))
+    lagrangian_all = ti.field(dtype=float, shape=(NCONS))
+    alpha_all = ti.field(dtype=float, shape=(NCONS))
+
+    @ti.kernel
+    def init_alpha_all(alpha_all:ti.template()):
+        for i in range(NE):
+            alpha_all[i] = alpha
+        for i in range(NB):
+            alpha_all[NE+i] = alpha_bending
+
+    init_alpha_all(alpha_all)
+
+
+
 def init_bending(tri, pos):
     print("init_bending...")
     tic = perf_counter()
@@ -463,6 +501,9 @@ def init_bending(tri, pos):
     # print("弯曲长度列表:", bending_length)
     print(f"init_bending_length time: {perf_counter() - tic3}")
     print(f"init_bending time: {perf_counter() - tic}")
+
+    allocate_bending_fields(len(tri_pairs))
+
     return tri_pairs, bending_length
 
 
@@ -730,11 +771,29 @@ def solve_distance_constraints_xpbd(
             dpos[idx1] -= invM1 * delta_lagrangian * gradient
 
 
+
+@ti.kernel
+def update_bending_constraints_kernel(
+    inv_mass:ti.template(),
+    pos:ti.template(),
+    bending_length:ti.types.ndarray(),
+    tri_pairs:ti.types.ndarray(),
+    constraints_bending:ti.template(),
+):
+    for i in range(bending_length.shape[0]):
+        idx0, idx1 = tri_pairs[i, 2], tri_pairs[i, 3]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        if invM0 == 0.0 and invM1 == 0.0:
+            continue
+        dis = pos[idx0] - pos[idx1]
+        constraints_bending[i] = dis.norm() - bending_length[i]
+
+
 @ti.kernel
 def solve_bending_constraints_xpbd(
-    dual_residual_bending: ti.template(),
+    dual_residual: ti.template(),
     inv_mass:ti.template(),
-    lagrangian_bending:ti.template(),
+    lagrangian:ti.template(),
     dpos:ti.template(),
     pos:ti.template(),
     bending_length:ti.types.ndarray(),
@@ -746,16 +805,16 @@ def solve_bending_constraints_xpbd(
         if invM0 == 0.0 and invM1 == 0.0:
             continue
         dis = pos[idx0] - pos[idx1]
-        constraint = dis.norm() - bending_length[i]
+        C = dis.norm() - bending_length[i]
         gradient = dis.normalized()
         if gradient.norm() == 0.0:
             continue
-        l = -constraint / (invM0 + invM1)
-        delta_lagrangian = -(constraint + lagrangian_bending[i] * alpha_bending) / (invM0 + invM1 + alpha_bending)
-        lagrangian_bending[i] += delta_lagrangian
+        l = -C / (invM0 + invM1)
+        delta_lagrangian = -(C + lagrangian[i+NE] * alpha_bending) / (invM0 + invM1 + alpha_bending)
+        lagrangian[i+NE] += delta_lagrangian
 
         # residual
-        dual_residual_bending[i] = (constraint + alpha_bending * lagrangian_bending[i])
+        dual_residual[i+NE] = (C + alpha_bending * lagrangian[i+NE])
         
         if invM0 != 0.0:
             dpos[idx0] += invM0 * delta_lagrangian * gradient
@@ -804,10 +863,51 @@ def reset_dpos(dpos:ti.template()):
         dpos[i] = ti.Vector([0.0, 0.0, 0.0])
 
 
+@ti.kernel
+def calc_dual0_kernel(
+    constraint:ti.template(),
+    dual_residual: ti.template(),
+    NCONS:ti.i32,
+)->ti.f32:
+    dual = 0.0
+    for i in range(NCONS):
+        # residual(lagrangian=0 for first iteration)
+        dual_residual[i] = -(constraint[i])
+        dual += dual_residual[i] * dual_residual[i]
+    dual = ti.sqrt(dual)
+    return dual
+
+
+def calc_dual0():
+    if use_bending:
+        update_constraints_kernel(pos, edge, rest_len, constraints)
+        update_bending_constraints_kernel(inv_mass, pos, bending_length, tri_pairs, constraints_bending)
+        concate_field(constraints, constraints_bending, constraints_all)
+        concate_field(dual_residual, dual_residual_bending, dual_residual_all)
+        dual0 = calc_dual0_kernel(constraints_all, dual_residual_all, NCONS)
+    else: 
+        dual0 = calc_dual0_kernel(constraints, dual_residual, NE)
+    return dual0
+
+
 
 @ti.kernel
-def calc_dual_residual(
+def calc_dual_residual_v2(
     dual_residual: ti.template(),
+    lagrangian:ti.template(),
+    constraint:ti.template(),
+    NCONS: ti.i32,
+    alpha: ti.template(),
+)->ti.f32:
+    dual = 0.0
+    for i in range(NCONS):
+        dual_residual[i] = -(constraint[i] + alpha[i] * lagrangian[i])
+        dual += dual_residual[i] * dual_residual[i]
+    dual = ti.sqrt(dual)
+    return dual
+
+
+def calc_dual_residual(
     edge:ti.template(),
     rest_len:ti.template(),
     lagrangian:ti.template(),
@@ -829,21 +929,30 @@ def calc_primary_residual(G,M_inv):
     return primary_residual
 
 
+@ti.kernel
+def concate_field(f1:ti.template(), f2: ti.template(), res:ti.template()):
+    for i in range(f1.shape[0]):
+        res[i] = f1[i]
+    for i in range(f2.shape[0]):
+        res[i+f1.shape[0]] = f2[i]
+
+
 def xpbd_calcr(tic_iter, dual0, r):
     global ite, frame, t_export
     tic_calcr = perf_counter()
     t_iter = perf_counter()-tic_iter
-    # dualr = np.linalg.norm(dual_residual.to_numpy())
-    dualr = calc_norm(dual_residual)
-    
-    # if export_fullr:
-    #     np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
+    if use_bending:
+        concate_field(dual_residual, dual_residual_bending, dual_residual_all)
+        concate_field(lagrangian, lagrangian_bending, lagrangian_all)
+        dual = calc_dual_residual_v2(dual_residual_all, lagrangian_all, constraints_all, NCONS, alpha_all)
+    else:
+        dual = calc_dual_residual(edge, rest_len, lagrangian, pos)
 
-    r.append(ResidualData(dualr, 1, t_iter))
+    r.append(ResidualData(dual, 1, t_iter))
     if args.export_log:
-        logging.info(f"{frame}-{ite}  dual0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
+        logging.info(f"{frame}-{ite}  dual0:{dual0:.2e} dual:{dual:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
     t_export += perf_counter() - tic_calcr
-    return dualr, dual0
+    return dual
 
 
 @ti.kernel
@@ -883,24 +992,21 @@ def substep_xpbd():
     semi_euler(old_pos, inv_mass, vel, pos)
     reset_lagrangian(lagrangian)
 
-    calc_dual_residual(dual_residual, edge, rest_len, lagrangian, pos)
-    fulldual0 = dual_residual.to_numpy()
-    dual0 = np.linalg.norm(fulldual0).astype(float)
+    dual0 = calc_dual0()
     r = []
     for ite in range(args.maxiter):
         tic_iter = perf_counter()
 
         reset_dpos(dpos)
-        if use_bending:
-            # TODO: should use seperate dual_residual_bending and lagrangian_bending
-            solve_bending_constraints_xpbd(dual_residual, inv_mass, lagrangian, dpos, pos, bending_length, tri_pairs)
         solve_distance_constraints_xpbd(dual_residual, inv_mass, edge, rest_len, lagrangian, dpos, pos)
+        if use_bending:
+            solve_bending_constraints_xpbd(dual_residual_bending, inv_mass, lagrangian_bending, dpos, pos, bending_length, tri_pairs)
         update_pos(inv_mass, dpos, pos)
 
         if calc_r_xpbd:
-            dualr, dualr0 = xpbd_calcr(tic_iter, dual0, r)
+            dual = xpbd_calcr(tic_iter, dual0, r)
 
-        if dualr<args.tol:
+        if dual<args.tol:
             break
         if is_stall(r):
             logging.info("Stall detected, break")
@@ -1942,7 +2048,8 @@ def AMG_PXPBD_v1_b(G):
     b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
     # PXPBD_b_kernel(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
-    Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
+    MASS = sp.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
+    Minv_gg =  MASS@M_inv@(pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
     b += G @ Minv_gg
     return b, Minv_gg
     

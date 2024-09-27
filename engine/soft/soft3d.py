@@ -2503,6 +2503,9 @@ def main():
     except KeyboardInterrupt:
         ending(timer_all, start_date, initial_frame)
         exit()
+    except Exception as e:
+        logging.exception(f"Exception occurred:\n{e} ")
+        raise e
 
 if __name__ == "__main__":
     main()

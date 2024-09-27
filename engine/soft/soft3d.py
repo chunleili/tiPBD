@@ -69,7 +69,6 @@ parser.add_argument("-amgx_config", type=str, default="data/amgx_config/AMG_CONF
 args = parser.parse_args()
 
 out_dir = args.out_dir
-Path(out_dir).mkdir(parents=True, exist_ok=True)
 build_P_method = args.build_P_method
 use_cuda = args.use_cuda
 use_lessmem = True
@@ -1921,7 +1920,7 @@ def export_A_b(A,b,postfix="", binary=True):
         np.savetxt(dir + f"b_{postfix}.txt", b)
 
 
-def create_another_outdir(out_dir):
+def use_another_outdir(out_dir):
     import re
     path = Path(out_dir)
     if path.exists():
@@ -1942,9 +1941,8 @@ def create_another_outdir(out_dir):
                 break
             i += 1
 
-    path.mkdir(parents=True, exist_ok=True)
     out_dir = str(path)
-    print(f"\ncreate another outdir: {out_dir}\n")
+    print(f"\nFind another outdir: {out_dir}\n")
     return out_dir
 
 
@@ -2447,7 +2445,7 @@ def main():
     tic = perf_counter()
     global out_dir, ist, t_export_total, t_export
     if args.auto_another_outdir:
-        out_dir = create_another_outdir(out_dir)
+        out_dir = use_another_outdir(out_dir)
     make_and_clean_dirs(out_dir)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')

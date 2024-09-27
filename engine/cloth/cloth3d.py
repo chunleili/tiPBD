@@ -47,7 +47,7 @@ PXPBD_ksi = 1.0
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=64)
 parser.add_argument("-delta_t", type=float, default=1e-3)
-parser.add_argument("-solver_type", type=str, default='XPBD', help='"AMG", "GS", "XPBD"')
+parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-export_matrix_binary", type=int, default=True)
 parser.add_argument("-export_state", type=int, default=False)
@@ -59,7 +59,7 @@ parser.add_argument("-restart", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=21)
 parser.add_argument("-restart_dir", type=str, default="result/meta/")
 parser.add_argument("-restart_from_last_frame", type=int, default=False)
-parser.add_argument("-maxiter", type=int, default=3000)
+parser.add_argument("-maxiter", type=int, default=50)
 parser.add_argument("-maxiter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
@@ -72,7 +72,7 @@ parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
 parser.add_argument("-tol", type=float, default=1e-4)
-parser.add_argument("-use_PXPBD_v1", type=int, default=False)
+parser.add_argument("-use_PXPBD_v1", type=int, default=True)
 parser.add_argument("-use_PXPBD_v2", type=int, default=False)
 parser.add_argument("-use_bending", type=int, default=True)
 
@@ -1942,7 +1942,8 @@ def AMG_PXPBD_v1_b(G):
     b = -constraints.to_numpy() - alpha_tilde_np * lagrangian.to_numpy()
 
     # PXPBD_b_kernel(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
-    Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
+    MASS = sp.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
+    Minv_gg =  MASS@M_inv@(pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
     b += G @ Minv_gg
     return b, Minv_gg
     

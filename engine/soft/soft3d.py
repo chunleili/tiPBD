@@ -1337,9 +1337,22 @@ def is_stall(r):
     
     # if all incs is in [0.999,1.001]
     if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
-        logging.info(f"Stall at {meta.frame}-{meta.ite}")
+        logging.warning(f"Stall at {meta.frame}-{meta.ite}")
         all_stalled.append((meta.frame, meta.ite))
         return True
+    return False
+
+
+def is_diverge(r,r_Axb):
+    if (meta.ite < 5):
+        return False
+
+    if r[-1].dual/r[-5].dual>5:
+        return True
+    
+    if r_Axb[-1]>r_Axb[0]:
+        return True
+
     return False
 
 
@@ -1375,8 +1388,10 @@ def substep_xpbd(ist):
         if dualr < args.tol:
             break
         if is_stall(r):
-            logging.info("Stall detected, break")
+            logging.warning("Stall detected, break")
             break
+        if is_diverge(r):
+            raise ValueError("Diverge")
     n_outer_all.append(meta.ite+1)
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 

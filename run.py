@@ -24,6 +24,8 @@ import logging
 import datetime
 import re
 from pathlib import Path
+import threading # to monitor GPU usage
+import time
 
 pythonExe = "python"
 if sys.platform == "darwin":
@@ -182,15 +184,47 @@ def log_args(args:list):
     # with open("last_run.txt", "w") as f:
     #     f.write(f"{args1}\n")
 
+def get_date():
+    return datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
 
-# python run.py -end_frame=10 -cases 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 | Tee-Object -FilePath "output.log"
+
+def get_gpu_mem_usage():
+    import pynvml
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+    meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    used_memory = meminfo.used
+    total_memory = meminfo.total
+    usage = (used_memory / total_memory)
+
+    with open("result/meta/gpu_mem_usage.txt", "a") as f:
+        f.write(f"{get_date()} usage:{usage*100:.1f}% mem:{used_memory/1024**3:.2f}\n")
+    # logging.info(f"GPU memory total: {total_memory/1024**3:.2f} GB")
+    # logging.info(f"GPU memory used: {used_memory/1024**3:.2f} GB")
+    # logging.info(f"GPU memory usage: {usage*100:.1f}%")
+    if usage > 0.90:
+        logging.error(f"GPU memory usage is too high: {usage*100:.1f}%")
+        raise Exception(f"GPU memory usage is too high: {usage*100:.1f}%")
+    return usage
+
+def monitor_gpu_usage(interval=60):
+    while True:
+        get_gpu_mem_usage()
+        time.sleep(interval)
+
+
+# python run.py -end_frame=10 -cases 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 | Tee-Object -FilePath "output.log"
 if __name__=='__main__':
     Path("result/meta/").mkdir(parents=True, exist_ok=True)
     if os.path.exists(f'result/meta/batch_run.log'):
         os.remove(f'result/meta/batch_run.log')
-
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=f'result/meta/batch_run.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+
+    # 启动 GPU 使用监控线程
+    monitor_thread = threading.Thread(target=monitor_gpu_usage, args=(60,))
+    monitor_thread.daemon = True
+    monitor_thread.start()
 
     date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
     last_run = " ".join(sys.argv)
@@ -205,15 +239,9 @@ if __name__=='__main__':
         try:
             for case_num in cli_args.cases:
                 if 0 < case_num < len(allargs):
-                    print(f'Running case {case_num}...')
+                    logging.info(f"Running case {case_num}...\nDate={get_date()}\n")
                     tic1 = perf_counter()
-                    try:
-                        date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
-                        logging.info(f"Running case {case_num}...\nDate={date}\n")
-                        run_case(case_num)
-                    except Exception as e:
-                        date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
-                        logging.exception(f"Caught exception at case {case_num}, Date={date} continue to next case.\n")  
+                    run_case(case_num)
                     tic2 = perf_counter()
                     logging.info(f"\ncase {case_num} finished. Time={(tic2-tic1)/60:.2f} min\n---------\n\n")
                 else:
@@ -228,6 +256,8 @@ if __name__=='__main__':
             print(f"AssertionError: {e}")
             print(f"At case {case_num}")
             print(f"Batch run time: {(perf_counter()-tic)/60:.2f} min")
+        finally:
+            monitor_thread.join()
             
     
     if cli_args.list:

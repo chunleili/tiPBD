@@ -1954,7 +1954,7 @@ def ending(timer_loop, start_date, initial_frame):
 
     len_n_outer_all = len(n_outer_all) if len(n_outer_all) > 0 else 1
     sum_n_outer = sum(n_outer_all)
-    avg_n_outer = sum_n_outer / len(n_outer_all)
+    avg_n_outer = sum_n_outer / len_n_outer_all
     max_n_outer = max(n_outer_all)
     max_n_outer_index = n_outer_all.index(max_n_outer)
 
@@ -1983,7 +1983,7 @@ def ending(timer_loop, start_date, initial_frame):
     logging.info(s)
 
     out_dir_name = Path(out_dir).name
-    name = start_date + "_" +  str(out_dir_name) 
+    name = str(out_dir_name) 
     file_name = f"result/meta/{name}.txt"
     with open(file_name, "w", encoding="utf-8") as file:
         file.write(s)
@@ -1992,6 +1992,8 @@ def ending(timer_loop, start_date, initial_frame):
     with open(file_name2, "w", encoding="utf-8") as file:
         file.write(s)
 
+    if args.solver_type == "AMGX":
+        amgxsolver.finalize()
 
 # ---------------------------------------------------------------------------- #
 #                               directly  fill A                               #
@@ -2496,7 +2498,7 @@ def main():
             info(f"step time: {perf_counter() - t:.2f} s")
             step_pbar.update(1)
                 
-            if meta.frame == args.end_frame:
+            if meta.frame >= args.end_frame:
                 print("Normallly end.")
                 ending(timer_all, start_date, initial_frame)
                 exit()
@@ -2504,6 +2506,8 @@ def main():
         ending(timer_all, start_date, initial_frame)
         exit()
     except Exception as e:
+        if args.solver_type == "AMGX":
+            amgxsolver.finalize()
         logging.exception(f"Exception occurred:\n{e} ")
         raise e
 

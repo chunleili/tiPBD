@@ -165,14 +165,14 @@ def run_case(case_num:int):
 
     # call(args)
 
-    date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
     stderr_file = f"result/meta/stderr_{case_num}.txt"
     with open(stderr_file, "w") as f:
         try:
             subprocess.check_call(args, stderr=f)
         # except Exception as e:
         except subprocess.CalledProcessError as e:
-            logging.exception(f"Case {case_num} failed with error: {e}\nDate={date}\nSee {stderr_file} for details\n")
+            date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
+            logging.exception(f"Case {case_num} failed with error\nDate={date}\nSee {stderr_file} for details\n")
             # raise
 
 
@@ -183,7 +183,7 @@ def log_args(args:list):
     #     f.write(f"{args1}\n")
 
 
-# python run.py -end_frame=10 -cases 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 | Tee-Object -FilePath "output.log"
+# python run.py -end_frame=10 -cases 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 | Tee-Object -FilePath "output.log"
 if __name__=='__main__':
     Path("result/meta/").mkdir(parents=True, exist_ok=True)
     if os.path.exists(f'result/meta/batch_run.log'):
@@ -212,7 +212,8 @@ if __name__=='__main__':
                         logging.info(f"Running case {case_num}...\nDate={date}\n")
                         run_case(case_num)
                     except Exception as e:
-                        logging.exception(f"Caught exception{e} at case {case_num}, Date={date} continue to next case.\n")  
+                        date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
+                        logging.exception(f"Caught exception at case {case_num}, Date={date} continue to next case.\n")  
                     tic2 = perf_counter()
                     logging.info(f"\ncase {case_num} finished. Time={(tic2-tic1)/60:.2f} min\n---------\n\n")
                 else:

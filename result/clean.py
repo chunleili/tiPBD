@@ -14,5 +14,11 @@ def clean():
             else:
                 os.remove(f)
 
+    # clean meta/std_err*.txt 
+    for f in os.listdir("meta"):
+        if f.startswith("stderr"):
+            os.remove(os.path.join("meta", f))
+        
+
 if __name__ == "__main__":
     clean()

@@ -13,17 +13,22 @@ python engine/cloth/cloth3d.py
 python engine/soft/soft3d.py
 ```
 
-## 编译cuda
+## 使用cuda加速
+cuda加速AMG可达到30倍以上。
+(windows)
+1. 安装cuda(12以上)
+2. 编译dll
 cd到cpp/mgcg_cuda
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
+3. 运行cloth3d.py。加上`-use_cuda=1`选项，并用`-cuda_dir`指定cuda安装目录。例如`-cuda_dir="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin"`
+
 详情见cpp/mgcg_cuda/README.md
 
-运行python脚本前需要用`-cuda_dir=xxx` 指定cuda安装目录。
 
-`-use_cuda=0`可以只运行python版本，不需要编译。建议先用python版本进行较小规模测试，例如N=64。
+额外说明：`-use_cuda=0`可以只运行python版本，不需要编译。建议先用python版本进行较小规模测试，例如N=64。
 
 
 ## 命令行选项

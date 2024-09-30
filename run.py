@@ -171,15 +171,23 @@ def run_case(case_num:int):
 
     # call(args)
 
-    stderr_file = f"result/meta/stderr_{case_num}.txt"
-    with open(stderr_file, "w") as f:
-        try:
-            subprocess.check_call(args, stderr=f)
-        except Exception as e:
-        # except subprocess.CalledProcessError as e:
-            date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
-            logging.exception(f"Case {case_num} failed with error\nDate={date}\nSee {stderr_file} for details\n")
-            # raise
+    # stderr_file = f"result/meta/stderr_{case_num}.txt"
+    # with open(stderr_file, "w") as f:
+    #     try:
+    #         subprocess.check_call(args, stderr=f)
+    #     except Exception as e:
+    #     # except subprocess.CalledProcessError as e:
+    #         date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
+    #         logging.exception(f"Case {case_num} failed with error\nDate={date}\nSee {stderr_file} for details\n")
+    #         # raise
+    try:
+        subprocess.check_call(args)
+    except subprocess.CalledProcessError as e:
+        date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
+        logging.exception(f"Case {case_num} failed with error\nDate={date}\n\n")
+    except KeyboardInterrupt:
+        logging.exception(f"KeyboardInterrupt case {case_num}")
+
 
 
 def log_args(args:list):
@@ -210,13 +218,13 @@ def get_gpu_mem_usage():
     return usage
 
 
-def monitor_gpu_usage(interval=5):
+def monitor_gpu_usage(interval=60):
     while True:
         get_gpu_mem_usage()
         time.sleep(interval)
 
 
-# python run.py -end_frame=10 -cases  53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 | Tee-Object -FilePath "output.log"
+# python run.py -end_frame=10 -cases  63 64 65 66 67 68 | Tee-Object -FilePath "output.log"
 if __name__=='__main__':
     Path("result/meta/").mkdir(parents=True, exist_ok=True)
     if os.path.exists(f'result/meta/batch_run.log'):
@@ -224,12 +232,12 @@ if __name__=='__main__':
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=f'result/meta/batch_run.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-    pid = os.getpid()
-    logging.info(f"process PPID: {pid}")
-    # 启动 GPU 使用监控线程
-    monitor_thread = multiprocessing.Process(target=monitor_gpu_usage)
-    monitor_thread.daemon = True
-    monitor_thread.start()
+    # pid = os.getpid()
+    # logging.info(f"process PPID: {pid}")
+    # # 启动 GPU 使用监控线程
+    # monitor_thread = multiprocessing.Process(target=monitor_gpu_usage)
+    # monitor_thread.daemon = True
+    # monitor_thread.start()
 
     date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
     last_run = " ".join(sys.argv)

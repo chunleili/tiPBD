@@ -1186,7 +1186,7 @@ struct VCycle : Kernels {
     std::vector<float> chebyshev_coeff;
     size_t smoother_type = 1; //1:chebyshev, 2:jacobi, 3:gauss_seidel
     float jacobi_omega;
-    size_t jacobi_niter=100;
+    size_t jacobi_niter=10;
     Vec<float> z;
     Vec<float> r;
     Vec<float> outer_x;

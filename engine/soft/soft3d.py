@@ -1207,6 +1207,9 @@ def substep_all_solver(ist):
             break
         if r[-1].dual / r[0].dual <args.rtol:
             break
+        if is_diverge(r, r_Axb):
+            logging.error("Diverge detected, break")
+            break
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {len(r)}")
@@ -1393,8 +1396,6 @@ def substep_xpbd(ist):
         if is_stall(r):
             logging.warning("Stall detected, break")
             break
-        if is_diverge(r):
-            raise ValueError("Diverge")
     n_outer_all.append(meta.ite+1)
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 

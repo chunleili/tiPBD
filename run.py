@@ -156,16 +156,61 @@ for config in os.listdir("data/config/batch"):
     allargs.append(args)
 
 
-# case69: soft 85w
+# case69: soft 85w niter5 UA
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case3-{day}-soft85w-AMG-niter5",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-AMG-niter5",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
         "-jacobi_niter=5",
+        "-build_P_method=UA"
+        ]
+allargs.append(args)
+
+
+# case70: soft 85w niter5 adaptive
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-AMG-niter5-adaptive",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol_Axb=1e-8",
+        "-rtol=1e-2",
+        "-delta_t=3e-3",
+        "-jacobi_niter=5",
+        "-build_P_method=adaptive_SA"
+        ]
+allargs.append(args)
+
+
+# case71: soft 85w niter5 nullspace
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-AMG-niter5-adaptive",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol_Axb=1e-8",
+        "-rtol=1e-2",
+        "-delta_t=3e-3",
+        "-jacobi_niter=5",
+        "-build_P_method=nullspace"
+        ]
+allargs.append(args)
+
+
+# case72: soft 85w niter5 UA
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-AMG-niter5-UA",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol_Axb=1e-8",
+        "-rtol=1e-2",
+        "-delta_t=3e-3",
+        "-jacobi_niter=3",
         "-build_P_method=UA"
         ]
 allargs.append(args)

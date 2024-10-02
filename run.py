@@ -85,7 +85,7 @@ allargs.append(args)
 # case3: soft 85w
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case3-{day}-soft85w-AMG",
+        f"-out_dir=result/case3-{day}-soft85w-AMG-adaptive",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
         "-tol_Axb=1e-8",
@@ -154,6 +154,22 @@ for config in os.listdir("data/config/batch"):
             "-solver_type=AMGX"
             ]
     allargs.append(args)
+
+
+# case69: soft 85w
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case3-{day}-soft85w-AMG-niter5",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol_Axb=1e-8",
+        "-rtol=1e-2",
+        "-delta_t=3e-3",
+        "-jacobi_niter=5",
+        "-build_P_method=UA"
+        ]
+allargs.append(args)
+
 
 
 def run_case(case_num:int):

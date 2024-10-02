@@ -47,7 +47,7 @@ parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="jacobi")
-parser.add_argument("-build_P_method", type=str, default="UA")
+parser.add_argument("-build_P_method", type=str, default="SA", choices=["UA", "SA","nullspace","adaptive_SA"])
 parser.add_argument("-max_iter_Axb", type=int, default=100)
 parser.add_argument("-arch", type=str, default="cpu")
 parser.add_argument("-setup_interval", type=int, default=20)
@@ -65,6 +65,7 @@ parser.add_argument("-tol_Axb", type=float, default=1e-5)
 parser.add_argument("-large", action="store_true")
 parser.add_argument("-samll", action="store_true")
 parser.add_argument("-amgx_config", type=str, default="data/amgx_config/AMG_CONFIG_CG.json")
+parser.add_argument("-jacobi_niter", type=int, default=10)
 
 args = parser.parse_args()
 
@@ -125,6 +126,7 @@ def init_extlib_argtypes():
     extlib.fastmg_set_A0.argtypes = argtypes_of_csr
     extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
     extlib.fastmg_setup_smoothers.argtypes = [c_int]
+    extlib.fastmg_set_jacobi_niter.argtypes = [ctypes.c_size_t]
     extlib.fastmg_update_A0.argtypes = [arr_float]
 
 
@@ -913,6 +915,7 @@ def AMG_setup_phase():
     tic = time.perf_counter()
     cuda_set_A0(A)
     extlib.fastmg_setup_smoothers(2) # 1 means chebyshev, 2 means w-jacobi
+    extlib.fastmg_set_jacobi_niter(args.jacobi_niter)
     # omega = setup_jacobi_python(A) # cuda version is 10x faster: 213ms vs 2.84s
     # extlib.fastmg_setup_jacobi(omega, 100)
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
@@ -1462,9 +1465,11 @@ def calc_near_nullspace_GS(A):
     print("Calculating near nullspace Time:", toc-tic)
     return B
 
-def build_Ps(A, method='SA'):
+def build_Ps(A):
     """Build a list of prolongation matrices Ps from A """
+    method = args.build_P_method
     print("build P by method:", method)
+    tic = perf_counter()
     if method == 'UA':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
     elif method == 'SA' :
@@ -1472,7 +1477,7 @@ def build_Ps(A, method='SA'):
     elif method == 'CAMG':
         ml = pyamg.ruge_stuben_solver(A, max_coarse=400,symmetry='symmetric')
     elif method == 'adaptive_SA':
-        ml = pyamg.aggregation.adaptive_sa_solver(A, max_coarse=400, smooth=None, num_candidates=6)[0]
+        ml = pyamg.aggregation.adaptive_sa_solver(A.astype(np.float64), max_coarse=400, smooth=None, num_candidates=6)[0]
     elif method == 'nullspace':
         B = calc_near_nullspace_GS(A)
         print("B shape:", B.shape)
@@ -1484,7 +1489,11 @@ def build_Ps(A, method='SA'):
     Ps = []
     for i in range(len(ml.levels)-1):
         Ps.append(ml.levels[i].P)
-
+    toc = perf_counter()
+    print("Build P Time:", toc-tic)
+    file = out_dir+'build_P_time.txt'
+    with open(file, 'a') as f:
+        f.write(f"{method} {toc-tic}\n")
     return Ps
 
 

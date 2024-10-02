@@ -1395,6 +1395,10 @@ struct VCycle : Kernels {
         jacobi_niter = n;
     }
 
+    void set_jacobi_niter(size_t const n) {
+        jacobi_niter = n;
+    }
+
 
     void setup_jacobi_cuda(CSR<float>&A, size_t const n) {
         // smoother_type = 2;
@@ -1765,6 +1769,10 @@ extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
     fastmg->setup_smoothers(type);
 }
 
+
+extern "C" DLLEXPORT void fastmg_set_jacobi_niter(const size_t niter) {
+    fastmg->set_jacobi_niter(niter);
+}
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
     fastmg->set_A0_from_fastFillCloth(fastFillCloth);

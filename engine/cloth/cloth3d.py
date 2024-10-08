@@ -72,7 +72,7 @@ parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
 parser.add_argument("-tol", type=float, default=1e-4)
-parser.add_argument("-use_PXPBD_v1", type=int, default=True)
+parser.add_argument("-use_PXPBD_v1", type=int, default=False)
 parser.add_argument("-use_PXPBD_v2", type=int, default=False)
 parser.add_argument("-use_bending", type=int, default=False)
 

@@ -25,7 +25,7 @@ import tqdm
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-maxiter", type=int, default=3000)
+parser.add_argument("-maxiter", type=int, default=50)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-mu", type=float, default=1e6)
 parser.add_argument("-delta_t", type=float, default=1e-3)
@@ -48,7 +48,6 @@ parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="jacobi")
 parser.add_argument("-build_P_method", type=str, default="SA", choices=["UA", "SA","nullspace","adaptive_SA"])
-parser.add_argument("-max_iter_Axb", type=int, default=100)
 parser.add_argument("-arch", type=str, default="cpu")
 parser.add_argument("-setup_interval", type=int, default=20)
 parser.add_argument("-maxiter_Axb", type=int, default=100)
@@ -1491,8 +1490,8 @@ def build_Ps(A):
     for i in range(len(ml.levels)-1):
         Ps.append(ml.levels[i].P)
     toc = perf_counter()
-    print("Build P Time:", toc-tic)
-    file = out_dir+'build_P_time.txt'
+    logging.info(f"Build P Time:{toc-tic:.2f}s")
+    file = out_dir+'/build_P_time.txt'
     with open(file, 'a') as f:
         f.write(f"{method} {toc-tic}\n")
     return Ps
@@ -2014,8 +2013,8 @@ def ending(timer_loop, start_date, initial_frame):
         file.write(s)
 
     file_name2 = f"{out_dir}/meta.txt"
-    with open(file_name2, "w", encoding="utf-8") as file:
-        file.write(s)
+    with open(file_name2, "w", encoding="utf-8") as file2:
+        file2.write(s)
 
     if args.solver_type == "AMGX":
         amgxsolver.finalize()

@@ -9,3 +9,4 @@ spgemm2.cu
 spgemm3.cu
 spgemm31.cu
 spgemm/G.npz
+*.obj

@@ -32,3 +32,16 @@ cmake --build build --config Release
 
 Reference:
 [Parallel Block Neo-Hookean XPBD using Graph Clustering](https://profs.etsmtl.ca/sandrews/publication/xpbd_mig2022/)
+
+
+## red-black GS
+来源：
+https://github.com/rpandya1990/Gauss-seidel-Parallel-Implementation
+
+从vs 2022 native tool command prompt编译
+```
+cl.exe parallel_rb.cpp /openmp
+```
+结果
+(Serial): 5975(ms)
+(Parallel): 938(ms)

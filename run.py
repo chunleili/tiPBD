@@ -508,7 +508,7 @@ allargs.append(args)
 # case91: soft85w XPBD 3ms cpu
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD-5ms",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD-3ms",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
         "-tol_Axb=1e-8",
@@ -532,6 +532,123 @@ args = ["engine/cloth/cloth3d.py",
         "-maxiter=3000",
         "-delta_t=1e-3",
         "-tol=1e-4"
+        ]
+allargs.append(args)
+
+
+# case93: soft85w XPBD 3ms gpu
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD-3ms-gpu",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol_Axb=1e-8",
+        "-rtol=1e-2",
+        "-delta_t=3e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=3000"
+        ]
+allargs.append(args)
+
+
+# case94: soft85w XPBD 1ms gpu
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD-1ms-gpu",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol_Axb=1e-8",
+        "-rtol=1e-2",
+        "-delta_t=1e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=3000"
+        ]
+allargs.append(args)
+
+
+# case95: soft85w XPBD 5ms gpu
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD-5ms-gpu",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol_Axb=1e-8",
+        "-rtol=1e-2",
+        "-delta_t=5e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=3000"
+        ]
+allargs.append(args)
+
+
+# case96: soft85w XPBD 5ms gpu
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD-5ms-gpu",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-delta_t=5e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=3000"
+        ]
+allargs.append(args)
+
+
+# case97: soft85w AMG niter3 3ms UA
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD-5ms-gpu",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=3",
+        "-build_P_method=UA"
+        ]
+allargs.append(args)
+
+
+# case98: soft85w AMG niter3 3ms SA
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=3",
+        "-build_P_method=SA"
+        ]
+allargs.append(args)
+
+
+# case99: soft85w AMG niter3 3ms nullspace
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=3",
+        "-build_P_method=nullspace"
         ]
 allargs.append(args)
 

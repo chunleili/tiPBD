@@ -1483,6 +1483,8 @@ def build_Ps(A):
         print("B shape:", B.shape)
         print(f"B: {B}")
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B)
+    elif method == 'algebraic3.0':
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B, strength=('algebraic_distance', {'epsilon': 3.0}))
     else:
         raise ValueError(f"Method {method} not recognized")
 

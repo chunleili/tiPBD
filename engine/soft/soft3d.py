@@ -47,7 +47,7 @@ parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
 parser.add_argument("-smoother_type", type=str, default="jacobi")
-parser.add_argument("-build_P_method", type=str, default="SA", choices=["UA", "SA","nullspace","adaptive_SA"])
+parser.add_argument("-build_P_method", type=str, default="UA")
 parser.add_argument("-arch", type=str, default="cpu")
 parser.add_argument("-setup_interval", type=int, default=20)
 parser.add_argument("-maxiter_Axb", type=int, default=100)
@@ -69,7 +69,6 @@ parser.add_argument("-jacobi_niter", type=int, default=10)
 args = parser.parse_args()
 
 out_dir = args.out_dir
-build_P_method = args.build_P_method
 use_cuda = args.use_cuda
 use_lessmem = True
 if args.large:
@@ -920,6 +919,7 @@ def AMG_setup_phase():
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
     report_multilevel_details(Ps, num_levels)
+    return A
 
 
 def fetch_A_from_cuda():
@@ -1168,7 +1168,10 @@ def AMG_amgx(b):
 def AMG_cuda(b):
     AMG_A()
     if should_setup():
-        AMG_setup_phase()
+        A = AMG_setup_phase()
+        if args.export_matrix:
+            export_A_b(A, b, postfix=f"F{meta.frame}")
+            exit()
     extlib.fastmg_set_A0_from_fastFillSoft()
     AMG_RAP()
     x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
@@ -1475,7 +1478,7 @@ def build_Ps(A):
     elif method == 'SA' :
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400,symmetry='symmetric')
     elif method == 'CAMG':
-        ml = pyamg.ruge_stuben_solver(A, max_coarse=400,symmetry='symmetric')
+        ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
     elif method == 'adaptive_SA':
         ml = pyamg.aggregation.adaptive_sa_solver(A.astype(np.float64), max_coarse=400, smooth=None, num_candidates=6)[0]
     elif method == 'nullspace':
@@ -1484,9 +1487,25 @@ def build_Ps(A):
         print(f"B: {B}")
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B)
     elif method == 'algebraic3.0':
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B, strength=('algebraic_distance', {'epsilon': 3.0}))
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('algebraic_distance', {'epsilon': 3.0}))
+    elif method == 'affinity4.0':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('affinity', {'epsilon': 4.0, 'R': 10, 'alpha': 0.5, 'k': 20}))
+    elif method == 'strength0.1':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.25 }))    
+    elif method == 'strength0.2':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.25 }))    
+    elif method == 'strength0.25':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.25 }))
+    elif method == 'strength0.3':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.3 }))
+    elif method == 'strength0.4':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.4 }))
+    elif method == 'strength0.5':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.5 }))
     else:
         raise ValueError(f"Method {method} not recognized")
+    
+    print(ml)
 
     Ps = []
     for i in range(len(ml.levels)-1):
@@ -1534,8 +1553,8 @@ def build_levels_cuda(A, Ps=[]):
 
 
 def setup_AMG(A):
-    global chebyshev_coeff, build_P_method
-    Ps = build_Ps(A, method=build_P_method)
+    global chebyshev_coeff
+    Ps = build_Ps(A)
     if args.smoother_type == 'chebyshev':
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
     elif args.smoother_type == 'jacobi':
@@ -1936,6 +1955,7 @@ def make_and_clean_dirs(out_dir):
 
 
 def export_A_b(A,b,postfix="", binary=True):
+    logging.info(f"Exporting A and b...")
     dir = out_dir + "/A/"
     if binary:
         scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)

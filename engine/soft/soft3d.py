@@ -39,8 +39,7 @@ parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coar
 # "data/model/bunny_small/bunny_small.node"
 # "data/model/bunnyBig/bunnyBig.node"
 # "data/model/bunny85w/bunny85w.node"
-parser.add_argument("-kmeans_k", type=int, default=1000)
-parser.add_argument("-end_frame", type=int, default=100)
+parser.add_argument("-end_frame", type=int, default=10)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
 parser.add_argument("-export_matrix", type=int, default=False)
 parser.add_argument("-auto_another_outdir", type=int, default=False)
@@ -69,8 +68,9 @@ parser.add_argument("-jacobi_niter", type=int, default=10)
 args = parser.parse_args()
 
 out_dir = args.out_dir
-use_cuda = args.use_cuda
 use_lessmem = True
+use_graph_coloring = False
+
 if args.large:
     args.model_path = f"data/model/bunny85w/bunny85w.node"
 if args.samll:
@@ -1185,7 +1185,7 @@ def substep_all_solver(ist):
         if meta.ite==0:
             fulldual0 = calc_dual(ist)
         b = AMG_b(ist)
-        if not use_cuda:
+        if not args.use_cuda:
             x, r_Axb = AMG_python(b)
         else:
             if args.solver_type == "AMG":
@@ -1382,16 +1382,18 @@ def build_Ps(A):
     else:
         raise ValueError(f"Method {method} not recognized")
     
-    print(ml)
+    logging.info(ml)
 
     Ps = []
     for i in range(len(ml.levels)-1):
         Ps.append(ml.levels[i].P)
     toc = perf_counter()
     logging.info(f"Build P Time:{toc-tic:.2f}s")
-    file = out_dir+'/build_P_time.txt'
-    with open(file, 'a') as f:
-        f.write(f"{method} {toc-tic}\n")
+
+    logger2.info(f"logger2 {method} {toc-tic}")
+    # file = out_dir+'/build_P_time.txt'
+    # with open(file, 'a') as f:
+    #     f.write(f"{method} {toc-tic}\n")
     return Ps
 
 
@@ -1588,7 +1590,7 @@ def ending(timer_loop, start_date, initial_frame):
     max_n_outer_index = n_outer_all.index(max_n_outer)
 
     n_outer_all_np = np.array(n_outer_all, np.int32)    
-    np.savetxt(out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
+    np.savetxt(out_dir+"/n_outer.txt", n_outer_all_np, fmt="%d")
 
     sim_time_with_export = time.perf_counter() - timer_loop
     sim_time = sim_time_with_export - t_export_total
@@ -1609,17 +1611,15 @@ def ending(timer_loop, start_date, initial_frame):
     f"\ndt={meta.delta_t}" + \
     f"\nSolver: {args.solver_type}" + \
     f"\nout_dir: {out_dir}" 
-    logging.info(s)
+    # logging.info(s)
 
-    out_dir_name = Path(out_dir).name
-    name = str(out_dir_name) 
-    file_name = f"result/meta/{name}.txt"
-    with open(file_name, "w", encoding="utf-8") as file:
-        file.write(s)
 
-    file_name2 = f"{out_dir}/meta.txt"
-    with open(file_name2, "w", encoding="utf-8") as file2:
-        file2.write(s)
+    file_name = f"result/meta/{out_dir_name}.log"
+    file_name2 = f"{out_dir}/meta.log"
+    logger_meta = logging.getLogger('logger_meta')
+    logger_meta.addHandler(logging.FileHandler(file_name))
+    logger_meta.addHandler(logging.FileHandler(file_name2))
+    logger_meta.info(s)
 
     if args.solver_type == "AMGX":
         amgxsolver.finalize()
@@ -2051,13 +2051,18 @@ def graph_coloring():
 # ---------------------------------------------------------------------------- #
 def main():
     tic = perf_counter()
-    global out_dir, ist, t_export_total, t_export
+    global out_dir, ist, t_export_total, t_export, logger2, out_dir_name
     if args.auto_another_outdir:
         out_dir = use_another_outdir(out_dir)
     make_and_clean_dirs(out_dir)
 
-    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/latest.log',filemode='a')
+    out_dir_name = str(Path(out_dir).name) 
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/{out_dir_name}.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+
+    logger2 = logging.getLogger('logger2')
+    logger2.addHandler(logging.FileHandler(out_dir + f'/build_P_time.log', 'a'))
 
     start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     logging.info(start_date)
@@ -2065,7 +2070,6 @@ def main():
     ist = SoftBody(args.model_path)
     ist.initialize()
     
-    use_graph_coloring = False
     if use_graph_coloring:
         graph_coloring()
 

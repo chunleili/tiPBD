@@ -114,7 +114,6 @@ def init_extlib_argtypes():
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
-
     extlib.fastmg_set_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
     extlib.fastmg_get_data.argtypes = [arr_float]*2
     extlib.fastmg_get_data.restype = c_size_t
@@ -127,21 +126,15 @@ def init_extlib_argtypes():
     extlib.fastmg_set_jacobi_niter.argtypes = [ctypes.c_size_t]
     extlib.fastmg_update_A0.argtypes = [arr_float]
 
-
     extlib.fastFillSoft_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, arr_float]
     extlib.fastFillSoft_fetch_A_data.argtypes = [arr_float]
-
-    extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
-
     extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
 
     extlib.fastmg_new()
-
     extlib.fastFillSoft_new()
 
 if args.use_cuda:
     init_extlib_argtypes()
-
 
 class Meta:
     def __init__(self) -> None:
@@ -1225,115 +1218,6 @@ def substep_all_solver(ist):
     logging.info(f"avg iter frame {meta.frame}: {t_avg_iter[-1]*1000:.0f}ms")
 
 
-# def substep_all_solver(ist, maxiter=1, solver_type="GaussSeidel", P=None, R=None):
-#     # ist is instance of fine or coarse
-#     semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
-#     reset_lagrangian(ist.lagrangian)
-
-#     # fill M_inv and ALPHA
-#     inv_mass_np = ist.inv_mass.to_numpy()
-#     inv_mass_np = np.repeat(inv_mass_np, 3, axis=0)
-#     M_inv = scipy.sparse.diags(inv_mass_np)
-
-#     alpha_tilde_np = ist.alpha_tilde.to_numpy()
-#     ALPHA = scipy.sparse.diags(alpha_tilde_np)
-
-#     r=[]
-#     for meta.ite in range(maxiter):
-#         global t_calc_residual, t_export_residual, t_save_state
-#         t_iter_start = perf_counter()
-#         # ----------------------------- prepare matrices ----------------------------- #
-#         ist.pos_mid.from_numpy(ist.pos.to_numpy())
-
-#         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-
-#         # TODO:
-#         tic1 = time.perf_counter()
-#         # A = fill_A_by_spmm(ist, M_inv, ALPHA)
-#         A = fill_A_csr(ist)
-#         A = A.copy()    #∠(°ゝ°）  FIXME: I really don't know why, but without this line, the result is wrong!!!
-#         print(f"    assemble matrix time:{time.perf_counter()-tic1}")
-#         # csr_is_equal(A, A2, ist)
-
-#         b = -ist.constraint.to_numpy() - ist.alpha_tilde.to_numpy() * ist.lagrangian.to_numpy()
-
-#         if export_matrix:
-#             export_A_b(A,b,postfix=f"F{meta.frame}-{meta.ite}")
-
-#         # -------------------------------- solve Ax=b -------------------------------- #
-#         x0 = np.zeros_like(b)
-#         rsys0 = np.linalg.norm(b-A @ x0)
-
-#         if solver_type == "GaussSeidel":
-#             x = np.zeros_like(b)
-#             for _ in range(1):
-#                 amg_core_gauss_seidel_kernel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x0)), row_step=1)
-#                 r_norm = np.linalg.norm(A @ x - b)
-#                 print(f"{meta.ite} r:{r_norm:.2g}")
-#         elif solver_type == "Direct":
-#             x = scipy.sparse.linalg.spsolve(A, b)
-#         if solver_type == "AMG":
-#             global Ps
-#             if (((meta.frame%20==0)) and (meta.ite==0)):
-#                 tic = time.perf_counter()
-#                 Ps = setup_AMG(A)
-#                 logging.info(f"    setup AMG time:{perf_counter()-tic}")
-#             tic = time.perf_counter()
-#             if use_cuda:
-#                 levels = build_levels_cuda(A, Ps)
-#             else:
-#                 levels = build_levels(A, Ps)
-#             logging.info(f"    build_levels time:{time.perf_counter()-tic}")
-#             x0 = np.zeros_like(b)
-#             tic2 = time.perf_counter()
-#             if use_cuda:
-#                 mgsolve = new_amg_cg_solve
-#             else:
-#                 mgsolve = old_amg_cg_solve
-#             x,residuals = mgsolve(levels, b, x0=x0, maxiter=max_iter_Axb, tol=1e-6)
-#             toc2 = time.perf_counter()
-#             logging.info(f"    mgsolve time {toc2-tic2}")
-#             r_Axb = residuals
-
-
-#         # dlambda = x
-#         # ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dlambda)
-#         # dpos = M_inv @ G.transpose() @ dlambda
-#         # ist.pos.from_numpy(ist.pos_mid.to_numpy() + dpos.reshape(-1, 3))
-#         transfer_back_to_pos_mfree(x, ist)
-
-#         rsys2 = np.linalg.norm(b - A @ x)
-
-
-#         if export_residual:
-#             tic_calcr = perf_counter()
-#             t_iter = perf_counter()-t_iter_start
-#             calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
-#             dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
-#             compute_potential_energy(ist.potential_energy, ist.alpha_tilde, ist.lagrangian)
-#             compute_inertial_energy(ist.inertial_energy, ist.inv_mass, ist.pos, ist.predict_pos, meta.delta_t)
-#             robj = (ist.potential_energy[None]+ist.inertial_energy[None])
-#             r_Axb = r_Axb.tolist()
-#             if export_log:
-#                 logging.info(f"{meta.frame}-{meta.ite} r:{rsys0:.2e} {rsys2:.2e}  dual:{dual_r:.2e} object:{robj:.2e} iter:{len(r_Axb)} t:{t_iter:.2f}s calcr:{perf_counter()-tic_calcr:.2f}s")
-#             r.append(Residual([rsys0,rsys2], dual_r, robj, r_Axb, len(r_Axb), t_iter))
-
-#         x_prev = x.copy()
-
-#         if r[-1].dual < 0.1*r[0].dual or r[-1].dual<1e-5:
-#             break
-
-#     if export_residual:
-#         tic = time.perf_counter()
-#         serialized_r = [r[i]._asdict() for i in range(len(r))]
-#         r_json = json.dumps(serialized_r,   default=to_serializable)
-#         with open(out_dir+'/r/'+ f'{meta.frame}.json', 'w') as file:
-#             file.write(r_json)
-#         t_export_residual = time.perf_counter()-tic
-
-#     collsion_response(ist.pos)
-#     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
-
 all_stalled = []
 # if in last 5 iters, residuals not change 0.1%, then it is stalled
 def is_stall(r):
@@ -1406,15 +1290,6 @@ def substep_xpbd(ist):
 # ---------------------------------------------------------------------------- #
 #                                    amgpcg                                    #
 # ---------------------------------------------------------------------------- #
-# usage
-# if use_cuda:
-#     Ps = setup_AMG(A)
-#     levels = build_levels_cuda(A, Ps)
-#     x, r = new_amg_cg_solve(levels, b, x0=x0, tol=1e-6, maxiter=100)
-# else:
-#     Ps = setup_AMG(A)
-#     levels = build_levels(A, Ps)
-#     x, r = old_amg_cg_solve(levels, b, x0=x0, tol=1e-6, maxiter=100)
 
 chebyshev_coeff = None
 def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
@@ -1541,18 +1416,6 @@ def build_levels(A, Ps=[]):
 
     return levels
 
-def build_levels_cuda(A, Ps=[]):
-    '''Give A and a list of prolongation matrices Ps, return a list of levels'''
-    lvl = len(Ps) + 1 # number of levels
-
-    levels = [MultiLevel() for i in range(lvl)]
-
-    levels[0].A = A
-
-    for i in range(lvl-1):
-        levels[i].P = Ps[i]
-    return levels
-
 
 def setup_AMG(A):
     global chebyshev_coeff
@@ -1657,292 +1520,10 @@ def old_V_cycle(levels,lvl,x,b):
     x += levels[lvl].P @ coarse_x
     postsmoother(A, x, b)
 
-g_vcycle = None
-cached_P_id = None
-cached_cheby_id = None
-cached_jacobi_omega_id = None
-def init_g_vcycle(levels):
-    global g_vcycle
-    global cached_P_id, cached_cheby_id, cached_jacobi_omega_id
-
-    if g_vcycle is None:
-        os.add_dll_directory(args.cuda_dir)
-        extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
-        g_vcycle = extlib
-
-        arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
-        arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
-        c_size_t = ctypes.c_size_t
-        c_float = ctypes.c_float
-        argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                        ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
-                        ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
-                        ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                        ]
-
-        g_vcycle.fastmg_set_mgcg_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
-        g_vcycle.fastmg_get_mgcg_data.argtypes = [arr_float]*2
-        g_vcycle.fastmg_get_mgcg_data.restype = c_size_t
-
-        g_vcycle.fastmg_setup.argtypes = [ctypes.c_size_t]
-        g_vcycle.fastmg_setup_chebyshev.argtypes = [ctypes.c_size_t] * 2
-        g_vcycle.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
-        g_vcycle.fastmg_set_lv_csrmat.argtypes = [ctypes.c_size_t] * 11
-        g_vcycle.fastmg_RAP.argtypes = [ctypes.c_size_t]
-
-        g_vcycle.fastmg_set_A0.argtypes = argtypes_of_csr
-        g_vcycle.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
-
-        g_vcycle.fastmg_setup(len(levels)) #just new fastmg instance and resize levels
-
-    if args.smoother_type == 'chebyshev' and cached_cheby_id != id(chebyshev_coeff):
-        cached_cheby_id = id(chebyshev_coeff)
-        coeff_contig = np.ascontiguousarray(chebyshev_coeff, dtype=np.float32)
-        g_vcycle.fastmg_setup_chebyshev(coeff_contig.ctypes.data, coeff_contig.shape[0])
-
-    if args.smoother_type == 'jacobi' and cached_jacobi_omega_id != id(jacobi_omega):
-        cached_jacobi_omega_id = id(jacobi_omega)
-        g_vcycle.fastmg_setup_jacobi(jacobi_omega, 10)
-
-    if args.smoother_type == 'GS' and (((meta.frame%20==0)) and (meta.ite==0)):
-        g_vcycle.fastmg_setup_gauss_seidel()
-
-    # set P
-    if id(cached_P_id) != id(levels[0].P):
-        cached_P_id = levels[0].P
-        for lv in range(len(levels)-1):
-            P_ = levels[lv].P.tocsr()
-            g_vcycle.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
 
 # ---------------------------------------------------------------------------- #
 #                                  amgpcg end                                  #
 # ---------------------------------------------------------------------------- #
-
-
-# def gauss_seidel(A, x, b, iterations=1):
-#     if not sparse.isspmatrix_csr(A):
-#         raise ValueError("A must be csr matrix!")
-
-#     for _iter in range(iterations):
-#         # forward sweep
-#         print("forward sweeping")
-#         for _ in range(iterations):
-#             amg_core_gauss_seidel(A.indptr, A.indices, A.data, x, b, row_start=0, row_stop=int(len(x)), row_step=1)
-
-#         # backward sweep
-#         print("backward sweeping")
-#         for _ in range(iterations):
-#             amg_core_gauss_seidel(
-#                 A.indptr, A.indices, A.data, x, b, row_start=int(len(x)) - 1, row_stop=-1, row_step=-1
-#             )
-#     return x
-
-
-def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
-    for i in range(row_start, row_stop, row_step):
-        start = Ap[i]
-        end = Ap[i + 1]
-        rsum = 0.0
-        diag = 0.0
-
-        for jj in range(start, end):
-            j = Aj[jj]
-            if i == j:
-                diag = Ax[jj]
-            else:
-                rsum += Ax[jj] * x[j]
-
-        if diag != 0.0:
-            x[i] = (b[i] - rsum) / diag
-
-
-def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(dtype=int),
-                                 Aj: ti.types.ndarray(dtype=int),
-                                 Ax: ti.types.ndarray(dtype=float),
-                                 x: ti.types.ndarray(),
-                                 b: ti.types.ndarray(),
-                                 row_start: int,
-                                 row_stop: int,
-                                 row_step: int):
-    if row_step < 0:
-        assert "row_step must be positive"
-    for i in range(row_start, row_stop):
-        if i%row_step != 0:
-            continue
-
-        start = Ap[i]
-        end = Ap[i + 1]
-        rsum = 0.0
-        diag = 0.0
-
-        for jj in range(start, end):
-            j = Aj[jj]
-            if i == j:
-                diag = Ax[jj]
-            else:
-                rsum += Ax[jj] * x[j]
-
-        if diag != 0.0:
-            x[i] = (b[i] - rsum) / diag
-# ---------------------------------------------------------------------------- #
-#                                compute R and P                               #
-# ---------------------------------------------------------------------------- #
-@ti.func
-def is_in_tet_func(p, p0, p1, p2, p3):
-    A = ti.math.mat3([p1 - p0, p2 - p0, p3 - p0]).transpose()
-    b = p - p0
-    x = ti.math.inverse(A) @ b
-    return ((x[0] >= 0 and x[1] >= 0 and x[2] >= 0) and x[0] + x[1] + x[2] <= 1), x
-
-
-@ti.func
-def tet_centroid_func(tet_indices, pos, t):
-    a, b, c, d = tet_indices[t]
-    p0, p1, p2, p3 = pos[a], pos[b], pos[c], pos[d]
-    p = (p0 + p1 + p2 + p3) / 4
-    return p
-
-
-@ti.kernel
-def compute_all_centroid(pos: ti.template(), tet_indices: ti.template(), res: ti.template()):
-    for t in range(tet_indices.shape[0]):
-        a, b, c, d = tet_indices[t]
-        p0, p1, p2, p3 = pos[a], pos[b], pos[c], pos[d]
-        p = (p0 + p1 + p2 + p3) / 4
-        res[t] = p
-
-
-@ti.kernel
-def compute_R_kernel_new(
-    fine_pos: ti.template(),
-    fine_tet_indices: ti.template(),
-    fine_centroid: ti.template(),
-    coarse_pos: ti.template(),
-    coarse_tet_indices: ti.template(),
-    coarse_centroid: ti.template(),
-    R: ti.types.sparse_matrix_builder(),
-):
-    for i in fine_centroid:
-        p = fine_centroid[i]
-        flag = False
-        for tc in range(coarse_tet_indices.shape[0]):
-            a, b, c, d = coarse_tet_indices[tc]
-            p0, p1, p2, p3 = coarse_pos[a], coarse_pos[b], coarse_pos[c], coarse_pos[d]
-            flag, x = is_in_tet_func(p, p0, p1, p2, p3)
-            if flag:
-                R[tc, i] += 1
-                break
-        if not flag:
-            print("Warning: fine tet centroid {i} not in any coarse tet")
-
-
-@ti.kernel
-def compute_R_kernel_np(
-    fine_pos: ti.template(),
-    fine_tet_indices: ti.template(),
-    fine_centroid: ti.template(),
-    coarse_pos: ti.template(),
-    coarse_tet_indices: ti.template(),
-    coarse_centroid: ti.template(),
-    R: ti.types.ndarray(),
-):
-    for i in fine_centroid:
-        p = fine_centroid[i]
-        flag = False
-        for tc in range(coarse_tet_indices.shape[0]):
-            a, b, c, d = coarse_tet_indices[tc]
-            p0, p1, p2, p3 = coarse_pos[a], coarse_pos[b], coarse_pos[c], coarse_pos[d]
-            flag, x = is_in_tet_func(p, p0, p1, p2, p3)
-            if flag:
-                R[tc, i] = 1
-                break
-        if not flag:
-            print("Warning: fine tet centroid {i} not in any coarse tet")
-
-
-@ti.kernel
-def compute_R_based_on_kmeans_label(
-    labels: ti.types.ndarray(dtype=int),
-    R: ti.types.ndarray(),
-):
-    for i in range(R.shape[0]):
-        for j in range(R.shape[1]):
-            if labels[j] == i:
-                R[i, j] = 1
-
-
-def compute_R_and_P(coarse, fine):
-    # 计算所有四面体的质心
-    print(">>Computing all tet centroid...")
-    compute_all_centroid(fine.pos, fine.tet_indices, fine.tet_centroid)
-    compute_all_centroid(coarse.pos, coarse.tet_indices, coarse.tet_centroid)
-
-    # 计算R 和 P
-    print(">>Computing P and R...")
-    t = perf_counter()
-    M, N = coarse.tet_indices.shape[0], fine.tet_indices.shape[0]
-    R = np.zeros((M, N))
-    compute_R_kernel_np(
-        fine.pos, fine.tet_indices, fine.tet_centroid, coarse.pos, coarse.tet_indices, coarse.tet_centroid, R
-    )
-    R = scipy.sparse.csr_matrix(R)
-    P = R.transpose()
-    print(f"Computing P and R done, time = {perf_counter() - t}")
-    # print(f"writing P and R...")
-    # R.mmwrite("R.mtx")
-    # P.mmwrite("P.mtx")
-    return R, P
-
-
-def compute_R_and_P_kmeans(ist):
-    print(">>Computing P and R...")
-    t = perf_counter()
-
-    from scipy.cluster.vq import vq, kmeans, whiten
-
-    # 计算所有四面体的质心
-    print(">>Computing all tet centroid...")
-    compute_all_centroid(ist.pos, ist.tet_indices, ist.tet_centroid)
-
-    # ----------------------------------- kmans ---------------------------------- #
-    print("kmeans start")
-    input = ist.tet_centroid.to_numpy()
-
-    np.savetxt("tet_centroid.txt", input)
-
-    N = input.shape[0]
-    k = int(N / 100)
-    print("N: ", N)
-    print("k: ", k)
-
-    # run kmeans
-    input = whiten(input)
-    print("whiten done")
-
-    print("computing kmeans...")
-    kmeans_centroids, distortion = kmeans(obs=input, k_or_guess=k, iter=20)
-    labels, _ = vq(input, kmeans_centroids)
-
-    print("distortion: ", distortion)
-    print("kmeans done")
-
-    # ----------------------------------- R and P --------------------------------- #
-    # 计算R 和 P
-    R = np.zeros((k, N), dtype=np.float32)
-
-    compute_R_based_on_kmeans_label(labels, R)
-
-    R = scipy.sparse.csr_matrix(R)
-    P = R.transpose()
-    print(f"Computing P and R done, time = {perf_counter() - t}")
-
-    print(f"writing P and R...")
-    scipy.io.mmwrite("R.mtx", R)
-    scipy.io.mmwrite("P.mtx", P)
-    print(f"writing P and R done")
-
-    return R, P
-
 def make_and_clean_dirs(out_dir):
     import shutil
     from pathlib import Path
@@ -2127,29 +1708,6 @@ def csr_index_to_coo_index(indptr, indices):
         ii[indptr[i]:indptr[i+1]]=i
     jj[:]=indices[:]
     return ii, jj
-
-
-# def init_adj_all_ti(eles):
-#     eles = eles
-#     nele = eles.shape[0]
-#     v2e = ti.field(dtype=ti.i32, shape=(nele, 20))
-#     nv2e = ti.field(dtype=ti.i32, shape=nele)
-
-#     @ti.kernel
-#     def calc_vertex_to_eles_kernel(eles: ti.template(), v2e: ti.template(), nv2e: ti.template()):
-#         # v2e: vertex to element
-#         # nv2e: number of elements sharing the vertex
-#         for e in range(eles.shape[0]):
-#             v1, v2, v3, v4 = eles[e]
-#             for v in ti.static([v1, v2, v3, v4]):
-#                 k = nv2e[v]
-#                 v2e[v, k] = e
-#                 nv2e[v] += 1
-
-#     calc_vertex_to_eles_kernel(eles, v2e, nv2e)
-#     v2e = v2e.to_numpy()
-#     nv2e = nv2e.to_numpy()
-#     ...
 
 
 def initFill_tocuda(ist):

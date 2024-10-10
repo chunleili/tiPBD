@@ -865,6 +865,8 @@ struct MGLevel {
     Vec<float> x;
     Vec<float> h;
     Vec<float> outh;
+    CSR<float> Dinv;
+    CSR<float> Aoff;
 };
 
 
@@ -1185,6 +1187,7 @@ struct VCycle : Kernels {
     size_t nlvs;
     std::vector<float> chebyshev_coeff;
     size_t smoother_type = 1; //1:chebyshev, 2:jacobi, 3:gauss_seidel
+    size_t coarse_solver_type = 1; //0:direct solver by cusolver (cholesky), 1: one sweep smoother
     float jacobi_omega;
     size_t jacobi_niter=10;
     Vec<float> z;
@@ -1407,10 +1410,10 @@ struct VCycle : Kernels {
         jacobi_niter = n;
 
         // calc Dinv@A
-        Vec<float> Dinv;
+        // Vec<float> Dinv;
         Vec<float> data_new;
         Vec<float> diag_inv;
-        Dinv.resize(A.nrows);
+        // Dinv.resize(A.nrows);
         data_new.resize(A.data.size());
         diag_inv.resize(A.nrows);
         calc_diag_inv_kernel<<<(A.nrows + 255) / 256, 256>>>(diag_inv.data(),A.data.data(), A.indices.data(), A.indptr.data(), A.nrows);
@@ -1435,6 +1438,40 @@ struct VCycle : Kernels {
         cout<<"setup_jacobi_cuda time: "<<timer.elapsed()<<" ms"<<endl;
     }
 
+
+    void get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff)
+    {
+        int n = A.nrows;
+        // get diagonal inverse of A, fill into a vector
+        Vec<float> d_diag_inv;
+        d_diag_inv.resize(n);
+        calc_diag_inv_kernel<<<(n + 255) / 256, 256>>>(d_diag_inv.data(),A.data.data(), A.indices.data(), A.indptr.data(), n);
+        cudaDeviceSynchronize();
+        LAUNCH_CHECK();
+
+
+        // fill diag to a CSR matrix Dinv
+        std::vector<int> seqence(n);
+        for(int i=0; i<n; i++)
+            seqence[i] = i;
+        // copy d_diag_inv to host
+        std::vector<float> h_diag_inv(n);
+        CHECK_CUDA(cudaMemcpy(h_diag_inv.data(), d_diag_inv.data(), n*sizeof(float), cudaMemcpyDeviceToHost));
+        Dinv.assign_v2(h_diag_inv.data(), seqence.data(), seqence.data(), n, n, n);
+        cudaDeviceSynchronize();
+        LAUNCH_CHECK();
+
+
+        Aoff.resize(n,n,A.numnonz);
+        CHECK_CUDA(cudaMemcpy(Aoff.data.data(), A.data.data(), A.numnonz*sizeof(float), cudaMemcpyDeviceToDevice));
+        Aoff.assign(Aoff.data.data(), A.numnonz, A.indices.data(), A.numnonz, A.indptr.data(), n+1, n, n, A.numnonz);
+        // get Aoff by set diagonal of A to 0
+        get_Aoff_kernel<<<(A.numnonz + 255) / 256, 256>>>(Aoff.data.data(), A.indices.data(), A.indptr.data(), n);
+        cudaDeviceSynchronize();
+        LAUNCH_CHECK();
+    }
+
+
     void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
         Vec<float> x_old;
         x_old.resize(x.size());
@@ -1444,6 +1481,34 @@ struct VCycle : Kernels {
             x.swap(x_old);
         }
     }
+
+    // use cusparse instead of hand-written kernel
+    void jacobi_v2(int lv, Vec<float> &x, Vec<float> const &b) {
+        Vec<float> x_old;
+        x_old.resize(x.size());
+        copy(x_old, x);
+
+        Vec<float> b1,b2;
+        b1.resize(b.size());
+        b2.resize(b.size());
+        for (int i = 0; i < jacobi_niter; ++i) {
+            //x = omega * Dinv * (b - Aoff@x_old) + (1-omega)*x_old
+
+            // 1. b1 = b-Aoff@x_old
+            copy(b1, b);
+            spmv(b1, -1, levels.at(lv).Aoff, x_old, 1, buff);
+
+            // 2. b2 = omega*Dinv@b1
+            spmv(b2, jacobi_omega, levels.at(lv).Dinv, b1, 0, buff);
+
+            // 3. x = b2 + (1-omega)*x_old
+            copy(x, x_old);
+            axpy(x, 1-jacobi_omega, b2);
+
+            x.swap(x_old);
+        }   
+    }
+
 
     void jacobi_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
         // serial jacobi
@@ -1494,6 +1559,9 @@ struct VCycle : Kernels {
         // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
 
+    GpuTimer timer;
+    std::vector<float> elapsed;
+
     void _smooth(int lv, Vec<float> &x, Vec<float> const &b) {
         if(smoother_type == 1)
         {
@@ -1502,7 +1570,11 @@ struct VCycle : Kernels {
         else if (smoother_type == 2)
         {
             // jacobi_cpu(lv, x, b);
-            jacobi(lv, x, b);
+            timer.start();
+            // jacobi(lv, x, b);
+            jacobi_v2(lv, x, b);
+            timer.stop();
+            elapsed.push_back(timer.elapsed());
         }
         else if (smoother_type == 3)
         {
@@ -1555,7 +1627,14 @@ struct VCycle : Kernels {
         auto const &A = levels.at(nlvs - 1).A;
         auto &x = levels.at(nlvs - 2).x;
         auto &b = levels.at(nlvs - 2).b;
-        spsolve(x, A, b);
+        if (coarse_solver_type==0)
+        {
+            spsolve(x, A, b);
+        }
+        else if (coarse_solver_type==1)
+        {
+            _smooth(nlvs-1, x, b);
+        }
     }
 
     void set_outer_x(float const *x, size_t n) {
@@ -1660,8 +1739,24 @@ struct VCycle : Kernels {
         return std::accumulate(v.begin(), v.end(), 0.0) / v.size();
     }
 
+    void presolve()
+    {
+        // TODO: move fillA and RAP from python-end to here as well in the future refactoring
+        for(int lv=0; lv<nlvs; lv++)
+        {
+            // for jacobi_v2 (use cusparse etc.)
+
+            get_Aoff_and_Dinv(levels.at(lv).A, levels.at(lv).Dinv, levels.at(lv).Aoff);
+        }
+    }
+
+    GpuTimer timer1,timer2;
+    std::vector<float> elapsed1, elapsed2;
     void solve()
     {
+        timer1.start();
+        presolve();
+
         float bnrm2 = init_cg_iter0(residuals.data());
         float atol = bnrm2 * rtol;
         for (size_t iter=0; iter<maxiter; iter++)
@@ -1672,10 +1767,24 @@ struct VCycle : Kernels {
                 break;
             }
             copy(z, outer_x);
+            
+            timer2.start();
             vcycle();
+            timer2.stop();
+            elapsed2.push_back(timer2.elapsed());
+
             do_cg_itern(residuals.data(), iter); 
             niter = iter;
         }
+        timer1.stop();
+        elapsed1.push_back(timer1.elapsed());
+        cout<<elapsed1.size()<<" mgpcg time: "<<(elapsed1[0])<<" ms"<<endl;
+        cout<<elapsed2.size()<<" vcycle time: "<<sum(elapsed2)<<" ms"<<endl;
+        elapsed1.clear();
+        elapsed2.clear();
+
+        cout<<elapsed.size()<<" jacobi time: "<<avg(elapsed)<<" ms"<<" total time: "<<sum(elapsed)<<" ms"<<endl;
+        elapsed.clear();
     }
 };
 

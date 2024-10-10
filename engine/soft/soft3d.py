@@ -76,13 +76,13 @@ if args.large:
 if args.samll:
     args.model_path = f"data/model/bunny1k2k/coarse.node"
 
-t_export = 0.0
-
 if args.arch == "gpu":
     ti.init(arch=ti.gpu)
 else:
     ti.init(arch=ti.cpu)
 
+t_export = 0.0
+t_avg_iter = []
 
 n_outer_all = []
 ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
@@ -1221,6 +1221,8 @@ def substep_all_solver(ist):
     collsion_response(ist.pos)
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
+    t_avg_iter.append((time.perf_counter()-tic1)/n_outer_all[-1])
+    logging.info(f"avg iter frame {meta.frame}: {t_avg_iter[-1]*1000:.0f}ms")
 
 
 # def substep_all_solver(ist, maxiter=1, solver_type="GaussSeidel", P=None, R=None):

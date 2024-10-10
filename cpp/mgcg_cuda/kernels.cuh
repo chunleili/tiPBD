@@ -397,3 +397,37 @@ __global__ void scale_csr_by_row(float *data_new, float *data, const int *indice
         }
     }
 }
+
+
+__global__ void get_diag_kernel(float *diag, const float *data, const int *indices, const int *indptr, const int nrows) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < nrows) {
+        for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
+            size_t j = indices[n];
+            if (j == i) {
+                diag[i] = data[n];
+            }
+        }
+    }
+}
+
+
+__global__ void fill_sequence_kernel(int *vec, int n) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) {
+        vec[i] = i;
+    }
+}
+
+
+__global__ void get_Aoff_kernel(float *data, const int *indices, const int *indptr, const int nrows) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < nrows) {
+        for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
+            size_t j = indices[n];
+            if (j == i) {
+                data[n] = 0.0;
+            }
+        }
+    }
+}

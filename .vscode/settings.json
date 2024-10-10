@@ -96,6 +96,9 @@
         "openglsupport": "cpp",
         "*.rh": "cpp",
         "__config": "cpp",
-        "fft": "cpp"
+        "fft": "cpp",
+        "csetjmp": "cpp",
+        "ranges": "cpp",
+        "span": "cpp"
     },
 }

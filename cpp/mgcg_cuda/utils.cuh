@@ -83,6 +83,17 @@ void launch_check()
     }
 }
 
+
+#define LAUNCH_CHECK() \
+{\
+    cudaError_t varCudaError1 = cudaGetLastError();\
+    if (varCudaError1 != cudaSuccess)\
+    {\
+        printf("Failed to launch kernel, error: %s at %s:%d\n", cudaGetErrorString(varCudaError1), __FILE__, __LINE__);\
+        exit(EXIT_FAILURE);\
+    }\
+}\
+
 /* -------------------------------------------------------------------------- */
 /*                               end error check                              */
 /* -------------------------------------------------------------------------- */

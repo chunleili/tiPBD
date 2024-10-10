@@ -1559,6 +1559,47 @@ struct VCycle : Kernels {
         // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
 
+    std::vector<int> colors; // color of each node
+    int color_num; // number of colors
+    // parallel gauss seidel
+    // https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html
+    // https://gist.github.com/Erkaman/b34b3531e209a1db38e259ea53ff0be9#file-gauss_seidel_graph_coloring-cpp-L101
+    void read_colors(int lv, int color_num, std::vector<int> colors) {
+        this->color_num = color_num;
+        this->colors = colors;
+    }
+
+    void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {
+        for(int color=0; color<color_num; color++)
+        {
+            multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, colors.data(), color);
+        }
+
+    }
+
+    // typedef std::vector<int> Partition;
+	// int multi_color_gauss_seidel_impl(Vec& x, const Vec& b, const Mat& m, const std::vector<Partition>& partitions) {
+    //     for (Partition partition : partitions) {
+    //         // we do a gauss-seidel step for this partition.
+    //         // every partition stores a set of variables that will be solved for.
+    //         // and these variables can be solved for independently of each other.
+    //         // thus, the below loop can easily be parallelized.
+    //         // note that this code is very similar to the Gauss-Seidel method implemented
+    //         // in the previous article. It's just that the variables are solved for in a different order.
+    //         for (int variable : partition) {
+    //             float s = 0.0f;
+    //             for (int j = 0; j < N; ++j) {
+    //                 if (j != variable) {
+    //                     s += m.m[variable][j] * x.v[j];
+    //                 }
+    //             }
+    //             x.v[variable] = (1.0f / m.m[variable][variable]) * (b.v[variable] - s);
+    //         }
+    //     }
+	// }
+
+
+
     GpuTimer timer;
     std::vector<float> elapsed;
 

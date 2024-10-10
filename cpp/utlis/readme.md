@@ -45,3 +45,11 @@ cl.exe parallel_rb.cpp /openmp
 结果
 (Serial): 5975(ms)
 (Parallel): 938(ms)
+
+## multi_color_gauss_seidel
+来源：https://gist.github.com/Erkaman/b34b3531e209a1db38e259ea53ff0be9#file-gauss_seidel_graph_coloring-cpp-L101
+
+从vs 2022 native tool command prompt编译
+```
+cl.exe multi_color_gauss_seidel.cpp
+```

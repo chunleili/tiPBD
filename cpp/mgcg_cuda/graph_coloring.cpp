@@ -342,15 +342,19 @@ int run(std::string model, int Ks_in, std::unordered_map<int, int>&result)
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " <model>" << std::endl;
+        std::cerr << "Example(large model): " << argv[0] << " ../../data/model/bunny85w/bunny85w.ele" << std::endl;
+        std::cerr << "Example(small model): " << argv[0] << " ../../data/model/bunny_small/bunny_small.ele" << std::endl;
         return 1;
     }
     auto model = argv[1];
 
-    cout<<"input Ks:";
+    cout<<"input Ks(recommend 5):";
     int Ks_in;
     std::cin >> Ks_in;
     std::unordered_map<int, int> result;
+    cout<<"Running..."<<endl;
     int color_num = run(model, Ks_in, result);
+    cout<<"Done\ncolor_num:"<<color_num<<endl;
     
     std::ofstream outfile("color.txt");
     outfile << color_num << std::endl;
@@ -369,12 +373,12 @@ int main(int argc, char* argv[]) {
 #define DLLEXPORT
 #endif
 
-extern "C" DLLEXPORT int graph_coloring(const char* model, int* color) {
+extern "C" DLLEXPORT int graph_coloring(const char* model, int* colors) {
     cout<<"model:"<<model<<endl;
     std::unordered_map<int, int> result;
     int color_num = run(model, 5, result);
     for(int i = 1; i <=nodeNum; i++)
-        color[i-1] = result[constraintTag[i]];
+        colors[i-1] = result[constraintTag[i]];
 
     return color_num;
 }

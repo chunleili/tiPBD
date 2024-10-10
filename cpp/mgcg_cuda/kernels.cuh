@@ -431,3 +431,29 @@ __global__ void get_Aoff_kernel(float *data, const int *indices, const int *indp
         }
     }
 }
+
+
+// parallel gauss seidel
+// https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html
+// https://gist.github.com/Erkaman/b34b3531e209a1db38e259ea53ff0be9#file-gauss_seidel_graph_coloring-cpp-L101  
+__global__ void multi_color_gauss_seidel_kernel(float *x, const float *b, float *data, int *indices, int *indptr, int nrows, int *colors, int color) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x; //row index
+    // each row corresponds to a component of the x vector
+    if (i < nrows && colors[i] == color) { //only parallelize within the same color
+        float rsum = 0.0;
+        float diag = 0.0;
+        for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) { // n is the 1-D index of the data/indices array
+            size_t j = indices[n]; // j is the column index
+            if (j != i) {
+                rsum += data[n] * x[j]; //here x[j] is the updated value
+            }
+            else {
+                diag = data[n];
+            }
+        }
+        if (diag != 0.0)
+        {
+            x[i] =  1.0 / diag * (b[i] - rsum)
+        }
+    }
+}

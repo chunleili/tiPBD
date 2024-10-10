@@ -1,6 +1,6 @@
 
 # ---------------------------------------------------------------------------- #
-#                                compute R and P                               #
+#                                soft                               #
 # ---------------------------------------------------------------------------- #
 @ti.func
 def is_in_tet_func(p, p0, p1, p2, p3):
@@ -157,3 +157,71 @@ def compute_R_and_P_kmeans(ist):
     print(f"writing P and R done")
 
     return R, P
+
+
+
+
+# ---------------------------------------------------------------------------- #
+#                                cloth                               #
+# ---------------------------------------------------------------------------- #
+@ti.kernel
+def compute_R_based_on_kmeans_label_triplets(
+    labels: ti.types.ndarray(dtype=int),
+    ii: ti.types.ndarray(dtype=int),
+    jj: ti.types.ndarray(dtype=int),
+    vv: ti.types.ndarray(dtype=int),
+    new_M: ti.i32,
+    NCONS: ti.i32
+):
+    cnt=0
+    ti.loop_config(serialize=True)
+    for i in range(new_M):
+        for j in range(NCONS):
+            if labels[j] == i:
+                ii[cnt],jj[cnt],vv[cnt] = i,j,1
+                cnt+=1
+
+
+
+def compute_R_and_P_kmeans():
+    print(">>Computing P and R...")
+    t = time.perf_counter()
+
+    from scipy.cluster.vq import vq, kmeans, whiten
+
+    # ----------------------------------- kmans ---------------------------------- #
+    print("kmeans start")
+    input = edge_center.to_numpy()
+
+    NCONS = NE
+    global new_M
+    print("NCONS: ", NCONS, "  new_M: ", new_M)
+
+    # run kmeans
+    input = whiten(input)
+    print("whiten done")
+
+    print("computing kmeans...")
+    kmeans_centroids, distortion = kmeans(obs=input, k_or_guess=new_M, iter=5)
+    labels, _ = vq(input, kmeans_centroids)
+
+    print("distortion: ", distortion)
+    print("kmeans done")
+
+    # ----------------------------------- R and P --------------------------------- #
+    # 将labels转换为R
+    i_arr = np.zeros((NCONS), dtype=np.int32)
+    j_arr = np.zeros((NCONS), dtype=np.int32)
+    v_arr = np.zeros((NCONS), dtype=np.int32)
+    compute_R_based_on_kmeans_label_triplets(labels, i_arr, j_arr, v_arr, new_M, NCONS)
+
+    R = scipy.sparse.coo_array((v_arr, (i_arr, j_arr)), shape=(new_M, NCONS)).tocsr()
+    P = R.transpose()
+    print(f"Computing P and R done, time = {time.perf_counter() - t}")
+
+    # print(f"writing P and R...")
+    # scipy.io.mmwrite("R.mtx", R)
+    # scipy.io.mmwrite("P.mtx", P)
+    # print(f"writing P and R done")
+
+    return R, P, labels, new_M

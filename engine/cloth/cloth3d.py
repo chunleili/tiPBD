@@ -524,92 +524,6 @@ def init_adj_edge(edges: np.ndarray):
 # print(adjacent_edges_dict)
 
 
-# 生成染色算法所需要的颜色
-# while there exist unmarked constraints
-#   create new set S
-#   clear all particle marks
-#   for all unmarked constraints C
-#       if no adjacent particle is marked
-#           add C to S
-#           mark C
-#           mark all adjacent particles
-def graph_coloring(edge):
-    # 初始化
-    colors = np.zeros(NE, dtype=int)
-    marked = np.zeros(NE, dtype=bool)
-    marked_particles = np.zeros(NV, dtype=bool)
-    num_colors = 0
-
-    # 生成颜色
-    for i in range(NE):
-        if marked[i]:
-            continue
-
-        S = set()
-        for j in range(num_adjacent_edge[i]):
-            ia = adjacent_edge[i, j]
-            if marked_particles[edge[ia, 0]] or marked_particles[edge[ia, 1]]:
-                continue
-            S.add(ia)
-            marked[ia] = True
-            marked_particles[edge[ia, 0]] = True
-            marked_particles[edge[ia, 1]] = True
-
-        for c in S:
-            colors[c] = num_colors
-        num_colors += 1
-
-    return colors, num_colors
-
-
-
-def compute_max_degree(edges):
-    adj_matrix = np.zeros((len(edges), len(edges)), dtype=np.int32)
-    for i in range(len(edges) - 1):
-        for j in range(i + 1, len(edges)):
-            e1, e2 = edges[i], edges[j]
-            if e1[0] == e2[0] or e1[0] == e2[1] or e1[1] == e2[0] or e1[
-                    1] == e2[1]:
-                adj_matrix[i][j] = 1
-                adj_matrix[j][i] = 1
-    non_zeros = np.count_nonzero(adj_matrix, axis=1)
-    max_degree = np.max(non_zeros)
-    min_degree = np.min(non_zeros)
-    return adj_matrix, max_degree, min_degree
-
-
-def greedy_coloring(e):
-    adj_matrix, max_degree, min_degree = compute_max_degree(e)
-    print(f"max degree: {max_degree}")
-    adj_csr = scipy.sparse.csr_matrix(adj_matrix)
-    row_offsets, col_indices = adj_csr.indptr, adj_csr.indices
-    c_v = [-1] * len(e)  # clolors for each vertex
-    W = [i for i in range(len(e))]  # uncolored vertices
-    while len(W) > 0:
-        # Color work queue
-        for w in W:  # in parallel
-            F = []
-            s_col, e_col = row_offsets[w], row_offsets[w + 1]
-            neighbor_idx = col_indices[s_col:e_col]
-            for neighbor in neighbor_idx:
-                if c_v[neighbor] != -1:
-                    F.append(c_v[neighbor])
-            col = 0
-            while col in F:  # first-fit coloring policy
-                col += 1
-            c_v[w] = col
-        # Remove conflicts
-        W_next = []
-        for w in W:  # in parallel
-            s_col, e_col = row_offsets[w], row_offsets[w + 1]
-            neighbor_idx = col_indices[s_col:e_col]
-            for neighbor in neighbor_idx:
-                if c_v[neighbor] == c_v[w] and w > neighbor:
-                    W_next.append(w)
-                    break
-        W = W_next
-    return c_v
-
 
 
 def read_tri_cloth(filename):
@@ -913,70 +827,6 @@ def substep_xpbd():
 
 
 
-# ---------------------------------------------------------------------------- #
-#                                build hierarchy                               #
-# ---------------------------------------------------------------------------- #
-@ti.kernel
-def compute_R_based_on_kmeans_label_triplets(
-    labels: ti.types.ndarray(dtype=int),
-    ii: ti.types.ndarray(dtype=int),
-    jj: ti.types.ndarray(dtype=int),
-    vv: ti.types.ndarray(dtype=int),
-    new_M: ti.i32,
-    NCONS: ti.i32
-):
-    cnt=0
-    ti.loop_config(serialize=True)
-    for i in range(new_M):
-        for j in range(NCONS):
-            if labels[j] == i:
-                ii[cnt],jj[cnt],vv[cnt] = i,j,1
-                cnt+=1
-
-
-
-def compute_R_and_P_kmeans():
-    print(">>Computing P and R...")
-    t = time.perf_counter()
-
-    from scipy.cluster.vq import vq, kmeans, whiten
-
-    # ----------------------------------- kmans ---------------------------------- #
-    print("kmeans start")
-    input = edge_center.to_numpy()
-
-    NCONS = NE
-    global new_M
-    print("NCONS: ", NCONS, "  new_M: ", new_M)
-
-    # run kmeans
-    input = whiten(input)
-    print("whiten done")
-
-    print("computing kmeans...")
-    kmeans_centroids, distortion = kmeans(obs=input, k_or_guess=new_M, iter=5)
-    labels, _ = vq(input, kmeans_centroids)
-
-    print("distortion: ", distortion)
-    print("kmeans done")
-
-    # ----------------------------------- R and P --------------------------------- #
-    # 将labels转换为R
-    i_arr = np.zeros((NCONS), dtype=np.int32)
-    j_arr = np.zeros((NCONS), dtype=np.int32)
-    v_arr = np.zeros((NCONS), dtype=np.int32)
-    compute_R_based_on_kmeans_label_triplets(labels, i_arr, j_arr, v_arr, new_M, NCONS)
-
-    R = scipy.sparse.coo_array((v_arr, (i_arr, j_arr)), shape=(new_M, NCONS)).tocsr()
-    P = R.transpose()
-    print(f"Computing P and R done, time = {time.perf_counter() - t}")
-
-    # print(f"writing P and R...")
-    # scipy.io.mmwrite("R.mtx", R)
-    # scipy.io.mmwrite("P.mtx", P)
-    # print(f"writing P and R done")
-
-    return R, P, labels, new_M
 
 # ---------------------------------------------------------------------------- #
 #                                   for ours                                   #
@@ -2168,20 +2018,6 @@ def dict_to_ndarr(d:dict)->np.ndarray:
     return arr, lengths
 
 
-
-def init_set_P_R_manually():
-    misc_dir_path = prj_path + "/data/misc/"
-    if args.solver_type=="AMG":
-        # init_edge_center(edge_center, edge, pos)
-        if save_P:
-            R, P, labels, new_M = compute_R_and_P_kmeans()
-            scipy.io.mmwrite(misc_dir_path + "R.mtx", R)
-            scipy.io.mmwrite(misc_dir_path + "P.mtx", P)
-            np.savetxt(misc_dir_path + "labels.txt", labels, fmt="%d")
-        if load_P:
-            R = scipy.io.mmread(misc_dir_path+ "R.mtx")
-            P = scipy.io.mmread(misc_dir_path+ "P.mtx")
-            # labels = np.loadtxt( "labels.txt", dtype=np.int32)
 
 
 def initFill_python():

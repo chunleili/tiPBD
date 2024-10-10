@@ -453,7 +453,7 @@ __global__ void multi_color_gauss_seidel_kernel(float *x, const float *b, float 
         }
         if (diag != 0.0)
         {
-            x[i] =  1.0 / diag * (b[i] - rsum)
+            x[i] =  1.0 / diag * (b[i] - rsum);
         }
     }
 }

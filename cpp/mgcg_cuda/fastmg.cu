@@ -1565,16 +1565,16 @@ struct VCycle : Kernels {
     // https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html
     // https://gist.github.com/Erkaman/b34b3531e209a1db38e259ea53ff0be9#file-gauss_seidel_graph_coloring-cpp-L101
     void read_colors(int lv, int color_num, std::vector<int> colors) {
-        this->color_num = color_num;
-        this->colors = colors;
+        // read from file
+        // TODO:
     }
 
     void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {
+        //TODO
         for(int color=0; color<color_num; color++)
         {
             multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, colors.data(), color);
         }
-
     }
 
     // typedef std::vector<int> Partition;

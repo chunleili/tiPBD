@@ -1428,7 +1428,7 @@ struct VCycle : Kernels {
         // debug_cuda_vec(DinvA.data, "DinvA.data");
 
         float DinvA_rho = calc_max_eig(DinvA);
-        jacobi_omega = 1.0 / (DinvA_rho);
+        jacobi_omega = 2.0 / (DinvA_rho+0.1);
         cout<<"DinvA_rho: "<<DinvA_rho<<endl;
         cout<<"jacobi_omega: "<<jacobi_omega<<endl; 
         timer.stop();

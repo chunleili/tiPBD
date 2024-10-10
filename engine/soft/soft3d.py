@@ -68,7 +68,6 @@ parser.add_argument("-jacobi_niter", type=int, default=10)
 args = parser.parse_args()
 
 out_dir = args.out_dir
-use_lessmem = True
 use_graph_coloring = False
 
 if args.large:
@@ -1711,31 +1710,9 @@ def csr_index_to_coo_index(indptr, indices):
 
 
 def initFill_tocuda(ist):
-    if not use_lessmem:
-        extlib.fastFillSoft_init_from_python_cache.argtypes = [c_int]*2 + [arr2d_int]  +  [arr_int] + [arr_float] + [arr_int]*4 + [c_int] + [arr_int] + [arr2d_int] + [arr3d_int] + [arr3d_int8]*2
-    if use_lessmem:
-        extlib.fastFillSoft_init_from_python_cache_lessmem.argtypes = [c_int]*2  + [arr_float] + [arr_int]*3 + [c_int]
+    extlib.fastFillSoft_init_from_python_cache_lessmem.argtypes = [c_int]*2  + [arr_float] + [arr_int]*3 + [c_int]
 
-    if not use_lessmem:
-        extlib.fastFillSoft_init_from_python_cache(
-            ist.NT,
-            ist.MAX_ADJ,
-            ist.adjacent,
-            ist.num_adjacent,
-            ist.data,
-            ist.indices,
-            ist.indptr,
-            ist.ii,
-            ist.jj,
-            ist.nnz,
-            ist.nnz_each_row,
-            ist.n_shared_v,
-            ist.shared_v,
-            ist.shared_v_order_in_cur,
-            ist.shared_v_order_in_adj,
-        )
-    else:
-        extlib.fastFillSoft_init_from_python_cache_lessmem(
+    extlib.fastFillSoft_init_from_python_cache_lessmem(
             ist.NT,
             ist.MAX_ADJ,
             ist.data,
@@ -1752,37 +1729,17 @@ def mem_usage():
     def bytes_to_gb(bytes):
         return bytes / (1024 ** 3)
 
-    if use_lessmem:
-        data_memory_gb = bytes_to_gb(ist.data.nbytes)
-        indices_memory_gb = bytes_to_gb(ist.indices.nbytes)
-        indptr_memory_gb = bytes_to_gb(ist.indptr.nbytes)
-        ii_memory_gb = bytes_to_gb(ist.ii.nbytes)
-        total_memory_gb = (data_memory_gb + indices_memory_gb + indptr_memory_gb + ii_memory_gb)
-    if not use_lessmem:
-        jj_memory_gb = bytes_to_gb(ist.jj.nbytes)
-        adjacent_memory_gb = bytes_to_gb(ist.adjacent.nbytes)
-        num_adjacent_memory_gb = bytes_to_gb(ist.num_adjacent.nbytes)
-        nnz_each_row_memory_gb = bytes_to_gb(ist.nnz_each_row.nbytes)
-        n_shared_v_memory_gb = bytes_to_gb(ist.n_shared_v.nbytes)
-        shared_v_memory_gb = bytes_to_gb(ist.shared_v.nbytes)
-        shared_v_order_in_cur_memory_gb = bytes_to_gb(ist.shared_v_order_in_cur.nbytes)
-        shared_v_order_in_adj_memory_gb = bytes_to_gb(ist.shared_v_order_in_adj.nbytes)
-        total_memory_gb = (data_memory_gb+indices_memory_gb+indptr_memory_gb+ii_memory_gb+jj_memory_gb+adjacent_memory_gb+num_adjacent_memory_gb+nnz_each_row_memory_gb+n_shared_v_memory_gb+shared_v_memory_gb+shared_v_order_in_cur_memory_gb+shared_v_order_in_adj_memory_gb)
+    data_memory_gb = bytes_to_gb(ist.data.nbytes)
+    indices_memory_gb = bytes_to_gb(ist.indices.nbytes)
+    indptr_memory_gb = bytes_to_gb(ist.indptr.nbytes)
+    ii_memory_gb = bytes_to_gb(ist.ii.nbytes)
+    total_memory_gb = (data_memory_gb + indices_memory_gb + indptr_memory_gb + ii_memory_gb)
 
     # 打印每个数组的内存占用和总内存占用（GB）
     print(f"data memory: {data_memory_gb:.2f} GB")
     print(f"indices memory: {indices_memory_gb:.2f} GB")
     print(f"indptr memory: {indptr_memory_gb:.2f} GB")
     print(f"ii memory: {ii_memory_gb:.2f} GB")
-    if not use_lessmem:
-        print(f"jj memory: {jj_memory_gb:.2f} GB")
-        print(f"adjacent memory: {adjacent_memory_gb:.2f} GB")
-        print(f"num_adjacent memory: {num_adjacent_memory_gb:.2f} GB")
-        print(f"nnz_each_row memory: {nnz_each_row_memory_gb:.2f} GB")
-        print(f"n_shared_v memory: {n_shared_v_memory_gb:.2f} GB")
-        print(f"shared_v memory: {shared_v_memory_gb:.2f} GB")
-        print(f"shared_v_order_in_cur memory: {shared_v_order_in_cur_memory_gb:.2f} GB")
-        print(f"shared_v_order_in_adj memory: {shared_v_order_in_adj_memory_gb:.2f} GB")
     print(f"Total memory: {total_memory_gb:.2f} GB")
 
 
@@ -1800,23 +1757,6 @@ def init_direct_fill_A(ist):
         ist.jj = ist.indices # No need to save jj,  indices is the same as jj
         ist.MAX_ADJ = int(npzfile['MAX_ADJ'])
         print(f"MAX_ADJ: {ist.MAX_ADJ}")
-        if not use_lessmem:
-            ist.jj = npzfile['jj']
-            ist.adjacent = npzfile['adjacent']
-            ist.num_adjacent = npzfile['num_adjacent']
-            ist.nnz_each_row = npzfile['nnz_each_row']
-            ist.n_shared_v = npzfile['n_shared_v']
-            ist.shared_v = npzfile['shared_v']
-            ist.shared_v_order_in_cur = npzfile['shared_v_order_in_cur']
-            ist.shared_v_order_in_adj = npzfile['shared_v_order_in_adj']
-        if not use_lessmem:
-            ist.nnz_each_row = nnz_each_row
-            ist.n_shared_v = n_shared_v
-            ist.shared_v = shared_v
-            ist.shared_v_order_in_cur = shared_v_order_in_cur
-            ist.shared_v_order_in_adj = shared_v_order_in_adj
-            AVG_ADJ = np.mean(num_adjacent)
-            print(f"AVG_ADJ: {AVG_ADJ}")
         mem_usage()
         if args.use_cuda:
             initFill_tocuda(ist)
@@ -1831,16 +1771,16 @@ def init_direct_fill_A(ist):
     # adjacent = init_adj_ele_ti(eles=ist.tet_indices)
     num_adjacent = np.array([len(v) for v in adjacent.values()])
     AVG_ADJ = np.mean(num_adjacent)
-    MAX_ADJ = max(num_adjacent)
-    print(f"max_adj: {MAX_ADJ}")
+    ist.MAX_ADJ = max(num_adjacent)
+    print(f"MAX_ADJ: {ist.MAX_ADJ}")
     print(f"AVG_ADJ: {AVG_ADJ}")
     print(f"init_adjacent time: {perf_counter()-tic1:.3f}s")
 
     tic = perf_counter()
-    data, indices, indptr = init_A_CSR_pattern(num_adjacent, adjacent)
-    ii, jj = csr_index_to_coo_index(indptr, indices)
-    nnz = len(data)
-    nnz_each_row = num_adjacent[:] + 1
+    ist.data, ist.indices, ist.indptr = init_A_CSR_pattern(num_adjacent, adjacent)
+    ist.ii, ist.jj = csr_index_to_coo_index(ist.indptr, ist.indices)
+    ist.nnz = len(ist.data)
+    # nnz_each_row = num_adjacent[:] + 1
     print(f"init_A_CSR_pattern time: {perf_counter()-tic:.3f}s")
     
     tic = perf_counter()
@@ -1848,45 +1788,21 @@ def init_direct_fill_A(ist):
     print(f"dict_to_ndarr time: {perf_counter()-tic:.3f}s")
 
     tic = perf_counter()
-    if not use_lessmem:
-        n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj = init_adj_share_v_ti(adjacent, num_adjacent, ist.tet_indices)
     print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
     print(f"initFill done")
 
-    # for now, we save them to the instance
-    ist.MAX_ADJ = MAX_ADJ
-    ist.data = data
-    ist.indices = indices
-    ist.indptr = indptr
-    ist.ii = ii
-    ist.jj = jj
-    ist.nnz = nnz
-    if not use_lessmem:
-        ist.adjacent = adjacent
-        ist.num_adjacent = num_adjacent
-        ist.nnz_each_row = nnz_each_row
-        ist.n_shared_v = n_shared_v
-        ist.shared_v = shared_v
-        ist.shared_v_order_in_cur = shared_v_order_in_cur
-        ist.shared_v_order_in_adj = shared_v_order_in_adj
     mem_usage()
 
     if args.use_cache:
         print(f"Saving cache to {cache_file_name}...")
-        if not use_lessmem:
-            np.savez(cache_file_name, adjacent=adjacent, num_adjacent=num_adjacent, data=data, indices=indices, indptr=indptr, ii=ii, jj=jj, nnz=nnz, nnz_each_row=nnz_each_row, n_shared_v=n_shared_v, shared_v=shared_v, shared_v_order_in_cur=shared_v_order_in_cur, shared_v_order_in_adj=shared_v_order_in_adj)
-        else:
-            np.savez(cache_file_name, data=data, indices=indices, indptr=indptr, ii=ii, nnz=nnz, MAX_ADJ=MAX_ADJ)
+        np.savez(cache_file_name, data=ist.data, indices=ist.indices, indptr=ist.indptr, ii=ist.ii, nnz=ist.nnz, MAX_ADJ=ist.MAX_ADJ)
         print(f"{cache_file_name} saved")
     if args.use_cuda:
         initFill_tocuda(ist)
 
 
 def fill_A_csr_ti(ist):
-    if not use_lessmem:
-        fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
-    else:
-        fill_A_csr_lessmem_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices)
+    fill_A_csr_lessmem_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices)
     A = scipy.sparse.csr_matrix((ist.data, ist.indices, ist.indptr), shape=(ist.NT, ist.NT))
     return A
 
@@ -1941,6 +1857,8 @@ def fill_A_csr_lessmem_kernel(data:ti.types.ndarray(dtype=ti.f32),
 
     
 # for cnt version, require init_A_CSR_pattern() to be called first
+# legacy version, now we use less memory version
+# fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
 @ti.kernel
 def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32), 
                       indptr:ti.types.ndarray(dtype=ti.i32), 
@@ -1974,62 +1892,6 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
             offdiag += sm*gradC[i,o1].dot(gradC[j,o2])
         data[n] = offdiag
 
-
-# taichi version: get the adjacent element shared vertices
-def init_adj_share_v_ti(adj, nadj, ele):
-    nele = ele.shape[0]
-    max_nadj = max(nadj)
-    print("max number of shared elements: ", max_nadj)
-    # 共享顶点编号， 用法:shared_v[i,j,:]表示第i个ele的第j个adj ele共享的顶点
-    shared_v = np.ones((nele, max_nadj, 3), dtype=np.int32) * (-1)
-    # 共享顶点的个数， 用法：n_shared_v[i,j]表示第i个ele的j个adj ele共享的顶点个数
-    n_shared_v = np.zeros((nele, max_nadj), dtype=np.int32)
-    # 共享顶点在当前ele中是四面体的第几个(0-3)顶点, 用法：order_shared_v_in_cur[i,j,:] 表示第i个ele的第j个adj ele共享的顶点在当前ele中是第几个顶点。
-    shared_v_order_in_cur = np.ones((nele, max_nadj, 3), dtype=np.int8) * (-1)
-    # 共享顶点在邻接ele中是四面体的第几个(0-3)顶点, 用法：order_shared_v_in_adj[i,j,:] 表示第i个ele的第j个adj ele共享的顶点在邻接ele中是第几个顶点。
-    shared_v_order_in_adj = np.ones((nele, max_nadj, 3), dtype=np.int8) * (-1)
-
-    # 求两个长度为4的数组的交集
-    @ti.func
-    def intersect(a, b):   
-        # a,b: 4个顶点的id, e:当前ele的id
-        k=0 # 第几个共享的顶点， 0, 1, 2, 3
-        c = ti.Vector([-1,-1,-1])         # 共享的顶点id存在c中
-        order = ti.Vector([-1,-1,-1])     # 共享的顶点是当前ele的第几个顶点
-        order2 = ti.Vector([-1,-1,-1])    # 共享的顶点是邻接ele的第几个顶点
-        for i in ti.static(range(4)):     # i:当前ele的第i个顶点
-            for j in ti.static(range(4)): # j:邻接ele的第j个顶点
-                if a[i] == b[j]:
-                    c[k] = a[i]         
-                    order[k] = i          
-                    order2[k] = j
-                    k += 1
-        return k, c, order, order2
-
-    @ti.kernel
-    def init_adj_share_v_kernel(adj:ti.types.ndarray(), 
-                                nadj:ti.types.ndarray(), 
-                                ele:ti.template(),
-                                n_shared_v:ti.types.ndarray(), 
-                                shared_v:ti.types.ndarray(),
-                                shared_v_order_in_cur:ti.types.ndarray(), 
-                                shared_v_order_in_adj:ti.types.ndarray()
-                                ):
-        nele = ele.shape[0]
-        for i in range(nele):
-            for j in range(nadj[i]):
-                adj_id = adj[i,j]
-                n, sharedv, order, order2 = intersect(ele[i], ele[adj_id])
-                n_shared_v[i,j] = n
-                for k in range(n):
-                    shared_v[i, j, k] = sharedv[k]
-                    shared_v_order_in_cur[i, j, k] = order[k]
-                    shared_v_order_in_adj[i, j, k] = order2[k]
-
-
-    init_adj_share_v_kernel(adj, nadj, ele, n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj)
-
-    return n_shared_v, shared_v, shared_v_order_in_cur, shared_v_order_in_adj
 
 
 def graph_coloring():

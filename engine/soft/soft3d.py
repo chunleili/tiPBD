@@ -912,7 +912,7 @@ def AMG_setup_phase():
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
     # graph coloring of A
-    ncolor, colors = graph_coloring_v3(A)
+    # ncolor, colors = graph_coloring_v3(A)
 
     report_multilevel_details(Ps, num_levels)
     return A

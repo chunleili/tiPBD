@@ -53,3 +53,45 @@ cl.exe parallel_rb.cpp /openmp
 ```
 cl.exe multi_color_gauss_seidel.cpp
 ```
+
+## 并行图染色
+来源： https://userweb.cs.txstate.edu/~burtscher/research/ECL-GC/
+
+编译
+```
+cmake -B build -DUSE_ECL=1
+cmake --build build --config Release
+```
+
+<!-- 编译
+```
+nvcc -O3 -arch=native ECL-GC_12.cu -o ecl-gc
+``` -->
+
+测试数据来源（internet.egr）：https://userweb.cs.txstate.edu/~burtscher/research/ECLgraph/index.html
+
+运行测试
+```
+./ecl-gc.exe internet.egr
+```
+
+### 生成数据：转换matrix market文件到.egr文件
+
+
+
+<!-- 从vs 2022 native tool command prompt编译
+```
+cl.exe ./mm2ecl.cpp
+``` -->
+
+生成matrix market文件(根目录运行)
+```
+cd ../..
+python engine/soft/soft3d.py -export_matrix=1 -end_frame=1 -export_matrix_binary=0
+cp result/latest/A_F0.mtx cpp/ulits/A.mtx
+```
+
+
+```
+./mm2ecl.exe A.mtx
+```

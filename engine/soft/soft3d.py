@@ -42,6 +42,7 @@ parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coar
 parser.add_argument("-end_frame", type=int, default=10)
 parser.add_argument("-out_dir", type=str, default="result/latest/")
 parser.add_argument("-export_matrix", type=int, default=False)
+parser.add_argument("-export_matrix_binary", type=int, default=True)
 parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
@@ -910,6 +911,9 @@ def AMG_setup_phase():
     # extlib.fastmg_setup_jacobi(omega, 100)
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
+    # graph coloring of A
+    ncolor, colors = graph_coloring_v3(A)
+
     report_multilevel_details(Ps, num_levels)
     return A
 
@@ -1162,8 +1166,7 @@ def AMG_cuda(b):
     if should_setup():
         A = AMG_setup_phase()
         if args.export_matrix:
-            export_A_b(A, b, postfix=f"F{meta.frame}")
-            exit()
+            export_A_b(A, b, postfix=f"F{meta.frame}",binary=args.export_matrix_binary)
     extlib.fastmg_set_A0_from_fastFillSoft()
     AMG_RAP()
     x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
@@ -1482,7 +1485,7 @@ def diag_sweep(A,x,b,iterations=1):
 
 def presmoother(A,x,b):
     A = A.astype(np.float32)
-    from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
+    from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial, schwarz
     if args.smoother_type == 'gauss_seidel':
         gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
     elif args.smoother_type == 'jacobi':
@@ -1497,6 +1500,8 @@ def presmoother(A,x,b):
         diag_sweep(A,x,b,iterations=1)
     elif args.smoother_type == 'chebyshev':
         chebyshev(A,x,b)
+    elif args.smoother_type == 'schwarz':
+        schwarz(A,x,b)
 
 
 def postsmoother(A,x,b):
@@ -1674,7 +1679,7 @@ def init_adj_ele_ti(eles):
     # v2e = v2e.to_numpy()
     # nv2e = nv2e.to_numpy()
 
-
+# transfer one-to-multiple map dict to ndarray
 def dict_to_ndarr(d:dict)->np.ndarray:
     lengths = np.array([len(v) for v in d.values()])
     max_len = max(lengths)
@@ -1893,20 +1898,52 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
         data[n] = offdiag
 
 
-
-def graph_coloring():
+# version 1, hand made. It is slow. By Wang Ruiqi.
+# Input: .ele file
+def graph_coloring_v1():
     extlib.graph_coloring.argtypes = [ctypes.c_char_p, arr_int ]
     extlib.restype = c_int
-    color = np.zeros(ist.NT, dtype=np.int32)
+    colors = np.zeros(ist.NT, dtype=np.int32)
     abs_path = os.path.abspath(args.model_path)
     abs_path = abs_path.replace(".node", ".ele")
     model = abs_path.encode('ascii')
     tic = perf_counter()
-    ncolor = extlib.graph_coloring(model, color)
+    ncolor = extlib.graph_coloring(model, colors)
     print(f"ncolor: {ncolor}")
-    print("color of tets:",color)
-    print(f"graph_coloring time: {perf_counter()-tic:.3f}s")
-    return ncolor, color
+    print("colors of tets:",colors)
+    print(f"graph_coloring_v1 time: {perf_counter()-tic:.3f}s")
+    return ncolor, colors
+
+
+# version 2, use pyamg. 
+# Input: CSR matrix(symmetric)
+# This is called in AMG_setup_phase()
+def graph_coloring_v2(A):
+    from pyamg.graph import vertex_coloring
+    tic = perf_counter()
+    colors = vertex_coloring(A,'LDF')
+    ncolor = np.max(colors)+1
+    print(f"ncolor: {ncolor}")
+    print("colors:",colors)
+    print(f"graph_coloring_v2 time: {perf_counter()-tic:.3f}s")
+    return ncolor, colors
+
+
+# version 3, use newtworkx. 
+# Input: CSR matrix(symmetric)
+# This is called in AMG_setup_phase()
+def graph_coloring_v3(A):
+    import networkx as nx
+    tic = perf_counter()
+    net = nx.from_scipy_sparse_array(A)
+    colors = nx.coloring.greedy_color(net)
+    # change colors from dict to numpy array
+    colors = np.array([colors[i] for i in range(len(colors))])
+    ncolor = np.max(colors)+1
+    print(f"ncolor: {ncolor}")
+    print("colors:",colors)
+    print(f"graph_coloring_v3 time: {perf_counter()-tic:.3f}s")
+    return ncolor, colors
 
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
@@ -1933,7 +1970,7 @@ def main():
     ist.initialize()
     
     if use_graph_coloring:
-        graph_coloring()
+        graph_coloring_v1()
 
     if args.export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)

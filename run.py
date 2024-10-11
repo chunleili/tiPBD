@@ -3,11 +3,11 @@ This script is used to batch run the cases.
 Usage:
 In tiPBD folder, run the following command:
 
-Run single case: `python run.py -cases=1`
+Run single case: `python run.py -case=1`
 
-Run multiple cases: `python run.py -cases=2 4`
+Run multiple cases: `python run.py -case=2 4`
 
-Run multiple cases with 200 frames: `python run.py -cases=2 4 -end_frame=200`
+Run multiple cases with 200 frames: `python run.py -case=2 4 -end_frame=200`
 
 You can modify the cases in the script to add more cases.
 
@@ -35,7 +35,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("-list", action="store_true", help="list all cases")
 parser.add_argument("-profile", action="store_true", help="profiling")
-parser.add_argument("-cases", type=int, nargs='*',help=f"case numbers")
+parser.add_argument("-case", type=int, nargs='*',help=f"case numbers(can be multiple)")
 parser.add_argument("-end_frame", type=int, default=20, help=f"end frame")
 parser.add_argument("-overwrite", action="store_true")
 
@@ -850,6 +850,25 @@ allargs.append(args)
 
 
 
+# case111: soft85w AMG niter3 3ms strength0.1(on case 108) export matrix for test solver diagnostic
+args = ["engine/soft/soft3d.py",
+        f"-end_frame=1",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-strengh0.1",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=3",
+        "-build_P_method=strength0.1",
+        "-export_matrix=1",
+        "-export_matrix_binary=0"
+        ]
+allargs.append(args)
+
 
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
@@ -942,10 +961,10 @@ if __name__=='__main__':
 
     cli_args = parser.parse_args()
 
-    if cli_args.cases:
+    if cli_args.case:
         tic = perf_counter()
         try:
-            for case_num in cli_args.cases:
+            for case_num in cli_args.case:
                 logging.info(f"Running case {case_num}...\nDate={get_date()}\n")
                 tic1 = perf_counter()
                 run_case(case_num)

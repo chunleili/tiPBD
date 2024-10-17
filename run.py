@@ -870,6 +870,63 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
+
+# case112: soft85w AMG niter2 3ms strength0.1(on case 108) 
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-niter2-strengh0.1",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=2",
+        "-build_P_method=strength0.1"
+        ]
+allargs.append(args)
+
+
+
+# case113: soft85w AMG niter3 3ms evolution
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-evolution-niter2",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=2",
+        "-build_P_method=evolution"
+        ]
+allargs.append(args)
+
+
+
+# case114: soft85w AMG niter2 3ms improve_candidate
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-improve_candidate",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=2",
+        "-build_P_method=improve_candidate"
+        ]
+allargs.append(args)
+
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')

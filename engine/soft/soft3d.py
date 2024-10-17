@@ -1381,6 +1381,11 @@ def build_Ps(A):
         ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.4 }))
     elif method == 'strength0.5':
         ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.5 }))
+    elif method == 'evolution':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('evolution', {'k': 2, 'proj_type': 'l2', 'epsilon': 4.0}))
+    elif method == 'improve_candidate':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth = jacobi,improve_candidates = [('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 4}), None], symmetry='symmetric', strength=('symmetric',{'theta' : 0.1 }))
+        
     else:
         raise ValueError(f"Method {method} not recognized")
     

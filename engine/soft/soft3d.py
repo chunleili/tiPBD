@@ -59,7 +59,7 @@ parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-export_mesh", type=int, default=True)
 parser.add_argument("-reinit", type=str, default="enlarge", choices=["", "random", "enlarge"])
 parser.add_argument("-tol", type=float, default=1e-4)
-parser.add_argument("-rtol", type=float, default=1e-4)
+parser.add_argument("-rtol", type=float, default=1e-9)
 parser.add_argument("-tol_Axb", type=float, default=1e-5)
 parser.add_argument("-large", action="store_true")
 parser.add_argument("-samll", action="store_true")
@@ -1282,6 +1282,10 @@ def substep_xpbd(ist):
         logging.info(f"{meta.frame}-{meta.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
         r.append(ResidualData(dualr, 0, toc-tic))
         if dualr < args.tol:
+            logging.info("Converge: tol")
+            break
+        if dualr / dualr0 < args.rtol:
+            logging.info("Converge: rtol")
             break
         if is_stall(r):
             logging.warning("Stall detected, break")

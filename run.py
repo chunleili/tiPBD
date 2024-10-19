@@ -64,7 +64,7 @@ allargs = [None]
 
 # naming convention: case{case_num}-{date:4 digits}-{object_type:cloth or soft}{resolution}-{solver_type:AMG or XPBD}
 
-# case1: cloth 1024 AMG 1ms
+# case1: cloth 1024 AMG 3ms
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=AMG",
         f"-end_frame=100",
@@ -73,34 +73,51 @@ args = ["engine/cloth/cloth3d.py",
         "-arch=cpu",
         "-N=1024",
         "-maxiter=50",
-        "-delta_t=1e-3",
+        "-delta_t=3e-3",
         "-tol=1e-4",
+        "-end_frame=21",
+        # "-export_matrix=1",
+        # "-export_matrix_frame=20",
+        # "-export_residual=1",
+        # "-restart=1",
+        # "-restart_frame=20",
+        # "-restart_dir=result/meta/",
         ]
 allargs.append(args)
 
-# case2: cloth 1024 XPBD gpu 1ms
+# case2: cloth 1024 XPBD gpu 3ms
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=XPBD",
         f"-end_frame=100",
         f"-out_dir=result/case{len(allargs)}-{day}-cloth1024-XPBD",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-arch=gpu",
+        "-arch=cpu",
         "-N=1024",
-        "-maxiter=3000",
-        "-delta_t=1e-3",
-        "-tol=1e-4"
+        "-maxiter=10000",
+        "-delta_t=3e-3",
+        "-tol=1e-4",
+        "-end_frame=100",
+        # "-restart=1",
+        # "-restart_frame=20",
+        # "-restart_dir=result/meta/",
         ]
 allargs.append(args)
 
-# case3: soft 85w AMG 1ms
+# case3(from case108): soft 85w AMG 3ms
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case3-{day}-soft85w-AMG",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-niter2-strengh0.1",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
-        "-tol_Axb=1e-8",
         "-rtol=1e-2",
-        "-delta_t=1e-3"
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=100",
+        "-jacobi_niter=2",
+        "-build_P_method=strength0.1",
+        "-end_frame=1",
         ]
 allargs.append(args)
 
@@ -111,10 +128,12 @@ args = ["engine/soft/soft3d.py",
         f"-out_dir=result/case4-{day}-soft85w-XPBD",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
-        "-tol_Axb=1e-8",
-        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-rtol=1e-9",
         "-arch=gpu",
-        "-delta_t=3e-3"
+        "-delta_t=3e-3",
+        "-end_frame=1",
+        "-maxiter=5000",
         ]
 allargs.append(args)
 
@@ -890,7 +909,7 @@ allargs.append(args)
 
 
 
-# case113: soft85w AMG niter3 3ms evolution
+# case113: soft85w AMG niter2 3ms evolution
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-soft85w-evolution-niter2",

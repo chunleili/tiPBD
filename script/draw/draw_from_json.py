@@ -20,26 +20,39 @@ draw_dual = True
 
 # %% draw dual
 def draw():
-    fig,ax = plt.subplots(1)
+    fig,axs = plt.subplots(2)
 
-    df= pd.read_json(prj_path + f"/result/latest_5/r/{frame}.json")
+    df2 = pd.read_json(prj_path + f"result/case3-1018-soft85w-niter2-strengh0.1/r/2.json")
+    df= pd.read_json(prj_path + f"result/case4-1018-soft85w-XPBD/r/2.json")
+
     if draw_time:
-        ax.plot(df['t'],linestyle='-')
+        axs[0].plot(df['t'],linestyle='-')
     if draw_dual: 
-        ax.plot(df['dual'],linestyle='-')
+        axs[0].plot(df['dual'],linestyle='-')
+        axs[1].plot(df2['dual'],linestyle='-')
 
-    ax.set_xlabel('iteration')
+    axs[0].set_xlabel('iteration')
+    axs[1].set_xlabel('iteration')
+
     if draw_time:
-        ax.set_ylabel('time')
-        ax.legend(['time'])
+        axs[0].set_ylabel('time')
+        axs[0].legend(['time'])
 
     if draw_dual:
-        ax.set_ylabel('dual')
-        ax.legend(['dual'])
+        axs[0].set_ylabel('dual residual')
+        axs[1].set_ylabel('dual residual')
+        axs[0].legend(['XPBD'])
+        axs[1].legend(['AMG'])
+    
+    print(df['dual'].head(1))
+    print(df['dual'].tail(1))
+    print(df2['dual'].head(1))
+    print(df2['dual'].tail(1))
 
-    # ax.set_yscale('log')
-    # plt.tight_layout()
-    ax.set_title(f'AMG-XPBD')
+    # axs[0].set_yscale('log')
+    plt.tight_layout()
+    # axs[0].set_title(f'XPBD dual residual')
+    # axs[1].set_title(f'AMG dual residual')
 
     # 设定y轴采用科学计数法
     plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))

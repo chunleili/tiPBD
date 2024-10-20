@@ -11,7 +11,7 @@ Run multiple cases with 200 frames: `python run.py -case=2 4 -end_frame=200`
 
 You can modify the cases in the script to add more cases.
 
-last_run.txt in result/meta folder will record the last run command, which is useful for reproducing the result.
+last_run_batch.txt and last_run_case.text in result/meta folder will record the last run command, which is useful for reproducing the result.
 """
 
 
@@ -36,7 +36,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-list", action="store_true", help="list all cases")
 parser.add_argument("-profile", action="store_true", help="profiling")
 parser.add_argument("-case", type=int, nargs='*',help=f"case numbers(can be multiple)")
-parser.add_argument("-end_frame", type=int, default=20, help=f"end frame")
+parser.add_argument("-end_frame", type=int, default=10, help=f"end frame")
 parser.add_argument("-overwrite", action="store_true")
 
 end_frame = parser.parse_args().end_frame
@@ -890,7 +890,7 @@ allargs.append(args)
 
 
 
-# case112: soft85w AMG niter2 3ms strength0.1(on case 108) 
+# case112: soft85w AMG niter2 3ms strength0.1(on case 108, change niter to 2) 
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-soft85w-niter2-strengh0.1",
@@ -946,6 +946,304 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
+
+# case115(from case108): soft 85w AMG 3ms for export matrix
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-export_matrix",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=100",
+        "-jacobi_niter=2",
+        "-build_P_method=strength0.1",
+        "-end_frame=1",
+        "-export_matrix=1",
+        "-use_cuda=0"
+        ]
+allargs.append(args)
+
+
+# ======================================= 116-119 4ms 5ms
+# case116: soft85w 4ms
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-4ms",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=4e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-jacobi_niter=2",
+        "-build_P_method=strength0.1"
+        ]
+allargs.append(args)
+
+
+# case117: soft85w AMG 5ms
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-5ms",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=5e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-jacobi_niter=2",
+        "-build_P_method=strength0.1"
+        ]
+allargs.append(args)
+
+
+# case118: soft 85w XPBD 4ms
+args = ["engine/soft/soft3d.py",
+        "-solver_type=XPBD",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD-4ms",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol=1e-4",
+        "-rtol=1e-9",
+        "-arch=gpu",
+        "-delta_t=4e-3",
+        "-maxiter=10000",
+        ]
+allargs.append(args)
+
+
+
+# case119: soft 85w XPBD 5ms
+args = ["engine/soft/soft3d.py",
+        "-solver_type=XPBD",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD-5ms",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-tol=1e-4",
+        "-rtol=1e-9",
+        "-arch=gpu",
+        "-delta_t=5e-3",
+        "-maxiter=10000",
+        ]
+allargs.append(args)
+
+# ============================120-122 strength
+
+# case120: soft85w AMG strength_energy
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-strengh_energy",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=10000",
+        "-jacobi_niter=2",
+        "-build_P_method=strength_energy"
+        ]
+allargs.append(args)
+
+
+# case121: soft85w AMG strength_classical
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-strength_classical",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=10000",
+        "-jacobi_niter=2",
+        "-build_P_method=strength_classical"
+        ]
+allargs.append(args)
+
+
+
+# case122: soft85w AMG strength_distance
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-strength_distance",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=10000",
+        "-jacobi_niter=2",
+        "-build_P_method=strength_distance"
+        ]
+allargs.append(args)
+
+# ===================123-126 aggregate standard/naive/lloyd/pairwise
+# case123: soft85w AMG aggregate_standard
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-aggregate_standard",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=10000",
+        "-jacobi_niter=2",
+        "-build_P_method=aggregate_standard"
+        ]
+allargs.append(args)
+
+
+# case124: soft85w AMG aggregate_naive
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-aggregate_naive",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=10000",
+        "-jacobi_niter=2",
+        "-build_P_method=aggregate_naive"
+        ]
+allargs.append(args)
+
+
+# case125: soft85w AMG aggregate_lloyd
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-aggregate_lloyd",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=10000",
+        "-jacobi_niter=2",
+        "-build_P_method=aggregate_lloyd"
+        ]
+allargs.append(args)
+
+
+# case126: soft85w AMG aggregate_pairwise
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-aggregate_pairwise",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=10000",
+        "-jacobi_niter=2",
+        "-build_P_method=aggregate_pairwise"
+        ]
+allargs.append(args)
+
+
+
+
+# case127: soft85w AMG niter2 3ms strength0.1(on case 112, change strength to 0.25) 
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-niter2-strengh0.25",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=2",
+        "-build_P_method=strength0.25"
+        ]
+allargs.append(args)
+
+
+# case128: soft85w set 01 P
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-01_P",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=2",
+        "-build_P_method=strength0.25",
+        "-filter_P=01"
+        ]
+allargs.append(args)
+
+
+# case129: soft85w set avg P
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-avg_P",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=2",
+        "-build_P_method=strength0.25",
+        "-filter_P=avg"
+        ]
+allargs.append(args)
+
+
+
+# case130: soft85w set scale_RAP
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-scale_RAP",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-jacobi_niter=2",
+        "-build_P_method=strength0.25",
+        "-scale_RAP=1"
+        ]
+allargs.append(args)
+
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')
@@ -983,7 +1281,7 @@ def run_case(case_num:int):
 def log_args(args:list):
     args1 = " ".join(args) # 将ARGS转换为字符串
     print(f"\nArguments:\n{args1}\n")
-    with open("last_run_case.txt", "w") as f:
+    with open("result/meta/last_run_case.txt", "w") as f:
         f.write(f"{args1}\n")
 
 def get_date():

@@ -1310,7 +1310,7 @@ def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
         x += h
 
 
-def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
+def setup_chebyshev_python(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
                     iterations=1):
     global chebyshev_coeff 
     """Set up Chebyshev."""
@@ -1527,20 +1527,10 @@ def build_levels(A, Ps=[]):
     return levels
 
 
-def setup_AMG(A):
-    global chebyshev_coeff
-    Ps = build_Ps(A)
-    if args.smoother_type == 'chebyshev':
-        setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3, iterations=1)
-    elif args.smoother_type == 'jacobi':
-        setup_jacobi_python(A)
-    return Ps
-
-
 def setup_smoothers(A):
     global chebyshev_coeff
     if args.smoother_type == 'chebyshev':
-        setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
+        setup_chebyshev_python(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
     elif args.smoother_type == 'jacobi':
         setup_jacobi_python(A)
 

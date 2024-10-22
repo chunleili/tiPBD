@@ -1497,9 +1497,6 @@ struct VCycle : Kernels {
     }
 
 
-    void setup_gauss_seidel() {
-        smoother_type = 3;
-    }
 
     void gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
         // serial gauss seidel
@@ -1827,10 +1824,6 @@ extern "C" DLLEXPORT void fastmg_setup_nl(size_t numlvs) {
 
 extern "C" DLLEXPORT void fastmg_setup_jacobi(float const omega, size_t const niter_jacobi) {
     fastmg->setup_jacobi(omega, niter_jacobi);
-}
-
-extern "C" DLLEXPORT void fastmg_setup_gauss_seidel() {
-    fastmg->setup_gauss_seidel();
 }
 
 

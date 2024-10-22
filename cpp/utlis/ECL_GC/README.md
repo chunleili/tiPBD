@@ -1,7 +1,7 @@
 打开终端，输入
 
 ```
-nvcc -O3 -arch=sm_35 ECL-GC-ColorReduction_12.cu -o ecl-gc-ColorReduction
+nvcc -O3 ECL-GC-ColorReduction_12.cu -o ecl-gc-ColorReduction
 ```
 
 进行编译
@@ -15,3 +15,5 @@ nvcc -O3 -arch=sm_35 ECL-GC-ColorReduction_12.cu -o ecl-gc-ColorReduction
 运行
 
 将模型名称改为input.ele，然后将color.txt复制回到data/model/bunny_small下
+
+或运行auto.py

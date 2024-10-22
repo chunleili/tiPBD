@@ -1014,8 +1014,6 @@ struct FastFillSoft : Kernels {
     {
         d_pos.assign(pos_in, NV*3);
         d_gradC.assign(gradC_in, NT*4*3);
-        // debug_cuda_vec(d_gradC, "d_gradC");
-        // debug_cuda_vec(d_pos, "d_pos");
     }
 
     #ifndef USE_LESSMEM
@@ -1109,18 +1107,6 @@ struct FastFillSoft : Kernels {
     {
         // TODO
         // cout<<"Begin fill_A_CSR_gpu soft."<<endl;
-        // auto v1_ = debug_cuda_vec(A.data, "A.data");
-        // auto v2_ = debug_cuda_vec(A.indices, "A.indices");
-        // auto v3_ = debug_cuda_vec(A.indptr, "A.indptr");
-        // auto v4_ = debug_cuda_vec(d_ii, "d_ii");
-        // auto v5_ = debug_cuda_vec(d_jj, "d_jj");
-        // auto v6_ = debug_cuda_vec(d_nnz_each_row, "d_nnz_each_row");
-        // auto v7_ = debug_cuda_vec(d_num_adjacent, "d_num_adjacent");
-        // auto v8_ = debug_cuda_vec(d_adjacent, "d_adjacent");
-        // auto v9_ = debug_cuda_vec(d_n_shared_v, "d_n_shared_v");
-        // auto v10_ = debug_cuda_vec(d_shared_v, "d_shared_v");
-        // auto v11_ = debug_cuda_vec(d_shared_v_order_in_cur, "d_shared_v_order_in_cur");
-        // auto v12_ = debug_cuda_vec(d_shared_v_order_in_adj, "d_shared_v_order_in_adj");
 
         #ifndef USE_LESSMEM
         fill_A_CSR_soft_kernel<<<num_nonz / 256 + 1, 256>>>(
@@ -1165,18 +1151,6 @@ struct FastFillSoft : Kernels {
         cudaDeviceSynchronize();
         launch_check();
         
-        // auto v1 = debug_cuda_vec(A.data, "A.data");
-        // auto v2 = debug_cuda_vec(A.indices, "A.indices");
-        // auto v3 = debug_cuda_vec(A.indptr, "A.indptr");
-        // auto v4 = debug_cuda_vec(d_ii, "d_ii");
-        // auto v5 = debug_cuda_vec(d_jj, "d_jj");
-        // auto v6 = debug_cuda_vec(d_nnz_each_row, "d_nnz_each_row");
-        // auto v7 = debug_cuda_vec(d_num_adjacent, "d_num_adjacent");
-        // auto v8 = debug_cuda_vec(d_adjacent, "d_adjacent");
-        // auto v9 = debug_cuda_vec(d_n_shared_v, "d_n_shared_v");
-        // auto v10 = debug_cuda_vec(d_shared_v, "d_shared_v");
-        // auto v11 = debug_cuda_vec(d_shared_v_order_in_cur, "d_shared_v_order_in_cur");
-        // auto v12 = debug_cuda_vec(d_shared_v_order_in_adj, "d_shared_v_order_in_adj");
         // cout<<"Finish fill_A_CSR_gpu soft."<<endl;
 
     }
@@ -1345,32 +1319,16 @@ struct VCycle : Kernels {
         levels.at(0).A.numnonz = ( ff->num_nonz);
         levels.at(0).A.nrows = ( ff->nrows);
 
-        // debug_cuda_vec(levels.at(0).A.data, "A0.data");
-        // debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
-        // debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
-        // debug_cuda_vec((ff->A).data, "ff->A.data");
-        // debug_cuda_vec((ff->A).indices, "ff->A.indices");
-        // debug_cuda_vec((ff->A).indptr, "ff->A.indptr");
     }
 
     void set_A0_from_fastFillSoft(FastFillSoft *ff) {
-        // debug_cuda_vec((ff->A).data, "ff->A.data");
-        // debug_cuda_vec((ff->A).indices, "ff->A.indices");
-        // debug_cuda_vec((ff->A).indptr, "ff->A.indptr");
 
         if (levels.size() < 1) {
             levels.resize(1);
         }
 
-        // levels.at(0).A.data.swap( (ff->A).data);
-        // levels.at(0).A.indices.swap( (ff->A).indices);
-        // levels.at(0).A.indptr.swap((ff->A).indptr);
         levels.at(0).A.numnonz = ( ff->num_nonz);
         levels.at(0).A.nrows = ( ff->nrows);
-
-        // debug_cuda_vec(levels.at(0).A.data, "A0.data");
-        // debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
-        // debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
 
         //FIXME: As in python code, we need copy A, why?
 
@@ -1430,12 +1388,9 @@ struct VCycle : Kernels {
         cudaDeviceSynchronize();
         launch_check();
 
-        // debug_cuda_vec(diag_inv, "diag_inv");
-
         CSR<float> DinvA;
         DinvA.assign(data_new.data(), A.numnonz, A.indices.data(), A.numnonz, A.indptr.data(), A.nrows+1, A.nrows, A.ncols, A.numnonz);
 
-        // debug_cuda_vec(DinvA.data, "DinvA.data");
 
         float DinvA_rho = calc_max_eig(DinvA);
         jacobi_omega = 2.0 / (DinvA_rho+0.1);
@@ -1578,7 +1533,6 @@ struct VCycle : Kernels {
         CHECK_CUDA(cudaMemcpy(colors.data(), c, n*sizeof(int), cudaMemcpyHostToDevice));
         color_num = color_num_in;
 
-        //debug_cuda_vec(colors, "colors");
     }
 
     void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {

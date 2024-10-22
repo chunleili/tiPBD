@@ -1161,10 +1161,11 @@ struct VCycle : Kernels {
     std::vector<MGLevel> levels;
     size_t nlvs;
     std::vector<float> chebyshev_coeff;
-    size_t smoother_type = 1; //1:chebyshev, 2:jacobi, 3:gauss_seidel
+    size_t smoother_type = 1; //1:chebyshev, 2:w-jacobi, 3:gauss_seidel(level0)+w-jacobi(other levels)
     size_t coarse_solver_type = 1; //0:direct solver by cusolver (cholesky), 1: one sweep smoother
     float jacobi_omega;
-    size_t jacobi_niter=10;
+    size_t jacobi_niter=2;
+    size_t smoother_niter=2; // TODO: we will replace jacobi_niter later
     Vec<float> z;
     Vec<float> r;
     Vec<float> outer_x;

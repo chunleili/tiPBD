@@ -660,12 +660,12 @@ if __name__ == '__main__':
     import scipy.io
     import os
     import numpy as np
-    postfix = "F1-0"
+    postfix = ""
 
     print("loading data...")
-    prj_dir = (os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
-    to_read_dir = prj_dir + "result/latest/A/"
-    A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
+    prj_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
+    to_read_dir = prj_dir + "/"
+    A = scipy.io.mmread(to_read_dir+f"A.mtx")
     A = A.tocsr()
     A = A.astype(np.float32)
     print("shape of A: ", A.shape)

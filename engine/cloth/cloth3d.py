@@ -49,6 +49,7 @@ parser.add_argument("-N", type=int, default=64)
 parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
+parser.add_argument("-export_matrix_frame", type=int, default=-1)
 parser.add_argument("-export_matrix_binary", type=int, default=True)
 parser.add_argument("-export_state", type=int, default=False)
 parser.add_argument("-export_residual", type=int, default=True)
@@ -737,7 +738,7 @@ def calc_dual_residual(
 
 def calc_primary_residual(G,M_inv):
     MASS = sp.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
-    primary_residual = MASS @ (predict_pos.to_numpy().flatten() - pos.to_numpy().flatten()) - G.transpose() @ lagrangian.to_numpy()
+    primary_residual = MASS @ (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - G.transpose() @ lagrangian.to_numpy()
     where_zeros = np.where(M_inv.diagonal()==0)
     primary_residual = np.delete(primary_residual, where_zeros)
     return primary_residual
@@ -753,10 +754,12 @@ def xpbd_calcr(tic_iter, dual0, r):
     # if export_fullr:
     #     np.savez(out_dir+'/r/'+ f'fulldual_{frame}-{ite}', fulldual0)
 
+    t_calcr = perf_counter()-tic_calcr
+    tic_exportr = perf_counter()
     r.append(ResidualData(dualr, 1, t_iter))
     if args.export_log:
-        logging.info(f"{frame}-{ite}  dual0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{perf_counter()-tic_calcr:.2e}s")
-    t_export += perf_counter() - tic_calcr
+        logging.info(f"{frame}-{ite}  dual0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{t_calcr:.2e}s")
+    t_export += perf_counter() - tic_exportr
     return dualr, dual0
 
 
@@ -816,9 +819,9 @@ def substep_xpbd():
 
         if dualr<args.tol:
             break
-        if is_stall(r):
-            logging.info("Stall detected, break")
-            break
+        # if is_stall(r):
+        #     logging.info("Stall detected, break")
+        #     break
     n_outer_all.append(ite+1)
 
     if args.export_residual:
@@ -1031,7 +1034,7 @@ def build_Ps(A, method='UA'):
         ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
     else:
         raise ValueError(f"Method {method} not recognized")
-
+    logging.info(f"{ml}")
     Ps = []
     for i in range(len(ml.levels)-1):
         Ps.append(ml.levels[i].P)
@@ -1831,7 +1834,7 @@ def substep_all_solver():
             x, r_Axb = AMG_python(b)
         else:
             AMG_A()
-            if args.export_matrix:
+            if args.export_matrix and frame==args.export_matrix_frame and iter==0:
                 A = fastFill_fetch()
                 export_A_b(A, b, f"{frame}-{ite}")
             if should_setup():

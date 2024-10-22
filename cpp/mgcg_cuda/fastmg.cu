@@ -703,7 +703,7 @@ struct Kernels {
         CHECK_CUBLAS(cublasSscal_v2(cublas, dst.size(), &alpha, dst.data(), 1));
     }
 
-    // dst = alpha * alpha
+    // dst = alpha * dst
     void scal(Vec<float> &dst, float const &alpha) {
         CHECK_CUBLAS(cublasSscal_v2(cublas, dst.size(), &alpha, dst.data(), 1));
     }
@@ -867,6 +867,7 @@ struct MGLevel {
     Vec<float> outh;
     CSR<float> Dinv;
     CSR<float> Aoff;
+    float scale_RAP=0.0;
 };
 
 
@@ -1204,6 +1205,12 @@ struct VCycle : Kernels {
     std::vector<float> residuals;
     size_t niter; //final number of iterations to break the loop
     float max_eig;
+
+    void set_scale_RAP(float s, int lv)
+    {
+        levels.at(lv).scale_RAP = s;
+        cout<<"Set scale_RAP: "<<levels.at(lv).scale_RAP<<"  at level "<<lv<<endl;
+    }
 
     void setup_smoothers(int type) {
         cout<<"\nSetting up smoothers..."<<endl;
@@ -1739,6 +1746,13 @@ struct VCycle : Kernels {
             transpose(P, R);            
             spgemm(A, P, AP) ;
             spgemm(R, AP, RAP);
+
+            float s = levels.at(lv).scale_RAP;
+            if (s!=0.0){
+                // scale RAP by a scalar
+                cout<<"scaling RAP by "<<s<<" at lv "<<lv<<endl;
+                scal(RAP.data, s);
+            }
     }
 
     void fetch_A_data(float *data) {
@@ -1935,6 +1949,10 @@ extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillSoft() {
     fastmg->set_A0_from_fastFillSoft(fastFillSoft);
+}
+
+extern "C" DLLEXPORT void fastmg_scale_RAP(float s, int lv) {
+    fastmg->set_scale_RAP(s, lv);
 }
 
 extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num) {

@@ -59,12 +59,14 @@ parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-export_mesh", type=int, default=True)
 parser.add_argument("-reinit", type=str, default="enlarge", choices=["", "random", "enlarge"])
 parser.add_argument("-tol", type=float, default=1e-4)
-parser.add_argument("-rtol", type=float, default=1e-4)
+parser.add_argument("-rtol", type=float, default=1e-9)
 parser.add_argument("-tol_Axb", type=float, default=1e-5)
 parser.add_argument("-large", action="store_true")
 parser.add_argument("-samll", action="store_true")
 parser.add_argument("-amgx_config", type=str, default="data/amgx_config/AMG_CONFIG_CG.json")
-parser.add_argument("-jacobi_niter", type=int, default=10)
+parser.add_argument("-jacobi_niter", type=int, default=2)
+parser.add_argument("-filter_P", type=str, default=None)
+parser.add_argument("-scale_RAP", type=int, default=False)
 
 args = parser.parse_args()
 
@@ -117,7 +119,6 @@ def init_extlib_argtypes():
     extlib.fastmg_set_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
     extlib.fastmg_get_data.argtypes = [arr_float]*2
     extlib.fastmg_get_data.restype = c_size_t
-    extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
     extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
     extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
     extlib.fastmg_set_A0.argtypes = argtypes_of_csr
@@ -132,6 +133,8 @@ def init_extlib_argtypes():
 
     extlib.fastmg_new()
     extlib.fastFillSoft_new()
+    if args.scale_RAP:
+        extlib.fastmg_scale_RAP.argtypes = [c_float, c_int]
 
 if args.use_cuda:
     init_extlib_argtypes()
@@ -889,15 +892,13 @@ def report_multilevel_details(Ps, num_levels):
 
 
 def AMG_setup_phase():
-    global Ps, num_levels
+    global Ps
     tic = time.perf_counter()
     A = fill_A_csr_ti(ist) #taichi version
     A = A.copy() #FIXME: no copy will cause bug, why?
     Ps = build_Ps(A)
-    num_levels = len(Ps)+1
     logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
 
-    extlib.fastmg_setup_nl(num_levels)
 
     tic = time.perf_counter()
     update_P(Ps)
@@ -915,7 +916,6 @@ def AMG_setup_phase():
     # if use_graph_coloring:
     #     ncolor, colors = graph_coloring_v3(A)
 
-    report_multilevel_details(Ps, num_levels)
     return A
 
 
@@ -1283,6 +1283,10 @@ def substep_xpbd(ist):
         logging.info(f"{meta.frame}-{meta.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
         r.append(ResidualData(dualr, 0, toc-tic))
         if dualr < args.tol:
+            logging.info("Converge: tol")
+            break
+        if dualr / dualr0 < args.rtol:
+            logging.info("Converge: rtol")
             break
         if is_stall(r):
             logging.warning("Stall detected, break")
@@ -1348,6 +1352,66 @@ def calc_near_nullspace_GS(A):
     print("Calculating near nullspace Time:", toc-tic)
     return B
 
+
+def do_filter_P(P, theta=0.25):
+    # filter out the small values in each column of P
+    # small value: |val| < 0.25 |max_val|
+    logging.info(f"Filtering P, shape: {P.shape}")
+    P = P.tocsc()
+    indices, indptr, data = P.indices, P.indptr, P.data
+    for j in range(P.shape[1]):
+        col_start = indptr[j]
+        col_end = indptr[j + 1]
+        col_data = data[col_start:col_end]
+        max_val = np.abs(col_data).max()
+        ...
+        for i in range(col_start, col_end):
+            if np.abs(data[i]) < theta * max_val:
+                data[i] = 0
+    P.eliminate_zeros()
+    return P.tocsr()
+
+
+def do_set_01_P(P):
+    # for all non-zero values in P, set them to 1
+    logging.info(f"set 01 P, shape: {P.shape}")
+    P.data[:] = 1
+    P = P.tocsr()
+    logging.info(f"set 01 P done")
+    return P
+
+
+def do_set_avg_P(P):
+    # for all non-zero values in P, set them to 1
+    logging.info(f"set avg P, shape: {P.shape}")
+    P.data[:] = 1
+    # for each column, set the each value to avg, and sum to 1.0
+    P = P.tocsc()
+    for j in range(P.shape[1]):
+        col_start = P.indptr[j]
+        col_end = P.indptr[j + 1]
+        col_data = P.data[col_start:col_end]
+        col_sum = np.sum(col_data)
+        if col_sum != 0:
+            P.data[col_start:col_end] /= col_sum
+    P = P.tocsr()
+    logging.info(f"set avg P done")
+    return P
+
+
+def calc_RAP_scale(P):
+    logging.info(f"get RAP scale from nnz of each column of P, shape: {P.shape}")
+    P = P.tocsc()
+    nnz_col = np.zeros(P.shape[1], dtype=np.int32)
+    for j in range(P.shape[1]):
+        col_start = P.indptr[j]
+        col_end = P.indptr[j + 1]
+        nnz_col[j] = col_end - col_start #size of aggregate
+    scale = 1.0/nnz_col.mean()
+    logging.info(f"RAP scale={scale}")
+    return scale
+
+
 def build_Ps(A):
     """Build a list of prolongation matrices Ps from A """
     method = args.build_P_method
@@ -1371,9 +1435,9 @@ def build_Ps(A):
     elif method == 'affinity4.0':
         ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('affinity', {'epsilon': 4.0, 'R': 10, 'alpha': 0.5, 'k': 20}))
     elif method == 'strength0.1':
-        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.25 }))    
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.1 }))    
     elif method == 'strength0.2':
-        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.25 }))    
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.2 }))    
     elif method == 'strength0.25':
         ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.25 }))
     elif method == 'strength0.3':
@@ -1382,14 +1446,55 @@ def build_Ps(A):
         ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.4 }))
     elif method == 'strength0.5':
         ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.5 }))
+    elif method == 'evolution':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('evolution', {'k': 2, 'proj_type': 'l2', 'epsilon': 4.0}))
+    elif method == 'improve_candidate':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth = None, improve_candidates=(('block_gauss_seidel',{'sweep': 'symmetric','iterations': 4}),None), symmetry='symmetric', strength=('symmetric',{'theta' : 0.1 }))
+    elif method == 'strength_energy':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('energy_based',{'theta' : 0.25 })) 
+    elif method == 'strength_classical':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('classical')) 
+    elif method == 'strength_distance':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('distance')) 
+    elif method == 'aggregate_standard':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', aggregate='standard')
+    elif method == 'aggregate_naive':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', aggregate='naive')
+    elif method == 'aggregate_lloyd':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', aggregate='lloyd')
+    elif method == 'aggregate_pairwise':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', aggregate='pairwise')
+    elif method == 'diagonal_dominance':
+        ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('symmetric',{'theta' : 0.1 }),diagonal_dominance=True)
     else:
         raise ValueError(f"Method {method} not recognized")
+
+    global num_levels
+    num_levels = len(ml.levels)
+    extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
+    extlib.fastmg_setup_nl(num_levels)
     
     logging.info(ml)
 
     Ps = []
     for i in range(len(ml.levels)-1):
-        Ps.append(ml.levels[i].P)
+        P = ml.levels[i].P
+        if args.filter_P=="fileter":
+            P = do_filter_P(P,0.25)
+        elif args.filter_P=="01":
+            P = do_set_01_P(P)
+        elif args.filter_P=="avg":
+            P = do_set_avg_P(P)
+        Ps.append(P)
+
+        if args.scale_RAP:
+            # scale RAP by avg size of aggregates
+            # get scale from nnz of each column of P
+            s = calc_RAP_scale(P)
+            extlib.fastmg_scale_RAP(s, i)
+
+
+
     toc = perf_counter()
     logging.info(f"Build P Time:{toc-tic:.2f}s")
 
@@ -1545,8 +1650,8 @@ def make_and_clean_dirs(out_dir):
 
 
 def export_A_b(A,b,postfix="", binary=True):
-    logging.info(f"Exporting A and b...")
     dir = out_dir + "/A/"
+    logging.info(f"Exporting A and b to {dir}...")
     if binary:
         scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)
         np.save(dir + f"b_{postfix}.npy", b)
@@ -2003,6 +2108,7 @@ def main():
 
     start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     logging.info(start_date)
+    logging.info(args)
 
     ist = SoftBody(args.model_path)
     ist.initialize()

@@ -303,44 +303,6 @@ __global__ void copy_field(float *dst, const float *src, int size) {
 }
 
 
-void jacobi_serial(const int Ap[], const int Ap_size,
-            const int Aj[], const int Aj_size,
-            const float Ax[], const int Ax_size,
-                  float  x[], const int  x_size,
-            const float  b[], const int  b_size,
-                  float temp[], const int temp_size,
-            const int row_start,
-            const int row_stop,
-            const int row_step,
-            const float omega)
-{
-    float one = 1.0;
-
-    for(int i = row_start; i != row_stop; i += row_step) {
-        temp[i] = x[i];
-    }
-
-    for(int i = row_start; i != row_stop; i += row_step) {
-        int start = Ap[i];
-        int end   = Ap[i+1];
-        float rsum = 0;
-        float diag = 0;
-
-        for(int jj = start; jj < end; jj++){
-            int j = Aj[jj];
-            if (i == j)
-                diag  = Ax[jj];
-            else
-                rsum += Ax[jj]*temp[j];
-        }
-
-        if (diag != (float) 0.0){
-            x[i] = (one - omega) * temp[i] + omega * ((b[i] - rsum)/diag);
-        }
-    }
-}
-
-
 
 // https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/amg_core/relaxation.h#L45
 void gauss_seidel_serial(const int Ap[], const int Ap_size,

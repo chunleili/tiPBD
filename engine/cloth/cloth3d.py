@@ -69,14 +69,17 @@ parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.jso
 parser.add_argument("-arch", type=str, default="cpu", help="taichi arch: gpu or cpu")
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
-parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-setup_interval", type=int, default=20)
 parser.add_argument("-tol", type=float, default=1e-4)
 parser.add_argument("-use_PXPBD_v1", type=int, default=False)
 parser.add_argument("-use_PXPBD_v2", type=int, default=False)
 parser.add_argument("-use_bending", type=int, default=False)
-
+parser.add_argument("-smoother_type", type=str, default="chebyshev")
+parser.add_argument("-smoother_niter", type=int, default=2)
+parser.add_argument("-use_detailed_smoothers", type=int, default=False, help="use different smoother(types, niter) for each level")
+parser.add_argument("-smoother_type_lv", type=str, nargs='*', help="smoother type for each level, e.g. jacobi jacobi jacobi jacobi, for L0: pre-smoother, L0: post-smoother, L1: pre-smoother, L1: post-smoother")
+parser.add_argument("-smoother_niter_lv", type=int, nargs='*', help="smoother type for each level, e.g. 2 2 2 2, for L0: pre-smoother, L0: post-smoother, L1: pre-smoother, L1: post-smoother")
 
 args = parser.parse_args()
 N = args.N
@@ -199,11 +202,9 @@ def init_extlib_argtypes():
     extlib.fastmg_get_data.argtypes = [arr_float]*2
     extlib.fastmg_get_data.restype = c_size_t
     extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
-    extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
     extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
     extlib.fastmg_set_A0.argtypes = argtypes_of_csr
     extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
-    extlib.fastmg_setup_smoothers.argtypes = [c_int]
     extlib.fastmg_update_A0.argtypes = [arr_float]
     extlib.fastmg_get_data.restype = c_int
 
@@ -1006,7 +1007,7 @@ def calc_spectral_radius(A):
     return spectral_radius
 
 
-def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3):
+def setup_chebyshev_python(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3):
     global chebyshev_coeff 
     """Set up Chebyshev."""
     rho = calc_spectral_radius(A)
@@ -1015,7 +1016,7 @@ def setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3):
     chebyshev_coeff = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
 
 
-def setup_jacobi(A):
+def setup_jacobi_python(A):
     from pyamg.relaxation.smoothing import rho_D_inv_A
     global jacobi_omega
     rho = rho_D_inv_A(A)
@@ -1064,13 +1065,12 @@ def build_levels(A, Ps=[]):
     return levels
 
 
-def setup_smoothers(A):
+def setup_smoothers_python(A):
     global chebyshev_coeff
     if args.smoother_type == 'chebyshev':
-        setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
+        setup_chebyshev_python(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
     elif args.smoother_type == 'jacobi':
-        setup_jacobi(A)
-        extlib.fastmg_setup_jacobi(jacobi_omega, 10)
+        setup_jacobi_python(A)
 
 
 def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):
@@ -1574,7 +1574,7 @@ def AMG_python(b):
 
     if should_setup():
         tic = time.perf_counter()
-        setup_smoothers(A)
+        setup_smoothers_python(A)
         logging.info(f"    setup smoothers time:{perf_counter()-tic}")
     x0 = np.zeros_like(b)
     tic = time.perf_counter()
@@ -1717,6 +1717,50 @@ def PXPBD_v1_mfree_transfer_back_to_pos_kernel(Minv_gg:ti.template()):
             dpos[idx1] -= invM1 * delta_lagrangian * gradient - Minv_gg[idx1]
         
 
+def smoother_name_to_id(smoother_name):
+    if smoother_name == "chebyshev":
+        return 0
+    elif smoother_name == "jacobi":
+        return 1
+    elif smoother_name == "gauss_seidel":
+        return 2
+    else:
+        assert False
+
+
+def set_smoother_for_levels():
+    # args.use_detailed_smoothers = True
+    # args.smoother_niter_lv = [2, 1, 2, 1]
+    # args.smoother_type = ["chebyshev", "jacobi", "chebyshev", "jacobi"]
+
+    if not args.use_detailed_smoothers:
+        sid = smoother_name_to_id(args.smoother_type)
+        niter = args.smoother_niter
+        for lv in range(num_levels):
+            extlib.fastmg_set_smoother_type(sid, lv, 0)
+            extlib.fastmg_set_smoother_type(sid, lv, 1)
+            extlib.fastmg_set_smoother_niter(niter, lv, 0)
+            extlib.fastmg_set_smoother_niter(niter, lv, 1)
+    else:
+        if len(args.smoother_type) != num_levels*2 or len(args.smoother_niter_lv) != num_levels*2:
+            logging.error("smoother_type and smoother_niter_lv should be twice of num_levels")
+            assert False
+        for lv in range(num_levels):
+            extlib.fastmg_set_smoother_type.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            extlib.fastmg_set_smoother_niter.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
+            niter0 = args.smoother_niter_lv[lv*2]
+            niter1 = args.smoother_niter_lv[lv*2+1]
+            sid0 = smoother_name_to_id(args.smoother_type[lv*2])
+            sid1 = smoother_name_to_id(args.smoother_type[lv*2+1])
+            extlib.fastmg_set_smoother_type(sid0, lv, 0)
+            extlib.fastmg_set_smoother_type(sid1, lv, 1)
+            extlib.fastmg_set_smoother_niter(niter0, lv, 0)
+            extlib.fastmg_set_smoother_niter(niter1, lv, 1)
+    
+    extlib.fastmg_setup_smoothers()
+    extlib.fastmg_report_smoother()
+    ...
+
 
 def AMG_setup_phase():
     global Ps, num_levels
@@ -1735,7 +1779,9 @@ def AMG_setup_phase():
 
     tic = time.perf_counter()
     cuda_set_A0(A)
-    extlib.fastmg_setup_smoothers(1) # 1 means chebyshev
+
+    set_smoother_for_levels()
+    
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
     report_multilevel_details(Ps, num_levels)

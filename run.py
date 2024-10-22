@@ -1244,6 +1244,27 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
+
+# case131: soft85w set multicolor gauss_seidel
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-gauss_seidel",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=3000",
+        "-use_graph_coloring=1",
+        "-use_detailed_smoothers=1",
+        "-presmoother_type_lv","gauss_seidel", "jacobi",
+        "-presmoother_niter_lv","1","1"
+        ]
+allargs.append(args)
+
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')

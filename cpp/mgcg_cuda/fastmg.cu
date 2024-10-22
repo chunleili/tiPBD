@@ -874,6 +874,8 @@ struct MGLevel {
     int postsmoother_niter=2;
     float jacobi_omega=2.0/3.0;
     std::array<float,3> chebyshev_coeff;
+    Vec<int> colors; // color index of each node for multicolor gauss-seidel
+    int color_num; // number of colors, max(colors)+1, for multicolor gauss-seidel
 };
 
 
@@ -1208,11 +1210,11 @@ struct VCycle : Kernels {
             }
             else if(levels[lv].presmoother_type  == 2 || levels[lv].postsmoother_type == 2)
             {
-                if(lv!=0)
-                    throw std::runtime_error("Multicolor Gauss-Seidel only for first level.");
-                if(color_num==0)
-                    throw std::runtime_error("color_num is not set.");
-                if(levels[lv].A.nrows != colors.size())
+                // if(lv!=0)
+                //     throw std::runtime_error("Multicolor Gauss-Seidel only for first level.");
+                // if(color_num==0)
+                //     throw std::runtime_error("color_num is not set.");
+                if(levels[lv].A.nrows != levels[lv].colors.size())
                     throw std::runtime_error("colors size is not equal to A.nrows.");
             }
         }
@@ -1587,18 +1589,15 @@ struct VCycle : Kernels {
         // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
 
-    Vec<int> colors; // color index of each node
-    int color_num; // number of colors, max(colors)+1
+
     // parallel gauss seidel
     // https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html
     // https://gist.github.com/Erkaman/b34b3531e209a1db38e259ea53ff0be9#file-gauss_seidel_graph_coloring-cpp-L101
-    void set_colors(const int* c, int n, int color_num_in) {
+    void set_colors(const int* c, int n, int color_num_in, int lv=0) {
         // get colors from python
-        // TODO:
-        colors.resize(n);
-        CHECK_CUDA(cudaMemcpy(colors.data(), c, n*sizeof(int), cudaMemcpyHostToDevice));
-        color_num = color_num_in;
-
+        levels.at(lv).colors.resize(n);
+        CHECK_CUDA(cudaMemcpy(levels.at(lv).colors.data(), c, n*sizeof(int), cudaMemcpyHostToDevice));
+        levels.at(lv).color_num = color_num_in;
     }
 
 
@@ -1624,11 +1623,9 @@ struct VCycle : Kernels {
 
     void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {
         //TODO
-        // cout<<"multi_color_gauss_seidel"<<endl;
-        // cout<<"color_num: "<<color_num<<endl;
-        for(int color=0; color<color_num; color++)
+        for(int c=0; c<levels.at(lv).color_num; c++)
         {
-            multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, colors.data(), color);
+            multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, levels.at(lv).colors.data(), c);
             // cudaDeviceSynchronize();
             // LAUNCH_CHECK();
             // debug_cuda_vec(x, "x");
@@ -2005,8 +2002,8 @@ extern "C" DLLEXPORT void fastmg_scale_RAP(float s, int lv) {
     fastmg->set_scale_RAP(s, lv);
 }
 
-extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num) {
-    fastmg->set_colors(c, n, color_num);
+extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num, int lv) {
+    fastmg->set_colors(c, n, color_num, lv);
 }
 
 // pre_or_post = 0: pre, 1: post

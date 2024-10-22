@@ -69,8 +69,10 @@ parser.add_argument("-scale_RAP", type=int, default=False)
 parser.add_argument("-smoother_type", type=str, default="jacobi")
 parser.add_argument("-smoother_niter", type=int, default=2)
 parser.add_argument("-use_detailed_smoothers", type=int, default=False, help="use different smoother(types, niter) for each level")
-parser.add_argument("-smoother_type_lv", type=str, nargs='*', help="smoother type for each level, e.g. jacobi jacobi jacobi jacobi, for L0: pre-smoother, L0: post-smoother, L1: pre-smoother, L1: post-smoother")
-parser.add_argument("-smoother_niter_lv", type=int, nargs='*', help="smoother type for each level, e.g. 2 2 2 2, for L0: pre-smoother, L0: post-smoother, L1: pre-smoother, L1: post-smoother")
+parser.add_argument("-presmoother_type_lv", type=str, nargs='*', help="presmoother type for each level, e.g. jacobi jacobi, for L0, L1. Post smoother will use the same type if not set")
+parser.add_argument("-presmoother_niter_lv", type=int, nargs='*', help="presmoother type for each level, e.g. 2 2, for L0, L1. Post smoother will use the same if not set")
+parser.add_argument("-postsmoother_type_lv", type=str, nargs='*', help="postsmoother type for each level, e.g. jacobi jacobi, for L0, L1. If not set, will use the same as pre-smoother ")
+parser.add_argument("-postsmoother_niter_lv", type=int, nargs='*', help="postsmoother type for each level, e.g. 2 2, for L0, L1. If not set, will use the same as pre-smoother")
 parser.add_argument("-use_graph_coloring", type=int, default=False)
 
 
@@ -905,9 +907,12 @@ def smoother_name_to_id(smoother_name):
         
 
 def set_smoother_for_levels():
+    global num_levels
     # args.use_detailed_smoothers = True
     # args.smoother_niter_lv = [2, 2]
     # args.smoother_type_lv = ["gauss_seidel", "gauss_seidel"]
+    if num_levels is None:
+        num_levels = 1
 
     if not args.use_detailed_smoothers:
         sid = smoother_name_to_id(args.smoother_type)
@@ -918,32 +923,43 @@ def set_smoother_for_levels():
             extlib.fastmg_set_smoother_niter(niter, lv, 0)
             extlib.fastmg_set_smoother_niter(niter, lv, 1)
     else:
-        if len(args.smoother_type_lv) != num_levels*2 or len(args.smoother_niter_lv) != num_levels*2:
-            logging.warning("smoother_type and smoother_niter_lv is not twice of num_levels")
-            # if longer than num_levels*2, cut-off the rest
-            if len(args.smoother_type_lv) > num_levels*2:
-                args.smoother_type_lv = args.smoother_type_lv[:num_levels*2]
-            if len(args.smoother_niter_lv) > num_levels*2:
-                args.smoother_niter_lv = args.smoother_niter_lv[:num_levels*2]
-            # if shorter than num_levels*2, use default values(jacobi, 2) to fill
-            if len(args.smoother_type_lv) < num_levels*2:
-                args.smoother_type_lv += ["jacobi"]*(num_levels*2-len(args.smoother_type_lv))
-            if len(args.smoother_niter_lv) < num_levels*2:
-                args.smoother_niter_lv += [2]*(num_levels*2-len(args.smoother_niter_lv))
+        if len(args.presmoother_type_lv) != num_levels or len(args.presmoother_niter_lv) != num_levels:
+            logging.warning("presmoother_type and presmoother_niter_lv is not num_levels")
+            # if longer than num_levels, cut-off the rest
+            if len(args.presmoother_type_lv) > num_levels:
+                args.presmoother_type_lv = args.presmoother_type_lv[:num_levels]
+            if len(args.presmoother_niter_lv) > num_levels:
+                args.presmoother_niter_lv = args.presmoother_niter_lv[:num_levels]
+            # if shorter than num_levels, use default values(jacobi, 2) to fill
+            if len(args.presmoother_type_lv) < num_levels:
+                args.presmoother_type_lv += ["jacobi"]*(num_levels-len(args.presmoother_type_lv))
+            if len(args.presmoother_niter_lv) < num_levels:
+                args.presmoother_niter_lv += [2]*(num_levels-len(args.presmoother_niter_lv))
             logging.info("cut-off or fill with default values(jacobi, 2)")
-            logging.info(f"smoother_type_lv: {args.smoother_type_lv}")     
-            logging.info(f"smoother_niter_lv: {args.smoother_niter_lv}")       
+            logging.info(f"presmoother_type_lv: {args.presmoother_type_lv}")     
+            logging.info(f"presmoother_niter_lv: {args.presmoother_niter_lv}")       
+
         for lv in range(num_levels):
             extlib.fastmg_set_smoother_type.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
             extlib.fastmg_set_smoother_niter.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
-            niter0 = args.smoother_niter_lv[lv*2]
-            niter1 = args.smoother_niter_lv[lv*2+1]
-            sid0 = smoother_name_to_id(args.smoother_type_lv[lv*2])
-            sid1 = smoother_name_to_id(args.smoother_type_lv[lv*2+1])
+
+            niter0 = args.presmoother_niter_lv[lv]
+            sid0 = smoother_name_to_id(args.presmoother_type_lv[lv])
             extlib.fastmg_set_smoother_type(sid0, lv, 0)
-            extlib.fastmg_set_smoother_type(sid1, lv, 1)
             extlib.fastmg_set_smoother_niter(niter0, lv, 0)
-            extlib.fastmg_set_smoother_niter(niter1, lv, 1)
+            # TODO: just use the same smoother for both pre and post for now
+            if args.postsmoother_niter_lv is None:
+                extlib.fastmg_set_smoother_type(sid0, lv, 1)
+                args.postsmoother_niter_lv = args.presmoother_niter_lv
+            else:
+                niter1 = args.postsmoother_niter_lv[lv]
+                extlib.fastmg_set_smoother_niter(niter1, lv, 1)
+            if args.postsmoother_type_lv is None:
+                extlib.fastmg_set_smoother_niter(niter0, lv, 1)
+                args.postsmoother_type_lv = args.presmoother_type_lv
+            else:
+                sid1 = smoother_name_to_id(args.postsmoother_type_lv[lv])
+                extlib.fastmg_set_smoother_type(sid1, lv, 1)
     
     extlib.fastmg_setup_smoothers()
     extlib.fastmg_report_smoother()
@@ -973,27 +989,27 @@ def AMG_setup_phase():
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
     # # graph coloring of A
-    # if use_graph_coloring:
-    #     ncolor, colors = graph_coloring_v3(A)
+    if args.use_graph_coloring:
+        graph_coloring_v2([1]) # TODO we only test for one level
 
     return A
 
 
-def fetch_A_from_cuda():
+def fetch_A_from_cuda(lv=0):
     extlib.fastmg_get_nnz.argtypes = [ctypes.c_int]
     extlib.fastmg_get_nnz.restype = ctypes.c_int
     extlib.fastmg_get_matsize.argtypes = [ctypes.c_int]
     extlib.fastmg_get_matsize.restype = ctypes.c_int
     extlib.fastmg_fetch_A.argtypes = [c_int, arr_float, arr_int, arr_int]
 
-    nnz = extlib.fastmg_get_nnz(0)
-    matsize = extlib.fastmg_get_matsize(0)
+    nnz = extlib.fastmg_get_nnz(lv)
+    matsize = extlib.fastmg_get_matsize(lv)
 
     A_data = np.zeros(nnz, dtype=np.float32)
     A_indices = np.zeros(nnz, dtype=np.int32)
     A_indptr = np.zeros(matsize+1, dtype=np.int32)
 
-    extlib.fastmg_fetch_A(0, A_data, A_indices, A_indptr)
+    extlib.fastmg_fetch_A(lv, A_data, A_indices, A_indptr)
     A = scipy.sparse.csr_matrix((A_data, A_indices, A_indptr), shape=(matsize, matsize))
     return A
 
@@ -2074,15 +2090,29 @@ def graph_coloring_v1():
 # version 2, use pyamg. 
 # Input: CSR matrix(symmetric)
 # This is called in AMG_setup_phase()
-def graph_coloring_v2(A):
+def do_graph_coloring_v2(A):
     from pyamg.graph import vertex_coloring
     tic = perf_counter()
-    colors = vertex_coloring(A,'LDF')
+    colors = vertex_coloring(A,'MIS')
     ncolor = np.max(colors)+1
+    print(f"A shape: {A.shape}")
     print(f"ncolor: {ncolor}")
     print("colors:",colors)
     print(f"graph_coloring_v2 time: {perf_counter()-tic:.3f}s")
     return ncolor, colors
+
+
+def graph_coloring_v2(levels=[]):
+    for lv in (levels):
+        # if not args.presmoother_type_lv[lv]  == "gauss_seidel" or args.postsmoother_type_lv[lv] == "gauss_seidel": FIXME
+        if not args.presmoother_type_lv[lv]  == "gauss_seidel":
+            continue
+        logging.info(f"Graph coloring level {lv}...")
+        if lv!=0:
+            extlib.fastmg_RAP(lv-1)
+        A = fetch_A_from_cuda(lv)
+        ncolor, colors = do_graph_coloring_v2(A)
+        graph_coloring_to_cuda(ncolor, colors, lv)
 
 
 # version 3, use newtworkx. 
@@ -2103,10 +2133,15 @@ def graph_coloring_v3(A):
 
 
 # read the color.txt
-# Input: color.txt file path
-def graph_coloring_read():
+# Input: color.txt file path 
+# TODO: Only level 0 for now
+def graph_coloring_read(lv=0):
     model_dir = Path(args.model_path).parent
     path = model_dir / "color.txt"
+    if not path.exists():
+        print(f"color.txt not found in {model_dir}")
+        return
+    
     tic = perf_counter()
 
     require_process = True
@@ -2125,17 +2160,14 @@ def graph_coloring_read():
     print("colors:",colors)
     print(f"graph_coloring_read time: {perf_counter()-tic:.3f}s")
 
-    to_cuda = True
-    if to_cuda:
-        graph_coloring_to_cuda(ncolor, colors)
-
+    graph_coloring_to_cuda(ncolor, colors, lv)
     return ncolor, colors
 
 
-def graph_coloring_to_cuda(ncolor, colors):
+def graph_coloring_to_cuda(ncolor, colors, lv=0):
     colors = np.ascontiguousarray(colors)
     extlib.fastmg_set_colors.argtypes = [arr_int, c_int, c_int]
-    extlib.fastmg_set_colors(colors, colors.shape[0], ncolor)
+    extlib.fastmg_set_colors(colors, colors.shape[0], ncolor, lv)
 
 
 # ---------------------------------------------------------------------------- #
@@ -2163,15 +2195,16 @@ def main():
     ist = SoftBody(args.model_path)
     ist.initialize()
     
-    if args.use_graph_coloring:
-        # graph_coloring_v1()
-        graph_coloring_read()
-
     if args.export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
     if args.solver_type != "XPBD":
         init_direct_fill_A(ist)
+
+
+    if args.use_graph_coloring:
+        # graph_coloring_v1()
+        graph_coloring_read(0)
 
     print(f"initialize time:", perf_counter()-tic)
     initial_frame = meta.frame

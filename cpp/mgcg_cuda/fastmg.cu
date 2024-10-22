@@ -1559,14 +1559,19 @@ struct VCycle : Kernels {
         // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
 
-    std::vector<int> colors; // color of each node
-    int color_num; // number of colors
+    Vec<int> colors; // color index of each node
+    int color_num; // number of colors, max(colors)+1
     // parallel gauss seidel
     // https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html
     // https://gist.github.com/Erkaman/b34b3531e209a1db38e259ea53ff0be9#file-gauss_seidel_graph_coloring-cpp-L101
-    void read_colors(int lv, int color_num, std::vector<int> colors) {
-        // read from file
+    void set_colors(const int* c, int n, int color_num_in) {
+        // get colors from python
         // TODO:
+        colors.resize(n);
+        CHECK_CUDA(cudaMemcpy(colors.data(), c, n*sizeof(int), cudaMemcpyHostToDevice));
+        color_num = color_num_in;
+
+        //debug_cuda_vec(colors, "colors");
     }
 
     void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {
@@ -1930,6 +1935,10 @@ extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillSoft() {
     fastmg->set_A0_from_fastFillSoft(fastFillSoft);
+}
+
+extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num) {
+    fastmg->set_colors(c, n, color_num);
 }
 
 // ------------------------------------------------------------------------------

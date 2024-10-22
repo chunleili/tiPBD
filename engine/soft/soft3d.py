@@ -69,7 +69,7 @@ parser.add_argument("-jacobi_niter", type=int, default=10)
 args = parser.parse_args()
 
 out_dir = args.out_dir
-use_graph_coloring = False
+use_graph_coloring = True
 
 if args.large:
     args.model_path = f"data/model/bunny85w/bunny85w.node"
@@ -911,8 +911,9 @@ def AMG_setup_phase():
     # extlib.fastmg_setup_jacobi(omega, 100)
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
-    # graph coloring of A
-    ncolor, colors = graph_coloring_v3(A)
+    # # graph coloring of A
+    # if use_graph_coloring:
+    #     ncolor, colors = graph_coloring_v3(A)
 
     report_multilevel_details(Ps, num_levels)
     return A
@@ -1945,6 +1946,43 @@ def graph_coloring_v3(A):
     print(f"graph_coloring_v3 time: {perf_counter()-tic:.3f}s")
     return ncolor, colors
 
+
+# read the color.txt
+# Input: color.txt file path
+def graph_coloring_read():
+    model_dir = Path(args.model_path).parent
+    path = model_dir / "color.txt"
+    tic = perf_counter()
+
+    require_process = True
+    if require_process: #ECL_GC, # color.txt is nx3, left is node index, right is color
+        colors_raw = np.loadtxt(path, dtype=np.int32, skiprows=1)
+        # colors = colors_raw[:,0:2] # get first and third column
+        # sort by node index
+        sorted_indices = np.argsort(colors_raw[:, 0])
+        sorted_colors = colors_raw[sorted_indices]
+        colors = sorted_colors[:, 2]
+    else: # ruiqi, no need to process
+        colors = np.loadtxt(path, dtype=np.int32)
+
+    ncolor = np.max(colors)+1
+    print(f"ncolor: {ncolor}")
+    print("colors:",colors)
+    print(f"graph_coloring_read time: {perf_counter()-tic:.3f}s")
+
+    to_cuda = True
+    if to_cuda:
+        graph_coloring_to_cuda(ncolor, colors)
+
+    return ncolor, colors
+
+
+def graph_coloring_to_cuda(ncolor, colors):
+    colors = np.ascontiguousarray(colors)
+    extlib.fastmg_set_colors.argtypes = [arr_int, c_int, c_int]
+    extlib.fastmg_set_colors(colors, colors.shape[0], ncolor)
+
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1970,7 +2008,8 @@ def main():
     ist.initialize()
     
     if use_graph_coloring:
-        graph_coloring_v1()
+        # graph_coloring_v1()
+        graph_coloring_read()
 
     if args.export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)

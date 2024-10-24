@@ -874,6 +874,8 @@ struct MGLevel {
     // int postsmoother_niter=2;
     float jacobi_omega=2.0/3.0;
     std::array<float,3> chebyshev_coeff;
+    Vec<int> colors; // color index of each node
+    int color_num; // number of colors, max(colors)+1
 };
 
 
@@ -1518,24 +1520,21 @@ struct VCycle : Kernels {
         x.assign(x_host.data(), x_host.size());
     }
 
-    Vec<int> colors; // color index of each node
-    int color_num; // number of colors, max(colors)+1
+
     // parallel gauss seidel
     // https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html
     // https://gist.github.com/Erkaman/b34b3531e209a1db38e259ea53ff0be9#file-gauss_seidel_graph_coloring-cpp-L101
-    void set_colors(const int* c, int n, int color_num_in) {
-        // get colors from python
-        // TODO:
-        colors.resize(n);
-        CHECK_CUDA(cudaMemcpy(colors.data(), c, n*sizeof(int), cudaMemcpyHostToDevice));
-        color_num = color_num_in;
+    void set_colors(const int* c, int n, int color_num_in, int lv) {
+        levels.at(lv).colors.resize(n);
+        CHECK_CUDA(cudaMemcpy(levels.at(lv).colors.data(), c, n*sizeof(int), cudaMemcpyHostToDevice));
+        levels.at(lv).color_num = color_num_in;
 
     }
 
     void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {
-        for(int color=0; color<color_num; color++)
+        for(int color=0; color<levels.at(lv).color_num; color++)
         {
-            multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, colors.data(), color);
+            multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, levels.at(lv).colors.data(), color);
         }
 
     }
@@ -1561,13 +1560,8 @@ struct VCycle : Kernels {
         }
         else if (smoother_type == 3)
         {
-            // gauss_seidel_cpu(lv, x, b);
-            if(lv==0)
-                for(int i=0; i<smoother_niter; i++)
-                    multi_color_gauss_seidel(lv,x,b);
-            else{
-                jacobi_v2(lv,x,b);
-            }
+            for(int i=0; i<smoother_niter; i++)
+                multi_color_gauss_seidel(lv,x,b);
         }
         // auto r = calc_residual_norm(b, x, levels.at(lv).A);
         // cout<<"lv"<<lv<<"   residual: "<<r<<endl;
@@ -1775,6 +1769,7 @@ struct VCycle : Kernels {
             elapsed2.push_back(timer2.elapsed());
 
             do_cg_itern(residuals.data(), iter); 
+            // cout<<"iter: "<<iter<<" residual: "<<residuals[iter]<<endl;
             niter = iter;
         }
         timer1.stop();
@@ -1926,8 +1921,8 @@ extern "C" DLLEXPORT void fastmg_scale_RAP(float s, int lv) {
     fastmg->set_scale_RAP(s, lv);
 }
 
-extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num) {
-    fastmg->set_colors(c, n, color_num);
+extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num, int lv) {
+    fastmg->set_colors(c, n, color_num, lv);
 }
 
 

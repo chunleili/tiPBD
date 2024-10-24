@@ -905,7 +905,6 @@ def smoother_name2type(name):
     else:
         raise ValueError(f"smoother name {name} not supported")
 
-
 def AMG_setup_phase():
     global Ps
     tic = time.perf_counter()
@@ -930,24 +929,27 @@ def AMG_setup_phase():
     extlib.fastmg_setup_smoothers(s) # 1 means chebyshev, 2 means w-jacobi, 3 gauss_seidel
     extlib.fastmg_set_smoother_niter(args.smoother_niter)
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
+
+    if use_graph_coloring:
+        graph_coloring_v2()    
     return A
 
 
-def fetch_A_from_cuda():
+def fetch_A_from_cuda(lv=0):
     extlib.fastmg_get_nnz.argtypes = [ctypes.c_int]
     extlib.fastmg_get_nnz.restype = ctypes.c_int
     extlib.fastmg_get_matsize.argtypes = [ctypes.c_int]
     extlib.fastmg_get_matsize.restype = ctypes.c_int
     extlib.fastmg_fetch_A.argtypes = [c_int, arr_float, arr_int, arr_int]
 
-    nnz = extlib.fastmg_get_nnz(0)
-    matsize = extlib.fastmg_get_matsize(0)
+    nnz = extlib.fastmg_get_nnz(lv)
+    matsize = extlib.fastmg_get_matsize(lv)
 
     A_data = np.zeros(nnz, dtype=np.float32)
     A_indices = np.zeros(nnz, dtype=np.int32)
     A_indptr = np.zeros(matsize+1, dtype=np.int32)
 
-    extlib.fastmg_fetch_A(0, A_data, A_indices, A_indptr)
+    extlib.fastmg_fetch_A(lv, A_data, A_indices, A_indptr)
     A = scipy.sparse.csr_matrix((A_data, A_indices, A_indptr), shape=(matsize, matsize))
     return A
 
@@ -2031,13 +2033,29 @@ def graph_coloring_v1():
 # version 2, use pyamg. 
 # Input: CSR matrix(symmetric)
 # This is called in AMG_setup_phase()
-def graph_coloring_v2(A):
+def graph_coloring_v2():
+    has_colored_L = [False]*num_levels
+    dir = str(Path(args.model_path).parent)
+    for lv in range(num_levels):
+        path = dir+f'/coloring_L{lv}.txt'
+        has_colored_L[lv] =  os.path.exists(path)
+    has_colored = all(has_colored_L)
+    if not has_colored:
+        has_colored = True
+    else:
+        return
+
     from pyamg.graph import vertex_coloring
     tic = perf_counter()
-    colors = vertex_coloring(A,'LDF')
-    ncolor = np.max(colors)+1
-    print(f"ncolor: {ncolor}")
-    print("colors:",colors)
+    for i in range(num_levels):
+        print(f"level {i}")
+        Ai = fetch_A_from_cuda(i)
+        colors = vertex_coloring(Ai)
+        ncolor = np.max(colors)+1
+        print(f"ncolor: {ncolor}")
+        print("colors:",colors)
+        np.savetxt(dir + f"/color_L{i}.txt", colors, fmt="%d")
+        graph_coloring_to_cuda(ncolor, colors, i)
     print(f"graph_coloring_v2 time: {perf_counter()-tic:.3f}s")
     return ncolor, colors
 
@@ -2082,17 +2100,16 @@ def graph_coloring_read():
     print("colors:",colors)
     print(f"graph_coloring_read time: {perf_counter()-tic:.3f}s")
 
-    to_cuda = True
-    if to_cuda:
-        graph_coloring_to_cuda(ncolor, colors)
+
+    graph_coloring_to_cuda(ncolor, colors,0)
 
     return ncolor, colors
 
 
-def graph_coloring_to_cuda(ncolor, colors):
+def graph_coloring_to_cuda(ncolor, colors, lv):
     colors = np.ascontiguousarray(colors)
-    extlib.fastmg_set_colors.argtypes = [arr_int, c_int, c_int]
-    extlib.fastmg_set_colors(colors, colors.shape[0], ncolor)
+    extlib.fastmg_set_colors.argtypes = [arr_int, c_int, c_int, c_int]
+    extlib.fastmg_set_colors(colors, colors.shape[0], ncolor, lv)
 
 
 # ---------------------------------------------------------------------------- #
@@ -2120,15 +2137,17 @@ def main():
     ist = SoftBody(args.model_path)
     ist.initialize()
     
-    if use_graph_coloring:
-        # graph_coloring_v1()
-        graph_coloring_read()
-
     if args.export_mesh:
         write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
     if args.solver_type != "XPBD":
         init_direct_fill_A(ist)
+
+    if use_graph_coloring:
+        ...
+        # graph_coloring_v1()
+        # graph_coloring_read()
+        # graph_coloring_v2()
 
     print(f"initialize time:", perf_counter()-tic)
     initial_frame = meta.frame

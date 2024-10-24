@@ -31,6 +31,9 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
+              "-smoother_type=gauss_seidel",
+              "-only_smoother=1",
+              "-maxiter_Axb=20",
             ]
           }
     ]

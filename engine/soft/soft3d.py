@@ -64,14 +64,17 @@ parser.add_argument("-tol_Axb", type=float, default=1e-5)
 parser.add_argument("-large", action="store_true")
 parser.add_argument("-samll", action="store_true")
 parser.add_argument("-amgx_config", type=str, default="data/amgx_config/AMG_CONFIG_CG.json")
-parser.add_argument("-jacobi_niter", type=int, default=2)
+parser.add_argument("-smoother_niter", type=int, default=2)
 parser.add_argument("-filter_P", type=str, default=None)
 parser.add_argument("-scale_RAP", type=int, default=False)
+parser.add_argument("-only_smoother", type=int, default=False)
 
 args = parser.parse_args()
 
 out_dir = args.out_dir
-use_graph_coloring = True
+use_graph_coloring = False
+if args.smoother_type=="gauss_seidel":
+    use_graph_coloring =True
 
 if args.large:
     args.model_path = f"data/model/bunny85w/bunny85w.node"
@@ -123,8 +126,7 @@ def init_extlib_argtypes():
     extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
     extlib.fastmg_set_A0.argtypes = argtypes_of_csr
     extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
-    extlib.fastmg_setup_smoothers.argtypes = [c_int]
-    extlib.fastmg_set_jacobi_niter.argtypes = [ctypes.c_size_t]
+    extlib.fastmg_set_smoother_niter.argtypes = [ctypes.c_size_t]
     extlib.fastmg_update_A0.argtypes = [arr_float]
 
     extlib.fastFillSoft_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, arr_float]
@@ -891,6 +893,17 @@ def report_multilevel_details(Ps, num_levels):
         logging.info(f"    num points of level {i}: {num_points_level[i]}")
 
 
+def smoother_name2type(name):
+    if name == "chebyshev":
+        return 1
+    elif name == "jacobi":
+        return 2
+    elif name == "gauss_seidel":
+        return 3
+    else:
+        raise ValueError(f"smoother name {name} not supported")
+
+
 def AMG_setup_phase():
     global Ps
     tic = time.perf_counter()
@@ -906,8 +919,12 @@ def AMG_setup_phase():
 
     tic = time.perf_counter()
     cuda_set_A0(A)
-    extlib.fastmg_setup_smoothers(2) # 1 means chebyshev, 2 means w-jacobi
-    extlib.fastmg_set_jacobi_niter(args.jacobi_niter)
+    
+    s = smoother_name2type(args.smoother_type)
+    extlib.fastmg_setup_smoothers.argtypes = [c_int]
+    print(s)
+    extlib.fastmg_setup_smoothers(s) # 1 means chebyshev, 2 means w-jacobi, 3 gauss_seidel
+    extlib.fastmg_set_smoother_niter(args.smoother_niter)
     # omega = setup_jacobi_python(A) # cuda version is 10x faster: 213ms vs 2.84s
     # extlib.fastmg_setup_jacobi(omega, 100)
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
@@ -971,7 +988,10 @@ def AMG_solve(b, x0=None, tol=1e-5, maxiter=100):
     extlib.fastmg_set_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
 
     # solve
-    extlib.fastmg_solve()
+    if args.only_smoother:
+        extlib.fastmg_solve_only_smoother()
+    else:
+        extlib.fastmg_solve()
 
     # get result
     x = np.empty_like(x0, dtype=np.float32)

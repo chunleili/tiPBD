@@ -1164,8 +1164,7 @@ struct VCycle : Kernels {
     size_t smoother_type = 1; //1:chebyshev, 2:w-jacobi, 3:gauss_seidel(level0)+w-jacobi(other levels)
     size_t coarse_solver_type = 1; //0:direct solver by cusolver (cholesky), 1: one sweep smoother
     float jacobi_omega;
-    size_t jacobi_niter=2;
-    size_t smoother_niter=2; // TODO: we will replace jacobi_niter later
+    size_t smoother_niter=2; // TODO: we will replace smoother_niter later
     Vec<float> z;
     Vec<float> r;
     Vec<float> outer_x;
@@ -1196,7 +1195,15 @@ struct VCycle : Kernels {
         }
         else if (smoother_type == 2)
         {
-            setup_jacobi_cuda(levels[0].A, jacobi_niter);
+            setup_jacobi_cuda(levels[0].A, smoother_niter);
+        }
+        else if (smoother_type == 3)
+        {
+            if (nlvs > 1)
+            {
+                compute_RAP(0);
+                setup_jacobi_cuda(levels[1].A, smoother_niter);
+            }
         }
     }
 
@@ -1269,7 +1276,7 @@ struct VCycle : Kernels {
     }
 
 
-    float calc_rnorm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A) {
+    float calc_residual_norm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A) {
         float rnorm = 0.0;
         Vec<float> r;
         r.resize(b.size());
@@ -1361,11 +1368,11 @@ struct VCycle : Kernels {
     void setup_jacobi(float const omega, size_t const n) {
         smoother_type = 2;
         jacobi_omega = omega;
-        jacobi_niter = n;
+        smoother_niter = n;
     }
 
-    void set_jacobi_niter(size_t const n) {
-        jacobi_niter = n;
+    void set_smoother_niter(size_t const n) {
+        smoother_niter = n;
     }
 
 
@@ -1373,7 +1380,7 @@ struct VCycle : Kernels {
         // smoother_type = 2;
         GpuTimer timer;
         timer.start();
-        jacobi_niter = n;
+        smoother_niter = n;
 
         // calc Dinv@A
         // Vec<float> Dinv;
@@ -1439,7 +1446,7 @@ struct VCycle : Kernels {
         Vec<float> x_old;
         x_old.resize(x.size());
         copy(x_old, x);
-        for (int i = 0; i < jacobi_niter; ++i) {
+        for (int i = 0; i < smoother_niter; ++i) {
             weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), x_old.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
             x.swap(x_old);
         }
@@ -1454,7 +1461,7 @@ struct VCycle : Kernels {
         Vec<float> b1,b2;
         b1.resize(b.size());
         b2.resize(b.size());
-        for (int i = 0; i < jacobi_niter; ++i) {
+        for (int i = 0; i < smoother_niter; ++i) {
             //x = omega * Dinv * (b - Aoff@x_old) + (1-omega)*x_old
 
             // 1. b1 = b-Aoff@x_old
@@ -1492,7 +1499,7 @@ struct VCycle : Kernels {
             x_host.data(), x_host.size(),
             0, levels.at(lv).A.nrows, 1, jacobi_omega);
         x.assign(x_host.data(), x_host.size());
-        // auto r = calc_rnorm(b, x, levels.at(lv).A);
+        // auto r = calc_residual_norm(b, x, levels.at(lv).A);
         // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
 
@@ -1515,7 +1522,7 @@ struct VCycle : Kernels {
             b_host.data(), b_host.size(),
             0, levels.at(lv).A.nrows, 1);
         x.assign(x_host.data(), x_host.size());
-        // auto r = calc_rnorm(b, x, levels.at(lv).A);
+        // auto r = calc_residual_norm(b, x, levels.at(lv).A);
         // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
 
@@ -1534,7 +1541,6 @@ struct VCycle : Kernels {
     }
 
     void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {
-        //TODO
         for(int color=0; color<color_num; color++)
         {
             multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, colors.data(), color);
@@ -1564,33 +1570,41 @@ struct VCycle : Kernels {
 
 
 
-    GpuTimer timer;
-    std::vector<float> elapsed;
+    GpuTimer timer_smoother;
+    std::vector<float> elapsed_smoother;
 
     void _smooth(int lv, Vec<float> &x, Vec<float> const &b) {
+        timer_smoother.start();
         if(smoother_type == 1)
         {
-            chebyshev(lv, x, b);
+            for(int i=0; i<smoother_niter; i++)
+                chebyshev(lv, x, b);
         }
         else if (smoother_type == 2)
         {
             // jacobi_cpu(lv, x, b);
-            timer.start();
             // jacobi(lv, x, b);
             jacobi_v2(lv, x, b);
-            timer.stop();
-            elapsed.push_back(timer.elapsed());
         }
         else if (smoother_type == 3)
         {
-            gauss_seidel_cpu(lv, x, b);
+            // gauss_seidel_cpu(lv, x, b);
+            if(lv==0)
+                for(int i=0; i<smoother_niter; i++)
+                    multi_color_gauss_seidel(lv,x,b);
+            else{
+                jacobi_v2(lv,x,b);
+            }
         }
+        timer_smoother.stop();
+        elapsed_smoother.push_back(timer_smoother.elapsed());
     }
 
 
-    void calc_residual(int lv, Vec<float> &x, Vec<float> const &b) {
-        copy(levels.at(lv).residual, b);
-        spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff); // residual = b - A@x
+    float calc_residual(int lv, CSR<float> const &A, Vec<float> &x, Vec<float> const &b) {
+        copy(r, b);
+        spmv(r, -1, A, x, 1, buff); // residual = b - A@x
+        return vnorm(r);
     }
 
 
@@ -1795,8 +1809,45 @@ struct VCycle : Kernels {
         elapsed1.clear();
         elapsed2.clear();
 
-        cout<<elapsed.size()<<" jacobi time: "<<avg(elapsed)<<" ms"<<" total time: "<<sum(elapsed)<<" ms"<<endl;
-        elapsed.clear();
+        cout<<elapsed_smoother.size()<<" smoother time: "<<avg(elapsed_smoother)<<" ms"<<" total time: "<<sum(elapsed_smoother)<<" ms"<<endl;
+        elapsed_smoother.clear();
+
+        // cout<<"Ax=b residuals: "<<endl;
+        // for(int i=0; i<niter;++i)
+        // {
+        //     cout<<residuals[i]<<endl;
+        // }
+    }
+
+    void solve_only_smoother()
+    {
+        timer1.start();
+        presolve();
+        float bnrm2 = init_cg_iter0(residuals.data());
+        float atol = bnrm2 * rtol;
+        for (size_t iter=0; iter<maxiter; iter++)
+        {   
+            _smooth(0, outer_x, outer_b);
+            auto r = calc_residual_norm(outer_b, outer_x, levels.at(0).A);
+            residuals[iter] = r;
+            if (residuals[iter] < atol)
+            {
+                niter = iter;
+                break;
+            }
+        }
+        copy(x_new, outer_x);
+
+        // cout<<"Ax=b residuals: "<<endl;
+        // for(int i=0; i<niter;++i)
+        // {
+        //     cout<<residuals[i]<<endl;
+        // }
+        timer1.stop();
+        elapsed1.push_back(timer1.elapsed());
+        cout<<elapsed1.size()<<" only smoother time: "<<(elapsed1[0])<<" ms"<<endl;
+        elapsed1.clear();
+
     }
 };
 
@@ -1887,8 +1938,8 @@ extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
 }
 
 
-extern "C" DLLEXPORT void fastmg_set_jacobi_niter(const size_t niter) {
-    fastmg->set_jacobi_niter(niter);
+extern "C" DLLEXPORT void fastmg_set_smoother_niter(const size_t niter) {
+    fastmg->set_smoother_niter(niter);
 }
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
@@ -1905,6 +1956,11 @@ extern "C" DLLEXPORT void fastmg_scale_RAP(float s, int lv) {
 
 extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num) {
     fastmg->set_colors(c, n, color_num);
+}
+
+
+extern "C" DLLEXPORT void fastmg_solve_only_smoother() {
+    fastmg->solve_only_smoother();
 }
 
 // ------------------------------------------------------------------------------

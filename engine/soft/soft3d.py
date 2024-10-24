@@ -54,7 +54,7 @@ parser.add_argument("-maxiter_Axb", type=int, default=100)
 parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-export_residual", type=int, default=False)
 parser.add_argument("-restart_frame", type=int, default=-1)
-parser.add_argument("-restart", type=int, default=True)
+parser.add_argument("-restart", type=int, default=False)
 parser.add_argument("-use_cache", type=int, default=True)
 parser.add_argument("-export_mesh", type=int, default=True)
 parser.add_argument("-reinit", type=str, default="enlarge", choices=["", "random", "enlarge"])
@@ -68,6 +68,7 @@ parser.add_argument("-smoother_niter", type=int, default=2)
 parser.add_argument("-filter_P", type=str, default=None)
 parser.add_argument("-scale_RAP", type=int, default=False)
 parser.add_argument("-only_smoother", type=int, default=False)
+parser.add_argument("-debug", type=int, default=False)
 
 args = parser.parse_args()
 
@@ -112,9 +113,10 @@ def init_extlib_argtypes():
     global extlib
 
     # # # DEBUG only
-    # os.chdir(prj_path+'/cpp/mgcg_cuda')
-    # os.system("cmake --build build --config Debug")
-    # os.chdir(prj_path)
+    if args.debug:
+        os.chdir(prj_path+'/cpp/mgcg_cuda')
+        os.system("cmake --build build --config Debug")
+        os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
@@ -122,7 +124,7 @@ def init_extlib_argtypes():
     extlib.fastmg_set_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
     extlib.fastmg_get_data.argtypes = [arr_float]*2
     extlib.fastmg_get_data.restype = c_size_t
-    extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
+    extlib.argtypes = [ctypes.c_float, ctypes.c_size_t]
     extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
     extlib.fastmg_set_A0.argtypes = argtypes_of_csr
     extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
@@ -920,19 +922,14 @@ def AMG_setup_phase():
     tic = time.perf_counter()
     cuda_set_A0(A)
     
+    AMG_RAP()
+
     s = smoother_name2type(args.smoother_type)
     extlib.fastmg_setup_smoothers.argtypes = [c_int]
     print(s)
     extlib.fastmg_setup_smoothers(s) # 1 means chebyshev, 2 means w-jacobi, 3 gauss_seidel
     extlib.fastmg_set_smoother_niter(args.smoother_niter)
-    # omega = setup_jacobi_python(A) # cuda version is 10x faster: 213ms vs 2.84s
-    # extlib.fastmg_setup_jacobi(omega, 100)
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
-
-    # # graph coloring of A
-    # if use_graph_coloring:
-    #     ncolor, colors = graph_coloring_v3(A)
-
     return A
 
 

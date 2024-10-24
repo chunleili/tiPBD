@@ -868,6 +868,12 @@ struct MGLevel {
     CSR<float> Dinv;
     CSR<float> Aoff;
     float scale_RAP=0.0;
+    // int presmoother_type=1; // 0: chebyshev: 1:w-jacobi, 2: multicolor gauss-seidel
+    // int postsmoother_type=1; // 0: chebyshev: 1:w-jacobi, 2: multicolor gauss-seidel
+    // int presmoother_niter=2;
+    // int postsmoother_niter=2;
+    float jacobi_omega=2.0/3.0;
+    std::array<float,3> chebyshev_coeff;
 };
 
 
@@ -1163,7 +1169,6 @@ struct VCycle : Kernels {
     std::vector<float> chebyshev_coeff;
     size_t smoother_type = 1; //1:chebyshev, 2:w-jacobi, 3:gauss_seidel(level0)+w-jacobi(other levels)
     size_t coarse_solver_type = 1; //0:direct solver by cusolver (cholesky), 1: one sweep smoother
-    float jacobi_omega;
     size_t smoother_niter=2; // TODO: we will replace smoother_niter later
     Vec<float> z;
     Vec<float> r;
@@ -1195,14 +1200,14 @@ struct VCycle : Kernels {
         }
         else if (smoother_type == 2)
         {
-            setup_jacobi_cuda(levels[0].A, smoother_niter);
+            for (size_t lv = 0; lv < nlvs; lv++)
+                setup_weighted_jacobi(lv);
         }
         else if (smoother_type == 3)
         {
-            if (nlvs > 1)
+            for (size_t lv = 1; lv < nlvs; lv++)
             {
-                compute_RAP(0);
-                setup_jacobi_cuda(levels[1].A, smoother_niter);
+                setup_weighted_jacobi(lv);
             }
         }
     }
@@ -1292,8 +1297,6 @@ struct VCycle : Kernels {
             levels.resize(numlvs);
         }
         nlvs = numlvs;
-        chebyshev_coeff.clear();
-        jacobi_omega = 0.0;
     }
 
 
@@ -1365,22 +1368,20 @@ struct VCycle : Kernels {
         axpy(x, 1, levels.at(lv).h); // x += h
     }
 
-    void setup_jacobi(float const omega, size_t const n) {
-        smoother_type = 2;
-        jacobi_omega = omega;
-        smoother_niter = n;
-    }
 
     void set_smoother_niter(size_t const n) {
         smoother_niter = n;
     }
 
 
-    void setup_jacobi_cuda(CSR<float>&A, size_t const n) {
-        // smoother_type = 2;
+    void setup_weighted_jacobi(int lv) {
+        levels.at(lv).jacobi_omega = calc_weighted_jacobi_omega(levels.at(lv).A);
+        cout<<"\nLevel"<<lv<<" jacobi_omega: "<<levels.at(lv).jacobi_omega<<"  at level "<<lv<<endl;
+    }
+
+    float calc_weighted_jacobi_omega(CSR<float>&A) {
         GpuTimer timer;
         timer.start();
-        smoother_niter = n;
 
         // calc Dinv@A
         // Vec<float> Dinv;
@@ -1400,12 +1401,13 @@ struct VCycle : Kernels {
         DinvA.assign(data_new.data(), A.numnonz, A.indices.data(), A.numnonz, A.indptr.data(), A.nrows+1, A.nrows, A.ncols, A.numnonz);
 
 
-        float DinvA_rho = calc_max_eig(DinvA);
-        jacobi_omega = 2.0 / (DinvA_rho+0.1);
-        cout<<"DinvA_rho: "<<DinvA_rho<<endl;
-        cout<<"jacobi_omega: "<<jacobi_omega<<endl; 
+        float lambda_max = calc_max_eig(DinvA);
+        float jacobi_omega = 1.0 / (lambda_max);
+        // cout<<"lambda_max: "<<DinvA_rho<<endl;
+        // cout<<"jacobi_omega: "<<jacobi_omega<<endl; 
         timer.stop();
-        cout<<"setup_jacobi_cuda time: "<<timer.elapsed()<<" ms"<<endl;
+        cout<<"calc_weighted_jacobi_omega time: "<<timer.elapsed()<<" ms"<<endl;
+        return jacobi_omega;
     }
 
 
@@ -1446,6 +1448,7 @@ struct VCycle : Kernels {
         Vec<float> x_old;
         x_old.resize(x.size());
         copy(x_old, x);
+        auto jacobi_omega = levels.at(lv).jacobi_omega;
         for (int i = 0; i < smoother_niter; ++i) {
             weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), x_old.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
             x.swap(x_old);
@@ -1454,6 +1457,8 @@ struct VCycle : Kernels {
 
     // use cusparse instead of hand-written kernel
     void jacobi_v2(int lv, Vec<float> &x, Vec<float> const &b) {
+        auto jacobi_omega = levels.at(lv).jacobi_omega;
+
         Vec<float> x_old;
         x_old.resize(x.size());
         copy(x_old, x);
@@ -1480,31 +1485,6 @@ struct VCycle : Kernels {
     }
 
 
-    void jacobi_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
-        // serial jacobi
-        std::vector<float> x_host(x.size());
-        std::vector<float> b_host(b.size());
-        x.tohost(x_host);
-        b.tohost(b_host);
-        std::vector<float> data_host;
-        std::vector<int> indices_host, indptr_host;
-        levels.at(lv).A.tohost(data_host, indices_host, indptr_host);
-        // cout<<"omega: "<<jacobi_omega<<endl;
-        jacobi_serial(
-            indptr_host.data(), indptr_host.size(),
-            indices_host.data(), indices_host.size(),
-            data_host.data(), data_host.size(),
-            x_host.data(), x_host.size(),
-            b_host.data(), b_host.size(),
-            x_host.data(), x_host.size(),
-            0, levels.at(lv).A.nrows, 1, jacobi_omega);
-        x.assign(x_host.data(), x_host.size());
-        // auto r = calc_residual_norm(b, x, levels.at(lv).A);
-        // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
-    }
-
-
-
     void gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
         // serial gauss seidel
         std::vector<float> x_host(x.size());
@@ -1522,8 +1502,6 @@ struct VCycle : Kernels {
             b_host.data(), b_host.size(),
             0, levels.at(lv).A.nrows, 1);
         x.assign(x_host.data(), x_host.size());
-        // auto r = calc_residual_norm(b, x, levels.at(lv).A);
-        // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
     }
 
     Vec<int> colors; // color index of each node
@@ -1545,28 +1523,9 @@ struct VCycle : Kernels {
         {
             multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, colors.data(), color);
         }
+
     }
 
-    // typedef std::vector<int> Partition;
-	// int multi_color_gauss_seidel_impl(Vec& x, const Vec& b, const Mat& m, const std::vector<Partition>& partitions) {
-    //     for (Partition partition : partitions) {
-    //         // we do a gauss-seidel step for this partition.
-    //         // every partition stores a set of variables that will be solved for.
-    //         // and these variables can be solved for independently of each other.
-    //         // thus, the below loop can easily be parallelized.
-    //         // note that this code is very similar to the Gauss-Seidel method implemented
-    //         // in the previous article. It's just that the variables are solved for in a different order.
-    //         for (int variable : partition) {
-    //             float s = 0.0f;
-    //             for (int j = 0; j < N; ++j) {
-    //                 if (j != variable) {
-    //                     s += m.m[variable][j] * x.v[j];
-    //                 }
-    //             }
-    //             x.v[variable] = (1.0f / m.m[variable][variable]) * (b.v[variable] - s);
-    //         }
-    //     }
-	// }
 
 
 
@@ -1596,6 +1555,8 @@ struct VCycle : Kernels {
                 jacobi_v2(lv,x,b);
             }
         }
+        // auto r = calc_residual_norm(b, x, levels.at(lv).A);
+        // cout<<"lv"<<lv<<"   residual: "<<r<<endl;
         timer_smoother.stop();
         elapsed_smoother.push_back(timer_smoother.elapsed());
     }
@@ -1872,10 +1833,6 @@ extern "C" DLLEXPORT void fastmg_new() {
 
 extern "C" DLLEXPORT void fastmg_setup_nl(size_t numlvs) {
     fastmg->setup(numlvs);
-}
-
-extern "C" DLLEXPORT void fastmg_setup_jacobi(float const omega, size_t const niter_jacobi) {
-    fastmg->setup_jacobi(omega, niter_jacobi);
 }
 
 

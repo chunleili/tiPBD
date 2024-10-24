@@ -199,7 +199,6 @@ def init_extlib_argtypes():
     extlib.fastmg_get_data.argtypes = [arr_float]*2
     extlib.fastmg_get_data.restype = c_size_t
     extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
-    extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
     extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
     extlib.fastmg_set_A0.argtypes = argtypes_of_csr
     extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
@@ -1070,7 +1069,6 @@ def setup_smoothers(A):
         setup_chebyshev(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
     elif args.smoother_type == 'jacobi':
         setup_jacobi(A)
-        extlib.fastmg_setup_jacobi(jacobi_omega, 10)
 
 
 def old_amg_cg_solve(levels, b, x0=None, tol=1e-5, maxiter=100):

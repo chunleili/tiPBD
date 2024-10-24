@@ -31,9 +31,14 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-              "-smoother_type=gauss_seidel",
-              "-only_smoother=1",
-              "-maxiter_Axb=20",
+              "-model_path=data/model/bunny85w/bunny85w.node",
+              "-rtol=1e-2",
+              "-tol=1e-4",
+              "-delta_t=3e-3",
+              "-solver_type=AMG",
+              "-smoother_type=jacobi",
+              "-build_P_method=strength0.1",
+              "-debug=1",
             ]
           }
     ]

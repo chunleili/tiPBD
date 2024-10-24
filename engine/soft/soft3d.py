@@ -46,6 +46,7 @@ parser.add_argument("-export_matrix_binary", type=int, default=True)
 parser.add_argument("-auto_another_outdir", type=int, default=False)
 parser.add_argument("-use_cuda", type=int, default=True)
 parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
+parser.add_argument("-smoother_type", type=str, default="jacobi")
 parser.add_argument("-build_P_method", type=str, default="UA")
 parser.add_argument("-arch", type=str, default="cpu")
 parser.add_argument("-setup_interval", type=int, default=20)
@@ -63,15 +64,9 @@ parser.add_argument("-tol_Axb", type=float, default=1e-5)
 parser.add_argument("-large", action="store_true")
 parser.add_argument("-samll", action="store_true")
 parser.add_argument("-amgx_config", type=str, default="data/amgx_config/AMG_CONFIG_CG.json")
-parser.add_argument("-jacobi_niter", type=int, default=2) # legacy
+parser.add_argument("-jacobi_niter", type=int, default=2)
 parser.add_argument("-filter_P", type=str, default=None)
 parser.add_argument("-scale_RAP", type=int, default=False)
-parser.add_argument("-smoother_type", type=str, default="jacobi")
-parser.add_argument("-smoother_niter", type=int, default=2)
-parser.add_argument("-use_detailed_smoothers", type=int, default=False, help="use different smoother(types, niter) for each level")
-parser.add_argument("-smoother_type_lv", type=str, nargs='*', help="smoother type for each level, e.g. jacobi jacobi jacobi jacobi, for L0: pre-smoother, L0: post-smoother, L1: pre-smoother, L1: post-smoother")
-parser.add_argument("-smoother_niter_lv", type=int, nargs='*', help="smoother type for each level, e.g. 2 2 2 2, for L0: pre-smoother, L0: post-smoother, L1: pre-smoother, L1: post-smoother")
-
 
 args = parser.parse_args()
 
@@ -124,9 +119,12 @@ def init_extlib_argtypes():
     extlib.fastmg_set_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
     extlib.fastmg_get_data.argtypes = [arr_float]*2
     extlib.fastmg_get_data.restype = c_size_t
+    extlib.fastmg_setup_jacobi.argtypes = [ctypes.c_float, ctypes.c_size_t]
     extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
     extlib.fastmg_set_A0.argtypes = argtypes_of_csr
     extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
+    extlib.fastmg_setup_smoothers.argtypes = [c_int]
+    extlib.fastmg_set_jacobi_niter.argtypes = [ctypes.c_size_t]
     extlib.fastmg_update_A0.argtypes = [arr_float]
 
     extlib.fastFillSoft_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, arr_float]
@@ -893,51 +891,6 @@ def report_multilevel_details(Ps, num_levels):
         logging.info(f"    num points of level {i}: {num_points_level[i]}")
 
 
-def smoother_name_to_id(smoother_name):
-    if smoother_name == "chebyshev":
-        return 0
-    elif smoother_name == "jacobi":
-        return 1
-    elif smoother_name == "gauss_seidel":
-        return 2
-    else:
-        assert False
-        
-
-def set_smoother_for_levels():
-    # args.use_detailed_smoothers = True
-    # args.smoother_niter_lv = [2, 1, 2, 1]
-    # args.smoother_type = ["chebyshev", "jacobi", "chebyshev", "jacobi"]
-
-    if not args.use_detailed_smoothers:
-        sid = smoother_name_to_id(args.smoother_type)
-        niter = args.smoother_niter
-        for lv in range(num_levels):
-            extlib.fastmg_set_smoother_type(sid, lv, 0)
-            extlib.fastmg_set_smoother_type(sid, lv, 1)
-            extlib.fastmg_set_smoother_niter(niter, lv, 0)
-            extlib.fastmg_set_smoother_niter(niter, lv, 1)
-    else:
-        if len(args.smoother_type) != num_levels*2 or len(args.smoother_niter_lv) != num_levels*2:
-            logging.error("smoother_type and smoother_niter_lv should be twice of num_levels")
-            assert False
-        for lv in range(num_levels):
-            extlib.fastmg_set_smoother_type.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
-            extlib.fastmg_set_smoother_niter.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
-            niter0 = args.smoother_niter_lv[lv*2]
-            niter1 = args.smoother_niter_lv[lv*2+1]
-            sid0 = smoother_name_to_id(args.smoother_type[lv*2])
-            sid1 = smoother_name_to_id(args.smoother_type[lv*2+1])
-            extlib.fastmg_set_smoother_type(sid0, lv, 0)
-            extlib.fastmg_set_smoother_type(sid1, lv, 1)
-            extlib.fastmg_set_smoother_niter(niter0, lv, 0)
-            extlib.fastmg_set_smoother_niter(niter1, lv, 1)
-    
-    extlib.fastmg_setup_smoothers()
-    extlib.fastmg_report_smoother()
-    ...
-
-
 def AMG_setup_phase():
     global Ps
     tic = time.perf_counter()
@@ -953,11 +906,10 @@ def AMG_setup_phase():
 
     tic = time.perf_counter()
     cuda_set_A0(A)
-    # extlib.fastmg_setup_smoothers(2) # 1 means chebyshev, 2 means w-jacobi
-    # extlib.fastmg_set_jacobi_niter(args.jacobi_niter)
+    extlib.fastmg_setup_smoothers(2) # 1 means chebyshev, 2 means w-jacobi
+    extlib.fastmg_set_jacobi_niter(args.jacobi_niter)
     # omega = setup_jacobi_python(A) # cuda version is 10x faster: 213ms vs 2.84s
     # extlib.fastmg_setup_jacobi(omega, 100)
-    set_smoother_for_levels()
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
     # # graph coloring of A

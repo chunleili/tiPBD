@@ -115,7 +115,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=100",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength0.1",
         "-end_frame=1",
         ]
@@ -194,7 +194,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=5",
+        "-jacobi_niter=5",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -209,7 +209,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=5",
+        "-jacobi_niter=5",
         "-build_P_method=adaptive_SA"
         ]
 allargs.append(args)
@@ -224,7 +224,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=5",
+        "-jacobi_niter=5",
         "-build_P_method=nullspace"
         ]
 allargs.append(args)
@@ -239,7 +239,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -254,7 +254,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=1e-3",
-        "-smoother_niter=1",
+        "-jacobi_niter=1",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -269,7 +269,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=1",
+        "-jacobi_niter=1",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -284,7 +284,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=5e-3",
-        "-smoother_niter=1",
+        "-jacobi_niter=1",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -299,7 +299,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=1e-3",
-        "-smoother_niter=5",
+        "-jacobi_niter=5",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -314,7 +314,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=5",
+        "-jacobi_niter=5",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -329,7 +329,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=5e-3",
-        "-smoother_niter=5",
+        "-jacobi_niter=5",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -345,7 +345,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=1e-3",
-        "-smoother_niter=10",
+        "-jacobi_niter=10",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -360,7 +360,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=10",
+        "-jacobi_niter=10",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -375,7 +375,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=5e-3",
-        "-smoother_niter=10",
+        "-jacobi_niter=10",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -397,7 +397,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=1e-3",
-        "-smoother_niter=1",
+        "-jacobi_niter=1",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -412,7 +412,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=1",
+        "-jacobi_niter=1",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -427,7 +427,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=5e-3",
-        "-smoother_niter=1",
+        "-jacobi_niter=1",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -442,7 +442,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=1e-3",
-        "-smoother_niter=5",
+        "-jacobi_niter=5",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -457,7 +457,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=5",
+        "-jacobi_niter=5",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -472,7 +472,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=5e-3",
-        "-smoother_niter=5",
+        "-jacobi_niter=5",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -488,7 +488,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=1e-3",
-        "-smoother_niter=10",
+        "-jacobi_niter=10",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -503,7 +503,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=3e-3",
-        "-smoother_niter=10",
+        "-jacobi_niter=10",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -518,7 +518,7 @@ args = ["engine/soft/soft3d.py",
         "-tol_Axb=1e-8",
         "-rtol=1e-2",
         "-delta_t=5e-3",
-        "-smoother_niter=10",
+        "-jacobi_niter=10",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -630,7 +630,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -648,7 +648,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=SA"
         ]
 allargs.append(args)
@@ -666,7 +666,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=nullspace"
         ]
 allargs.append(args)
@@ -684,7 +684,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=algebraic3.0"
         ]
 allargs.append(args)
@@ -702,7 +702,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=adaptive_SA"
         ]
 allargs.append(args)
@@ -720,7 +720,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=strength0.25"
         ]
 allargs.append(args)
@@ -738,7 +738,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=strength0.3"
         ]
 allargs.append(args)
@@ -756,7 +756,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=strength0.4"
         ]
 allargs.append(args)
@@ -774,7 +774,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=strength0.5"
         ]
 allargs.append(args)
@@ -791,7 +791,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=UA"
         ]
 allargs.append(args)
@@ -808,7 +808,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=strength0.2"
         ]
 allargs.append(args)
@@ -826,7 +826,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=strength0.1"
         ]
 allargs.append(args)
@@ -844,7 +844,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=affinity4.0"
         ]
 allargs.append(args)
@@ -862,7 +862,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=CAMG"
         ]
 allargs.append(args)
@@ -881,7 +881,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=3",
+        "-jacobi_niter=3",
         "-build_P_method=strength0.1",
         "-export_matrix=1",
         "-export_matrix_binary=0"
@@ -902,7 +902,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength0.1"
         ]
 allargs.append(args)
@@ -921,7 +921,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=evolution"
         ]
 allargs.append(args)
@@ -940,7 +940,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=improve_candidate"
         ]
 allargs.append(args)
@@ -959,7 +959,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=100",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength0.1",
         "-end_frame=1",
         "-export_matrix=1",
@@ -981,7 +981,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=50",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength0.1"
         ]
 allargs.append(args)
@@ -999,7 +999,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=50",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength0.1"
         ]
 allargs.append(args)
@@ -1051,7 +1051,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=10000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength_energy"
         ]
 allargs.append(args)
@@ -1069,7 +1069,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=10000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength_classical"
         ]
 allargs.append(args)
@@ -1088,7 +1088,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=10000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength_distance"
         ]
 allargs.append(args)
@@ -1106,7 +1106,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=10000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=aggregate_standard"
         ]
 allargs.append(args)
@@ -1124,7 +1124,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=10000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=aggregate_naive"
         ]
 allargs.append(args)
@@ -1142,7 +1142,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=10000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=aggregate_lloyd"
         ]
 allargs.append(args)
@@ -1160,7 +1160,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=10000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=aggregate_pairwise"
         ]
 allargs.append(args)
@@ -1180,7 +1180,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength0.25"
         ]
 allargs.append(args)
@@ -1198,7 +1198,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength0.25",
         "-filter_P=01"
         ]
@@ -1217,7 +1217,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength0.25",
         "-filter_P=avg"
         ]
@@ -1237,7 +1237,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=3000",
-        "-smoother_niter=2",
+        "-jacobi_niter=2",
         "-build_P_method=strength0.25",
         "-scale_RAP=1"
         ]

@@ -868,12 +868,6 @@ struct MGLevel {
     CSR<float> Dinv;
     CSR<float> Aoff;
     float scale_RAP=0.0;
-    int presmoother_type=1; // 0: chebyshev: 1:w-jacobi, 2: multicolor gauss-seidel
-    int postsmoother_type=1; // 0: chebyshev: 1:w-jacobi, 2: multicolor gauss-seidel
-    int presmoother_niter=2;
-    int postsmoother_niter=2;
-    float jacobi_omega=2.0/3.0;
-    std::array<float,3> chebyshev_coeff;
 };
 
 
@@ -1166,7 +1160,12 @@ struct FastFillSoft : Kernels {
 struct VCycle : Kernels {
     std::vector<MGLevel> levels;
     size_t nlvs;
+    std::vector<float> chebyshev_coeff;
+    size_t smoother_type = 1; //1:chebyshev, 2:w-jacobi, 3:gauss_seidel(level0)+w-jacobi(other levels)
     size_t coarse_solver_type = 1; //0:direct solver by cusolver (cholesky), 1: one sweep smoother
+    float jacobi_omega;
+    size_t jacobi_niter=2;
+    size_t smoother_niter=2; // TODO: we will replace jacobi_niter later
     Vec<float> z;
     Vec<float> r;
     Vec<float> outer_x;
@@ -1188,41 +1187,34 @@ struct VCycle : Kernels {
         cout<<"Set scale_RAP: "<<levels.at(lv).scale_RAP<<"  at level "<<lv<<endl;
     }
 
-
-    void setup_smoothers() {
+    void setup_smoothers(int type) {
         cout<<"\nSetting up smoothers..."<<endl;
-        cout<<"\nDo once RAP before setup smoothers..."<<endl;
-        for(int lv=0; lv<nlvs-1; lv++)
-            compute_RAP(lv);
-
-        for(int lv=0; lv<nlvs; lv++)
+        smoother_type = type;
+        if(smoother_type == 1)
         {
-            cout<<"Level "<<lv<<endl;
-            if(levels[lv].presmoother_type==0 || levels[lv].postsmoother_type == 0)
-            {
-                levels.at(lv).chebyshev_coeff = setup_chebyshev_cuda(levels[lv].A);
-            }
-            else if(levels[lv].presmoother_type  == 1 || levels[lv].postsmoother_type == 1)
-            {
-                levels.at(lv).jacobi_omega = setup_jacobi_cuda(levels[lv].A);
-            }
+            setup_chebyshev_cuda(levels[0].A);
+        }
+        else if (smoother_type == 2)
+        {
+            setup_jacobi_cuda(levels[0].A, jacobi_niter);
         }
     }
 
 
-    std::array<float,3> setup_chebyshev_cuda(CSR<float> &A) {
+    void setup_chebyshev_cuda(CSR<float> &A) {
         float lower_bound=1.0/30.0;
         float upper_bound=1.1;
         float rho = computeMaxEigenvaluePowerMethodOptimized(A, 100);
-        cout<<"max eigenvalue: "<<rho<<endl;
         float a = rho * lower_bound;
         float b = rho * upper_bound;
-        auto coeff = chebyshev_polynomial_coefficients(a, b);
-        return coeff;
+        chebyshev_polynomial_coefficients(a, b);
+        
+        max_eig = rho;
+        cout<<"max eigenvalue: "<<max_eig<<endl;
     }
 
 
-    std::array<float,3> chebyshev_polynomial_coefficients(float a, float b)
+    void chebyshev_polynomial_coefficients(float a, float b)
     {
         int degree=3;
         const float PI = 3.14159265358979323846;
@@ -1261,16 +1253,19 @@ struct VCycle : Kernels {
         }
 
 
+        chebyshev_coeff.resize(degree);
         //CAUTION:setup_chebyshev has "-" at the end
-        cout<<"Chebyshev polynomial coefficients: ";
-        std::array<float,3> chebyshev_coeff;
         for(int i=0; i<degree; i++)
         {
             chebyshev_coeff[i] = -scaled_poly[i];
+        }
+
+        cout<<"Chebyshev polynomial coefficients: ";
+        for(int i=0; i<degree; i++)
+        {
             cout<<chebyshev_coeff[i]<<" ";
         }
         cout<<endl;
-        return chebyshev_coeff;
     }
 
 
@@ -1290,6 +1285,8 @@ struct VCycle : Kernels {
             levels.resize(numlvs);
         }
         nlvs = numlvs;
+        chebyshev_coeff.clear();
+        jacobi_omega = 0.0;
     }
 
 
@@ -1344,8 +1341,6 @@ struct VCycle : Kernels {
 
 
     void chebyshev(int lv, Vec<float> &x, Vec<float> const &b) {
-        std::array<float,3> &chebyshev_coeff = levels.at(lv).chebyshev_coeff;
-
         copy(levels.at(lv).residual, b);
         spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff); // residual = b - A@x
         scal2(levels.at(lv).h, chebyshev_coeff.at(0), levels.at(lv).residual); // h = c0 * residual
@@ -1363,91 +1358,22 @@ struct VCycle : Kernels {
         axpy(x, 1, levels.at(lv).h); // x += h
     }
 
-
-    void set_smoother_niter(int const n, int const lv, int const pre_or_post) {
-        if (pre_or_post == 0) 
-        {
-            levels.at(lv).presmoother_niter = n;
-        } 
-        else if (pre_or_post == 1)
-        {
-            levels.at(lv).postsmoother_niter = n;
-        }
-        else
-        {
-            assert(false && "Invalid pre_or_post value");
-        }
+    void setup_jacobi(float const omega, size_t const n) {
+        smoother_type = 2;
+        jacobi_omega = omega;
+        jacobi_niter = n;
     }
 
-    void set_smoother_type(int const type, int const lv, int const pre_or_post) {
-        if (pre_or_post == 0) 
-        {
-            levels.at(lv).presmoother_type = type;
-        } 
-        else if (pre_or_post == 1)
-        {
-            levels.at(lv).postsmoother_type = type;
-        }
-        else
-        {
-            assert(false && "Invalid pre_or_post value");
-        }
+    void set_jacobi_niter(size_t const n) {
+        jacobi_niter = n;
     }
 
 
-    std::string type_to_name(int type)
-    {
-        std::string name;
-        if(type==0)
-            name = "chebyshev";
-        else if(type==1)
-            name = "w-jacobi";
-        else if(type==2)
-            name = "multicolor gauss-seidel";
-        return name;
-    }
-
-    void report_smoother() {
-        cout<<"=======smoother info======"<<endl;
-        cout<<"type: 0: chebyshev, 1:w-jacobi, 2: multicolor gauss-seidel"<<endl;
-        for(int lv=0; lv<nlvs; lv++)
-        {
-            cout<<"Level "<<lv<<": "<<endl;
-            cout<<"\tpresmoother: "<<type_to_name(levels.at(lv).presmoother_type);
-            cout<<" niter: "<<levels.at(lv).presmoother_niter<<endl;
-            if (levels.at(lv).presmoother_type == 0)
-            {
-                cout<<"\tchebyshev_coeff: ";
-                for(int i=0; i<3; i++)
-                    cout<<levels.at(lv).chebyshev_coeff[i]<<" ";
-                cout<<endl;
-            }
-            else if (levels.at(lv).presmoother_type == 1)
-            {
-                cout<<"\tjacobi_omega: "<<levels.at(lv).jacobi_omega<<endl;
-            }
-
-            cout<<"\n\tpostsmoother: "<<type_to_name(levels.at(lv).postsmoother_type);
-            cout<<" niter: "<<levels.at(lv).postsmoother_niter<<endl;
-            if (levels.at(lv).postsmoother_type == 0)
-            {
-                cout<<"\tchebyshev_coeff: ";
-                for(int i=0; i<3; i++)
-                    cout<<levels.at(lv).chebyshev_coeff[i]<<" ";
-                cout<<endl;
-            }
-            else if (levels.at(lv).postsmoother_type == 1)
-            {
-                cout<<"\tjacobi_omega: "<<levels.at(lv).jacobi_omega<<endl;
-            }
-        }
-        cout<<"=========================="<<endl;
-    }
-
-
-    float setup_jacobi_cuda(CSR<float>&A) {
+    void setup_jacobi_cuda(CSR<float>&A, size_t const n) {
+        // smoother_type = 2;
         GpuTimer timer;
         timer.start();
+        jacobi_niter = n;
 
         // calc Dinv@A
         // Vec<float> Dinv;
@@ -1458,28 +1384,21 @@ struct VCycle : Kernels {
         diag_inv.resize(A.nrows);
         calc_diag_inv_kernel<<<(A.nrows + 255) / 256, 256>>>(diag_inv.data(),A.data.data(), A.indices.data(), A.indptr.data(), A.nrows);
         cudaDeviceSynchronize();
-        launch_check();
-        cout<<"good for diag_inv"<<endl;
 
         scale_csr_by_row<<<(A.nrows + 255) / 256, 256>>>(data_new.data(), A.data.data(), A.indices.data(), A.indptr.data(), A.nrows, diag_inv.data());
         cudaDeviceSynchronize();
         launch_check();
-        cout<<"good for scale_csr_by_row"<<endl;
-
 
         CSR<float> DinvA;
         DinvA.assign(data_new.data(), A.numnonz, A.indices.data(), A.numnonz, A.indptr.data(), A.nrows+1, A.nrows, A.ncols, A.numnonz);
 
 
         float DinvA_rho = calc_max_eig(DinvA);
+        jacobi_omega = 2.0 / (DinvA_rho+0.1);
         cout<<"DinvA_rho: "<<DinvA_rho<<endl;
-
-        float jacobi_omega = 2.0 / (DinvA_rho+0.1);
         cout<<"jacobi_omega: "<<jacobi_omega<<endl; 
-        
         timer.stop();
         cout<<"setup_jacobi_cuda time: "<<timer.elapsed()<<" ms"<<endl;
-        return jacobi_omega;
     }
 
 
@@ -1516,19 +1435,18 @@ struct VCycle : Kernels {
     }
 
 
-    void weighted_jacobi_v1(int lv, Vec<float> &x, Vec<float> const &b, int niter, float jacobi_omega) {
-
+    void jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
         Vec<float> x_old;
         x_old.resize(x.size());
         copy(x_old, x);
-        for (int i = 0; i < niter; ++i) {
+        for (int i = 0; i < jacobi_niter; ++i) {
             weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), x_old.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
             x.swap(x_old);
         }
     }
 
     // use cusparse instead of hand-written kernel
-    void weighted_jacobi_v2(int lv, Vec<float> &x, Vec<float> const &b, int niter, float jacobi_omega) {
+    void jacobi_v2(int lv, Vec<float> &x, Vec<float> const &b) {
         Vec<float> x_old;
         x_old.resize(x.size());
         copy(x_old, x);
@@ -1536,8 +1454,7 @@ struct VCycle : Kernels {
         Vec<float> b1,b2;
         b1.resize(b.size());
         b2.resize(b.size());
-
-        for (int i = 0; i < niter; ++i) {
+        for (int i = 0; i < jacobi_niter; ++i) {
             //x = omega * Dinv * (b - Aoff@x_old) + (1-omega)*x_old
 
             // 1. b1 = b-Aoff@x_old
@@ -1554,6 +1471,31 @@ struct VCycle : Kernels {
             x.swap(x_old);
         }   
     }
+
+
+    void jacobi_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
+        // serial jacobi
+        std::vector<float> x_host(x.size());
+        std::vector<float> b_host(b.size());
+        x.tohost(x_host);
+        b.tohost(b_host);
+        std::vector<float> data_host;
+        std::vector<int> indices_host, indptr_host;
+        levels.at(lv).A.tohost(data_host, indices_host, indptr_host);
+        // cout<<"omega: "<<jacobi_omega<<endl;
+        jacobi_serial(
+            indptr_host.data(), indptr_host.size(),
+            indices_host.data(), indices_host.size(),
+            data_host.data(), data_host.size(),
+            x_host.data(), x_host.size(),
+            b_host.data(), b_host.size(),
+            x_host.data(), x_host.size(),
+            0, levels.at(lv).A.nrows, 1, jacobi_omega);
+        x.assign(x_host.data(), x_host.size());
+        // auto r = calc_rnorm(b, x, levels.at(lv).A);
+        // cout<<"lv"<<lv<<"   rnorm: "<<r<<endl;
+    }
+
 
 
     void gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
@@ -1621,28 +1563,27 @@ struct VCycle : Kernels {
 	// }
 
 
-    void _smooth(int lv, Vec<float> &x, Vec<float> const &b, int pre_or_post=0) {
-        int type = 0;
-        int niter =2;
-        if(pre_or_post==0)
-        {
-            type = levels.at(lv).presmoother_type;
-            niter = levels.at(lv).presmoother_niter;
-        }
-        else if(pre_or_post==1)
-        {
-            type = levels.at(lv).postsmoother_type;
-            niter = levels.at(lv).presmoother_niter;
-        }
 
-        if(type == 0)
+    GpuTimer timer;
+    std::vector<float> elapsed;
+
+    void _smooth(int lv, Vec<float> &x, Vec<float> const &b) {
+        if(smoother_type == 1)
         {
-            for (int i = 0; i < niter; ++i) 
-                chebyshev(lv, x, b);
+            chebyshev(lv, x, b);
         }
-        else if (type == 1)
+        else if (smoother_type == 2)
         {
-            weighted_jacobi_v2(lv, x, b, niter, levels.at(lv).jacobi_omega);
+            // jacobi_cpu(lv, x, b);
+            timer.start();
+            // jacobi(lv, x, b);
+            jacobi_v2(lv, x, b);
+            timer.stop();
+            elapsed.push_back(timer.elapsed());
+        }
+        else if (smoother_type == 3)
+        {
+            gauss_seidel_cpu(lv, x, b);
         }
     }
 
@@ -1816,10 +1757,8 @@ struct VCycle : Kernels {
         for(int lv=0; lv<nlvs; lv++)
         {
             // for jacobi_v2 (use cusparse etc.)
-            if (levels.at(lv).presmoother_type == 1 || levels.at(lv).postsmoother_type == 1)
-            {
-                get_Aoff_and_Dinv(levels.at(lv).A, levels.at(lv).Dinv, levels.at(lv).Aoff);
-            }
+
+            get_Aoff_and_Dinv(levels.at(lv).A, levels.at(lv).Dinv, levels.at(lv).Aoff);
         }
     }
 
@@ -1856,6 +1795,8 @@ struct VCycle : Kernels {
         elapsed1.clear();
         elapsed2.clear();
 
+        cout<<elapsed.size()<<" jacobi time: "<<avg(elapsed)<<" ms"<<" total time: "<<sum(elapsed)<<" ms"<<endl;
+        elapsed.clear();
     }
 };
 
@@ -1881,6 +1822,9 @@ extern "C" DLLEXPORT void fastmg_setup_nl(size_t numlvs) {
     fastmg->setup(numlvs);
 }
 
+extern "C" DLLEXPORT void fastmg_setup_jacobi(float const omega, size_t const niter_jacobi) {
+    fastmg->setup_jacobi(omega, niter_jacobi);
+}
 
 
 extern "C" DLLEXPORT void fastmg_RAP(size_t lv) {
@@ -1938,10 +1882,14 @@ extern "C" DLLEXPORT void fastmg_set_P(int lv, float* data, int* indices, int* i
 }
 
 
-extern "C" DLLEXPORT void fastmg_setup_smoothers() {
-    fastmg->setup_smoothers();
+extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
+    fastmg->setup_smoothers(type);
 }
 
+
+extern "C" DLLEXPORT void fastmg_set_jacobi_niter(const size_t niter) {
+    fastmg->set_jacobi_niter(niter);
+}
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
     fastmg->set_A0_from_fastFillCloth(fastFillCloth);
@@ -1957,22 +1905,6 @@ extern "C" DLLEXPORT void fastmg_scale_RAP(float s, int lv) {
 
 extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num) {
     fastmg->set_colors(c, n, color_num);
-}
-
-// pre_or_post = 0: pre, 1: post
-extern "C" DLLEXPORT void fastmg_set_smoother_niter(const int niter, const int lv, const int pre_or_post) {
-    fastmg->set_smoother_niter(niter, lv, pre_or_post);
-}
-
-// pre_or_post = 0: pre, 1: post
-// type: 0: chebyshev, 1: jacobi_v2, 2: multicolor gauss seidel
-extern "C" DLLEXPORT void fastmg_set_smoother_type(const int type, const int lv, const int pre_or_post) {
-    fastmg->set_smoother_type(type, lv, pre_or_post);
-}
-
-
-extern "C" DLLEXPORT void fastmg_report_smoother() {
-    fastmg->report_smoother();
 }
 
 // ------------------------------------------------------------------------------

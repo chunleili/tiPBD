@@ -1835,6 +1835,7 @@ struct VCycle : Kernels {
                 niter = iter;
                 break;
             }
+            niter = iter;
         }
         copy(x_new, outer_x);
 

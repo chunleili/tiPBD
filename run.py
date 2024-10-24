@@ -1261,7 +1261,7 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
-# case131: soft85w  only_smoother
+# case132: soft85w  only_smoother
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-soft85w-only_smoother",
@@ -1277,6 +1277,7 @@ args = ["engine/soft/soft3d.py",
         "-build_P_method=strength0.1"
         ]
 allargs.append(args)
+
 
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):

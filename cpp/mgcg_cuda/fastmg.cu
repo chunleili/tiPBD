@@ -1206,17 +1206,7 @@ struct VCycle : Kernels {
             {
                 levels.at(lv).jacobi_omega = setup_jacobi_cuda(levels[lv].A);
             }
-            else if(levels[lv].presmoother_type  == 2 || levels[lv].postsmoother_type == 2)
-            {
-                if(lv!=0)
-                    throw std::runtime_error("Multicolor Gauss-Seidel only for first level.");
-                if(color_num==0)
-                    throw std::runtime_error("color_num is not set.");
-                if(levels[lv].A.nrows != colors.size())
-                    throw std::runtime_error("colors size is not equal to A.nrows.");
-            }
         }
-        
     }
 
 
@@ -1601,39 +1591,12 @@ struct VCycle : Kernels {
 
     }
 
-
-    void loadtxt(std::string filename, std::vector<std::vector<int>>& M)
-    {
-        printf("Loading %s\n", filename.c_str());
-        std::ifstream inputFile(filename);
-        std::string line;
-
-        unsigned int rows = 0;
-        while (std::getline(inputFile, line))
-        {
-            std::istringstream iss(line);
-            int val;
-            M.resize(rows + 1);
-            while (iss >> val)
-            {
-                M[rows].push_back(val);
-            }
-            rows++;
-        }
-    }
-
     void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {
         //TODO
-        // cout<<"multi_color_gauss_seidel"<<endl;
-        // cout<<"color_num: "<<color_num<<endl;
         for(int color=0; color<color_num; color++)
         {
             multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, colors.data(), color);
-            // cudaDeviceSynchronize();
-            // LAUNCH_CHECK();
-            // debug_cuda_vec(x, "x");
         }
-        // cudaDeviceSynchronize();
     }
 
     // typedef std::vector<int> Partition;
@@ -1671,10 +1634,6 @@ struct VCycle : Kernels {
             type = levels.at(lv).postsmoother_type;
             niter = levels.at(lv).presmoother_niter;
         }
-        else
-        {
-            assert(false && "Invalid pre_or_post value(0 or 1)");
-        }
 
         if(type == 0)
         {
@@ -1684,15 +1643,6 @@ struct VCycle : Kernels {
         else if (type == 1)
         {
             weighted_jacobi_v2(lv, x, b, niter, levels.at(lv).jacobi_omega);
-        }
-        else if (type == 2)
-        {
-            for (int i = 0; i < niter; ++i) 
-                multi_color_gauss_seidel(lv, x, b);
-        }
-        else
-        {
-            assert(false && "Invalid smoother type(0,1,2)");
         }
     }
 

@@ -71,12 +71,12 @@ parser.add_argument("-smoother_niter", type=int, default=2)
 parser.add_argument("-use_detailed_smoothers", type=int, default=False, help="use different smoother(types, niter) for each level")
 parser.add_argument("-smoother_type_lv", type=str, nargs='*', help="smoother type for each level, e.g. jacobi jacobi jacobi jacobi, for L0: pre-smoother, L0: post-smoother, L1: pre-smoother, L1: post-smoother")
 parser.add_argument("-smoother_niter_lv", type=int, nargs='*', help="smoother type for each level, e.g. 2 2 2 2, for L0: pre-smoother, L0: post-smoother, L1: pre-smoother, L1: post-smoother")
-parser.add_argument("-use_graph_coloring", type=int, default=False)
 
 
 args = parser.parse_args()
 
 out_dir = args.out_dir
+use_graph_coloring = True
 
 if args.large:
     args.model_path = f"data/model/bunny85w/bunny85w.node"
@@ -906,8 +906,8 @@ def smoother_name_to_id(smoother_name):
 
 def set_smoother_for_levels():
     # args.use_detailed_smoothers = True
-    # args.smoother_niter_lv = [2, 2]
-    # args.smoother_type_lv = ["gauss_seidel", "gauss_seidel"]
+    # args.smoother_niter_lv = [2, 1, 2, 1]
+    # args.smoother_type = ["chebyshev", "jacobi", "chebyshev", "jacobi"]
 
     if not args.use_detailed_smoothers:
         sid = smoother_name_to_id(args.smoother_type)
@@ -918,28 +918,16 @@ def set_smoother_for_levels():
             extlib.fastmg_set_smoother_niter(niter, lv, 0)
             extlib.fastmg_set_smoother_niter(niter, lv, 1)
     else:
-        if len(args.smoother_type_lv) != num_levels*2 or len(args.smoother_niter_lv) != num_levels*2:
-            logging.warning("smoother_type and smoother_niter_lv is not twice of num_levels")
-            # if longer than num_levels*2, cut-off the rest
-            if len(args.smoother_type_lv) > num_levels*2:
-                args.smoother_type_lv = args.smoother_type_lv[:num_levels*2]
-            if len(args.smoother_niter_lv) > num_levels*2:
-                args.smoother_niter_lv = args.smoother_niter_lv[:num_levels*2]
-            # if shorter than num_levels*2, use default values(jacobi, 2) to fill
-            if len(args.smoother_type_lv) < num_levels*2:
-                args.smoother_type_lv += ["jacobi"]*(num_levels*2-len(args.smoother_type_lv))
-            if len(args.smoother_niter_lv) < num_levels*2:
-                args.smoother_niter_lv += [2]*(num_levels*2-len(args.smoother_niter_lv))
-            logging.info("cut-off or fill with default values(jacobi, 2)")
-            logging.info(f"smoother_type_lv: {args.smoother_type_lv}")     
-            logging.info(f"smoother_niter_lv: {args.smoother_niter_lv}")       
+        if len(args.smoother_type) != num_levels*2 or len(args.smoother_niter_lv) != num_levels*2:
+            logging.error("smoother_type and smoother_niter_lv should be twice of num_levels")
+            assert False
         for lv in range(num_levels):
             extlib.fastmg_set_smoother_type.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
             extlib.fastmg_set_smoother_niter.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
             niter0 = args.smoother_niter_lv[lv*2]
             niter1 = args.smoother_niter_lv[lv*2+1]
-            sid0 = smoother_name_to_id(args.smoother_type_lv[lv*2])
-            sid1 = smoother_name_to_id(args.smoother_type_lv[lv*2+1])
+            sid0 = smoother_name_to_id(args.smoother_type[lv*2])
+            sid1 = smoother_name_to_id(args.smoother_type[lv*2+1])
             extlib.fastmg_set_smoother_type(sid0, lv, 0)
             extlib.fastmg_set_smoother_type(sid1, lv, 1)
             extlib.fastmg_set_smoother_niter(niter0, lv, 0)
@@ -2163,7 +2151,7 @@ def main():
     ist = SoftBody(args.model_path)
     ist.initialize()
     
-    if args.use_graph_coloring:
+    if use_graph_coloring:
         # graph_coloring_v1()
         graph_coloring_read()
 

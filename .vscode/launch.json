@@ -31,10 +31,6 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-              "-use_graph_coloring=1",
-              "-use_detailed_smoothers=1",
-              "-smoother_type_lv","gauss_seidel", "gauss_seidel",
-              "-smoother_niter_lv","2","2"
             ]
           }
     ]

@@ -698,12 +698,63 @@ struct GPUTimer
   }
 };
 
+
+
+// https://stackoverflow.com/a/41154786/19253199
+// https://github.com/aramadia/udacity-cs344/blob/master/Unit2%20Code%20Snippets/gputimer.h
+// https://developer.nvidia.com/blog/how-implement-performance-metrics-cuda-cc/
+/// @brief Usage: 
+///     GpuTimer  timer;
+///     timer.start(); 
+///     do something
+///     timer.stop(); 
+///     float elapsedTime = timer.elapsed(); 
+///     printf("Elapsed time : %.2f ms\n" ,elapsedTime);
+struct GpuTimer
+{
+      cudaEvent_t m_start;
+      cudaEvent_t m_stop;
+
+      GpuTimer()
+      {
+            cudaEventCreate(&m_start);
+            cudaEventCreate(&m_stop);
+      }
+
+      ~GpuTimer()
+      {
+            cudaEventDestroy(m_start);
+            cudaEventDestroy(m_stop);
+      }
+
+      void start()
+      {
+            cudaEventRecord(m_start, 0);
+      }
+
+      void stop()
+      {
+            cudaEventRecord(m_stop, 0);
+      }
+
+      float elapsed()
+      {
+            float elapsed_ms;
+            cudaEventSynchronize(m_stop);
+            cudaEventElapsedTime(&elapsed_ms, m_start, m_stop);
+            return elapsed_ms;
+      }
+};
+
 int main(int argc, char *argv[])
 {
   printf("ECL-GC v1.2 with color reduction heuristics (%s)\n", __FILE__);
   printf("Copyright 2022 Texas State University\n\n");
 
   // ECLgraph g = readECLgraph(argv[1]);
+  GpuTimer timer_read, timer2;
+  printf("reading %s\n", argv[1]);
+  timer_read.start();
   ECLgraph g;
   if (strcmp(argv[1], "obj") == 0)
   {
@@ -719,10 +770,17 @@ int main(int argc, char *argv[])
   {
     printf("ERROR: invalid input file\n\n");
   }
+  timer_read.stop();
+  printf("Finish reading\n");
+  printf("read time: %.6f ms\n", timer_read.elapsed());
+
   // ECLgraph g = obj2egr();
   printf("nodes: %d\n", g.nodes);
   printf("edges: %d\n", g.edges);
   printf("avg degree: %.2f\n", 1.0 * g.edges / g.nodes);
+
+  printf("coloring graph\n");
+  timer2.start();
 
   int *const color = new int[g.nodes];
 
@@ -790,6 +848,10 @@ int main(int argc, char *argv[])
   cudaFuncSetCacheConfig(init, cudaFuncCachePreferL1);
   cudaFuncSetCacheConfig(runLarge, cudaFuncCachePreferL1);
   cudaFuncSetCacheConfig(runSmall, cudaFuncCachePreferL1);
+
+  timer2.stop();
+  printf("Finished timer2\n");
+  printf("Timer2: %.6f s\n", timer2.elapsed());
 
   GPUTimer timer;
   timer.start();

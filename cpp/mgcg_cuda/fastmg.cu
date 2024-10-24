@@ -1200,15 +1200,12 @@ struct VCycle : Kernels {
         }
         else if (smoother_type == 2)
         {
-            for (size_t lv = 0; lv < nlvs; lv++)
-                setup_weighted_jacobi(lv);
+            setup_weighted_jacobi();
         }
         else if (smoother_type == 3)
         {
-            for (size_t lv = 1; lv < nlvs; lv++)
-            {
-                setup_weighted_jacobi(lv);
-            }
+            // TODO: multi-color GS for all levels
+            setup_weighted_jacobi();
         }
     }
 
@@ -1374,12 +1371,19 @@ struct VCycle : Kernels {
     }
 
 
-    void setup_weighted_jacobi(int lv) {
-        levels.at(lv).jacobi_omega = calc_weighted_jacobi_omega(levels.at(lv).A);
-        cout<<"\nLevel"<<lv<<" jacobi_omega: "<<levels.at(lv).jacobi_omega<<"  at level "<<lv<<endl;
+    void setup_weighted_jacobi() {
+        // use only the A0 omega for all, and set radical omega(estimate lambda_min as 0.1)
+        // TODO: calculate omega for each level, and calculate lambda_min
+        levels.at(0).jacobi_omega = calc_weighted_jacobi_omega(levels[0].A, true);
+        cout<<"omega: "<<levels.at(0).jacobi_omega<<endl;
+        if(nlvs>1)
+            for (size_t lv = 1; lv < nlvs; lv++)
+            {
+                levels.at(lv).jacobi_omega = levels.at(0).jacobi_omega;
+            }
     }
 
-    float calc_weighted_jacobi_omega(CSR<float>&A) {
+    float calc_weighted_jacobi_omega(CSR<float>&A, bool use_radical_omega=false) {
         GpuTimer timer;
         timer.start();
 
@@ -1401,10 +1405,20 @@ struct VCycle : Kernels {
         DinvA.assign(data_new.data(), A.numnonz, A.indices.data(), A.numnonz, A.indptr.data(), A.nrows+1, A.nrows, A.ncols, A.numnonz);
 
 
+        // TODO: calculate lambda_min
         float lambda_max = calc_max_eig(DinvA);
-        float jacobi_omega = 1.0 / (lambda_max);
-        // cout<<"lambda_max: "<<DinvA_rho<<endl;
-        // cout<<"jacobi_omega: "<<jacobi_omega<<endl; 
+        float lambda_min;
+        if (use_radical_omega)
+        {
+            cout<<"use radical omega"<<endl;
+            lambda_min = 0.1;
+        }
+        else 
+        {
+            lambda_min = lambda_max;
+        }
+        float jacobi_omega = 1.0 / (lambda_max+lambda_min);
+ 
         timer.stop();
         cout<<"calc_weighted_jacobi_omega time: "<<timer.elapsed()<<" ms"<<endl;
         return jacobi_omega;

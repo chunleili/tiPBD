@@ -73,11 +73,6 @@ parser.add_argument("-coarse_solver_type", type=int, default=1, help="0: direct 
 
 args = parser.parse_args()
 
-out_dir = args.out_dir
-use_graph_coloring = False
-if args.smoother_type=="gauss_seidel":
-    use_graph_coloring =True
-
 if args.large:
     args.model_path = f"data/model/bunny85w/bunny85w.node"
 if args.samll:
@@ -88,11 +83,7 @@ if args.arch == "gpu":
 else:
     ti.init(arch=ti.cpu)
 
-t_export = 0.0
-t_avg_iter = []
 
-n_outer_all = []
-ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
 
 arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
 arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
@@ -369,6 +360,10 @@ class SoftBody:
             self.pos,
         ]
 
+        self.n_outer_all = []
+        self.t_avg_iter=[]
+        self.ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
+        self.all_stalled = []
         info(f"Creating instance done")
 
     def initialize(self):
@@ -405,7 +400,7 @@ class SoftBody:
             # init by enlarge 1.5x
             self.pos.from_numpy(self.model_pos * 1.5)
 
-        self.alpha_tilde_np = ist.alpha_tilde.to_numpy()
+        self.alpha_tilde_np = self.alpha_tilde.to_numpy()
 
 
     def solve_constraints(self):
@@ -886,14 +881,14 @@ def cuda_set_A0(A0):
     extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
 
 
-def report_multilevel_details(Ps, num_levels):
-    logging.info(f"    num_levels:{num_levels}")
-    num_points_level = []
-    for i in range(len(Ps)):
-        num_points_level.append(Ps[i].shape[0])
-    num_points_level.append(Ps[-1].shape[1])
-    for i in range(num_levels):
-        logging.info(f"    num points of level {i}: {num_points_level[i]}")
+# def report_multilevel_details(Ps, num_levels):
+#     logging.info(f"    num_levels:{num_levels}")
+#     num_points_level = []
+#     for i in range(len(Ps)):
+#         num_points_level.append(Ps[i].shape[0])
+#     num_points_level.append(Ps[-1].shape[1])
+#     for i in range(num_levels):
+#         logging.info(f"    num points of level {i}: {num_points_level[i]}")
 
 
 def smoother_name2type(name):
@@ -907,16 +902,15 @@ def smoother_name2type(name):
         raise ValueError(f"smoother name {name} not supported")
 
 def AMG_setup_phase():
-    global Ps
     tic = time.perf_counter()
     A = fill_A_csr_ti(ist) #taichi version
     A = A.copy() #FIXME: no copy will cause bug, why?
-    Ps = build_Ps(A)
+    ist.Ps = build_Ps(A)
     logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
 
 
     tic = time.perf_counter()
-    update_P(Ps)
+    update_P(ist.Ps)
     logging.info(f"    update_P time: {time.perf_counter()-tic:.2f}s")
 
     tic = time.perf_counter()
@@ -934,7 +928,7 @@ def AMG_setup_phase():
 
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
-    if use_graph_coloring:
+    if args.smoother_type=="gauss_seidel":
         graph_coloring_v2()    
     return A
 
@@ -969,7 +963,7 @@ def AMG_RAP():
     tic3 = time.perf_counter()
     # A = fill_A_csr_ti(ist)
     # cuda_set_A0(A)
-    for lv in range(num_levels-1):
+    for lv in range(ist.num_levels-1):
         extlib.fastmg_RAP(lv) 
     logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
 
@@ -1008,13 +1002,12 @@ def AMG_solve(b, x0=None, tol=1e-5, maxiter=100):
 
 
 def do_export_r(r):
-    global t_export
     tic = time.perf_counter()
     serialized_r = [r[i]._asdict() for i in range(len(r))]
     r_json = json.dumps(serialized_r)
-    with open(out_dir+'/r/'+ f'{meta.frame}.json', 'w') as file:
+    with open(args.out_dir+'/r/'+ f'{meta.frame}.json', 'w') as file:
         file.write(r_json)
-    t_export += time.perf_counter()-tic
+    ist.t_export += time.perf_counter()-tic
 
 
 def calc_conv(r):
@@ -1022,7 +1015,6 @@ def calc_conv(r):
 
 
 def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
-    global t_export
     tic = time.perf_counter()
 
     t_iter = perf_counter()-tic_iter
@@ -1038,26 +1030,25 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     if args.export_log:
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
         logging.info(f"{meta.frame}-{meta.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
-    r.append(ResidualData(dual_r, len(r_Axb), t_iter))
+    r.append(ist.ResidualData(dual_r, len(r_Axb), t_iter))
 
-    t_export += perf_counter()-tic
+    ist.t_export += perf_counter()-tic
     return dual0
 
 
 def AMG_python(b):
-    global Ps, num_levels
 
     A = fill_A_csr_ti(ist)
     A = A.copy()#FIXME: no copy will cause bug, why?
 
     if should_setup():
         tic = time.perf_counter()
-        Ps = build_Ps(A)
-        num_levels = len(Ps)+1
+        ist.Ps = build_Ps(A)
+        ist.num_levels = len(ist.Ps)+1
         logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
     
     tic = time.perf_counter()
-    levels = build_levels(A, Ps)
+    levels = build_levels(A, ist.Ps)
     logging.info(f"    build_levels time:{time.perf_counter()-tic}")
 
     if should_setup():
@@ -1198,7 +1189,6 @@ def AMG_cuda(b):
 
 
 def substep_all_solver(ist):
-    global t_export, n_outer_all
     tic1 = time.perf_counter()
     semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
@@ -1234,17 +1224,17 @@ def substep_all_solver(ist):
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {len(r)}")
-    n_outer_all.append(len(r))
+    ist.n_outer_all.append(len(r))
     if args.export_residual:
         do_export_r(r)
     collsion_response(ist.pos)
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
-    t_avg_iter.append((time.perf_counter()-tic1)/n_outer_all[-1])
-    logging.info(f"avg iter frame {meta.frame}: {t_avg_iter[-1]*1000:.0f}ms")
+    ist.t_avg_iter.append((time.perf_counter()-tic1)/ist.n_outer_all[-1])
+    logging.info(f"avg iter frame {meta.frame}: {ist.t_avg_iter[-1]*1000:.0f}ms")
 
 
-all_stalled = []
+
 # if in last 5 iters, residuals not change 0.1%, then it is stalled
 def is_stall(r):
     if (meta.ite < 5):
@@ -1258,7 +1248,7 @@ def is_stall(r):
     # if all incs is in [0.999,1.001]
     if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
         logging.warning(f"Stall at {meta.frame}-{meta.ite}")
-        all_stalled.append((meta.frame, meta.ite))
+        ist.all_stalled.append((meta.frame, meta.ite))
         return True
     return False
 
@@ -1277,7 +1267,6 @@ def is_diverge(r,r_Axb):
 
 
 def substep_xpbd(ist):
-    global n_outer_all
     semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
     reset_lagrangian(ist.lagrangian)
     r=[]
@@ -1304,7 +1293,7 @@ def substep_xpbd(ist):
             dualr0 = dualr.copy()
         toc = time.perf_counter()
         logging.info(f"{meta.frame}-{meta.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
-        r.append(ResidualData(dualr, 0, toc-tic))
+        r.append(ist.ResidualData(dualr, 0, toc-tic))
         if dualr < args.tol:
             logging.info("Converge: tol")
             break
@@ -1314,7 +1303,7 @@ def substep_xpbd(ist):
         # if is_stall(r):
         #     logging.warning("Stall detected, break")
         #     break
-    n_outer_all.append(meta.ite+1)
+    ist.n_outer_all.append(meta.ite+1)
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 
 # ---------------------------------------------------------------------------- #
@@ -1436,7 +1425,7 @@ def calc_RAP_scale(P):
 
 
 def build_Ps(A):
-    """Build a list of prolongation matrices Ps from A """
+    """Build a list of prolongation matrices ist.Ps from A """
     method = args.build_P_method
     print("build P by method:", method)
     tic = perf_counter()
@@ -1492,14 +1481,13 @@ def build_Ps(A):
     else:
         raise ValueError(f"Method {method} not recognized")
 
-    global num_levels
-    num_levels = len(ml.levels)
+    ist.num_levels = len(ml.levels)
     extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
-    extlib.fastmg_setup_nl(num_levels)
+    extlib.fastmg_setup_nl(ist.num_levels)
     
     logging.info(ml)
 
-    Ps = []
+    ist.Ps = []
     for i in range(len(ml.levels)-1):
         P = ml.levels[i].P
         if args.filter_P=="fileter":
@@ -1508,7 +1496,7 @@ def build_Ps(A):
             P = do_set_01_P(P)
         elif args.filter_P=="avg":
             P = do_set_avg_P(P)
-        Ps.append(P)
+        ist.Ps.append(P)
 
         if args.scale_RAP:
             # scale RAP by avg size of aggregates
@@ -1521,11 +1509,11 @@ def build_Ps(A):
     toc = perf_counter()
     logging.info(f"Build P Time:{toc-tic:.2f}s")
 
-    logger2.info(f"logger2 {method} {toc-tic}")
-    # file = out_dir+'/build_P_time.txt'
+    meta.logger2.info(f"meta.logger2 {method} {toc-tic}")
+    # file = args.out_dir+'/build_P_time.txt'
     # with open(file, 'a') as f:
     #     f.write(f"{method} {toc-tic}\n")
-    return Ps
+    return ist.Ps
 
 
 class MultiLevel:
@@ -1551,7 +1539,6 @@ def build_levels(A, Ps=[]):
 
 
 def setup_smoothers(A):
-    global chebyshev_coeff
     if args.smoother_type == 'chebyshev':
         setup_chebyshev_python(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3)
     elif args.smoother_type == 'jacobi':
@@ -1649,21 +1636,21 @@ def old_V_cycle(levels,lvl,x,b):
 # ---------------------------------------------------------------------------- #
 #                                  amgpcg end                                  #
 # ---------------------------------------------------------------------------- #
-def make_and_clean_dirs(out_dir):
+def make_and_clean_dirs(dir):
     import shutil
     from pathlib import Path
 
-    shutil.rmtree(out_dir, ignore_errors=True)
+    shutil.rmtree(dir, ignore_errors=True)
 
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    Path(out_dir + "/r/").mkdir(parents=True, exist_ok=True)
-    Path(out_dir + "/A/").mkdir(parents=True, exist_ok=True)
-    Path(out_dir + "/state/").mkdir(parents=True, exist_ok=True)
-    Path(out_dir + "/mesh/").mkdir(parents=True, exist_ok=True)
+    Path(dir).mkdir(parents=True, exist_ok=True)
+    Path(dir + "/r/").mkdir(parents=True, exist_ok=True)
+    Path(dir + "/A/").mkdir(parents=True, exist_ok=True)
+    Path(dir + "/state/").mkdir(parents=True, exist_ok=True)
+    Path(dir + "/mesh/").mkdir(parents=True, exist_ok=True)
 
 
 def export_A_b(A,b,postfix="", binary=True):
-    dir = out_dir + "/A/"
+    dir = args.out_dir + "/A/"
     logging.info(f"Exporting A and b to {dir}...")
     if binary:
         scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)
@@ -1674,9 +1661,9 @@ def export_A_b(A,b,postfix="", binary=True):
         np.savetxt(dir + f"b_{postfix}.txt", b)
 
 
-def use_another_outdir(out_dir):
+def use_another_outdir(dir):
     import re
-    path = Path(out_dir)
+    path = Path(dir)
     if path.exists():
         # 使用正则表达式匹配文件夹名称中的数字后缀
         base_name = path.name
@@ -1695,28 +1682,27 @@ def use_another_outdir(out_dir):
                 break
             i += 1
 
-    out_dir = str(path)
-    print(f"\nFind another outdir: {out_dir}\n")
-    return out_dir
+    dir = str(path)
+    print(f"\nFind another outdir: {dir}\n")
+    return dir
 
 
 def ending(timer_loop, start_date, initial_frame):
-    global n_outer_all, t_export_total, all_stalled
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     args.end_frame = meta.frame
 
-    len_n_outer_all = len(n_outer_all) if len(n_outer_all) > 0 else 1
-    sum_n_outer = sum(n_outer_all)
+    len_n_outer_all = len(ist.n_outer_all) if len(ist.n_outer_all) > 0 else 1
+    sum_n_outer = sum(ist.n_outer_all)
     avg_n_outer = sum_n_outer / len_n_outer_all
-    max_n_outer = max(n_outer_all)
-    max_n_outer_index = n_outer_all.index(max_n_outer)
+    max_n_outer = max(ist.n_outer_all)
+    max_n_outer_index = ist.n_outer_all.index(max_n_outer)
 
-    n_outer_all_np = np.array(n_outer_all, np.int32)    
-    np.savetxt(out_dir+"/n_outer.txt", n_outer_all_np, fmt="%d")
+    n_outer_all_np = np.array(ist.n_outer_all, np.int32)    
+    np.savetxt(args.out_dir+"/n_outer.txt", n_outer_all_np, fmt="%d")
 
     sim_time_with_export = time.perf_counter() - timer_loop
-    sim_time = sim_time_with_export - t_export_total
+    sim_time = sim_time_with_export - ist.t_export_total
     avg_sim_time = sim_time / (args.end_frame - initial_frame)
 
 
@@ -1726,19 +1712,18 @@ def ending(timer_loop, start_date, initial_frame):
     f"Frame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames)."+\
     f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{start_date},\nEnd\t{end_date}."+\
-    f"\nTime of exporting: {t_export_total:.3f}s" + \
+    f"\nTime of exporting: {ist.t_export_total:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
     f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
-    f"\nstalled at {all_stalled}"+\
+    f"\nstalled at {ist.all_stalled}"+\
     f"\nmodel_path: {args.model_path}" + \
     f"\ndt={meta.delta_t}" + \
     f"\nSolver: {args.solver_type}" + \
-    f"\nout_dir: {out_dir}" 
+    f"\nout_dir: {args.out_dir}" 
     # logging.info(s)
 
-
-    file_name = f"result/meta/{out_dir_name}.log"
-    file_name2 = f"{out_dir}/meta.log"
+    file_name = f"result/meta/{str(Path(args.out_dir).name)}.log"
+    file_name2 = f"{args.out_dir}/meta.log"
     logger_meta = logging.getLogger('logger_meta')
     logger_meta.addHandler(logging.FileHandler(file_name))
     logger_meta.addHandler(logging.FileHandler(file_name2))
@@ -2038,9 +2023,9 @@ def graph_coloring_v1():
 # Input: CSR matrix(symmetric)
 # This is called in AMG_setup_phase()
 def graph_coloring_v2():
-    has_colored_L = [False]*num_levels
+    has_colored_L = [False]*ist.num_levels
     dir = str(Path(args.model_path).parent)
-    for lv in range(num_levels):
+    for lv in range(ist.num_levels):
         path = dir+f'/coloring_L{lv}.txt'
         has_colored_L[lv] =  os.path.exists(path)
     has_colored = all(has_colored_L)
@@ -2051,7 +2036,7 @@ def graph_coloring_v2():
 
     from pyamg.graph import vertex_coloring
     tic = perf_counter()
-    for i in range(num_levels):
+    for i in range(ist.num_levels):
         print(f"level {i}")
         Ai = fetch_A_from_cuda(i)
         colors = vertex_coloring(Ai)
@@ -2121,41 +2106,34 @@ def graph_coloring_to_cuda(ncolor, colors, lv):
 # ---------------------------------------------------------------------------- #
 def main():
     tic = perf_counter()
-    global out_dir, ist, t_export_total, t_export, logger2, out_dir_name
     if args.auto_another_outdir:
-        out_dir = use_another_outdir(out_dir)
-    make_and_clean_dirs(out_dir)
+        args.out_dir = use_another_outdir(args.out_dir)
+    make_and_clean_dirs(args.out_dir)
 
-    out_dir_name = str(Path(out_dir).name) 
-
-    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=out_dir + f'/{out_dir_name}.log',filemode='a')
+    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=args.out_dir + f'/{str(Path(args.out_dir).name)}.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-    logger2 = logging.getLogger('logger2')
-    logger2.addHandler(logging.FileHandler(out_dir + f'/build_P_time.log', 'a'))
+    meta.logger2 = logging.getLogger('logger2')
+    meta.logger2.addHandler(logging.FileHandler(args.out_dir + f'/build_P_time.log', 'a'))
 
     start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     logging.info(start_date)
     logging.info(args)
 
+    global ist
     ist = SoftBody(args.model_path)
     ist.initialize()
     
     if args.export_mesh:
-        write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
+        write_mesh(args.out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
     if args.solver_type != "XPBD":
         init_direct_fill_A(ist)
 
-    if use_graph_coloring:
-        ...
-        # graph_coloring_v1()
-        # graph_coloring_read()
-        # graph_coloring_v2()
 
     print(f"initialize time:", perf_counter()-tic)
     initial_frame = meta.frame
-    t_export_total = 0.0
+    ist.t_export_total = 0.0
     
     timer_all = perf_counter()
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=initial_frame)
@@ -2164,7 +2142,7 @@ def main():
             info("\n\n----------------------")
             info(f"frame {meta.frame}")
             t = perf_counter()
-            t_export = 0.0
+            ist.t_export = 0.0
 
             if args.solver_type == "XPBD":
                 substep_xpbd(ist)
@@ -2174,10 +2152,10 @@ def main():
 
             if args.export_mesh:
                 tic = perf_counter()
-                write_mesh(out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
-                t_export += perf_counter() - tic
+                write_mesh(args.out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
+                ist.t_export += perf_counter() - tic
 
-            t_export_total += t_export
+            ist.t_export_total += ist.t_export
 
             info(f"step time: {perf_counter() - t:.2f} s")
             step_pbar.update(1)

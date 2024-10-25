@@ -1279,6 +1279,124 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
+# case133: soft85w 33ms 
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-33ms",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        # "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=33e-3",
+        "-solver_type=AMG",
+        "-smoother_type=jacobi",
+        "-smoother_niter=2",
+        "-build_P_method=nullspace",
+        "-maxiter_Axb=300",
+        "-maxiter=100",
+        ]
+allargs.append(args)
+
+
+# case134: soft85w 33ms
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-33ms-XPBD",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        # "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=33e-3",
+        "-solver_type=XPBD",
+        "-maxiter=10000",
+        ]
+allargs.append(args)
+
+
+
+# case135: soft85w 3ms  omega=1.0
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        # "-rtol=1e-2",
+        "-omega=1.0",
+        # "-mu=1e8",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-smoother_type=jacobi",
+        "-smoother_niter=2",
+        "-build_P_method=nullspace",
+        "-maxiter_Axb=300",
+        "-maxiter=100",
+        ]
+allargs.append(args)
+
+
+# case136: soft85w 3ms omega=1.0
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        # "-rtol=1e-2",
+        "-solver_type=XPBD",
+        "-maxiter=10000",
+        "-arch=gpu",
+        "-omega=1.0",
+        "-mu=1e8",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        ]
+allargs.append(args)
+
+
+
+# case137: soft85w 3ms  large mu
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-end_frame=1",
+        "-export_matrix=1",
+        "-export_matrix_binary=0",
+        # "-omega=1.0",
+        "-mu=1e9",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-smoother_type=jacobi",
+        "-smoother_niter=2",
+        "-build_P_method=strength0.25",
+        "-maxiter_Axb=300",
+        "-maxiter=100",
+        "-tol_Axb=1e-6",
+        ]
+allargs.append(args)
+
+
+# case138: soft85w 3ms  large mu XPBD
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-33ms-XPBD",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=10000",
+        "-rtol=1e-2",
+        # "-omega=1.0",
+        "-mu=1e9",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        ]
+allargs.append(args)
+
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')

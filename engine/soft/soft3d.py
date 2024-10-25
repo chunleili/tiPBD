@@ -69,6 +69,7 @@ parser.add_argument("-filter_P", type=str, default=None)
 parser.add_argument("-scale_RAP", type=int, default=False)
 parser.add_argument("-only_smoother", type=int, default=False)
 parser.add_argument("-debug", type=int, default=False)
+parser.add_argument("-coarse_solver_type", type=int, default=1, help="0: direct solver, 1: smoother")
 
 args = parser.parse_args()
 
@@ -115,7 +116,7 @@ def init_extlib_argtypes():
     # # # DEBUG only
     if args.debug:
         os.chdir(prj_path+'/cpp/mgcg_cuda')
-        os.system("cmake --build build --config Debug")
+        os.system("cmake --build build --config Debug --parallel 8")
         os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
@@ -928,6 +929,9 @@ def AMG_setup_phase():
     print(s)
     extlib.fastmg_setup_smoothers(s) # 1 means chebyshev, 2 means w-jacobi, 3 gauss_seidel
     extlib.fastmg_set_smoother_niter(args.smoother_niter)
+    extlib.fastmg_set_coarse_solver_type.argtypes = [c_int]
+    extlib.fastmg_set_coarse_solver_type(args.coarse_solver_type)
+
     logging.info(f"    setup smoothers time:{perf_counter()-tic}")
 
     if use_graph_coloring:
@@ -1219,14 +1223,14 @@ def substep_all_solver(ist):
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual<args.tol:
             break
-        if is_stall(r):
-            logging.info("Stall detected, break")
-            break
+        # if is_stall(r):
+        #     logging.info("Stall detected, break")
+        #     break
         if r[-1].dual / r[0].dual <args.rtol:
             break
         if is_diverge(r, r_Axb):
-            logging.error("Diverge detected, break")
-            break
+            logging.error("Diverge detected")
+            raise ValueError("Diverge detected")
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {len(r)}")
@@ -1307,9 +1311,9 @@ def substep_xpbd(ist):
         if dualr / dualr0 < args.rtol:
             logging.info("Converge: rtol")
             break
-        if is_stall(r):
-            logging.warning("Stall detected, break")
-            break
+        # if is_stall(r):
+        #     logging.warning("Stall detected, break")
+        #     break
     n_outer_all.append(meta.ite+1)
     update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
 

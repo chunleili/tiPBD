@@ -1374,16 +1374,82 @@ struct VCycle : Kernels {
 
 
     void setup_weighted_jacobi() {
-        // use only the A0 omega for all, and set radical omega(estimate lambda_min as 0.1)
-        // TODO: calculate omega for each level, and calculate lambda_min
-        levels.at(0).jacobi_omega = calc_weighted_jacobi_omega(levels[0].A, true);
-        cout<<"omega: "<<levels.at(0).jacobi_omega<<endl;
-        if(nlvs>1)
-            for (size_t lv = 1; lv < nlvs; lv++)
+        auto use_radical = true;
+        if(use_radical)
+        {
+            // old way:
+            // use only the A0 omega for all, and set radical omega(estimate lambda_min as 0.1)
+            // TODO: calculate omega for each level, and calculate lambda_min
+            levels.at(0).jacobi_omega = calc_weighted_jacobi_omega(levels[0].A, true);
+            cout<<"omega: "<<levels.at(0).jacobi_omega<<endl;
+            if(nlvs>1)
+                for (size_t lv = 1; lv < nlvs; lv++)
+                {
+                    levels.at(lv).jacobi_omega = levels.at(0).jacobi_omega;
+                }
+
+            // // new way
+            // for (size_t lv = 0; lv < nlvs; lv++)
+            // {
+            //     levels.at(lv).jacobi_omega = calc_weighted_jacobi_omega(levels[lv].A, true);
+            // }
+        }
+        else
+        {
+            for (size_t lv = 0; lv < nlvs; lv++)
             {
-                levels.at(lv).jacobi_omega = levels.at(0).jacobi_omega;
+                levels.at(lv).jacobi_omega = calc_weighted_jacobi_omega(levels[lv].A, false);
             }
+        }
     }
+
+
+    // FIXME: this has bugs, taking too long time
+    // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csreigvsi 
+    // calculate the most close to 0.1 eigen value of a symmetric matrix using the shift inverse method
+    float calc_min_eig(CSR<float> &A, float mu0=0.1) {
+        cusparseMatDescr_t descrA = NULL;
+        CHECK_CUSPARSE(cusparseCreateMatDescr(&descrA));
+        CHECK_CUSPARSE(cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL));
+        CHECK_CUSPARSE(cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ZERO)); 
+
+        float tol=1e-3;
+        int maxite=10;
+        float* mu=NULL; //result eigen value
+        Vec<float> x;//result eigen vector
+        x.resize(A.nrows);
+
+        Vec<float> x0; //initial guess
+        x0.resize(A.nrows);
+
+        // // set initial guess as random
+        // thrust::device_vector<float> x0(A.nrows);
+        // thrust::transform(thrust::make_counting_iterator<int>(0),
+        // thrust::make_counting_iterator<int>(A.nrows),
+        // x0.begin(),
+        // genRandomNumber());
+        // float* x0_raw = thrust::raw_pointer_cast(x0.data());
+
+        cusolverStatus_t t= cusolverSpScsreigvsi(cusolverH,
+                        A.nrows,
+                        A.numnonz,
+                        descrA,
+                        A.data.data(),
+                        A.indptr.data(),
+                        A.indices.data(),
+                        mu0,
+                        x0.data(),
+                        // thrust::raw_pointer_cast(x0.data()),
+                        maxite,
+                        tol,
+                        mu,
+                        x.data());
+        CHECK_CUSOLVER(t);
+            
+        cout<<"mu: "<<*mu<<endl;
+        return *mu;
+    }
+
 
     float calc_weighted_jacobi_omega(CSR<float>&A, bool use_radical_omega=false) {
         GpuTimer timer;
@@ -1414,6 +1480,7 @@ struct VCycle : Kernels {
         {
             cout<<"use radical omega"<<endl;
             lambda_min = 0.1;
+            // lambda_min = calc_min_eig(DinvA);
         }
         else 
         {
@@ -1745,12 +1812,15 @@ struct VCycle : Kernels {
         }
     }
 
-    GpuTimer timer1,timer2;
-    std::vector<float> elapsed1, elapsed2;
+    GpuTimer timer1,timer2,timer3;
+    std::vector<float> elapsed1, elapsed2, elapsed3;
     void solve()
     {
         timer1.start();
+        timer3.start();
         presolve();
+        timer3.stop();
+        elapsed3.push_back(timer3.elapsed());
 
         float bnrm2 = init_cg_iter0(residuals.data());
         float atol = bnrm2 * rtol;
@@ -1781,6 +1851,9 @@ struct VCycle : Kernels {
 
         cout<<elapsed_smoother.size()<<" smoother time: "<<avg(elapsed_smoother)<<" ms"<<" total time: "<<sum(elapsed_smoother)<<" ms"<<endl;
         elapsed_smoother.clear();
+
+        cout<<elapsed3.size()<<" presolve time: "<<(elapsed3[0])<<" ms"<<endl;
+        elapsed3.clear();
 
         // cout<<"Ax=b residuals: "<<endl;
         // for(int i=0; i<niter;++i)
@@ -1928,6 +2001,11 @@ extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num, 
 
 extern "C" DLLEXPORT void fastmg_solve_only_smoother() {
     fastmg->solve_only_smoother();
+}
+
+
+extern "C" DLLEXPORT void fastmg_set_coarse_solver_type(int t) {
+    fastmg->coarse_solver_type = t;
 }
 
 // ------------------------------------------------------------------------------

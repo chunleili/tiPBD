@@ -1,26 +1,6 @@
 import numpy as np
 
 
-def clean_result_dir(folder_path):
-    import glob, os
-    print(f"clean {folder_path}...")
-    to_remove = []
-    for name in [
-        '*.txt',
-        '*.obj',
-        '*.png',
-        '*.ply',
-        '*.npz',
-        '*.mtx',
-        '*.log',
-    ]:
-        files = glob.glob(os.path.join(folder_path, name))
-        to_remove += (files)
-    print(f"removing {len(to_remove)} files")
-    for file_path in to_remove:
-        os.remove(file_path)
-    print(f"clean {folder_path} done")
-
 
 def make_and_clean_dirs(dir):
     import shutil
@@ -33,7 +13,6 @@ def make_and_clean_dirs(dir):
     Path(dir + "/A/").mkdir(parents=True, exist_ok=True)
     Path(dir + "/state/").mkdir(parents=True, exist_ok=True)
     Path(dir + "/mesh/").mkdir(parents=True, exist_ok=True)
-
 
 
 

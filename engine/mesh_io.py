@@ -312,3 +312,149 @@ def tet_indices_to_edge_indices(tets: ti.template(), edges: ti.template()):
 
 def make_no_ext(filename):
     return filename.split(".")[0]
+
+
+
+
+# ---------------------------------------------------------------------------- #
+#                                      new                                     #
+# ---------------------------------------------------------------------------- #
+
+def write_mesh(filename, pos, tri, format="ply"):
+    cells = [
+        ("triangle", tri.reshape(-1, 3)),
+    ]
+    mesh = meshio.Mesh(
+        pos,
+        cells,
+    )
+
+    if format == "ply":
+        mesh.write(filename + ".ply", binary=True)
+    elif format == "obj":
+        mesh.write(filename + ".obj")
+    else:
+        raise ValueError("Unknown format")
+    return mesh
+
+
+def read_tetgen(filename):
+    """
+    读取tetgen生成的网格文件，返回顶点坐标、单元索引、面索引
+
+    Args:
+        filename: 网格文件名，不包含后缀名
+
+    Returns:
+        pos: 顶点坐标，shape=(NV, 3)
+        tet_indices: 单元索引，shape=(NT, 4)
+        face_indices: 面索引，shape=(NF, 3)
+    """
+    ele_file_name = filename + ".ele"
+    node_file_name = filename + ".node"
+    face_file_name = filename + ".face"
+
+    with open(node_file_name, "r") as f:
+        lines = f.readlines()
+        NV = int(lines[0].split()[0])
+        pos = np.zeros((NV, 3), dtype=np.float32)
+        for i in range(NV):
+            pos[i] = np.array(lines[i + 1].split()[1:], dtype=np.float32)
+
+    with open(ele_file_name, "r") as f:
+        lines = f.readlines()
+        NT = int(lines[0].split()[0])
+        tet_indices = np.zeros((NT, 4), dtype=np.int32)
+        for i in range(NT):
+            tet_indices[i] = np.array(lines[i + 1].split()[1:], dtype=np.int32)
+
+    with open(face_file_name, "r") as f:
+        lines = f.readlines()
+        NF = int(lines[0].split()[0])
+        face_indices = np.zeros((NF, 3), dtype=np.int32)
+        for i in range(NF):
+            face_indices[i] = np.array(lines[i + 1].split()[1:-1], dtype=np.int32)
+
+    return pos, tet_indices, face_indices
+
+
+def read_tet(filename, build_face_flag=False):
+    mesh = meshio.read(filename)
+    pos = mesh.points
+    tet_indices = mesh.cells_dict["tetra"]
+    if build_face_flag:
+        face_indices = build_face_indices(tet_indices)
+        return pos, tet_indices, face_indices
+    else:
+        return pos, tet_indices
+
+
+def build_face_indices(tet_indices):
+    face_indices = np.empty((tet_indices.shape[0] * 4, 3), dtype=np.int32)
+    for t in range(tet_indices.shape[0]):
+        ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
+        for i in range(4):  # 4 faces
+            for j in range(3):  # 3 vertices
+                face_indices[t * 4 + i][j] = tet_indices[t][ind[i][j]]
+    return face_indices
+
+
+# write .node file
+def write_tet(filename, points, tet_indices):
+    import meshio
+
+    cells = [
+        ("tetra", tet_indices),
+    ]
+    mesh = meshio.Mesh(
+        points,
+        cells,
+    )
+    mesh.write(filename)
+    return mesh
+
+# Usage:
+# # original size: 0.1 and 0.5
+# coarse_points, coarse_tet_indices, coarse_tri_indices = generate_cube_mesh(1.0, 1.0)
+# write_tet("data/model/cube/minicube.node", coarse_points, coarse_tet_indices)
+def generate_cube_mesh(len, grid_dx=0.1):
+    num_grid = int(len // grid_dx)
+    points = np.zeros(((num_grid + 1) ** 3, 3), dtype=float)
+    for i in range(num_grid + 1):
+        for j in range(num_grid + 1):
+            for k in range(num_grid + 1):
+                points[i * (num_grid + 1) ** 2 + j * (num_grid + 1) + k] = [i * grid_dx, j * grid_dx, k * grid_dx]
+    tet_indices = np.zeros(((num_grid) ** 3 * 5, 4), dtype=int)
+    tri_indices = np.zeros(((num_grid) ** 3 * 12, 3), dtype=int)
+    for i in range(num_grid):
+        for j in range(num_grid):
+            for k in range(num_grid):
+                id0 = i * (num_grid + 1) ** 2 + j * (num_grid + 1) + k
+                id1 = i * (num_grid + 1) ** 2 + j * (num_grid + 1) + k + 1
+                id2 = i * (num_grid + 1) ** 2 + (j + 1) * (num_grid + 1) + k
+                id3 = i * (num_grid + 1) ** 2 + (j + 1) * (num_grid + 1) + k + 1
+                id4 = (i + 1) * (num_grid + 1) ** 2 + j * (num_grid + 1) + k
+                id5 = (i + 1) * (num_grid + 1) ** 2 + j * (num_grid + 1) + k + 1
+                id6 = (i + 1) * (num_grid + 1) ** 2 + (j + 1) * (num_grid + 1) + k
+                id7 = (i + 1) * (num_grid + 1) ** 2 + (j + 1) * (num_grid + 1) + k + 1
+                tet_start = (i * num_grid**2 + j * num_grid + k) * 5
+                tet_indices[tet_start] = [id0, id1, id2, id4]
+                tet_indices[tet_start + 1] = [id1, id4, id5, id7]
+                tet_indices[tet_start + 2] = [id2, id4, id6, id7]
+                tet_indices[tet_start + 3] = [id1, id2, id3, id7]
+                tet_indices[tet_start + 4] = [id1, id2, id4, id7]
+                tri_start = (i * num_grid**2 + j * num_grid + k) * 12
+                tri_indices[tri_start] = [id0, id2, id4]
+                tri_indices[tri_start + 1] = [id2, id4, id6]
+                tri_indices[tri_start + 2] = [id0, id1, id2]
+                tri_indices[tri_start + 3] = [id1, id2, id3]
+                tri_indices[tri_start + 4] = [id0, id1, id4]
+                tri_indices[tri_start + 5] = [id1, id4, id5]
+                tri_indices[tri_start + 6] = [id4, id5, id6]
+                tri_indices[tri_start + 7] = [id3, id6, id7]
+                tri_indices[tri_start + 8] = [id4, id5, id6]
+                tri_indices[tri_start + 9] = [id5, id6, id7]
+                tri_indices[tri_start + 10] = [id1, id3, id7]
+                tri_indices[tri_start + 11] = [id1, id5, id7]
+    write_tet("data/model/cube/coarse_new.node", points, tet_indices)
+    return points, tet_indices, tri_indices

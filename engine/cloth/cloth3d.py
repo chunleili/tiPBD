@@ -46,6 +46,7 @@ PXPBD_ksi = 1.0
 #parse arguments to change default values
 parser = argparse.ArgumentParser()
 parser.add_argument("-N", type=int, default=64)
+parser.add_argument("-compliance", type=float, default=1.0e-8)
 parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
@@ -125,7 +126,7 @@ NT = 2 * N**2
 NE = 2 * N * (N + 1) + N**2
 NCONS = NE
 new_M = int(NE / 100)
-compliance = 1.0e-8  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
+compliance = args.compliance  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
 alpha = compliance * (1.0 / delta_t / delta_t)  # timestep related compliance, see XPBD paper
 omega = 0.25
 alpha_bending = 1.0 * (1.0 / delta_t / delta_t) #TODO: need to be tuned

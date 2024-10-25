@@ -1397,6 +1397,42 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
+
+
+# case139: cloth XPBD extreme
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-cloth",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=100",
+        "-tol=1e-3",
+        "-delta_t=3e-3",
+        "-N=64",
+        "-compliance=1e-8",
+        "-end_frame=1000",
+        ]
+allargs.append(args)
+
+
+# case140: cloth AMG extreme
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-cloth",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=AMG",
+        "-arch=gpu",
+        "-maxiter=100",
+        "-tol=1e-3",
+        "-delta_t=3e-3",
+        "-N=64",
+        "-compliance=1e-8",
+        "-end_frame=1000",
+        ]
+allargs.append(args)
+
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')

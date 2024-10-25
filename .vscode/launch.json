@@ -30,15 +30,9 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
             "args": [
-              "-model_path=data/model/bunny85w/bunny85w.node",
-              "-rtol=1e-2",
-              "-tol=1e-4",
-              "-delta_t=3e-3",
-              "-solver_type=AMG",
-              "-smoother_type=jacobi",
-              "-build_P_method=strength0.1",
-              "-debug=1",
+              "-solver_type=AMG"
             ]
           }
     ]

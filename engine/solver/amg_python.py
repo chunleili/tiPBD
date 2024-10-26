@@ -8,6 +8,7 @@ from engine.solver.build_Ps import build_Ps
 
 
 def AMG_python(b, args, ist, fill_A_csr_ti, should_setup, copy_A=True):
+    logging.info("  AMG_python")
     A = fill_A_csr_ti(ist)
     if copy_A:
         A = A.copy()#FIXME: softbody no copy will cause bug, but cloth is good, why?
@@ -135,7 +136,7 @@ def coarse_solver(A, b):
     return res
 
 def old_V_cycle(levels,lvl,x,b,args,ist):
-    A = levels[lvl].A.astype(np.float64)
+    A = levels[lvl].A
     presmoother(A,x,b,args,ist)
     residual = b - A @ x
     coarse_b = levels[lvl].R @ residual

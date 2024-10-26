@@ -25,7 +25,7 @@ import numpy.ctypeslib as ctl
 
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(project_root))
-from engine.file_utils import process_dirs,  do_restart, save_state
+from engine.file_utils import process_dirs,  do_restart, save_state,  export_A_b
 from engine.mesh_io import write_mesh
 from engine.solver.build_Ps import build_Ps
 from engine.solver.amg_python import AMG_python
@@ -43,7 +43,7 @@ parser.add_argument("-compliance", type=float, default=1.0e-8)
 parser.add_argument("-delta_t", type=float, default=1e-3)
 parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
 parser.add_argument("-export_matrix", type=int, default=False)
-parser.add_argument("-export_matrix_frame", type=int, default=-1)
+parser.add_argument("-export_matrix_frame", type=int, default=1)
 parser.add_argument("-export_matrix_binary", type=int, default=True)
 parser.add_argument("-export_state", type=int, default=False)
 parser.add_argument("-export_residual", type=int, default=True)
@@ -1066,20 +1066,6 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
         n += 1 
 
 
-def export_A_b(A,b,postfix=f"", binary=args.export_matrix_binary):
-    tic = time.perf_counter()
-    dir = args.out_dir + "/A/"
-    if binary:
-        # https://stackoverflow.com/a/8980156/19253199
-        scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)
-        np.save(dir + f"b_{postfix}.npy", b)
-        # A = scipy.sparse.load_npz("A.npz") # load
-        # b = np.load("b.npy")
-    else:
-        scipy.io.mmwrite(dir + f"A_{postfix}.mtx", A, symmetry='symmetric')
-        np.savetxt(dir + f"b_{postfix}.txt", b)
-    print(f"    export_A_b time: {time.perf_counter()-tic:.3f}s")
-    
 
 @ti.kernel
 def compute_potential_energy():
@@ -1345,9 +1331,9 @@ def substep_all_solver():
             x, r_Axb = AMG_python(b,args,ist,fill_A_csr_ti,should_setup,copy_A=False)
         else:
             AMG_A()
-            if args.export_matrix and ist.frame==args.export_matrix_frame and iter==0:
+            if args.export_matrix:
                 A = fastFill_fetch()
-                export_A_b(A, b, f"{ist.frame}-{ist.ite}")
+                export_A_b(A, b, dir=args.out_dir + "/A/", postfix=f"F{ist.frame}",binary=args.export_matrix_binary)
             if should_setup():
                 AMG_setup_phase()
             extlib.fastmg_set_A0_from_fastFillCloth()

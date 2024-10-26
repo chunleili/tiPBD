@@ -33,67 +33,48 @@ from engine.solver.amg_python import AMG_python
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
 
 
-# parameters not in argparse
-
-
 #parse arguments to change default values
+from engine.common_args import add_common_args
 parser = argparse.ArgumentParser()
+parser = add_common_args(parser)
+
 parser.add_argument("-N", type=int, default=64)
 parser.add_argument("-compliance", type=float, default=1.0e-8)
-parser.add_argument("-delta_t", type=float, default=1e-3)
-parser.add_argument("-solver_type", type=str, default='AMG', help='"AMG", "GS", "XPBD"')
-parser.add_argument("-export_matrix", type=int, default=False)
-parser.add_argument("-export_matrix_frame", type=int, default=1)
-parser.add_argument("-export_matrix_binary", type=int, default=True)
-parser.add_argument("-export_state", type=int, default=False)
-parser.add_argument("-export_residual", type=int, default=True)
-parser.add_argument("-end_frame", type=int, default=100)
-parser.add_argument("-out_dir", type=str, default=f"result/latest/")
-parser.add_argument("-auto_another_outdir", type=int, default=False)
-parser.add_argument("-restart", type=int, default=False)
-parser.add_argument("-restart_frame", type=int, default=21)
-parser.add_argument("-restart_dir", type=str, default="result/meta/")
-parser.add_argument("-restart_from_last_frame", type=int, default=False)
-parser.add_argument("-maxiter", type=int, default=50)
-parser.add_argument("-maxiter_Axb", type=int, default=100)
-parser.add_argument("-export_log", type=int, default=True)
-parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
-parser.add_argument("-use_json", type=int, default=False, help="json configs will overwrite the command line args")
-parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
-parser.add_argument("-arch", type=str, default="cpu", help="taichi arch: gpu or cpu")
-parser.add_argument("-use_cuda", type=int, default=True)
-parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
-parser.add_argument("-smoother_type", type=str, default="chebyshev")
-parser.add_argument("-use_cache", type=int, default=True)
-parser.add_argument("-setup_interval", type=int, default=20)
-parser.add_argument("-tol", type=float, default=1e-4)
 parser.add_argument("-use_PXPBD_v1", type=int, default=False)
 parser.add_argument("-use_PXPBD_v2", type=int, default=False)
 parser.add_argument("-use_bending", type=int, default=False)
-parser.add_argument("-omega", type=float, default=0.25)
-parser.add_argument("-build_P_method", type=str, default="UA")
-parser.add_argument("-filter_P", type=str, default=None)
-parser.add_argument("-scale_RAP", type=int, default=False)
+parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 
+parser.add_argument("-omega", type=float, default=0.25)
+parser.add_argument("-smoother_type", type=str, default="chebyshev")
 
 args = parser.parse_args()
 
 N = args.N
 
-args.gravity = [0.0, -9.8, 0.0]
-if args.setup_num==1: args.gravity = [0.0, 0.0, 0.0]
-else : args.gravity = [0.0, -9.8, 0.0]
+if args.setup_num==1: args.gravity = (0.0, 0.0, 0.0)
+else : args.gravity = (0.0, -9.8, 0.0)
 
 args.save_image = True
-args.save_P, load_P = False, False
 args.use_viewer = False
-args.export_mesh = True
-
 args.use_geometric_stiffness = False
 args.export_fullr = False
 args.calc_r_xpbd = True
 args.use_cpp_initFill = True
 args.PXPBD_ksi = 1.0
+
+
+if args.arch == "gpu":
+    ti.init(arch=ti.gpu)
+else:
+    ti.init(arch=ti.cpu)
+
+if args.use_PXPBD_v1 or args.use_PXPBD_v2:
+    ResidualDataPrimal = namedtuple('residual', ['dual','primal','Newton', 'ninner','t'])
+    Residual0DataPrimal = namedtuple('residual', ['dual','primal','Newton'])
+else:
+    ResidualData = namedtuple('residual', ['dual', 'ninner','t'])
+    Residual0Data = namedtuple('residual', ['dual'])
 
 class Cloth():
     def __init__(self) -> None:
@@ -144,33 +125,6 @@ class Cloth():
         # self.# geometric stiffness, only retain diagonal elements
         self.K_diag = np.zeros((self.NV*3), dtype=float)
         # self.# Minv_gg = ti.Vector.field(3, dtype=float, shape=(self.NV))
-
-
-
-
-
-# if args.use_json:
-#     parse_json_params(args.json_path, globals())
-
-
-#to print out the parameters
-# global_vars = globals().copy()
-
-
-
-if args.arch == "gpu":
-    ti.init(arch=ti.gpu)
-else:
-    ti.init(arch=ti.cpu)
-
-
-
-if args.use_PXPBD_v1 or args.use_PXPBD_v2:
-    ResidualDataPrimal = namedtuple('residual', ['dual','primal','Newton', 'ninner','t'])
-    Residual0DataPrimal = namedtuple('residual', ['dual','primal','Newton'])
-else:
-    ResidualData = namedtuple('residual', ['dual', 'ninner','t'])
-    Residual0Data = namedtuple('residual', ['dual'])
 
 
 
@@ -225,7 +179,6 @@ def init_extlib_argtypes():
 
 if args.use_cuda:
     init_extlib_argtypes()
-
 
 
 

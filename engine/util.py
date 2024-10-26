@@ -160,7 +160,7 @@ class MetaData:
             return default
 
 
-meta = MetaData()
+# meta = MetaData()
 
 
 @ti.kernel
@@ -562,7 +562,7 @@ class SDF:
     Signed Distance Field (SDF) class.
     """
 
-    def __init__(self, mesh_path=None, resolution=64, dim=3, use_cache=True):
+    def __init__(self, meta, mesh_path=None, resolution=64, dim=3, use_cache=True):
         """
         生成SDF体素场。其中有两个taichi field: val和grad，分别表示SDF体素场的值和梯度。
 
@@ -653,6 +653,7 @@ def gen_sdf_voxels(mesh_path, resolution=64, return_gradients=False):
 
 def mesh_to_voxels(
     mesh,
+    meta,
     voxel_resolution=64,
     surface_point_method="scan",
     sign_method="normal",

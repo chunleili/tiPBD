@@ -27,6 +27,7 @@ project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(project_root))
 from engine.file_utils import process_dirs,  do_restart, save_state
 from engine.mesh_io import write_mesh
+from engine.solver.build_Ps import build_Ps
 
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + "/"
@@ -69,6 +70,9 @@ parser.add_argument("-use_PXPBD_v1", type=int, default=False)
 parser.add_argument("-use_PXPBD_v2", type=int, default=False)
 parser.add_argument("-use_bending", type=int, default=False)
 parser.add_argument("-omega", type=float, default=0.25)
+parser.add_argument("-build_P_method", type=str, default="UA")
+parser.add_argument("-filter_P", type=str, default=None)
+parser.add_argument("-scale_RAP", type=int, default=False)
 
 
 args = parser.parse_args()
@@ -873,8 +877,9 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
 # ---------------------------------------------------------------------------- #
 
 # https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/relaxation/relaxation.py#L586
-chebyshev_coeff = None
-def chebyshev(A, x, b, coefficients, iterations=1):
+def chebyshev(A, x, b):
+    coefficients = ist.chebyshev_coeff
+    iterations = 1
     x = np.ravel(x)
     b = np.ravel(b)
     for _i in range(iterations):
@@ -912,22 +917,22 @@ def setup_jacobi(A):
     print("omega:", ist.jacobi_omega)
 
 
-def build_Ps(A, method='UA'):
-    """Build a list of prolongation matrices Ps from A """
-    if method == 'UA':
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
-    elif method == 'SA' :
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400)
-    elif method == 'CAMG':
-        ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
-    else:
-        raise ValueError(f"Method {method} not recognized")
-    logging.info(f"{ml}")
-    Ps = []
-    for i in range(len(ml.levels)-1):
-        Ps.append(ml.levels[i].P)
+# def build_Ps(A, method='UA'):
+#     """Build a list of prolongation matrices Ps from A """
+#     if method == 'UA':
+#         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
+#     elif method == 'SA' :
+#         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400)
+#     elif method == 'CAMG':
+#         ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
+#     else:
+#         raise ValueError(f"Method {method} not recognized")
+#     logging.info(f"{ml}")
+#     Ps = []
+#     for i in range(len(ml.levels)-1):
+#         Ps.append(ml.levels[i].P)
 
-    return Ps
+#     return Ps
 
 
 class MultiLevel:
@@ -1049,7 +1054,7 @@ def presmoother(A,x,b):
     elif args.smoother_type == 'diag_sweep':
         diag_sweep(A,x,b,iterations=1)
     elif args.smoother_type == 'chebyshev':
-        chebyshev(A,x,b,chebyshev_coeff)
+        chebyshev(A,x,b)
 
 
 def postsmoother(A,x,b):
@@ -1261,11 +1266,11 @@ def compute_inertial_energy():
 
 
 def AMG_python(b):
-    A = ist.fill_A.fill_A_csr_ti()
+    A = fill_A_csr_ti()
 
     if should_setup():
         tic = time.perf_counter()
-        ist.Ps = build_Ps(A)
+        ist.Ps = build_Ps(A,args,ist)
         ist.num_levels = len(ist.Ps)+1
         logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
     
@@ -1420,7 +1425,7 @@ def AMG_setup_phase():
     tic = time.perf_counter()
     # A = fill_A_csr_ti() taichi version
     A = fastFill_fetch()
-    ist.Ps = build_Ps(A)
+    ist.Ps = build_Ps(A,args,ist,extlib)
     ist.num_levels = len(ist.Ps)+1
     logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
 
@@ -1714,31 +1719,7 @@ class FillACloth():
         return ii, jj
 
 
-    # for cnt version, require init_A_CSR_pattern() to be called first
-    @ti.kernel
-    def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
-                        indptr:ti.types.ndarray(dtype=ti.i32), 
-                        ii:ti.types.ndarray(dtype=ti.i32), 
-                        jj:ti.types.ndarray(dtype=ti.i32),
-                        adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
-                        num_nonz:ti.i32,
-                        alpha:ti.f32):
-        for cnt in range(ist.num_nonz):
-            i = ii[cnt] # row index
-            j = jj[cnt] # col index
-            k = cnt - indptr[i] #k-th non-zero element of i-th row. 
-            # Because the diag is the final element of each row, 
-            # it is also the k-th adjacent edge of i-th edge.
-            if i == j: # diag
-                data[cnt] = ist.inv_mass[ist.edge[i][0]] + ist.inv_mass[ist.edge[i][1]] + alpha
-                continue
-            a = ist.adjacent_edge_abc[i, k * 3]
-            b = ist.adjacent_edge_abc[i, k * 3 + 1]
-            c = ist.adjacent_edge_abc[i, k * 3 + 2]
-            g_ab = (ist.pos[a] - ist.pos[b]).normalized()
-            g_ac = (ist.pos[a] - ist.pos[c]).normalized()
-            offdiag = ist.inv_mass[a] * g_ab.dot(g_ac)
-            data[cnt] = offdiag
+    
 
     
     def load_cache_initFill_to_cuda(self):
@@ -1757,10 +1738,7 @@ class FillACloth():
                                            ist.NV)
 
 
-    def fill_A_csr_ti(self):
-        self.fill_A_CSR_kernel(ist.spmat_data, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha)
-        A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NE, ist.NE))
-        return A
+
 
     def compare_find_shared_v_order(v,e1,e2,edge):
         # which is shared v in e1? 0 or 1
@@ -1851,6 +1829,36 @@ class FillACloth():
     # adjacent_edges_dict = init_adj_edge(edges)
     # print(adjacent_edges_dict)
 
+# for cnt version, require init_A_CSR_pattern() to be called first
+@ti.kernel
+def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
+                    indptr:ti.types.ndarray(dtype=ti.i32), 
+                    ii:ti.types.ndarray(dtype=ti.i32), 
+                    jj:ti.types.ndarray(dtype=ti.i32),
+                    adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
+                    num_nonz:ti.i32,
+                    alpha:ti.f32):
+    for cnt in range(num_nonz):
+        i = ii[cnt] # row index
+        j = jj[cnt] # col index
+        k = cnt - indptr[i] #k-th non-zero element of i-th row. 
+        # Because the diag is the final element of each row, 
+        # it is also the k-th adjacent edge of i-th edge.
+        if i == j: # diag
+            data[cnt] = ist.inv_mass[ist.edge[i][0]] + ist.inv_mass[ist.edge[i][1]] + alpha
+            continue
+        a = adjacent_edge_abc[i, k * 3]
+        b = adjacent_edge_abc[i, k * 3 + 1]
+        c = adjacent_edge_abc[i, k * 3 + 2]
+        g_ab = (ist.pos[a] - ist.pos[b]).normalized()
+        g_ac = (ist.pos[a] - ist.pos[c]).normalized()
+        offdiag = ist.inv_mass[a] * g_ab.dot(g_ac)
+        data[cnt] = offdiag
+
+def fill_A_csr_ti():
+    fill_A_CSR_kernel(ist.spmat_data, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha)
+    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NE, ist.NE))
+    return A
 
 def fill_G():
     tic = time.perf_counter()

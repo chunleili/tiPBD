@@ -33,7 +33,7 @@
             "cwd": "${workspaceFolder}",
             "args": [
               "-solver_type=AMG",
-              "-use_cuda=0"
+              "-use_cuda=1"
             ]
           }
     ]

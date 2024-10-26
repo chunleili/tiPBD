@@ -28,7 +28,7 @@ from engine.mesh_io import write_mesh, read_tet
 from engine.common_args import add_common_args
 from engine.init_extlib import init_extlib
 from engine.solver.amg_cuda import AmgCuda
-from engine.util import is_diverge, is_stall
+from engine.util import is_diverge, is_stall, ending
 
 parser = argparse.ArgumentParser()
 
@@ -73,6 +73,9 @@ class SoftBody:
     def __init__(self, path):
         self.frame = 0
         self.ite = 0
+
+        parent_directory_name = str(Path(path).parent.stem)
+        self.sim_name = f"soft3d-{parent_directory_name}-{str(Path(path).stem)}"
 
         tic = time.perf_counter()
         self.model_pos, self.model_tet, self.model_tri = read_tet(path, build_face_flag=True)
@@ -828,6 +831,7 @@ def AMG_amgx(b):
         # config_file = str(config_file)
         amgxsolver = AMGXSolver(args.amgx_config)
         amgxsolver.init()
+        ist.amgxsolver = amgxsolver
         has_init_amgx = True
     
     A = fill_A_csr_ti(ist)
@@ -936,50 +940,6 @@ def substep_xpbd(ist):
 
 
 
-def ending(timer_loop, start_date, initial_frame):
-    t_all = time.perf_counter() - timer_loop
-    end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    args.end_frame = ist.frame
-
-    len_n_outer_all = len(ist.n_outer_all) if len(ist.n_outer_all) > 0 else 1
-    sum_n_outer = sum(ist.n_outer_all)
-    avg_n_outer = sum_n_outer / len_n_outer_all
-    max_n_outer = max(ist.n_outer_all)
-    max_n_outer_index = ist.n_outer_all.index(max_n_outer)
-
-    n_outer_all_np = np.array(ist.n_outer_all, np.int32)    
-    np.savetxt(args.out_dir+"/n_outer.txt", n_outer_all_np, fmt="%d")
-
-    sim_time_with_export = time.perf_counter() - timer_loop
-    sim_time = sim_time_with_export - ist.t_export_total
-    avg_sim_time = sim_time / (args.end_frame - initial_frame)
-
-
-    s = f"\n-------\n"+\
-    f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
-    f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
-    f"Frame {initial_frame}-{args.end_frame}({args.end_frame-initial_frame} frames)."+\
-    f"\nAvg: {avg_sim_time}s/frame."+\
-    f"\nStart\t{start_date},\nEnd\t{end_date}."+\
-    f"\nTime of exporting: {ist.t_export_total:.3f}s" + \
-    f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
-    f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
-    f"\nstalled at {ist.all_stalled}"+\
-    f"\nmodel_path: {args.model_path}" + \
-    f"\ndt={args.delta_t}" + \
-    f"\nSolver: {args.solver_type}" + \
-    f"\nout_dir: {args.out_dir}" 
-    # logging.info(s)
-
-    file_name = f"result/meta/{str(Path(args.out_dir).name)}.log"
-    file_name2 = f"{args.out_dir}/meta.log"
-    logger_meta = logging.getLogger('logger_meta')
-    logger_meta.addHandler(logging.FileHandler(file_name))
-    logger_meta.addHandler(logging.FileHandler(file_name2))
-    logger_meta.info(s)
-
-    if args.solver_type == "AMGX":
-        amgxsolver.finalize()
 
 # ---------------------------------------------------------------------------- #
 #                               directly  fill A                               #
@@ -1363,8 +1323,6 @@ def main():
     # logger2 = logging.getLogger('logger2')
     # logger2.addHandler(logging.FileHandler(args.out_dir + f'/build_P_time.log', 'a'))
 
-    start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    logging.info(start_date)
     logging.info(args)
 
     if args.use_cuda:
@@ -1374,6 +1332,9 @@ def main():
     global ist
     ist = SoftBody(args.model_path)
     ist.initialize()
+
+    ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    logging.info(ist.start_date)
     
     if args.export_mesh:
         write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
@@ -1386,11 +1347,11 @@ def main():
         amg_cuda = AmgCuda(args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, graph_coloring_v2, copy_A=True)
 
     print(f"initialize time:", perf_counter()-tic)
-    initial_frame = ist.frame
+    ist.initial_frame = ist.frame
     ist.t_export_total = 0.0
     
-    timer_all = perf_counter()
-    step_pbar = tqdm.tqdm(total=args.end_frame, initial=initial_frame)
+    ist.timer_loop = perf_counter()
+    step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.initial_frame)
     try:
         while True:
             info("\n\n----------------------")
@@ -1416,10 +1377,10 @@ def main():
                 
             if ist.frame >= args.end_frame:
                 print("Normallly end.")
-                ending(timer_all, start_date, initial_frame)
+                ending(args,ist)
                 exit()
     except KeyboardInterrupt:
-        ending(timer_all, start_date, initial_frame)
+        ending(args,ist)
         exit()
     except Exception as e:
         if args.solver_type == "AMGX":

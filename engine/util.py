@@ -1070,3 +1070,58 @@ def is_diverge(r,r_Axb,ist):
         return True
 
     return False
+
+
+
+
+
+def ending(args, ist):
+    import time, datetime
+    from pathlib import Path
+
+    t_all = time.perf_counter() - ist.timer_loop
+    end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    args.end_frame = ist.frame
+
+    len_n_outer_all = len(ist.n_outer_all) if len(ist.n_outer_all) > 0 else 1
+    sum_n_outer = sum(ist.n_outer_all)
+    avg_n_outer = sum_n_outer / len_n_outer_all
+    max_n_outer = max(ist.n_outer_all)
+    max_n_outer_index = ist.n_outer_all.index(max_n_outer)
+
+    n_outer_all_np = np.array(ist.n_outer_all, np.int32)    
+    np.savetxt(args.out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
+
+    sim_time_with_export = time.perf_counter() - ist.timer_loop
+    sim_time = sim_time_with_export - ist.t_export_total
+    avg_sim_time = sim_time / (args.end_frame - ist.initial_frame)
+
+    s = f"\n-------\n"+\
+    f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
+    f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
+    f"Frame {ist.initial_frame}-{args.end_frame}({args.end_frame-ist.initial_frame} frames)."+\
+    f"\nAvg: {avg_sim_time}s/ist.frame."+\
+    f"\nStart\t{ist.start_date},\nEnd\t{end_date}."+\
+    f"\nTime of exporting: {ist.t_export_total:.3f}s" + \
+    f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
+    f"\nMax n_outer: {max_n_outer} \nMax n_outer ist.frame: {max_n_outer_index + ist.initial_frame}." + \
+    f"\nstalled at {ist.all_stalled}"+\
+    f"\n{ist.sim_name}" + \
+    f"\ndt={args.delta_t}" + \
+    f"\nSolver: {args.solver_type}" + \
+    f"\nout_dir: {args.out_dir}" 
+
+    logging.info(s)
+
+    out_dir_name = Path(args.out_dir).name
+    name = ist.start_date + "_" +  str(out_dir_name) 
+    file_name = f"result/meta/{name}.txt"
+    with open(file_name, "w", encoding="utf-8") as file:
+        file.write(s)
+
+    file_name2 = f"{args.out_dir}/meta.txt"
+    with open(file_name2, "w", encoding="utf-8") as file:
+        file.write(s)
+
+    if args.solver_type == "AMGX":
+        ist.amgxsolver.finalize()

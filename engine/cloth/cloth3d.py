@@ -521,53 +521,6 @@ def reset_lagrangian(lagrangian: ti.template()):
         lagrangian[i] = 0.0
 
 
-def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
-    for i in range(row_start, row_stop, row_step):
-        start = Ap[i]
-        end = Ap[i + 1]
-        rsum = 0.0
-        diag = 0.0
-
-        for jj in range(start, end):
-            j = Aj[jj]
-            if i == j:
-                diag = Ax[jj]
-            else:
-                rsum += Ax[jj] * x[j]
-
-        if diag != 0.0:
-            x[i] = (b[i] - rsum) / diag
-
-@ti.kernel
-def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
-                                 Aj: ti.types.ndarray(),
-                                 Ax: ti.types.ndarray(),
-                                 x: ti.types.ndarray(),
-                                 b: ti.types.ndarray(),
-                                 row_start: int,
-                                 row_stop: int,
-                                 row_step: int):
-    # if row_step < 0:
-    #     assert "row_step must be positive"
-    for i in range(row_start, row_stop):
-        if i%row_step != 0:
-            continue
-
-        start = Ap[i]
-        end = Ap[i + 1]
-        rsum = 0.0
-        diag = 0.0
-
-        for jj in range(start, end):
-            j = Aj[jj]
-            if i == j:
-                diag = Ax[jj]
-            else:
-                rsum += Ax[jj] * x[j]
-
-        if diag != 0.0:
-            x[i] = (b[i] - rsum) / diag
-
 
 
 # @ti.kernel
@@ -624,48 +577,6 @@ def transfer_back_to_pos_mfree(x):
     transfer_back_to_pos_mfree_kernel()
     update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
 
-def spy_A(A,b):
-    print("A:", A.shape, " b:", b.shape)
-    scipy.io.mmwrite("A.mtx", A)
-    plt.spy(A, markersize=1)
-    plt.show()
-    exit()
-
-
-
-
-
-def is_symmetric(A):
-    AT = A.transpose()
-    diff = A - AT
-    if diff.nnz == 0:
-        return True
-    maxdiff = np.max(np.abs(diff.data))
-    return maxdiff < 1e-6
-
-def csr_is_equal(A, B):
-    if A.shape != B.shape:
-        print("shape not equal")
-        assert False
-    diff = A - B
-    if diff.nnz == 0:
-        print("csr is equal! nnz=0")
-        return True
-    maxdiff = np.abs(diff.data).max()
-    print("maxdiff: ", maxdiff)
-    if maxdiff > 1e-6:
-        assert False
-    print("csr is equal!")
-    return True
-
-def dense_mat_is_equal(A, B):
-    diff = A - B
-    maxdiff = np.abs(diff).max()
-    print("maxdiff: ", maxdiff)
-    if maxdiff > 1e-6:
-        assert False
-    print("is equal!")
-    return True
 
 
 

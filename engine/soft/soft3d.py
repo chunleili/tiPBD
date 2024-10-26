@@ -27,6 +27,7 @@ from engine.file_utils import process_dirs,  do_restart, save_state, export_A_b
 from engine.mesh_io import write_mesh, read_tet
 from engine.common_args import add_common_args
 from engine.init_extlib import init_extlib
+from engine.solver.amg_cuda import AmgCuda
 
 parser = argparse.ArgumentParser()
 
@@ -632,24 +633,6 @@ def AMG_b(ist):
 def should_setup():
     return ((ist.frame%args.setup_interval==0 or (args.restart==True and ist.frame==args.restart_frame)) and (ist.ite==0))
 
-def update_P(Ps):
-    for lv in range(len(Ps)):
-        P_ = Ps[lv].tocsr()
-        extlib.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
-
-
-def cuda_set_A0(A0):
-    extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
-
-
-# def report_multilevel_details(Ps, num_levels):
-#     logging.info(f"    num_levels:{num_levels}")
-#     num_points_level = []
-#     for i in range(len(Ps)):
-#         num_points_level.append(Ps[i].shape[0])
-#     num_points_level.append(Ps[-1].shape[1])
-#     for i in range(num_levels):
-#         logging.info(f"    num points of level {i}: {num_points_level[i]}")
 
 
 def smoother_name2type(name):
@@ -662,36 +645,6 @@ def smoother_name2type(name):
     else:
         raise ValueError(f"smoother name {name} not supported")
 
-def AMG_setup_phase():
-    tic = time.perf_counter()
-    A = fill_A_csr_ti(ist) #taichi version
-    A = A.copy() #FIXME: no copy will cause bug, why?
-    ist.Ps = build_Ps(A, args, ist, extlib)
-    logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
-
-
-    tic = time.perf_counter()
-    update_P(ist.Ps)
-    logging.info(f"    update_P time: {time.perf_counter()-tic:.2f}s")
-
-    tic = time.perf_counter()
-    cuda_set_A0(A)
-    
-    AMG_RAP()
-
-    s = smoother_name2type(args.smoother_type)
-    extlib.fastmg_setup_smoothers.argtypes = [c_int]
-    print(s)
-    extlib.fastmg_setup_smoothers(s) # 1 means chebyshev, 2 means w-jacobi, 3 gauss_seidel
-    extlib.fastmg_set_smoother_niter(args.smoother_niter)
-    extlib.fastmg_set_coarse_solver_type.argtypes = [c_int]
-    extlib.fastmg_set_coarse_solver_type(args.coarse_solver_type)
-
-    logging.info(f"    setup smoothers time:{perf_counter()-tic}")
-
-    if args.smoother_type=="gauss_seidel":
-        graph_coloring_v2()    
-    return A
 
 
 def fetch_A_from_cuda(lv=0):
@@ -720,13 +673,13 @@ def fastmg_fetch():
     return A
 
 
-def AMG_RAP():
-    tic3 = time.perf_counter()
-    # A = fill_A_csr_ti(ist)
-    # cuda_set_A0(A)
-    for lv in range(ist.num_levels-1):
-        extlib.fastmg_RAP(lv) 
-    logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
+# def AMG_RAP():
+#     tic3 = time.perf_counter()
+#     # A = fill_A_csr_ti(ist)
+#     # cuda_set_A0(A)
+#     for lv in range(ist.num_levels-1):
+#         extlib.fastmg_RAP(lv) 
+#     logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
 
 
 def AMG_dlam2dpos(x):
@@ -734,32 +687,6 @@ def AMG_dlam2dpos(x):
     transfer_back_to_pos_mfree(x, ist)
     logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
 
-
-def AMG_solve(b, x0=None, tol=1e-5, maxiter=100):
-    if x0 is None:
-        x0 = np.zeros(b.shape[0], dtype=np.float32)
-
-    tic4 = time.perf_counter()
-    # set data
-    x0 = x0.astype(np.float32)
-    b = b.astype(np.float32)
-    extlib.fastmg_set_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
-
-    # solve
-    if args.only_smoother:
-        extlib.fastmg_solve_only_smoother()
-    else:
-        extlib.fastmg_solve()
-
-    # get result
-    x = np.empty_like(x0, dtype=np.float32)
-    residuals = np.zeros(shape=(maxiter,), dtype=np.float32)
-    niter = extlib.fastmg_get_data(x, residuals)
-    niter += 1
-    residuals = residuals[:niter]
-    logging.info(f"    inner iter: {niter}")
-    logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
-    return (x),  residuals  
 
 
 def do_export_r(r):
@@ -911,17 +838,8 @@ def AMG_amgx(b):
     return x, np.array(r_Axb)
 
 
-
-def AMG_cuda(b):
-    AMG_A()
-    if should_setup():
-        A = AMG_setup_phase()
-        if args.export_matrix:
-            export_A_b(A, b, dir=args.out_dir + "/A/", postfix=f"F{ist.frame}",binary=args.export_matrix_binary)
+def fastFill_set():
     extlib.fastmg_set_A0_from_fastFillSoft()
-    AMG_RAP()
-    x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
-    return x, r_Axb
 
 
 def substep_all_solver(ist):
@@ -942,7 +860,7 @@ def substep_all_solver(ist):
             x, r_Axb = AMG_python(b,args,ist,fill_A_csr_ti,should_setup,copy_A=True)
         else:
             if args.solver_type == "AMG":
-                x, r_Axb = AMG_cuda(b)
+                x, r_Axb = amg_cuda.AMG_cuda(b)
             elif args.solver_type == "AMGX":
                 x, r_Axb = AMG_amgx(b)
         AMG_dlam2dpos(x)
@@ -1493,6 +1411,9 @@ def main():
     if args.solver_type != "XPBD":
         init_direct_fill_A(ist)
 
+    if args.use_cuda:
+        global amg_cuda
+        amg_cuda = AmgCuda(args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, graph_coloring_v2)
 
     print(f"initialize time:", perf_counter()-tic)
     initial_frame = ist.frame

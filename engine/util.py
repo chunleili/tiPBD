@@ -1029,3 +1029,44 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
 
         if diag != 0.0:
             x[i] = (b[i] - rsum) / diag
+
+
+
+
+# if in last 5 iters, residuals not change 0.1%, then it is stalled
+def is_stall(r,ist,args):
+    if (ist.ite < 5):
+        return False
+    # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
+    inc1 = r[-1].dual/r[-2].dual
+    inc2 = r[-2].dual/r[-3].dual
+    inc3 = r[-3].dual/r[-4].dual
+    inc4 = r[-4].dual/r[-5].dual
+    if args.use_PXPBD_v1:
+        inc1 = r[-1].Newton/r[-2].Newton
+        inc2 = r[-2].Newton/r[-3].Newton
+        inc3 = r[-3].Newton/r[-4].Newton
+        inc4 = r[-4].Newton/r[-5].Newton
+    
+    # if all incs is in [0.999,1.001]
+    if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
+        logging.info(f"Stall at {ist.frame}-{ist.ite}")
+        ist.all_stalled.append((ist.frame, ist.ite))
+        return True
+    return False
+
+
+
+
+
+def is_diverge(r,r_Axb,ist):
+    if (ist.ite < 5):
+        return False
+
+    if r[-1].dual/r[-5].dual>5:
+        return True
+    
+    if r_Axb[-1]>r_Axb[0]:
+        return True
+
+    return False

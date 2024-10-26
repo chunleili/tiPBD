@@ -24,6 +24,7 @@ from engine.solver.build_Ps import build_Ps
 from engine.solver.amg_python import AMG_python
 from engine.cloth.bending import init_bending, solve_bending_constraints_xpbd
 from engine.solver.amg_cuda import AmgCuda
+from engine.util import is_stall
 
 
 
@@ -76,6 +77,7 @@ class Cloth():
         self.num_levels = 0
         self.paused = False
         self.n_outer_all = [] 
+        self.all_stalled = [] 
         self.t_export = 0.0
         self.sim_name=f"cloth-N{args.N}"
 
@@ -187,18 +189,6 @@ def init_edge(
         p1, p2 = pos[idx1], pos[idx2]
         rest_len[i] = (p1 - p2).norm()
 
-@ti.kernel
-def init_edge_center(
-    edge_center:ti.template(),
-    edge:ti.template(),
-    pos:ti.template(),
-):
-    for i in range(ist.NE):
-        idx1, idx2 = edge[i]
-        p1, p2 = pos[idx1], pos[idx2]
-        edge_center[i] = (p1 + p2) / 2.0
-
-
 
 
 @ti.kernel
@@ -217,27 +207,6 @@ def semi_euler(
             old_pos[i] = pos[i]
             pos[i] += delta_t * vel[i]
             predict_pos[i] = pos[i]
-
-
-@ti.kernel
-def solve_constraints(
-    inv_mass:ti.template(),
-    edge:ti.template(),
-    rest_len:ti.template(),
-    dpos:ti.template(),
-    pos:ti.template(),
-):
-    for i in range(ist.NE):
-        idx0, idx1 = edge[i]
-        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
-        dis = pos[idx0] - pos[idx1]
-        constraint = dis.norm() - rest_len[i]
-        gradient = dis.normalized()
-        l = -constraint / (invM0 + invM1)
-        if invM0 != 0.0:
-            dpos[idx0] += invM0 * l * gradient
-        if invM1 != 0.0:
-            dpos[idx1] -= invM1 * l * gradient
 
 
 
@@ -365,28 +334,7 @@ def calc_norm(a:ti.template())->ti.f32:
     return sum
 
 
-all_stalled = []
-# if in last 5 iters, residuals not change 0.1%, then it is stalled
-def is_stall(r):
-    if (ist.ite < 5):
-        return False
-    # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
-    inc1 = r[-1].dual/r[-2].dual
-    inc2 = r[-2].dual/r[-3].dual
-    inc3 = r[-3].dual/r[-4].dual
-    inc4 = r[-4].dual/r[-5].dual
-    if args.use_PXPBD_v1:
-        inc1 = r[-1].Newton/r[-2].Newton
-        inc2 = r[-2].Newton/r[-3].Newton
-        inc3 = r[-3].Newton/r[-4].Newton
-        inc4 = r[-4].Newton/r[-5].Newton
-    
-    # if all incs is in [0.999,1.001]
-    if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
-        logging.info(f"Stall at {ist.frame}-{ist.ite}")
-        all_stalled.append((ist.frame, ist.ite))
-        return True
-    return False
+
 
 def substep_xpbd():
     semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos,args.delta_t)
@@ -831,6 +779,10 @@ def substep_all_solver():
         AMG_calc_r(r, r0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
 
+        if is_stall(r, ist, args):
+            logging.info("Stall detected, break")
+            break
+
         if args.use_PXPBD_v1:
             rtol = 1e-1
             if  r[-1].Newton<rtol*r[0].Newton:
@@ -839,9 +791,6 @@ def substep_all_solver():
             if r[-1].dual<args.tol:
                 break
 
-        if is_stall(r):
-            logging.info("Stall detected, break")
-            break
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {ist.ite+1}")
@@ -1208,7 +1157,7 @@ def ending(timer_loop, start_date, initial_frame):
     f"\nTime of exporting: {ist.t_export_total:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
     f"\nMax n_outer: {max_n_outer} \nMax n_outer ist.frame: {max_n_outer_index + initial_frame}." + \
-    f"\nstalled at {all_stalled}"+\
+    f"\nstalled at {ist.all_stalled}"+\
     f"\nCloth-N{N}" + \
     f"\ndt={args.delta_t}" + \
     f"\nSolver: {args.solver_type}" + \

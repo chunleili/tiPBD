@@ -28,6 +28,7 @@ from engine.mesh_io import write_mesh, read_tet
 from engine.common_args import add_common_args
 from engine.init_extlib import init_extlib
 from engine.solver.amg_cuda import AmgCuda
+from engine.util import is_diverge, is_stall
 
 parser = argparse.ArgumentParser()
 
@@ -873,7 +874,7 @@ def substep_all_solver(ist):
         #     break
         if r[-1].dual / r[0].dual <args.rtol:
             break
-        if is_diverge(r, r_Axb):
+        if is_diverge(r, r_Axb,ist):
             logging.error("Diverge detected")
             raise ValueError("Diverge detected")
     
@@ -888,37 +889,6 @@ def substep_all_solver(ist):
     ist.t_avg_iter.append((time.perf_counter()-tic1)/ist.n_outer_all[-1])
     logging.info(f"avg iter frame {ist.frame}: {ist.t_avg_iter[-1]*1000:.0f}ms")
 
-
-
-# if in last 5 iters, residuals not change 0.1%, then it is stalled
-def is_stall(r):
-    if (ist.ite < 5):
-        return False
-    # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
-    inc1 = r[-1].dual/r[-2].dual
-    inc2 = r[-2].dual/r[-3].dual
-    inc3 = r[-3].dual/r[-4].dual
-    inc4 = r[-4].dual/r[-5].dual
-    
-    # if all incs is in [0.999,1.001]
-    if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
-        logging.warning(f"Stall at {ist.frame}-{ist.ite}")
-        ist.all_stalled.append((ist.frame, ist.ite))
-        return True
-    return False
-
-
-def is_diverge(r,r_Axb):
-    if (ist.ite < 5):
-        return False
-
-    if r[-1].dual/r[-5].dual>5:
-        return True
-    
-    if r_Axb[-1]>r_Axb[0]:
-        return True
-
-    return False
 
 
 def substep_xpbd(ist):

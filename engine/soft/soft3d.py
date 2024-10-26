@@ -1413,7 +1413,7 @@ def main():
 
     if args.use_cuda:
         global amg_cuda
-        amg_cuda = AmgCuda(args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, graph_coloring_v2)
+        amg_cuda = AmgCuda(args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, graph_coloring_v2, copy_A=True)
 
     print(f"initialize time:", perf_counter()-tic)
     initial_frame = ist.frame

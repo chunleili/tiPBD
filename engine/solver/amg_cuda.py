@@ -4,10 +4,11 @@ import time
 import ctypes
 
 class AmgCuda:
-    def __init__(self, args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, graph_coloring_v2=None):
+    def __init__(self, args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, graph_coloring_v2=None, copy_A=True):
         self.args = args
         self.extlib = extlib
         self.ist = ist
+        self.copy_A = copy_A
         
         # TODO: for now, we pass func ptr to distinguish between soft and cloth
         self.fill_A_csr_ti = fill_A_csr_ti
@@ -62,7 +63,8 @@ class AmgCuda:
     def AMG_setup_phase(self):
         tic = time.perf_counter()
         A = self.fill_A_csr_ti(self.ist) #taichi version
-        A = A.copy() #FIXME: no copy will cause bug, why?
+        if self.copy_A:
+            A = A.copy() #FIXME: no copy will cause bug, why?
         from engine.solver.build_Ps import build_Ps
         self.ist.Ps = build_Ps(A, self.args, self.ist, self.extlib)
         logging.info(f"    build_Ps time:{time.perf_counter()-tic}")

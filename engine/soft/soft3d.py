@@ -26,6 +26,7 @@ from engine.solver.amg_python import AMG_python
 from engine.file_utils import process_dirs,  do_restart, save_state, export_A_b
 from engine.mesh_io import write_mesh, read_tet
 from engine.common_args import add_common_args
+from engine.init_extlib import init_extlib
 
 parser = argparse.ArgumentParser()
 
@@ -61,52 +62,9 @@ else:
     ti.init(arch=ti.cpu)
 
 
-
 arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
 arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
-arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
-arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
-arr3d_int = ctl.ndpointer(dtype=np.int32, ndim=3, flags='aligned, c_contiguous')
-arr3d_int8 = ctl.ndpointer(dtype=np.int8, ndim=3, flags='aligned, c_contiguous')
-arr3d_float = ctl.ndpointer(dtype=np.float32, ndim=3, flags='aligned, c_contiguous')
-c_size_t = ctypes.c_size_t
-c_float = ctypes.c_float
 c_int = ctypes.c_int
-argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # data
-                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indices
-                ctl.ndpointer(np.int32,  flags='aligned, c_contiguous'),      # indptr
-                ctypes.c_int, ctypes.c_int, ctypes.c_int           # rows, cols, nnz
-                ]
-
-def init_extlib_argtypes():
-    if args.debug:
-        os.chdir(prj_path+'/cpp/mgcg_cuda')
-        os.system("cmake --build build --config Debug --parallel 8")
-        os.chdir(prj_path)
-
-    os.add_dll_directory(args.cuda_dir)
-    extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
-
-    extlib.fastmg_set_data.argtypes = [arr_float, c_size_t, arr_float, c_size_t, c_float, c_size_t]
-    extlib.fastmg_get_data.argtypes = [arr_float]*2
-    extlib.fastmg_get_data.restype = c_size_t
-    extlib.argtypes = [ctypes.c_float, ctypes.c_size_t]
-    extlib.fastmg_RAP.argtypes = [ctypes.c_size_t]
-    extlib.fastmg_set_A0.argtypes = argtypes_of_csr
-    extlib.fastmg_set_P.argtypes = [ctypes.c_size_t] + argtypes_of_csr
-    extlib.fastmg_set_smoother_niter.argtypes = [ctypes.c_size_t]
-    extlib.fastmg_update_A0.argtypes = [arr_float]
-
-    extlib.fastFillSoft_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, arr_float]
-    extlib.fastFillSoft_fetch_A_data.argtypes = [arr_float]
-    extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
-
-    extlib.fastmg_new()
-    extlib.fastFillSoft_new()
-    if args.scale_RAP:
-        extlib.fastmg_scale_RAP.argtypes = [c_float, c_int]
-    
-    return extlib
 
 
 
@@ -1531,7 +1489,7 @@ def main():
 
     if args.use_cuda:
         global extlib
-        extlib = init_extlib_argtypes()
+        extlib = init_extlib(args,sim="soft")
 
     global ist
     ist = SoftBody(args.model_path)

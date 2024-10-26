@@ -1,16 +1,11 @@
-import ctypes
 import scipy.sparse
 import taichi as ti
 import numpy as np
 import time
 import scipy
-import scipy.sparse as sp
-from scipy.io import mmwrite, mmread
 from pathlib import Path
 import os,sys
 from matplotlib import pyplot as plt
-import shutil, glob
-import meshio
 import tqdm
 import argparse
 from collections import namedtuple
@@ -18,8 +13,6 @@ import json
 import logging
 import datetime
 from time import perf_counter
-import pyamg
-import numpy.ctypeslib as ctl
 
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -315,61 +308,6 @@ def init_bending(tri, pos):
 
 
 
-
-
-
-
-def read_tri_cloth(filename):
-    edge_file_name = filename + ".edge"
-    node_file_name = filename + ".node"
-    face_file_name = filename + ".face"
-
-    with open(node_file_name, "r") as f:
-        lines = f.readlines()
-        ist.NV = int(lines[0].split()[0])
-        pos = np.zeros((ist.NV, 3), dtype=np.float32)
-        for i in range(ist.NV):
-            pos[i] = np.array(lines[i + 1].split()[1:], dtype=np.float32)
-
-    with open(edge_file_name, "r") as f:
-        lines = f.readlines()
-        ist.NE = int(lines[0].split()[0])
-        edge_indices = np.zeros((ist.NE, 2), dtype=np.int32)
-        for i in range(ist.NE):
-            edge_indices[i] = np.array(lines[i + 1].split()[1:], dtype=np.int32)
-
-    with open(face_file_name, "r") as f:
-        lines = f.readlines()
-        NF = int(lines[0].split()[0])
-        face_indices = np.zeros((NF, 3), dtype=np.int32)
-        for i in range(NF):
-            face_indices[i] = np.array(lines[i + 1].split()[1:-1], dtype=np.int32)
-
-    return pos, edge_indices, face_indices.flatten()
-
-
-def read_tri_cloth_obj(path):
-    print(f"path is {path}")
-    mesh = meshio.read(path)
-    tri = mesh.cells_dict["triangle"]
-    pos = mesh.points
-
-    num_tri = len(tri)
-    edges=[]
-    for i in range(num_tri):
-        ele = tri[i]
-        edges.append([min((ele[0]), (ele[1])), max((ele[0]),(ele[1]))])
-        edges.append([min((ele[1]), (ele[2])), max((ele[1]),(ele[2]))])
-        edges.append([min((ele[0]), (ele[2])), max((ele[0]),(ele[2]))])
-    #remove the duplicate edges
-    # https://stackoverflow.com/questions/2213923/removing-duplicates-from-a-list-of-lists
-    import itertools
-    edges.sort()
-    edges = list(edges for edges,_ in itertools.groupby(edges))
-
-    return pos, np.array(edges), tri.flatten()
-
-
 @ti.kernel
 def semi_euler(
     old_pos:ti.template(),
@@ -532,7 +470,7 @@ def calc_dual_residual(
         dual_residual[i] = -(constraint + ist.alpha * lagrangian[i])
 
 def calc_primary_residual(G,M_inv):
-    MASS = sp.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
+    MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
     primary_residual = MASS @ (ist.pos.to_numpy().flatten() - ist.predict_pos.to_numpy().flatten()) - G.transpose() @ ist.lagrangian.to_numpy()
     where_zeros = np.where(M_inv.diagonal()==0)
     primary_residual = np.delete(primary_residual, where_zeros)
@@ -920,50 +858,6 @@ def dense_mat_is_equal(A, B):
 
 
 
-def fastFill_fetch():
-    extlib.fastFillCloth_fetch_A_data(ist.spmat_data)
-    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NE, ist.NE))
-    return A
-
-
-def fastFillCloth_run():
-    extlib.fastFillCloth_run(ist.pos.to_numpy())
-
-
-@ti.kernel
-def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
-    for i in range(edge.shape[0]):
-        diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
-
-
-@ti.kernel
-def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha:ti.f32):
-    n = 0
-    ist.NE = ist.adjacent_edge.shape[0]
-    ti.loop_config(serialize=True)
-    for i in range(ist.NE): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
-        for k in range(num_adjacent_edge[i]):
-            ia = adjacent_edge[i,k]
-            a = adjacent_edge_abc[i, k * 3]
-            b = adjacent_edge_abc[i, k * 3 + 1]
-            c = adjacent_edge_abc[i, k * 3 + 2]
-            g_ab = (ist.pos[a] - ist.pos[b]).normalized()
-            g_ac = (ist.pos[a] - ist.pos[c]).normalized()
-            offdiag = inv_mass[a] * g_ab.dot(g_ac)
-            if offdiag == 0:
-                continue
-            ii[n] = i
-            jj[n] = ia
-            vv[n] = offdiag
-            n += 1
-        # diag
-        ii[n] = i
-        jj[n] = i
-        vv[n] = inv_mass[ist.edge[i][0]] + inv_mass[ist.edge[i][1]] + alpha
-        n += 1 
-
-
-
 @ti.kernel
 def compute_potential_energy():
     ist.potential_energy[None] = 0.0
@@ -1190,7 +1084,7 @@ def AMG_PXPBD_v1_b(G):
     b = -ist.constraints.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
 
     # PXPBD_b_kernel(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
-    MASS = sp.diags(1.0/(ist.M_inv.diagonal()+1e-12), format="csr")
+    MASS = scipy.sparse.diags(1.0/(ist.M_inv.diagonal()+1e-12), format="csr")
     Minv_gg =  MASS@ist.M_inv@(ist.pos.to_numpy().flatten() - ist.predict_pos.to_numpy().flatten()) - ist.M_inv @ G.transpose() @ ist.lagrangian.to_numpy()
     b += G @ Minv_gg
     return b, Minv_gg
@@ -1283,24 +1177,9 @@ def init_scale():
 
 
 
-def print_all_globals(global_vars):
-    logging.info("\n\n### Global Variables ###")
-    import sys
-    module_name = sys.modules[__name__].__name__
-    global_vars = global_vars.copy()
-    keys_to_delete = []
-    for var_name, var_value in global_vars.items():
-        if var_name != module_name and not var_name.startswith('__') and not callable(var_value) and not isinstance(var_value, type(sys)):
-            if var_name == 'parser':
-                continue
-            if args.export_log:
-                logging.info(f"{var_name} = {var_value}")
-            keys_to_delete.append(var_name)
-    logging.info("\n\n\n")
-
-
-
-
+# ---------------------------------------------------------------------------- #
+#                                 start fill A                                 #
+# ---------------------------------------------------------------------------- #
 def dict_to_ndarr(d:dict)->np.ndarray:
     lengths = np.array([len(v) for v in d.values()])
 
@@ -1309,11 +1188,6 @@ def dict_to_ndarr(d:dict)->np.ndarray:
     arr = np.array([list(item) + [-1]*(max_len - len(item)) if len(item) < max_len else list(item)[:max_len] for item in d.values()])
     return arr, lengths
 
-
-
-# ---------------------------------------------------------------------------- #
-#                                 start fill A                                 #
-# ---------------------------------------------------------------------------- #
 class FillACloth():
     def load(self):
         self.cache_and_initFill()
@@ -1547,6 +1421,54 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
         g_ac = (ist.pos[a] - ist.pos[c]).normalized()
         offdiag = ist.inv_mass[a] * g_ab.dot(g_ac)
         data[cnt] = offdiag
+
+
+
+
+def fastFill_fetch():
+    extlib.fastFillCloth_fetch_A_data(ist.spmat_data)
+    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NE, ist.NE))
+    return A
+
+
+def fastFillCloth_run():
+    extlib.fastFillCloth_run(ist.pos.to_numpy())
+
+
+
+@ti.kernel
+def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
+    for i in range(edge.shape[0]):
+        diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+
+
+@ti.kernel
+def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha:ti.f32):
+    n = 0
+    ist.NE = ist.adjacent_edge.shape[0]
+    ti.loop_config(serialize=True)
+    for i in range(ist.NE): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
+        for k in range(num_adjacent_edge[i]):
+            ia = adjacent_edge[i,k]
+            a = adjacent_edge_abc[i, k * 3]
+            b = adjacent_edge_abc[i, k * 3 + 1]
+            c = adjacent_edge_abc[i, k * 3 + 2]
+            g_ab = (ist.pos[a] - ist.pos[b]).normalized()
+            g_ac = (ist.pos[a] - ist.pos[c]).normalized()
+            offdiag = inv_mass[a] * g_ab.dot(g_ac)
+            if offdiag == 0:
+                continue
+            ii[n] = i
+            jj[n] = ia
+            vv[n] = offdiag
+            n += 1
+        # diag
+        ii[n] = i
+        jj[n] = i
+        vv[n] = inv_mass[ist.edge[i][0]] + inv_mass[ist.edge[i][1]] + alpha
+        n += 1 
+
+
 
 def fill_A_csr_ti(ist):
     fill_A_CSR_kernel(ist.spmat_data, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha)

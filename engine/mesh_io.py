@@ -387,3 +387,59 @@ def generate_cube_mesh(len, grid_dx=0.1):
                 tri_indices[tri_start + 11] = [id1, id5, id7]
     write_tet("data/model/cube/coarse_new.node", points, tet_indices)
     return points, tet_indices, tri_indices
+
+
+
+
+
+
+
+def read_tri_cloth(filename):
+    edge_file_name = filename + ".edge"
+    node_file_name = filename + ".node"
+    face_file_name = filename + ".face"
+
+    with open(node_file_name, "r") as f:
+        lines = f.readlines()
+        NV = int(lines[0].split()[0])
+        pos = np.zeros((NV, 3), dtype=np.float32)
+        for i in range(NV):
+            pos[i] = np.array(lines[i + 1].split()[1:], dtype=np.float32)
+
+    with open(edge_file_name, "r") as f:
+        lines = f.readlines()
+        NE = int(lines[0].split()[0])
+        edge_indices = np.zeros((NE, 2), dtype=np.int32)
+        for i in range(NE):
+            edge_indices[i] = np.array(lines[i + 1].split()[1:], dtype=np.int32)
+
+    with open(face_file_name, "r") as f:
+        lines = f.readlines()
+        NF = int(lines[0].split()[0])
+        face_indices = np.zeros((NF, 3), dtype=np.int32)
+        for i in range(NF):
+            face_indices[i] = np.array(lines[i + 1].split()[1:-1], dtype=np.int32)
+
+    return pos, edge_indices, face_indices.flatten(), NE, NV
+
+
+def read_tri_cloth_obj(path):
+    print(f"path is {path}")
+    mesh = meshio.read(path)
+    tri = mesh.cells_dict["triangle"]
+    pos = mesh.points
+
+    num_tri = len(tri)
+    edges=[]
+    for i in range(num_tri):
+        ele = tri[i]
+        edges.append([min((ele[0]), (ele[1])), max((ele[0]),(ele[1]))])
+        edges.append([min((ele[1]), (ele[2])), max((ele[1]),(ele[2]))])
+        edges.append([min((ele[0]), (ele[2])), max((ele[0]),(ele[2]))])
+    #remove the duplicate edges
+    # https://stackoverflow.com/questions/2213923/removing-duplicates-from-a-list-of-lists
+    import itertools
+    edges.sort()
+    edges = list(edges for edges,_ in itertools.groupby(edges))
+
+    return pos, np.array(edges), tri.flatten()

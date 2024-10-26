@@ -67,31 +67,11 @@ arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous
 c_int = ctypes.c_int
 
 
-
-class Meta:
-    def __init__(self) -> None:
-        # control parameters
-        self.args = args
+class SoftBody:
+    def __init__(self, path):
         self.frame = 0
         self.ite = 0
 
-        # physical parameters
-        self.omega = self.args.omega  # SOR factor, default 0.1
-        self.mu = self.args.mu  # Lame's second parameter, default 1e6
-        self.inv_mu = 1.0 / self.mu
-        self.delta_t = self.args.delta_t  # time step size, default 3e-3
-        self.inv_h2 = 1.0 / self.delta_t / self.delta_t
-        self.gravity = ti.Vector(self.args.gravity)  # gravity, default (0, 0, 0)
-        self.damping_coeff = self.args.damping_coeff  # damping coefficient, default 1.0
-        self.total_mass = self.args.total_mass  # total mass, default 16000.0
-        # self.mass_density = 2000.0
-
-
-meta = Meta()
-
-
-class SoftBody:
-    def __init__(self, path):
         tic = time.perf_counter()
         self.model_pos, self.model_tet, self.model_tri = read_tet(path, build_face_flag=True)
         print(f"read_tet cost: {time.perf_counter() - tic:.4f}s")
@@ -147,6 +127,8 @@ class SoftBody:
         self.pos.from_numpy(self.model_pos)
         self.tet_indices.from_numpy(self.model_tet)
 
+        inv_mu = 1.0 / args.mu
+        inv_h2 = 1.0 / args.delta_t / args.delta_t
         # init inv_mass rest volume alpha_tilde etc.
         init_physics(
             self.pos,
@@ -160,6 +142,8 @@ class SoftBody:
             self.inv_mass,
             self.alpha_tilde,
             self.par_2_tet,
+            inv_mu,
+            inv_h2,
         )
 
         # FIXME: no reinit will cause bug, why?
@@ -228,6 +212,8 @@ def init_physics(
     inv_mass: ti.template(),
     alpha_tilde: ti.template(),
     par_2_tet: ti.template(),
+    inv_mu: ti.f32,
+    inv_h2: ti.f32,
 ):
     # init pos, old_pos, vel
     for i in pos:
@@ -249,7 +235,7 @@ def init_physics(
     # init mass
     # for i in tet_indices:
     #     ia, ib, ic, id = tet_indices[i]
-    #     mass_density = meta.total_mass / total_volume
+    #     mass_density = args.total_mass / total_volume
     #     tet_mass = mass_density * rest_volume[i]
     #     avg_mass = tet_mass / 4.0
     #     mass[ia] += avg_mass
@@ -260,7 +246,7 @@ def init_physics(
         inv_mass[i] = 1.0 
 
     for i in alpha_tilde:
-        alpha_tilde[i] = meta.inv_h2 * meta.inv_mu * inv_V[i]
+        alpha_tilde[i] = inv_h2 * inv_mu * inv_V[i]
 
     # init par_2_tet
     for i in tet_indices:
@@ -341,9 +327,10 @@ def semi_euler(
     old_pos: ti.template(),
     vel: ti.template(),
     damping_coeff: ti.f32,
+    gravity: ti.template(),
 ):
     for i in pos:
-        vel[i] += delta_t * meta.gravity
+        vel[i] += delta_t * gravity
         vel[i] *= damping_coeff
         old_pos[i] = pos[i]
         pos[i] += delta_t * vel[i]
@@ -451,6 +438,7 @@ def project_constraints(
     gradC: ti.template(),
     dlambda: ti.template(),
     dpos: ti.template(),
+    omega: ti.f32
 ):
     for i in pos:
         pos_mid[i] = pos[i]
@@ -486,14 +474,14 @@ def project_constraints(
         p1 = tet_indices[t][1]
         p2 = tet_indices[t][2]
         p3 = tet_indices[t][3]
-        pos[p0] += meta.omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
-        pos[p1] += meta.omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
-        pos[p2] += meta.omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
-        pos[p3] += meta.omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
-        dpos[p0] += meta.omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
-        dpos[p1] += meta.omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
-        dpos[p2] += meta.omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
-        dpos[p3] += meta.omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+        pos[p0] += omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+        pos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+        pos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+        pos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+        dpos[p0] += omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+        dpos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+        dpos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+        dpos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
 
 
 @ti.kernel
@@ -529,16 +517,17 @@ def update_pos(
     inv_mass:ti.template(),
     dpos:ti.template(),
     pos:ti.template(),
+    omega:ti.f32
 ):
     for i in range(inv_mass.shape[0]):
         if inv_mass[i] != 0.0:
-            pos[i] += meta.omega * dpos[i]
+            pos[i] += omega * dpos[i]
 
 def transfer_back_to_pos_mfree(x, ist):
     ist.dlambda.from_numpy(x)
     reset_dpos(ist.dpos)
     transfer_back_to_pos_mfree_kernel(ist.gradC, ist.tet_indices, ist.inv_mass, ist.dlambda, ist.lagrangian, ist.dpos)
-    update_pos(ist.inv_mass, ist.dpos, ist.pos)
+    update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
     collsion_response(ist.pos)
 
 @ti.kernel
@@ -641,7 +630,7 @@ def AMG_b(ist):
 
 
 def should_setup():
-    return ((meta.frame%args.setup_interval==0 or (args.restart==True and meta.frame==args.restart_frame)) and (meta.ite==0))
+    return ((ist.frame%args.setup_interval==0 or (args.restart==True and ist.frame==args.restart_frame)) and (ist.ite==0))
 
 def update_P(Ps):
     for lv in range(len(Ps)):
@@ -777,7 +766,7 @@ def do_export_r(r):
     tic = time.perf_counter()
     serialized_r = [r[i]._asdict() for i in range(len(r))]
     r_json = json.dumps(serialized_r)
-    with open(args.out_dir+'/r/'+ f'{meta.frame}.json', 'w') as file:
+    with open(args.out_dir+'/r/'+ f'{ist.frame}.json', 'w') as file:
         file.write(r_json)
     ist.t_export += time.perf_counter()-tic
 
@@ -801,7 +790,7 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
 
     if args.export_log:
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
-        logging.info(f"{meta.frame}-{meta.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
+        logging.info(f"{ist.frame}-{ist.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
     r.append(ist.ResidualData(dual_r, len(r_Axb), t_iter))
 
     ist.t_export += perf_counter()-tic
@@ -928,7 +917,7 @@ def AMG_cuda(b):
     if should_setup():
         A = AMG_setup_phase()
         if args.export_matrix:
-            export_A_b(A, b, dir=args.out_dir + "/A/", postfix=f"F{meta.frame}",binary=args.export_matrix_binary)
+            export_A_b(A, b, dir=args.out_dir + "/A/", postfix=f"F{ist.frame}",binary=args.export_matrix_binary)
     extlib.fastmg_set_A0_from_fastFillSoft()
     AMG_RAP()
     x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
@@ -937,15 +926,16 @@ def AMG_cuda(b):
 
 def substep_all_solver(ist):
     tic1 = time.perf_counter()
-    semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    gravity = ti.Vector(args.gravity)
+    semi_euler(args.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, args.damping_coeff, gravity)
     reset_lagrangian(ist.lagrangian)
     r = [] # residual list of one frame
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
-    for meta.ite in range(args.maxiter):
+    for ist.ite in range(args.maxiter):
         tic_iter = perf_counter()
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-        if meta.ite==0:
+        if ist.ite==0:
             fulldual0 = calc_dual(ist)
         b = AMG_b(ist)
         if not args.use_cuda:
@@ -975,16 +965,16 @@ def substep_all_solver(ist):
     if args.export_residual:
         do_export_r(r)
     collsion_response(ist.pos)
-    update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
+    update_vel(args.delta_t, ist.pos, ist.old_pos, ist.vel)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
     ist.t_avg_iter.append((time.perf_counter()-tic1)/ist.n_outer_all[-1])
-    logging.info(f"avg iter frame {meta.frame}: {ist.t_avg_iter[-1]*1000:.0f}ms")
+    logging.info(f"avg iter frame {ist.frame}: {ist.t_avg_iter[-1]*1000:.0f}ms")
 
 
 
 # if in last 5 iters, residuals not change 0.1%, then it is stalled
 def is_stall(r):
-    if (meta.ite < 5):
+    if (ist.ite < 5):
         return False
     # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
     inc1 = r[-1].dual/r[-2].dual
@@ -994,14 +984,14 @@ def is_stall(r):
     
     # if all incs is in [0.999,1.001]
     if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
-        logging.warning(f"Stall at {meta.frame}-{meta.ite}")
-        ist.all_stalled.append((meta.frame, meta.ite))
+        logging.warning(f"Stall at {ist.frame}-{ist.ite}")
+        ist.all_stalled.append((ist.frame, ist.ite))
         return True
     return False
 
 
 def is_diverge(r,r_Axb):
-    if (meta.ite < 5):
+    if (ist.ite < 5):
         return False
 
     if r[-1].dual/r[-5].dual>5:
@@ -1014,10 +1004,11 @@ def is_diverge(r,r_Axb):
 
 
 def substep_xpbd(ist):
-    semi_euler(meta.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, meta.damping_coeff)
+    gravity = ti.Vector(args.gravity)
+    semi_euler(args.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, args.damping_coeff, gravity)
     reset_lagrangian(ist.lagrangian)
     r=[]
-    for meta.ite in range(args.maxiter):
+    for ist.ite in range(args.maxiter):
         tic = time.perf_counter()
         project_constraints(
             ist.pos_mid,
@@ -1032,14 +1023,15 @@ def substep_xpbd(ist):
             ist.gradC,
             ist.dlambda,
             ist.dpos,
+            args.omega
         )
         collsion_response(ist.pos)
         calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
         dualr = np.linalg.norm(ist.residual.to_numpy())
-        if meta.ite == 0:
+        if ist.ite == 0:
             dualr0 = dualr.copy()
         toc = time.perf_counter()
-        logging.info(f"{meta.frame}-{meta.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
+        logging.info(f"{ist.frame}-{ist.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
         r.append(ist.ResidualData(dualr, 0, toc-tic))
         if dualr < args.tol:
             logging.info("Converge: tol")
@@ -1050,8 +1042,8 @@ def substep_xpbd(ist):
         # if is_stall(r):
         #     logging.warning("Stall detected, break")
         #     break
-    ist.n_outer_all.append(meta.ite+1)
-    update_vel(meta.delta_t, ist.pos, ist.old_pos, ist.vel)
+    ist.n_outer_all.append(ist.ite+1)
+    update_vel(args.delta_t, ist.pos, ist.old_pos, ist.vel)
 
 
 
@@ -1059,7 +1051,7 @@ def substep_xpbd(ist):
 def ending(timer_loop, start_date, initial_frame):
     t_all = time.perf_counter() - timer_loop
     end_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    args.end_frame = meta.frame
+    args.end_frame = ist.frame
 
     len_n_outer_all = len(ist.n_outer_all) if len(ist.n_outer_all) > 0 else 1
     sum_n_outer = sum(ist.n_outer_all)
@@ -1086,7 +1078,7 @@ def ending(timer_loop, start_date, initial_frame):
     f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + initial_frame}." + \
     f"\nstalled at {ist.all_stalled}"+\
     f"\nmodel_path: {args.model_path}" + \
-    f"\ndt={meta.delta_t}" + \
+    f"\ndt={args.delta_t}" + \
     f"\nSolver: {args.solver_type}" + \
     f"\nout_dir: {args.out_dir}" 
     # logging.info(s)
@@ -1480,8 +1472,8 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=args.out_dir + f'/{str(Path(args.out_dir).name)}.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-    meta.logger2 = logging.getLogger('logger2')
-    meta.logger2.addHandler(logging.FileHandler(args.out_dir + f'/build_P_time.log', 'a'))
+    # logger2 = logging.getLogger('logger2')
+    # logger2.addHandler(logging.FileHandler(args.out_dir + f'/build_P_time.log', 'a'))
 
     start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     logging.info(start_date)
@@ -1496,14 +1488,14 @@ def main():
     ist.initialize()
     
     if args.export_mesh:
-        write_mesh(args.out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
+        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
     if args.solver_type != "XPBD":
         init_direct_fill_A(ist)
 
 
     print(f"initialize time:", perf_counter()-tic)
-    initial_frame = meta.frame
+    initial_frame = ist.frame
     ist.t_export_total = 0.0
     
     timer_all = perf_counter()
@@ -1511,7 +1503,7 @@ def main():
     try:
         while True:
             info("\n\n----------------------")
-            info(f"frame {meta.frame}")
+            info(f"frame {ist.frame}")
             t = perf_counter()
             ist.t_export = 0.0
 
@@ -1519,11 +1511,11 @@ def main():
                 substep_xpbd(ist)
             else:
                 substep_all_solver(ist)
-            meta.frame += 1
+            ist.frame += 1
 
             if args.export_mesh:
                 tic = perf_counter()
-                write_mesh(args.out_dir + f"/mesh/{meta.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
+                write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
                 ist.t_export += perf_counter() - tic
 
             ist.t_export_total += ist.t_export
@@ -1531,7 +1523,7 @@ def main():
             info(f"step time: {perf_counter() - t:.2f} s")
             step_pbar.update(1)
                 
-            if meta.frame >= args.end_frame:
+            if ist.frame >= args.end_frame:
                 print("Normallly end.")
                 ending(timer_all, start_date, initial_frame)
                 exit()

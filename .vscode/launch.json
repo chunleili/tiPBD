@@ -32,7 +32,8 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-              "-solver_type=AMG"
+              "-solver_type=AMG",
+              "-use_cuda=0"
             ]
           }
     ]

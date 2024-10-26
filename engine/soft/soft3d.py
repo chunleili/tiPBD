@@ -13,9 +13,6 @@ import meshio
 from collections import namedtuple
 import json
 from functools import singledispatch
-from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
-from pyamg.relaxation.smoothing import approximate_spectral_radius, chebyshev_polynomial_coefficients
-from pyamg.relaxation.relaxation import polynomial
 import pyamg
 import ctypes
 import numpy.ctypeslib as ctl
@@ -1310,8 +1307,9 @@ def substep_xpbd(ist):
 #                                    amgpcg                                    #
 # ---------------------------------------------------------------------------- #
 
-chebyshev_coeff = None
-def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
+def chebyshev(A, x, b):
+    coefficients = ist.chebyshev_coeff
+    iterations = 1
     x = np.ravel(x)
     b = np.ravel(b)
     for _i in range(iterations):
@@ -1324,28 +1322,27 @@ def chebyshev(A, x, b, coefficients=chebyshev_coeff, iterations=1):
 
 def setup_chebyshev_python(A, lower_bound=1.0/30.0, upper_bound=1.1, degree=3,
                     iterations=1):
-    global chebyshev_coeff 
+    from pyamg.relaxation.smoothing import approximate_spectral_radius, chebyshev_polynomial_coefficients
     """Set up Chebyshev."""
     rho = approximate_spectral_radius(A)
     a = rho * lower_bound
     b = rho * upper_bound
     # drop the constant coefficient
     coefficients = -chebyshev_polynomial_coefficients(a, b, degree)[:-1]
-    chebyshev_coeff = coefficients
+    ist.chebyshev_coeff = coefficients
     return coefficients
 
 
 def setup_jacobi_python(A):
     from pyamg.relaxation.smoothing import rho_D_inv_A
-    global jacobi_omega
     tic = perf_counter()
     rho = rho_D_inv_A(A)
     print("rho:", rho)
-    jacobi_omega = 1.0/(rho)
-    print("omega:", jacobi_omega)
+    ist.jacobi_omega = 1.0/(rho)
+    print("omega:", ist.jacobi_omega)
     toc = perf_counter()
     print("Calculating jacobi omega Time:", toc-tic)
-    return jacobi_omega
+    return ist.jacobi_omega
 
 
 def calc_near_nullspace_GS(A):
@@ -1481,9 +1478,10 @@ def build_Ps(A):
     else:
         raise ValueError(f"Method {method} not recognized")
 
-    ist.num_levels = len(ml.levels)
-    extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
-    extlib.fastmg_setup_nl(ist.num_levels)
+    if args.use_cuda:
+        ist.num_levels = len(ml.levels)
+        extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
+        extlib.fastmg_setup_nl(ist.num_levels)
     
     logging.info(ml)
 
@@ -1595,7 +1593,7 @@ def presmoother(A,x,b):
     if args.smoother_type == 'gauss_seidel':
         gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
     elif args.smoother_type == 'jacobi':
-        jacobi(A,x,b,iterations=10, omega=jacobi_omega)
+        jacobi(A,x,b,iterations=10, omega=ist.jacobi_omega)
     elif args.smoother_type == 'sor_vanek':
         for _ in range(1):
             sor(A,x,b,omega=1.0,iterations=1,sweep='forward')

@@ -959,6 +959,18 @@ def calc_dual():
     calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
     return ist.dual_residual.to_numpy()
 
+def AMG_cuda(b):
+    AMG_A()
+    if args.export_matrix:
+        A = fastFill_fetch()
+        export_A_b(A, b, dir=args.out_dir + "/A/", postfix=f"F{ist.frame}",binary=args.export_matrix_binary)
+    if should_setup():
+        AMG_setup_phase()
+    extlib.fastmg_set_A0_from_fastFillCloth()
+    AMG_RAP()
+    x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
+    return x, r_Axb
+
 
 def substep_all_solver():
     tic1 = time.perf_counter()
@@ -981,15 +993,7 @@ def substep_all_solver():
         if not args.use_cuda:
             x, r_Axb = AMG_python(b,args,ist,fill_A_csr_ti,should_setup,copy_A=False)
         else:
-            AMG_A()
-            if args.export_matrix:
-                A = fastFill_fetch()
-                export_A_b(A, b, dir=args.out_dir + "/A/", postfix=f"F{ist.frame}",binary=args.export_matrix_binary)
-            if should_setup():
-                AMG_setup_phase()
-            extlib.fastmg_set_A0_from_fastFillCloth()
-            AMG_RAP()
-            x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=1e-5)
+            x, r_Axb = AMG_cuda(b)
         if args.use_PXPBD_v1:
             AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
         elif args.use_PXPBD_v2:

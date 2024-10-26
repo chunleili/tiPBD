@@ -23,6 +23,7 @@ from engine.mesh_io import write_mesh
 from engine.solver.build_Ps import build_Ps
 from engine.solver.amg_python import AMG_python
 from engine.cloth.bending import init_bending, solve_bending_constraints_xpbd
+from engine.solver.amg_cuda import AmgCuda
 
 
 
@@ -568,54 +569,6 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
             x[i] = (b[i] - rsum) / diag
 
 
-# ---------------------------------------------------------------------------- #
-#                                    amgpcg                                    #
-# ---------------------------------------------------------------------------- #
-
-
-
-def cuda_set_A0(A0):
-    extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
-
-
-def cuda_update_A0(A0):
-    extlib.fastmg_update_A0(A0.data.astype(np.float32))
-
-
-def AMG_solve(b, x0=None, tol=1e-5, maxiter=100):
-    if x0 is None:
-        x0 = np.zeros(b.shape[0], dtype=np.float32)
-
-    tic4 = time.perf_counter()
-    # set data
-    x0 = x0.astype(np.float32)
-    b = b.astype(np.float32)
-    extlib.fastmg_set_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
-
-    # solve
-    extlib.fastmg_solve()
-
-    # get result
-    x = np.empty_like(x0, dtype=np.float32)
-    residuals = np.zeros(shape=(maxiter,), dtype=np.float32)
-    niter = extlib.fastmg_get_data(x, residuals)
-    niter += 1
-    residuals = residuals[:niter]
-    logging.info(f"    inner iter: {niter}")
-    logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
-    return (x),  residuals  
-
-
-
-
-def update_P(Ps):
-    for lv in range(len(Ps)):
-        P_ = Ps[lv]
-        extlib.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
-
-# ---------------------------------------------------------------------------- #
-#                                  amgpcg end                                  #
-# ---------------------------------------------------------------------------- #
 
 # @ti.kernel
 # def calc_chen2023_added_dpos(G, M_inv, Minv_gg, dLambda):
@@ -868,35 +821,6 @@ def PXPBD_v1_mfree_transfer_back_to_pos_kernel(Minv_gg:ti.template()):
         
 
 
-def AMG_setup_phase():
-    tic = time.perf_counter()
-    # A = fill_A_csr_ti() taichi version
-    A = fastFill_fetch()
-    ist.Ps = build_Ps(A,args,ist,extlib)
-    ist.num_levels = len(ist.Ps)+1
-    logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
-
-    extlib.fastmg_setup_nl(ist.num_levels)
-
-    tic = time.perf_counter()
-    update_P(ist.Ps)
-    logging.info(f"    update_P time: {time.perf_counter()-tic:.2f}s")
-
-    tic = time.perf_counter()
-    cuda_set_A0(A)
-    extlib.fastmg_setup_smoothers(1) # 1 means chebyshev
-    logging.info(f"    setup smoothers time:{perf_counter()-tic}")
-
-    report_multilevel_details(ist.Ps, ist.num_levels)
-
-
-def AMG_RAP():
-    tic3 = time.perf_counter()
-    for lv in range(ist.num_levels-1):
-        extlib.fastmg_RAP(lv) 
-    logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
-
-
 # original XPBD dlam2dpos
 def AMG_dlam2dpos(x):
     tic = time.perf_counter()
@@ -959,17 +883,10 @@ def calc_dual():
     calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
     return ist.dual_residual.to_numpy()
 
-def AMG_cuda(b):
-    AMG_A()
-    if args.export_matrix:
-        A = fastFill_fetch()
-        export_A_b(A, b, dir=args.out_dir + "/A/", postfix=f"F{ist.frame}",binary=args.export_matrix_binary)
-    if should_setup():
-        AMG_setup_phase()
+def fastFill_set():
     extlib.fastmg_set_A0_from_fastFillCloth()
-    AMG_RAP()
-    x, r_Axb = AMG_solve(b, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
-    return x, r_Axb
+
+
 
 
 def substep_all_solver():
@@ -993,7 +910,7 @@ def substep_all_solver():
         if not args.use_cuda:
             x, r_Axb = AMG_python(b,args,ist,fill_A_csr_ti,should_setup,copy_A=False)
         else:
-            x, r_Axb = AMG_cuda(b)
+            x, r_Axb = amg_cuda.AMG_cuda(b)
         if args.use_PXPBD_v1:
             AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
         elif args.use_PXPBD_v2:
@@ -1423,6 +1340,10 @@ def init():
 
     global ist
     ist = Cloth()
+
+    if args.use_cuda:
+        global amg_cuda
+        amg_cuda = AmgCuda(args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, None, copy_A=False)
 
     tic_init = time.perf_counter()
     ist.start_wall_time = datetime.datetime.now()

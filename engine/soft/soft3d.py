@@ -79,9 +79,6 @@ argtypes_of_csr=[ctl.ndpointer(np.float32,flags='aligned, c_contiguous'),    # d
                 ]
 
 def init_extlib_argtypes():
-    global extlib
-
-    # # # DEBUG only
     if args.debug:
         os.chdir(prj_path+'/cpp/mgcg_cuda')
         os.system("cmake --build build --config Debug --parallel 8")
@@ -108,9 +105,10 @@ def init_extlib_argtypes():
     extlib.fastFillSoft_new()
     if args.scale_RAP:
         extlib.fastmg_scale_RAP.argtypes = [c_float, c_int]
+    
+    return extlib
 
-if args.use_cuda:
-    init_extlib_argtypes()
+
 
 class Meta:
     def __init__(self) -> None:
@@ -1530,6 +1528,10 @@ def main():
     start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     logging.info(start_date)
     logging.info(args)
+
+    if args.use_cuda:
+        global extlib
+        extlib = init_extlib_argtypes()
 
     global ist
     ist = SoftBody(args.model_path)

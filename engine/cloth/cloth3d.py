@@ -129,12 +129,10 @@ class Cloth():
 
 
 def init_extlib_argtypes():
-    global extlib
-
-    # DEBUG only
-    # os.chdir(prj_path+'/cpp/mgcg_cuda')
-    # os.system("cmake --build build --config Debug")
-    # os.chdir(prj_path)
+    if args.debug:
+        os.chdir(prj_path+'/cpp/mgcg_cuda')
+        os.system("cmake --build build --config Debug --parallel 8")
+        os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
@@ -176,9 +174,9 @@ def init_extlib_argtypes():
     extlib.fastmg_new()
 
     extlib.fastFillCloth_new()
+    return extlib
 
-if args.use_cuda:
-    init_extlib_argtypes()
+
 
 
 
@@ -1684,10 +1682,12 @@ def init():
     logging.basicConfig(level=log_level, format="%(message)s",filename=args.out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-    logging.info(f"args.out_dir: {args.out_dir}")
+    logging.info(args)
 
 
-    # print_all_globals(global_vars)
+    if args.use_cuda:
+        global extlib
+        extlib = init_extlib_argtypes()
 
     global ist
     ist = Cloth()

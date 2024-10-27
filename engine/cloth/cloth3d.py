@@ -733,11 +733,6 @@ def AMG_PXPBD_v1_b(G):
     return b, Minv_gg
     
 
-def AMG_A():
-    tic2 = perf_counter()
-    extlib.fastFillCloth_run(ist.pos.to_numpy())
-    extlib.fastmg_set_A0_from_fastFillCloth()
-    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
 
 def calc_dual():
@@ -1120,10 +1115,32 @@ def fill_G():
 # ---------------------------------------------------------------------------- #
 #                                  end fill A                                  #
 # ---------------------------------------------------------------------------- #
+def AMG_A():
+    tic2 = perf_counter()
+    extlib.fastFillCloth_run(ist.pos.to_numpy())
+    extlib.fastmg_set_A0_from_fastFillCloth()
+    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
+def fetch_A_from_cuda(lv=0):
+    nnz = extlib.fastmg_get_nnz(lv)
+    matsize = extlib.fastmg_get_matsize(lv)
 
-def get_A0()->scipy.sparse.csr_matrix:
+    extlib.fastmg_fetch_A(lv, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr)
+    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(matsize, matsize))
+    return A
+
+def fetch_A_data_from_cuda():
+    extlib.fastmg_fetch_A_data(ist.spmat_data)
+    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NT, ist.NT))
+    return A
+
+def get_A0_python()->scipy.sparse.csr_matrix:
     A = fill_A_csr_ti(ist)
+    return A
+
+def get_A0_cuda()->scipy.sparse.csr_matrix:
+    AMG_A()
+    A = fetch_A_from_cuda(0)
     return A
 
 # ---------------------------------------------------------------------------- #
@@ -1155,7 +1172,7 @@ def init():
         amg_cuda = AmgCuda(
             args=args,
             extlib=extlib,
-            get_A0=get_A0,
+            get_A0=get_A0_cuda,
             should_setup=should_setup,
             AMG_A=AMG_A,
             graph_coloring=None,
@@ -1163,7 +1180,7 @@ def init():
         )
     else:
         global amg_python
-        amg_python = AmgPython(args, get_A0, should_setup)
+        amg_python = AmgPython(args, get_A0_python, should_setup)
     
     tic_init = time.perf_counter()
     ist.start_date = datetime.datetime.now()

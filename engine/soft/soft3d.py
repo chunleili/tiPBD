@@ -620,11 +620,7 @@ def calc_dual(ist):
     return ist.dual_residual.to_numpy()
 
 
-def AMG_A():
-    tic2 = perf_counter()
-    extlib.fastFillSoft_run(ist.pos.to_numpy(), ist.gradC.to_numpy())
-    extlib.fastmg_set_A0_from_fastFillSoft()
-    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
+
 
 
 def AMG_b(ist):
@@ -635,51 +631,6 @@ def AMG_b(ist):
 def should_setup():
     return ((ist.frame%args.setup_interval==0 or (args.restart==True and ist.frame==args.restart_frame)) and (ist.ite==0))
 
-
-def smoother_name2type(name):
-    if name == "chebyshev":
-        return 1
-    elif name == "jacobi":
-        return 2
-    elif name == "gauss_seidel":
-        return 3
-    else:
-        raise ValueError(f"smoother name {name} not supported")
-
-
-def fetch_A_from_cuda(lv=0):
-    extlib.fastmg_get_nnz.argtypes = [ctypes.c_int]
-    extlib.fastmg_get_nnz.restype = ctypes.c_int
-    extlib.fastmg_get_matsize.argtypes = [ctypes.c_int]
-    extlib.fastmg_get_matsize.restype = ctypes.c_int
-    extlib.fastmg_fetch_A.argtypes = [c_int, arr_float, arr_int, arr_int]
-
-    nnz = extlib.fastmg_get_nnz(lv)
-    matsize = extlib.fastmg_get_matsize(lv)
-
-    A_data = np.zeros(nnz, dtype=np.float32)
-    A_indices = np.zeros(nnz, dtype=np.int32)
-    A_indptr = np.zeros(matsize+1, dtype=np.int32)
-
-    extlib.fastmg_fetch_A(lv, A_data, A_indices, A_indptr)
-    A = scipy.sparse.csr_matrix((A_data, A_indices, A_indptr), shape=(matsize, matsize))
-    return A
-
-
-def fastmg_fetch():
-    extlib.fastmg_fetch_A_data.argtypes = [arr_float]
-    extlib.fastmg_fetch_A_data(ist.data)
-    A = scipy.sparse.csr_matrix((ist.data, ist.indices, ist.indptr), shape=(ist.NT, ist.NT))
-    return A
-
-
-# def AMG_RAP():
-#     tic3 = time.perf_counter()
-#     # A = fill_A_csr_ti(ist)
-#     # cuda_set_A0(A)
-#     for lv in range(ist.num_levels-1):
-#         extlib.fastmg_RAP(lv)
-#     logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
 
 
 def AMG_dlam2dpos(x):
@@ -1019,9 +970,9 @@ def initFill_tocuda(ist):
     extlib.fastFillSoft_init_from_python_cache_lessmem(
             ist.NT,
             ist.MAX_ADJ,
-            ist.data,
-            ist.indices,
-            ist.indptr,
+            ist.spmat_data,
+            ist.spmat_indices,
+            ist.spmat_indptr,
             ist.ii,
             ist.nnz)
     extlib.fastFillSoft_set_data(ist.tet_indices.to_numpy(), ist.NT, ist.inv_mass.to_numpy(), ist.NV, ist.pos.to_numpy(), ist.alpha_tilde.to_numpy())
@@ -1033,9 +984,9 @@ def mem_usage():
     def bytes_to_gb(bytes):
         return bytes / (1024 ** 3)
 
-    data_memory_gb = bytes_to_gb(ist.data.nbytes)
-    indices_memory_gb = bytes_to_gb(ist.indices.nbytes)
-    indptr_memory_gb = bytes_to_gb(ist.indptr.nbytes)
+    data_memory_gb = bytes_to_gb(ist.spmat_data.nbytes)
+    indices_memory_gb = bytes_to_gb(ist.spmat_indices.nbytes)
+    indptr_memory_gb = bytes_to_gb(ist.spmat_indptr.nbytes)
     ii_memory_gb = bytes_to_gb(ist.ii.nbytes)
     total_memory_gb = (data_memory_gb + indices_memory_gb + indptr_memory_gb + ii_memory_gb)
 
@@ -1053,12 +1004,12 @@ def init_direct_fill_A(ist):
         tic = perf_counter()
         print(f"Found cache {cache_file_name}. Loading cached data...")
         npzfile = np.load(cache_file_name)
-        ist.data = npzfile['data']
-        ist.indices = npzfile['indices']
-        ist.indptr = npzfile['indptr']
+        ist.spmat_data = npzfile['data']
+        ist.spmat_indices = npzfile['indices']
+        ist.spmat_indptr = npzfile['indptr']
         ist.ii = npzfile['ii']
         ist.nnz = int(npzfile['nnz'])
-        ist.jj = ist.indices # No need to save jj,  indices is the same as jj
+        ist.jj = ist.spmat_indices # No need to save jj,  indices is the same as jj
         ist.MAX_ADJ = int(npzfile['MAX_ADJ'])
         print(f"MAX_ADJ: {ist.MAX_ADJ}")
         mem_usage()
@@ -1081,9 +1032,9 @@ def init_direct_fill_A(ist):
     print(f"init_adjacent time: {perf_counter()-tic1:.3f}s")
 
     tic = perf_counter()
-    ist.data, ist.indices, ist.indptr = init_A_CSR_pattern(num_adjacent, adjacent)
-    ist.ii, ist.jj = csr_index_to_coo_index(ist.indptr, ist.indices)
-    ist.nnz = len(ist.data)
+    ist.spmat_data, ist.spmat_indices, ist.spmat_indptr = init_A_CSR_pattern(num_adjacent, adjacent)
+    ist.ii, ist.jj = csr_index_to_coo_index(ist.spmat_indptr, ist.spmat_indices)
+    ist.nnz = len(ist.spmat_data)
     # nnz_each_row = num_adjacent[:] + 1
     print(f"init_A_CSR_pattern time: {perf_counter()-tic:.3f}s")
     
@@ -1099,15 +1050,15 @@ def init_direct_fill_A(ist):
 
     if args.use_cache:
         print(f"Saving cache to {cache_file_name}...")
-        np.savez(cache_file_name, data=ist.data, indices=ist.indices, indptr=ist.indptr, ii=ist.ii, nnz=ist.nnz, MAX_ADJ=ist.MAX_ADJ)
+        np.savez(cache_file_name, data=ist.spmat_data, indices=ist.spmat_indices, indptr=ist.spmat_indptr, ii=ist.ii, nnz=ist.nnz, MAX_ADJ=ist.MAX_ADJ)
         print(f"{cache_file_name} saved")
     if args.use_cuda:
         initFill_tocuda(ist)
 
 
 def fill_A_csr_ti(ist):
-    fill_A_csr_lessmem_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices)
-    A = scipy.sparse.csr_matrix((ist.data, ist.indices, ist.indptr), shape=(ist.NT, ist.NT))
+    fill_A_csr_lessmem_kernel(ist.spmat_data, ist.spmat_indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices)
+    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NT, ist.NT))
     return A
 
 
@@ -1162,7 +1113,7 @@ def fill_A_csr_lessmem_kernel(data:ti.types.ndarray(dtype=ti.f32),
 
 # for cnt version, require init_A_CSR_pattern() to be called first
 # legacy version, now we use less memory version
-# fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
+# fill_A_csr_kernel(ist.spmat_data, ist.spmat_indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
 @ti.kernel
 def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32), 
                       indptr:ti.types.ndarray(dtype=ti.i32), 
@@ -1197,6 +1148,9 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
         data[n] = offdiag
 
 
+# ---------------------------------------------------------------------------- #
+#                             start graph coloring                             #
+# ---------------------------------------------------------------------------- #
 # version 1, hand made. It is slow. By Wang Ruiqi.
 # Input: .ele file
 def graph_coloring_v1():
@@ -1295,10 +1249,38 @@ def graph_coloring_to_cuda(ncolor, colors, lv):
     extlib.fastmg_set_colors.argtypes = [arr_int, c_int, c_int, c_int]
     extlib.fastmg_set_colors(colors, colors.shape[0], ncolor, lv)
 
+# ---------------------------------------------------------------------------- #
+#                              end graph coloring                              #
+# ---------------------------------------------------------------------------- #
+def AMG_A():
+    tic2 = perf_counter()
+    extlib.fastFillSoft_run(ist.pos.to_numpy(), ist.gradC.to_numpy())
+    extlib.fastmg_set_A0_from_fastFillSoft()
+    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
-def get_A0()->scipy.sparse.csr_matrix:
+
+def fetch_A_from_cuda(lv=0):
+    nnz = extlib.fastmg_get_nnz(lv)
+    matsize = extlib.fastmg_get_matsize(lv)
+
+    extlib.fastmg_fetch_A(lv, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr)
+    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(matsize, matsize))
+    return A
+
+def fetch_A_data_from_cuda():
+    extlib.fastmg_fetch_A_data(ist.spmat_data)
+    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NT, ist.NT))
+    return A
+
+def get_A0_python()->scipy.sparse.csr_matrix:
     A = fill_A_csr_ti(ist)
     return A
+
+def get_A0_cuda()->scipy.sparse.csr_matrix:
+    AMG_A()
+    A = fetch_A_from_cuda(0)
+    return A
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1338,7 +1320,7 @@ def main():
         amg_cuda = AmgCuda(
             args=args,
             extlib=extlib,
-            get_A0=get_A0,
+            get_A0=get_A0_cuda,
             should_setup=should_setup,
             AMG_A=AMG_A,
             graph_coloring=graph_coloring_v2,
@@ -1346,7 +1328,7 @@ def main():
         )
     else:
         global amg_python
-        amg_python = AmgPython(args, get_A0, should_setup)
+        amg_python = AmgPython(args, get_A0_python, should_setup)
 
     print(f"initialize time:", perf_counter()-tic)
     ist.initial_frame = ist.frame

@@ -1108,6 +1108,10 @@ struct FastFillSoft : Kernels {
     {
         update_pos_and_gradC(pos_in, gradC_in);
         fill_A_CSR_gpu();
+        // debug_cuda_vec(A.data, "A.data");
+        // debug_cuda_vec(A.indptr, "A.indptr");
+        // debug_cuda_vec(A.indices, "A.indices");
+               
     }
 
 
@@ -1323,16 +1327,6 @@ struct VCycle : Kernels {
 
 
     void set_A0_from_fastFillCloth(FastFillCloth *ff) {
-        levels.at(0).A.data.swap( (ff->A).data);
-        levels.at(0).A.indices.swap( (ff->A).indices);
-        levels.at(0).A.indptr.swap((ff->A).indptr);
-        levels.at(0).A.numnonz = ( ff->num_nonz);
-        levels.at(0).A.nrows = ( ff->nrows);
-
-    }
-
-    void set_A0_from_fastFillSoft(FastFillSoft *ff) {
-
         if (levels.size() < 1) {
             levels.resize(1);
         }
@@ -1341,11 +1335,38 @@ struct VCycle : Kernels {
         levels.at(0).A.nrows = ( ff->nrows);
 
         //FIXME: As in python code, we need copy A, why?
+        levels.at(0).A.data.resize(ff->A.data.size());
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), (ff->A).data.data(), (ff->A).data.size() * sizeof(float), cudaMemcpyDeviceToDevice));
+        levels.at(0).A.indices.resize(ff->A.indices.size());
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indices.data(), (ff->A).indices.data(), (ff->A).indices.size() * sizeof(int), cudaMemcpyDeviceToDevice));
+        levels.at(0).A.indptr.resize(ff->A.indptr.size());
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indptr.data(), (ff->A).indptr.data(), (ff->A).indptr.size() * sizeof(int), cudaMemcpyDeviceToDevice));
 
-        CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), (ff->A).data.data(), levels.at(0).A.data.size() * sizeof(float), cudaMemcpyDeviceToDevice));
-        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indices.data(), (ff->A).indices.data(), levels.at(0).A.indices.size() * sizeof(int), cudaMemcpyDeviceToDevice));
-        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indptr.data(), (ff->A).indptr.data(), levels.at(0).A.indptr.size() * sizeof(int), cudaMemcpyDeviceToDevice));
+        // debug_cuda_vec(levels.at(0).A.data, "A0.data");
+        // debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
+        // debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
 
+    }
+
+    void set_A0_from_fastFillSoft(FastFillSoft *ff) {
+        if (levels.size() < 1) {
+            levels.resize(1);
+        }
+
+        levels.at(0).A.numnonz = ( ff->num_nonz);
+        levels.at(0).A.nrows = ( ff->nrows);
+
+        //FIXME: As in python code, we need copy A, why?
+        levels.at(0).A.data.resize(ff->A.data.size());
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), (ff->A).data.data(), (ff->A).data.size() * sizeof(float), cudaMemcpyDeviceToDevice));
+        levels.at(0).A.indices.resize(ff->A.indices.size());
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indices.data(), (ff->A).indices.data(), (ff->A).indices.size() * sizeof(int), cudaMemcpyDeviceToDevice));
+        levels.at(0).A.indptr.resize(ff->A.indptr.size());
+        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indptr.data(), (ff->A).indptr.data(), (ff->A).indptr.size() * sizeof(int), cudaMemcpyDeviceToDevice));
+
+        // debug_cuda_vec(levels.at(0).A.data, "A0.data");
+        // debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
+        // debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
     }
 
 

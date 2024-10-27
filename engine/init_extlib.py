@@ -40,6 +40,15 @@ def init_extlib(args, sim):
     extlib.fastmg_update_A0.argtypes = [arr_float]
     extlib.fastmg_get_data.restype = c_int
     extlib.fastmg_set_smoother_niter.argtypes = [ctypes.c_size_t]
+
+    extlib.fastmg_get_nnz.argtypes = [ctypes.c_int]
+    extlib.fastmg_get_nnz.restype = ctypes.c_int
+    extlib.fastmg_get_matsize.argtypes = [ctypes.c_int]
+    extlib.fastmg_get_matsize.restype = ctypes.c_int
+    extlib.fastmg_fetch_A.argtypes = [ctypes.c_int, arr_float, arr_int, arr_int]
+    extlib.fastmg_fetch_A_data.argtypes = [arr_float]
+
+
     extlib.fastmg_new()
     if args.scale_RAP:
         extlib.fastmg_scale_RAP.argtypes = [c_float, c_int]

@@ -622,10 +622,9 @@ def calc_dual(ist):
 
 def AMG_A():
     tic2 = perf_counter()
-    # A = fill_A_csr_ti(ist)
     extlib.fastFillSoft_run(ist.pos.to_numpy(), ist.gradC.to_numpy())
+    extlib.fastmg_set_A0_from_fastFillSoft()
     logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
-    # return A
 
 
 def AMG_b(ist):
@@ -835,8 +834,7 @@ def AMG_amgx(b):
     return x, np.array(r_Axb)
 
 
-def fastFill_set():
-    extlib.fastmg_set_A0_from_fastFillSoft()
+
 
 
 def substep_all_solver(ist):
@@ -1341,7 +1339,6 @@ def main():
             args=args,
             extlib=extlib,
             get_A0=get_A0,
-            fastFill_set=fastFill_set,
             should_setup=should_setup,
             AMG_A=AMG_A,
             graph_coloring=graph_coloring_v2,

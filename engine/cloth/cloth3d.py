@@ -735,17 +735,14 @@ def AMG_PXPBD_v1_b(G):
 
 def AMG_A():
     tic2 = perf_counter()
-    fastFillCloth_run()
+    extlib.fastFillCloth_run(ist.pos.to_numpy())
+    extlib.fastmg_set_A0_from_fastFillCloth()
     logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
+
 
 def calc_dual():
     calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
     return ist.dual_residual.to_numpy()
-
-def fastFill_set():
-    extlib.fastmg_set_A0_from_fastFillCloth()
-
-
 
 
 def substep_all_solver():
@@ -1072,11 +1069,6 @@ def fastFill_fetch():
     return A
 
 
-def fastFillCloth_run():
-    extlib.fastFillCloth_run(ist.pos.to_numpy())
-
-
-
 @ti.kernel
 def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
     for i in range(edge.shape[0]):
@@ -1164,7 +1156,6 @@ def init():
             args=args,
             extlib=extlib,
             get_A0=get_A0,
-            fastFill_set=fastFill_set,
             should_setup=should_setup,
             AMG_A=AMG_A,
             graph_coloring=None,

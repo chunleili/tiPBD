@@ -4,14 +4,13 @@ import time
 import ctypes
 
 class AmgCuda:
-    def __init__(self, args,  extlib, get_A0, fastFill_set, AMG_A, should_setup, graph_coloring=None, copy_A=True):
+    def __init__(self, args,  extlib, get_A0, AMG_A, should_setup, graph_coloring=None, copy_A=True):
         self.args = args
         self.extlib = extlib
         self.copy_A = copy_A
         
         # TODO: for now, we pass func ptr to distinguish between soft and cloth
         self.get_A0 = get_A0
-        self.fastFill_set = fastFill_set
         self.AMG_A = AMG_A
         self.graph_coloring = graph_coloring
         self.should_setup = should_setup
@@ -19,13 +18,12 @@ class AmgCuda:
     
 
     def run(self, b):
-        self.AMG_A()
         if self.should_setup():
             A = self.AMG_setup_phase()
             if self.args.export_matrix:
                 from engine.file_utils import  export_A_b
                 export_A_b(A, b, dir=self.args.out_dir + "/A/", postfix=f"F{self.frame}",binary=self.args.export_matrix_binary)
-        self.fastFill_set()
+        self.AMG_A()
         self.AMG_RAP()
         x, r_Axb = self.AMG_solve(b, maxiter=self.args.maxiter_Axb, tol=self.args.tol_Axb)
         return x, r_Axb

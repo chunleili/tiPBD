@@ -600,27 +600,9 @@ def fill_A_by_spmm(ist,  M_inv, ALPHA):
     return A
 
 
-def csr_is_equal(A, B):
-    if A.shape != B.shape:
-        print("shape not equal")
-        assert False
-    diff = A - B
-    if diff.nnz == 0:
-        print("csr is equal! nnz=0")
-        return True
-    maxdiff = np.abs(diff.data).max()
-    print("maxdiff: ", maxdiff)
-    if maxdiff > 1e-6:
-        assert False
-    print("csr is equal!")
-    return True
-
-
 def calc_dual(ist):
     calc_dual_residual(ist.dual_residual, ist.lagrangian, ist.constraint, ist.dual_residual)
     return ist.dual_residual.to_numpy()
-
-
 
 
 
@@ -631,7 +613,6 @@ def AMG_b(ist):
 
 def should_setup():
     return ((ist.frame%args.setup_interval==0 or (args.restart==True and ist.frame==args.restart_frame)) and (ist.ite==0))
-
 
 
 def AMG_dlam2dpos(x):
@@ -689,13 +670,7 @@ def substep_all_solver(ist):
         if ist.ite==0:
             fulldual0 = calc_dual(ist)
         b = AMG_b(ist)
-        if not args.use_cuda:
-            x, r_Axb = amg_python.run(b)
-        else:
-            if args.solver_type == "AMG":
-                x, r_Axb = amg_cuda.run(b)
-            elif args.solver_type == "AMGX":
-                x, r_Axb = amgxsolver.run(b)
+        x, r_Axb = amg.run(b)
         AMG_dlam2dpos(x)
         dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
@@ -1202,26 +1177,25 @@ def main():
     if args.solver_type != "XPBD":
         init_direct_fill_A(ist)
 
-    if args.use_cuda:
-        global amg_cuda
-        amg_cuda = AmgCuda(
-            args=args,
-            extlib=extlib,
-            get_A0=get_A0_cuda,
-            should_setup=should_setup,
-            AMG_A=AMG_A,
-            graph_coloring=graph_coloring_v2,
-            copy_A=True,
-        )
-    else:
-        global amg_python
-        amg_python = AmgPython(args, get_A0_python, should_setup)
-
+    global amg
+    if args.solver_type == "AMG":
+        if args.use_cuda:
+            amg = AmgCuda(
+                args=args,
+                extlib=extlib,
+                get_A0=get_A0_cuda,
+                should_setup=should_setup,
+                AMG_A=AMG_A,
+                graph_coloring=graph_coloring_v2,
+                copy_A=True,
+            )
+        else:
+            amg = AmgPython(args, get_A0_python, should_setup)
     if args.solver_type == "AMGX":
-        global amgxsolver
-        amgxsolver = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
-        amgxsolver.init()
-        ist.amgxsolver = amgxsolver
+        amg = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
+        amg.init()
+        ist.amgxsolver = amg
+
 
     print(f"initialize time:", perf_counter()-tic)
     ist.initial_frame = ist.frame

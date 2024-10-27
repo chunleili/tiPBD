@@ -24,6 +24,7 @@ from engine.solver.build_Ps import build_Ps
 from engine.solver.amg_python import AmgPython
 from engine.cloth.bending import init_bending, solve_bending_constraints_xpbd
 from engine.solver.amg_cuda import AmgCuda
+from engine.solver.amgx_solver import AmgxSolver
 from engine.util import is_stall, ending
 
 
@@ -758,10 +759,7 @@ def substep_all_solver():
         if args.use_PXPBD_v1:
             G = fill_G()
             b, Minv_gg = AMG_PXPBD_v1_b(G)
-        if not args.use_cuda:
-            x, r_Axb = amg_python.run(b)
-        else:
-            x, r_Axb = amg_cuda.run(b)
+        x, r_Axb = amg.run(b)
         if args.use_PXPBD_v1:
             AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
         elif args.use_PXPBD_v2:
@@ -1167,20 +1165,25 @@ def init():
     args.frame = ist.frame
     args.ite = ist.ite
 
-    if args.use_cuda:
-        global amg_cuda
-        amg_cuda = AmgCuda(
-            args=args,
-            extlib=extlib,
-            get_A0=get_A0_cuda,
-            should_setup=should_setup,
-            AMG_A=AMG_A,
-            graph_coloring=None,
-            copy_A=True,
-        )
-    else:
-        global amg_python
-        amg_python = AmgPython(args, get_A0_python, should_setup)
+    global amg
+    if args.solver_type == "AMG":
+        if args.use_cuda:
+            amg = AmgCuda(
+                args=args,
+                extlib=extlib,
+                get_A0=get_A0_cuda,
+                should_setup=should_setup,
+                AMG_A=AMG_A,
+                graph_coloring=None,
+                copy_A=True,
+            )
+        else:
+            amg = AmgPython(args, get_A0_python, should_setup)
+    if args.solver_type == "AMGX":
+        amg = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
+        amg.init()
+        ist.amgxsolver = amg
+
     
     tic_init = time.perf_counter()
     ist.start_date = datetime.datetime.now()
@@ -1200,7 +1203,7 @@ def init():
     logging.info("Initializing pos and edge done")
 
     tic = time.perf_counter()
-    if args.solver_type == "AMG":
+    if args.solver_type == "AMG" or args.solver_type == "AMGX":
         ist.fill_A = FillACloth()
         if args.use_cuda:
             ist.fill_A.load_cache_initFill_to_cuda()

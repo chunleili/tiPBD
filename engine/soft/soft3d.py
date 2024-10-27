@@ -22,7 +22,7 @@ import tqdm
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(prj_path)
 from engine.solver.build_Ps import build_Ps
-from engine.solver.amg_python import AMG_python
+from engine.solver.amg_python import AmgPython
 from engine.file_utils import process_dirs,  do_restart, save_state, export_A_b
 from engine.mesh_io import write_mesh, read_tet
 from engine.common_args import add_common_args
@@ -862,7 +862,7 @@ def substep_all_solver(ist):
             fulldual0 = calc_dual(ist)
         b = AMG_b(ist)
         if not args.use_cuda:
-            x, r_Axb = AMG_python(b,args,ist,fill_A_csr_ti,should_setup,copy_A=True)
+            x, r_Axb = amg_python.run(b)
         else:
             if args.solver_type == "AMG":
                 x, r_Axb = amg_cuda.AMG_cuda(b)
@@ -1310,6 +1310,9 @@ def graph_coloring_to_cuda(ncolor, colors, lv):
     extlib.fastmg_set_colors(colors, colors.shape[0], ncolor, lv)
 
 
+def get_A0()->scipy.sparse.csr_matrix:
+    A = fill_A_csr_ti(ist)
+    return A
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1345,6 +1348,9 @@ def main():
     if args.use_cuda:
         global amg_cuda
         amg_cuda = AmgCuda(args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, graph_coloring_v2, copy_A=True)
+    else:
+        global amg_python
+        amg_python = AmgPython(args, get_A0, should_setup)
 
     print(f"initialize time:", perf_counter()-tic)
     ist.initial_frame = ist.frame

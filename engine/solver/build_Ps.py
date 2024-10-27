@@ -4,8 +4,8 @@ import logging
 from time import perf_counter
 import ctypes
 
-def build_Ps(A,args,ist,extlib=None):
-    """Build a list of prolongation matrices ist.Ps from A """
+def build_Ps(A,args,extlib=None):
+    """Build a list of prolongation matrices Ps from A """
     method = args.build_P_method
     print("build P by method:", method)
     tic = perf_counter()
@@ -61,14 +61,15 @@ def build_Ps(A,args,ist,extlib=None):
     else:
         raise ValueError(f"Method {method} not recognized")
 
+    num_levels = len(ml.levels)
+
     if args.use_cuda:
-        ist.num_levels = len(ml.levels)
         extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
-        extlib.fastmg_setup_nl(ist.num_levels)
+        extlib.fastmg_setup_nl(num_levels)
     
     logging.info(ml)
 
-    ist.Ps = []
+    Ps = []
     for i in range(len(ml.levels)-1):
         P = ml.levels[i].P
         if args.filter_P=="fileter":
@@ -77,15 +78,13 @@ def build_Ps(A,args,ist,extlib=None):
             P = do_set_01_P(P)
         elif args.filter_P=="avg":
             P = do_set_avg_P(P)
-        ist.Ps.append(P)
+        Ps.append(P)
 
         if args.scale_RAP and args.use_cuda:
             # scale RAP by avg size of aggregates
             # get scale from nnz of each column of P
             s = calc_RAP_scale(P)
             extlib.fastmg_scale_RAP(s, i)
-
-
 
     toc = perf_counter()
     logging.info(f"Build P Time:{toc-tic:.2f}s")
@@ -94,7 +93,7 @@ def build_Ps(A,args,ist,extlib=None):
     file = args.out_dir+'/build_P_time.log'
     with open(file, 'a') as f:
         f.write(f"{method} {toc-tic}\n")
-    return ist.Ps
+    return Ps
 
 
 

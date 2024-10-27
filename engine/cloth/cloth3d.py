@@ -21,7 +21,7 @@ from engine.file_utils import process_dirs,  do_restart, save_state,  export_A_b
 from engine.init_extlib import init_extlib
 from engine.mesh_io import write_mesh
 from engine.solver.build_Ps import build_Ps
-from engine.solver.amg_python import AMG_python
+from engine.solver.amg_python import AmgPython
 from engine.cloth.bending import init_bending, solve_bending_constraints_xpbd
 from engine.solver.amg_cuda import AmgCuda
 from engine.util import is_stall, ending
@@ -767,7 +767,7 @@ def substep_all_solver():
             G = fill_G()
             b, Minv_gg = AMG_PXPBD_v1_b(G)
         if not args.use_cuda:
-            x, r_Axb = AMG_python(b,args,ist,fill_A_csr_ti,should_setup,copy_A=False)
+            x, r_Axb = amg_python.run(b)
         else:
             x, r_Axb = amg_cuda.AMG_cuda(b)
         if args.use_PXPBD_v1:
@@ -1130,7 +1130,9 @@ def fill_G():
 # ---------------------------------------------------------------------------- #
 
 
-
+def get_A0()->scipy.sparse.csr_matrix:
+    A = fill_A_csr_ti(ist)
+    return A
 
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #
@@ -1157,7 +1159,10 @@ def init():
     if args.use_cuda:
         global amg_cuda
         amg_cuda = AmgCuda(args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, None, copy_A=False)
-
+    else:
+        global amg_python
+        amg_python = AmgPython(args, get_A0, should_setup)
+    
     tic_init = time.perf_counter()
     ist.start_date = datetime.datetime.now()
     ist.start_date = ist.start_date.strftime("%Y-%m-%d-%H-%M-%S")

@@ -9,6 +9,7 @@ def add_common_args(parser):
     parser.add_argument("-auto_another_outdir", type=int, default=False)
     parser.add_argument("-use_cuda", type=int, default=True)
     parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")
+    parser.add_argument("-amgx_lib_dir", type=str, default="D:/Dev/AMGX/build/Release")
     parser.add_argument("-build_P_method", type=str, default="UA")
     parser.add_argument("-arch", type=str, default="cpu")
     parser.add_argument("-setup_interval", type=int, default=20)

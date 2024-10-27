@@ -22,12 +22,13 @@ import tqdm
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(prj_path)
 from engine.solver.build_Ps import build_Ps
-from engine.solver.amg_python import AmgPython
 from engine.file_utils import process_dirs,  do_restart, save_state, export_A_b
 from engine.mesh_io import write_mesh, read_tet
 from engine.common_args import add_common_args
 from engine.init_extlib import init_extlib
+from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
+from engine.solver.amgx_solver import AmgxSolver
 from engine.util import is_diverge, is_stall, ending
 
 parser = argparse.ArgumentParser()
@@ -674,120 +675,6 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     return dual0
 
 
-class AMGXSolver:
-    def __init__(self, config_file):
-        self.config_file = config_file
-        amgx_lib_dir = "D:/Dev/AMGX/build/Release"
-        cuda_dir = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin"
-        os.add_dll_directory(amgx_lib_dir)
-        os.add_dll_directory(cuda_dir)
-        import pyamgx
-        self.pyamgx = pyamgx
-
-    def update(self, data, rhs):
-        self.A.replace_coefficients(data.astype(np.float64))
-        self.b.upload(rhs.astype(np.float64))
-        
-        self.solver.setup(self.A)
-        self.solver.solve(self.b, self.x)
-        self.niter = self.solver.iterations_number
-        self.status = self.solver.status
-
-        # assert self.status == 'success'
-        logging.info("pyamgx status: ", self.status)
-        self.r_Axb = []
-        for i in range(self.niter):
-            self.r_Axb.append(self.solver.get_residual(i))
-        self.x.download(self.sol)
-        return self.sol, self.r_Axb, self.niter
-    
-    def init(self):
-        self.pyamgx.initialize()
-        self.cfg = self.pyamgx.Config().create_from_file(self.config_file)
-        self.rsc = self.pyamgx.Resources().create_simple(self.cfg)
-        # Create matrices and vectors:
-        self.A = self.pyamgx.Matrix().create(self.rsc)
-        self.b = self.pyamgx.Vector().create(self.rsc)
-        self.x = self.pyamgx.Vector().create(self.rsc)
-        # Create solver:
-        self.solver = self.pyamgx.Solver().create(self.rsc, self.cfg)
-
-    def solve(self, M, rhs):
-        # self.pyamgx.initialize()
-        # self.cfg = self.pyamgx.Config().create_from_file(self.config_file)
-        # self.rsc = self.pyamgx.Resources().create_simple(self.cfg)
-        # # Create matrices and vectors:
-        # self.A = self.pyamgx.Matrix().create(self.rsc)
-        # self.b = self.pyamgx.Vector().create(self.rsc)
-        # self.x = self.pyamgx.Vector().create(self.rsc)
-        # # Create solver:
-        # self.solver = self.pyamgx.Solver().create(self.rsc, self.cfg)
-
-        # Upload system:
-        self.M = M.astype(np.float64)
-        self.rhs = rhs.astype(np.float64)
-        self.sol = np.zeros(rhs.shape[0], dtype=np.float64)
-        self.A.upload_CSR(self.M)
-        self.b.upload(self.rhs)
-        self.x.upload(self.sol)
-
-        # Setup and solve system:
-        # if should_setup():
-        self.solver.setup(self.A)
-        self.solver.solve(self.b, self.x)
-        self.niter = self.solver.iterations_number
-
-
-        self.r_Axb = []
-        for i in range(self.niter):
-            self.r_Axb.append(self.solver.get_residual(i))
-        # self.r_final = self.solver.get_residual()
-        # self.r0 = self.solver.get_residual(0)
-
-        self.x.download(self.sol)
-        
-        status = self.solver.status
-        # assert status == 'success', f"status:{status}, iterations: {self.niter}. The residual is {self.r_Axb}"
-        if status != 'success':
-            logging.info(f"status:{status}, iterations: {self.niter}. The residual is {self.r_Axb[-1]}")
-
-        return self.sol, self.r_Axb, self.niter
-
-    def finalize(self):
-        # Clean up:
-        self.A.destroy()
-        self.x.destroy()
-        self.b.destroy()
-        self.solver.destroy()
-        self.rsc.destroy()
-        self.pyamgx.finalize()
-
-
-has_init_amgx = False
-def AMG_amgx(b):
-    tic = time.perf_counter()
-    global has_init_amgx, amgxsolver
-    if not has_init_amgx:
-        # config_file = Path(prj_path + "/data/config/AGGREGATION_JACOBI.json")
-        # config_file = Path(prj_path + "/data/config/agg_cheb4.json")
-        # config_file = str(config_file)
-        amgxsolver = AMGXSolver(args.amgx_config)
-        amgxsolver.init()
-        ist.amgxsolver = amgxsolver
-        has_init_amgx = True
-    
-    A = fill_A_csr_ti(ist)
-    A = A.copy()#FIXME: no copy will cause bug, why?
-    # x, r_Axb, niter = amgxsolver.update(A.data, b)
-    x, r_Axb, niter = amgxsolver.solve(A, b)
-    # amgxsolver.finalize()
-    logging.info(f"    AMGX time: {(time.perf_counter()-tic)*1000:.0f}ms")
-    return x, np.array(r_Axb)
-
-
-
-
-
 def substep_all_solver(ist):
     tic1 = time.perf_counter()
     gravity = ti.Vector(args.gravity)
@@ -808,7 +695,7 @@ def substep_all_solver(ist):
             if args.solver_type == "AMG":
                 x, r_Axb = amg_cuda.run(b)
             elif args.solver_type == "AMGX":
-                x, r_Axb = AMG_amgx(b)
+                x, r_Axb = amgxsolver.run(b)
         AMG_dlam2dpos(x)
         dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
@@ -1329,6 +1216,12 @@ def main():
     else:
         global amg_python
         amg_python = AmgPython(args, get_A0_python, should_setup)
+
+    if args.solver_type == "AMGX":
+        global amgxsolver
+        amgxsolver = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
+        amgxsolver.init()
+        ist.amgxsolver = amgxsolver
 
     print(f"initialize time:", perf_counter()-tic)
     ist.initial_frame = ist.frame

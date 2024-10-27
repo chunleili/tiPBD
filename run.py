@@ -38,6 +38,7 @@ parser.add_argument("-profile", action="store_true", help="profiling")
 parser.add_argument("-case", type=int, nargs='*',help=f"case numbers(can be multiple)")
 parser.add_argument("-end_frame", type=int, default=10, help=f"end frame")
 parser.add_argument("-overwrite", action="store_true")
+parser.add_argument("-A", type=str, help="export a matrix file for testing")
 
 end_frame = parser.parse_args().end_frame
 
@@ -47,6 +48,29 @@ if parser.parse_args().overwrite:
 else:
     auto_another_outdir = 0
 
+
+def export_A(cli_args):
+        # output a matrix for testing
+        if cli_args.A == "soft":
+                args = ["engine/soft/soft3d.py",
+                        f"-end_frame={end_frame}",
+                        f"-out_dir=result/test_A",
+                        f"-auto_another_outdir={auto_another_outdir}",
+                        "-model_path=data/model/bunny85w/bunny85w.node",
+                        "-rtol=1e-2",
+                        "-tol=1e-4",
+                        "-delta_t=3e-3",
+                        "-solver_type=AMG",
+                        "-arch=cpu",
+                        "-maxiter=100",
+                        "-smoother_niter=2",
+                        "-build_P_method=strength0.1",
+                        "-end_frame=1",
+                        "-export_matrix=1",
+                        ]
+                subprocess.check_call([pythonExe] + args)
+        
+    
 
 def parseNumList(string):
     m = re.match(r'(\d+)(?:-(\d+))?$', string)
@@ -1523,6 +1547,10 @@ if __name__=='__main__':
         f.write(f"{last_run}\n")
 
     cli_args = parser.parse_args()
+
+
+    if cli_args.A is not None:
+        export_A(cli_args)
 
     if cli_args.case:
         tic = perf_counter()

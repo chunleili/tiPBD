@@ -109,19 +109,22 @@ def load_state(filename,ist):
 
 
 
-def export_A_b(A,b, dir, postfix=f"", binary=True):
+def export_A_b(A, b, dir, postfix=f"", binary=True):
     from time import perf_counter
     import scipy
 
+    print(f"Exporting A and b to {dir} with postfix {postfix}")
     tic = perf_counter()
     if binary:
         # https://stackoverflow.com/a/8980156/19253199
-        scipy.sparse.save_npz(dir + f"A_{postfix}.npz", A)
-        np.save(dir + f"b_{postfix}.npy", b)
+        scipy.sparse.save_npz(dir + f"/A_{postfix}.npz", A)
+        if b is not None:
+            np.save(dir + f"/b_{postfix}.npy", b)
         # A = scipy.sparse.load_npz("A.npz") # load
         # b = np.load("b.npy")
     else:
-        scipy.io.mmwrite(dir + f"A_{postfix}.mtx", A, symmetry='symmetric')
-        np.savetxt(dir + f"b_{postfix}.txt", b)
+        scipy.io.mmwrite(dir + f"/A_{postfix}.mtx", A, symmetry='symmetric')
+        if b is not None:
+            np.savetxt(dir + f"/b_{postfix}.txt", b)
     print(f"    export_A_b time: {perf_counter()-tic:.3f}s")
     

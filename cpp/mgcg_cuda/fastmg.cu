@@ -879,13 +879,19 @@ struct MGLevel {
 };
 
 
-struct FastFillCloth : Kernels {
+// Base case for FastFillCloth and FastFillSoft
+struct FastFillBase: Kernels 
+{
+    int num_nonz;
+    int nrows, ncols;
     CSR<float> A;
+};
+
+
+struct FastFillCloth : FastFillBase {
     float alpha;
     int NE;
     int NV;
-    int num_nonz;
-    int nrows, ncols;
     Vec<float> d_inv_mass;
     Vec<int> d_ii, d_jj;
     Vec<int> d_edges;
@@ -977,13 +983,10 @@ struct FastFillCloth : Kernels {
 }; //FastFillCloth struct
 
 
-struct FastFillSoft : Kernels {
-    CSR<float> A;
+struct FastFillSoft : FastFillBase {
     int NT;
     int NV;
     int MAX_ADJ;
-    int num_nonz;
-    int nrows, ncols;
     Vec<float> d_inv_mass;
     Vec<int> d_ii;
     Vec<float> d_pos;
@@ -1325,30 +1328,8 @@ struct VCycle : Kernels {
         CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), datap, levels.at(0).A.data.size() * sizeof(float), cudaMemcpyHostToDevice));
     }
 
-
-    void set_A0_from_fastFillCloth(FastFillCloth *ff) {
-        if (levels.size() < 1) {
-            levels.resize(1);
-        }
-
-        levels.at(0).A.numnonz = ( ff->num_nonz);
-        levels.at(0).A.nrows = ( ff->nrows);
-
-        //FIXME: As in python code, we need copy A, why?
-        levels.at(0).A.data.resize(ff->A.data.size());
-        CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), (ff->A).data.data(), (ff->A).data.size() * sizeof(float), cudaMemcpyDeviceToDevice));
-        levels.at(0).A.indices.resize(ff->A.indices.size());
-        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indices.data(), (ff->A).indices.data(), (ff->A).indices.size() * sizeof(int), cudaMemcpyDeviceToDevice));
-        levels.at(0).A.indptr.resize(ff->A.indptr.size());
-        CHECK_CUDA(cudaMemcpy(levels.at(0).A.indptr.data(), (ff->A).indptr.data(), (ff->A).indptr.size() * sizeof(int), cudaMemcpyDeviceToDevice));
-
-        // debug_cuda_vec(levels.at(0).A.data, "A0.data");
-        // debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
-        // debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
-
-    }
-
-    void set_A0_from_fastFillSoft(FastFillSoft *ff) {
+    void set_A0_from_fastFill(FastFillBase *ff)
+    {
         if (levels.size() < 1) {
             levels.resize(1);
         }
@@ -1922,6 +1903,7 @@ struct VCycle : Kernels {
 static VCycle *fastmg = nullptr;
 static FastFillCloth *fastFillCloth = nullptr;
 static FastFillSoft *fastFillSoft = nullptr;
+static FastFillBase *fastFillBase = nullptr;
 
 #if _WIN32
 #define DLLEXPORT __declspec(dllexport)
@@ -2004,11 +1986,11 @@ extern "C" DLLEXPORT void fastmg_set_smoother_niter(const size_t niter) {
 }
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
-    fastmg->set_A0_from_fastFillCloth(fastFillCloth);
+    fastmg->set_A0_from_fastFill(fastFillCloth);
 }
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillSoft() {
-    fastmg->set_A0_from_fastFillSoft(fastFillSoft);
+    fastmg->set_A0_from_fastFill(fastFillSoft);
 }
 
 extern "C" DLLEXPORT void fastmg_scale_RAP(float s, int lv) {

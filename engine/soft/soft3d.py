@@ -417,7 +417,6 @@ def compute_C_and_gradC_kernel(
         # gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0_, g1_, g2_, g3_
 
 
-
 @ti.kernel
 def compute_dual_residual(
     constraint: ti.template(),
@@ -638,7 +637,6 @@ def should_setup():
     return ((ist.frame%args.setup_interval==0 or (args.restart==True and ist.frame==args.restart_frame)) and (ist.ite==0))
 
 
-
 def smoother_name2type(name):
     if name == "chebyshev":
         return 1
@@ -648,7 +646,6 @@ def smoother_name2type(name):
         return 3
     else:
         raise ValueError(f"smoother name {name} not supported")
-
 
 
 def fetch_A_from_cuda(lv=0):
@@ -682,7 +679,7 @@ def fastmg_fetch():
 #     # A = fill_A_csr_ti(ist)
 #     # cuda_set_A0(A)
 #     for lv in range(ist.num_levels-1):
-#         extlib.fastmg_RAP(lv) 
+#         extlib.fastmg_RAP(lv)
 #     logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
 
 
@@ -690,7 +687,6 @@ def AMG_dlam2dpos(x):
     tic = time.perf_counter()
     transfer_back_to_pos_mfree(x, ist)
     logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
-
 
 
 def do_export_r(r):
@@ -726,10 +722,6 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
 
     ist.t_export += perf_counter()-tic
     return dual0
-
-
-
-
 
 
 class AMGXSolver:
@@ -865,7 +857,7 @@ def substep_all_solver(ist):
             x, r_Axb = amg_python.run(b)
         else:
             if args.solver_type == "AMG":
-                x, r_Axb = amg_cuda.AMG_cuda(b)
+                x, r_Axb = amg_cuda.run(b)
             elif args.solver_type == "AMGX":
                 x, r_Axb = AMG_amgx(b)
         AMG_dlam2dpos(x)
@@ -892,7 +884,6 @@ def substep_all_solver(ist):
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
     ist.t_avg_iter.append((time.perf_counter()-tic1)/ist.n_outer_all[-1])
     logging.info(f"avg iter frame {ist.frame}: {ist.t_avg_iter[-1]*1000:.0f}ms")
-
 
 
 def substep_xpbd(ist):
@@ -936,9 +927,6 @@ def substep_xpbd(ist):
         #     break
     ist.n_outer_all.append(ist.ite+1)
     update_vel(args.delta_t, ist.pos, ist.old_pos, ist.vel)
-
-
-
 
 
 # ---------------------------------------------------------------------------- #
@@ -1173,7 +1161,7 @@ def fill_A_csr_lessmem_kernel(data:ti.types.ndarray(dtype=ti.f32),
             offdiag += sm*gradC[i,o1].dot(gradC[j,o2])
         data[n] = offdiag
 
-    
+
 # for cnt version, require init_A_CSR_pattern() to be called first
 # legacy version, now we use less memory version
 # fill_A_csr_kernel(ist.data, ist.indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices, ist.n_shared_v, ist.shared_v, ist.shared_v_order_in_cur, ist.shared_v_order_in_adj)
@@ -1228,7 +1216,7 @@ def graph_coloring_v1():
     return ncolor, colors
 
 
-# version 2, use pyamg. 
+# version 2, use pyamg.
 # Input: CSR matrix(symmetric)
 # This is called in AMG_setup_phase()
 def graph_coloring_v2():
@@ -1258,7 +1246,7 @@ def graph_coloring_v2():
     return ncolor, colors
 
 
-# version 3, use newtworkx. 
+# version 3, use newtworkx.
 # Input: CSR matrix(symmetric)
 # This is called in AMG_setup_phase()
 def graph_coloring_v3(A):
@@ -1335,10 +1323,12 @@ def main():
     global ist
     ist = SoftBody(args.model_path)
     ist.initialize()
+    args.frame = ist.frame
+    args.ite = ist.ite
 
     ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     logging.info(ist.start_date)
-    
+
     if args.export_mesh:
         write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
 
@@ -1347,7 +1337,16 @@ def main():
 
     if args.use_cuda:
         global amg_cuda
-        amg_cuda = AmgCuda(args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, graph_coloring_v2, copy_A=True)
+        amg_cuda = AmgCuda(
+            args=args,
+            extlib=extlib,
+            get_A0=get_A0,
+            fastFill_set=fastFill_set,
+            should_setup=should_setup,
+            AMG_A=AMG_A,
+            graph_coloring=graph_coloring_v2,
+            copy_A=True,
+        )
     else:
         global amg_python
         amg_python = AmgPython(args, get_A0, should_setup)
@@ -1355,7 +1354,7 @@ def main():
     print(f"initialize time:", perf_counter()-tic)
     ist.initial_frame = ist.frame
     ist.t_export_total = 0.0
-    
+
     ist.timer_loop = perf_counter()
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.initial_frame)
     try:
@@ -1380,7 +1379,7 @@ def main():
 
             info(f"step time: {perf_counter() - t:.2f} s")
             step_pbar.update(1)
-                
+
             if ist.frame >= args.end_frame:
                 print("Normallly end.")
                 ending(args,ist)

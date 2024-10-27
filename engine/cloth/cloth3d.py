@@ -769,7 +769,7 @@ def substep_all_solver():
         if not args.use_cuda:
             x, r_Axb = amg_python.run(b)
         else:
-            x, r_Axb = amg_cuda.AMG_cuda(b)
+            x, r_Axb = amg_cuda.run(b)
         if args.use_PXPBD_v1:
             AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
         elif args.use_PXPBD_v2:
@@ -1155,10 +1155,21 @@ def init():
 
     global ist
     ist = Cloth()
+    args.frame = ist.frame
+    args.ite = ist.ite
 
     if args.use_cuda:
         global amg_cuda
-        amg_cuda = AmgCuda(args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, None, copy_A=False)
+        amg_cuda = AmgCuda(
+            args=args,
+            extlib=extlib,
+            get_A0=get_A0,
+            fastFill_set=fastFill_set,
+            should_setup=should_setup,
+            AMG_A=AMG_A,
+            graph_coloring=None,
+            copy_A=True,
+        )
     else:
         global amg_python
         amg_python = AmgPython(args, get_A0, should_setup)

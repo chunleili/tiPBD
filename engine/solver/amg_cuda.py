@@ -4,18 +4,32 @@ import time
 import ctypes
 
 class AmgCuda:
-    def __init__(self, args, ist, extlib, fill_A_csr_ti, fastFill_set, AMG_A, graph_coloring_v2=None, copy_A=True):
+    def __init__(self, args,  extlib, get_A0, fastFill_set, AMG_A, should_setup, graph_coloring=None, copy_A=True):
         self.args = args
         self.extlib = extlib
-        self.ist = ist
         self.copy_A = copy_A
         
         # TODO: for now, we pass func ptr to distinguish between soft and cloth
-        self.fill_A_csr_ti = fill_A_csr_ti
+        self.get_A0 = get_A0
         self.fastFill_set = fastFill_set
         self.AMG_A = AMG_A
-        self.graph_coloring_v2 = graph_coloring_v2
+        self.graph_coloring = graph_coloring
+        self.should_setup = should_setup
+        self.frame = args.frame
+    
 
+    def run(self, b):
+        self.AMG_A()
+        if self.should_setup():
+            A = self.AMG_setup_phase()
+            if self.args.export_matrix:
+                from engine.file_utils import  export_A_b
+                export_A_b(A, b, dir=self.args.out_dir + "/A/", postfix=f"F{self.frame}",binary=self.args.export_matrix_binary)
+        self.fastFill_set()
+        self.AMG_RAP()
+        x, r_Axb = self.AMG_solve(b, maxiter=self.args.maxiter_Axb, tol=self.args.tol_Axb)
+        return x, r_Axb
+    
 
     def AMG_solve(self, b, x0=None, tol=1e-5, maxiter=100):
         if x0 is None:
@@ -46,9 +60,7 @@ class AmgCuda:
 
     def AMG_RAP(self):
         tic3 = time.perf_counter()
-        # A = fill_A_csr_ti(ist)
-        # cuda_set_A0(A)
-        for lv in range(self.ist.num_levels-1):
+        for lv in range(self.num_levels-1):
             self.extlib.fastmg_RAP(lv) 
         logging.info(f"    RAP time: {(time.perf_counter()-tic3)*1000:.0f}ms")
 
@@ -62,16 +74,17 @@ class AmgCuda:
 
     def AMG_setup_phase(self):
         tic = time.perf_counter()
-        A = self.fill_A_csr_ti(self.ist) #taichi version
+        A = self.get_A0()
         if self.copy_A:
             A = A.copy() #FIXME: no copy will cause bug, why?
         from engine.solver.build_Ps import build_Ps
-        self.ist.Ps = build_Ps(A, self.args, self.ist, self.extlib)
+        self.Ps = build_Ps(A, self.args, self.extlib)
+        self.num_levels = len(self.Ps)+1
         logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
 
 
         tic = time.perf_counter()
-        self.update_P(self.ist.Ps)
+        self.update_P(self.Ps)
         logging.info(f"    update_P time: {time.perf_counter()-tic:.2f}s")
 
         tic = time.perf_counter()
@@ -91,23 +104,9 @@ class AmgCuda:
         logging.info(f"    setup smoothers time:{time.perf_counter()-tic}")
 
         if self.args.smoother_type=="gauss_seidel":
-            self.graph_coloring_v2()    
+            self.graph_coloring()    
         return A
-    
-    def should_setup(self):
-        return ((self.ist.frame%self.args.setup_interval==0 or (self.args.restart==True and self.ist.frame==self.args.restart_frame)) and (self.ist.ite==0))
 
-    def AMG_cuda(self, b):
-        self.AMG_A()
-        if self.should_setup():
-            A = self.AMG_setup_phase()
-            if self.args.export_matrix:
-                from engine.file_utils import  export_A_b
-                export_A_b(A, b, dir=self.args.out_dir + "/A/", postfix=f"F{self.ist.frame}",binary=self.args.export_matrix_binary)
-        self.fastFill_set()
-        self.AMG_RAP()
-        x, r_Axb = self.AMG_solve(b, maxiter=self.args.maxiter_Axb, tol=self.args.tol_Axb)
-        return x, r_Axb
     
 def smoother_name2type(name):
     if name == "chebyshev":

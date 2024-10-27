@@ -1086,7 +1086,7 @@ def ending(args, ist):
     len_n_outer_all = len(ist.n_outer_all) if len(ist.n_outer_all) > 0 else 1
     sum_n_outer = sum(ist.n_outer_all)
     avg_n_outer = sum_n_outer / len_n_outer_all
-    max_n_outer = max(ist.n_outer_all)
+    max_n_outer = max(ist.n_outer_all) if len_n_outer_all > 0 else 0
     max_n_outer_index = ist.n_outer_all.index(max_n_outer)
 
     n_outer_all_np = np.array(ist.n_outer_all, np.int32)    

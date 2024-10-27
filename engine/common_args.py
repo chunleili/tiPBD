@@ -29,7 +29,7 @@ def add_common_args(parser):
     parser.add_argument("-only_smoother", type=int, default=False)
     parser.add_argument("-debug", type=int, default=False)
     parser.add_argument("-coarse_solver_type", type=int, default=1, help="0: direct solver, 1: smoother")
-    parser.add_argument("-amgx_config", type=str, default="data/amgx_config/AMG_CONFIG_CG.json")
+    parser.add_argument("-amgx_config", type=str, default="data/config/FGMRES_CLASSICAL_AGGRESSIVE_PMIS.json")
     parser.add_argument("-export_state", type=int, default=False)
     parser.add_argument("-use_json", type=int, default=False, help="json configs will overwrite the command line args")
     parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")

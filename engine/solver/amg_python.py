@@ -29,7 +29,7 @@ def AMG_python(b, args, ist, fill_A_csr_ti, should_setup, copy_A=True):
         logging.info(f"    setup smoothers time:{perf_counter()-tic}")
     x0 = np.zeros_like(b)
     tic = time.perf_counter()
-    x, r_Axb = old_amg_cg_solve(args,ist,levels, b, x0=x0, maxiter=args.maxiter_Axb, tol=1e-6)
+    x, r_Axb = old_amg_cg_solve(args,ist,levels, b, x0=x0, maxiter=args.maxiter_Axb, tol=args.tol_Axb)
     toc = time.perf_counter()
     logging.info(f"    mgsolve time {toc-tic}")
     return  x, r_Axb

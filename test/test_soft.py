@@ -11,7 +11,7 @@ def test_soft_amg_cuda():
     assert ret == 0
 
 def test_soft_xpbd_gpu():
-    run_args = ["python", "engine/soft/soft3d.py", "-use_cuda=0", "-solver_type=XPBD","-arch=gpu" "-end_frame=1"]
+    run_args = ["python", "engine/soft/soft3d.py", "-use_cuda=0", "-solver_type=XPBD","-arch=gpu", "-end_frame=1"]
     ret = subprocess.check_call(run_args)
     assert ret == 0
 

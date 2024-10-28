@@ -580,7 +580,7 @@ def AMG_calc_r(r, r0, tic_iter, r_Axb):
     # compute_potential_energy()
     # compute_inertial_energy()
     # robj = (potential_energy[None]+inertial_energy[None])
-    r_Axb = r_Axb.tolist()
+    r_Axb = r_Axb.tolist() if not isinstance(r_Axb, list) else r_Axb
     if args.use_PXPBD_v1 or args.use_PXPBD_v2:
         G = fill_G()
         primary_residual = calc_primary_residual(G, ist.M_inv)
@@ -1179,13 +1179,13 @@ def init():
                 copy_A=True,
             )
         else:
-            amg = AmgPython(args, get_A0_python, should_setup)
+            amg = AmgPython(args, get_A0_python, should_setup, copy_A=True)
     if args.solver_type == "AMGX":
         amg = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
         amg.init()
         ist.amgxsolver = amg
     if args.solver_type == "DIRECT":
-        amg = DirectSolver()
+        amg = DirectSolver(get_A0_python)
 
     
     tic_init = time.perf_counter()
@@ -1206,7 +1206,7 @@ def init():
     logging.info("Initializing pos and edge done")
 
     tic = time.perf_counter()
-    if args.solver_type == "AMG" or args.solver_type == "AMGX":
+    if args.solver_type != "XPBD":
         ist.fill_A = FillACloth()
         if args.use_cuda:
             ist.fill_A.load_cache_initFill_to_cuda()

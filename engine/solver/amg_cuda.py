@@ -5,11 +5,37 @@ import ctypes
 import scipy
 
 class AmgCuda:
-    def __init__(self, args,  extlib, get_A0, AMG_A, should_setup, graph_coloring=None, copy_A=True):
+    """
+    AmgCuda 类用于在 CUDA 上运行 AMG 算法。
+
+    Examples
+    --------
+    see test_amg_cuda()
+    """
+    def __init__(self, args, extlib, get_A0, AMG_A, should_setup, graph_coloring=None, copy_A=True):
+        """
+        Initialize an instance of the AmgCuda class.
+
+        Parameters
+        ----------
+        args : Command line arguments or configuration object.
+
+        extlib : External library object for calling CUDA functions.
+
+        get_A0 : Function pointer for obtaining the matrix A0.
+
+        AMG_A : Function pointer for filling the matrix on the CUDA side.
+
+        should_setup : Function pointer to determine if setup is needed.
+
+        graph_coloring : Graph coloring object (optional).
+
+        copy_A : Boolean indicating whether to copy the matrix A (default is True).
+        """
         self.args = args
         self.extlib = extlib
         self.copy_A = copy_A
-        
+
         # TODO: for now, we pass func ptr to distinguish between soft and cloth
         self.get_A0 = get_A0
         self.AMG_A = AMG_A
@@ -27,7 +53,6 @@ class AmgCuda:
         self.AMG_RAP()
         x, r_Axb = self.AMG_solve(b, maxiter=self.args.maxiter_Axb, tol=self.args.tol_Axb)
         return x, r_Axb
-    
 
     def AMG_solve(self, b, x0=None, tol=1e-5, maxiter=100):
         if x0 is None:
@@ -55,7 +80,6 @@ class AmgCuda:
         logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
         return (x),  residuals  
 
-
     def AMG_RAP(self):
         tic3 = time.perf_counter()
         for lv in range(self.num_levels-1):
@@ -80,14 +104,13 @@ class AmgCuda:
         self.num_levels = len(self.Ps)+1
         logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
 
-
         tic = time.perf_counter()
         self.update_P(self.Ps)
         logging.info(f"    update_P time: {time.perf_counter()-tic:.2f}s")
 
         tic = time.perf_counter()
         self.cuda_set_A0(A)
-        
+
         self.AMG_RAP()
 
         s = smoother_name2type(self.args.smoother_type)
@@ -105,7 +128,7 @@ class AmgCuda:
             self.graph_coloring()    
         return A
 
-    
+
 def smoother_name2type(name):
     if name == "chebyshev":
         return 1
@@ -115,4 +138,3 @@ def smoother_name2type(name):
         return 3
     else:
         raise ValueError(f"smoother name {name} not supported")
-    

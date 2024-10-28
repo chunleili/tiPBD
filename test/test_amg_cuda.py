@@ -10,7 +10,6 @@ def test_amg_cuda():
     from engine.common_args import add_common_args
     add_common_args(parser)
     args = parser.parse_args()
-    args.use_cuda = False
     args.smoother_type = "jacobi"
     args.tol_Axb=1e-6
     args.maxiter=100

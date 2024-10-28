@@ -2,6 +2,7 @@ import logging
 import numpy as np
 import time
 import ctypes
+import scipy
 
 class AmgCuda:
     def __init__(self, args,  extlib, get_A0, AMG_A, should_setup, graph_coloring=None, copy_A=True):
@@ -14,15 +15,14 @@ class AmgCuda:
         self.AMG_A = AMG_A
         self.graph_coloring = graph_coloring
         self.should_setup = should_setup
-        self.frame = args.frame
-    
 
-    def run(self, b):
+    def run(self, b, frame=None):
         if self.should_setup():
             A = self.AMG_setup_phase()
             if self.args.export_matrix:
                 from engine.file_utils import  export_A_b
-                export_A_b(A, b, dir=self.args.out_dir + "/A/", postfix=f"F{self.frame}",binary=self.args.export_matrix_binary)
+                postfix = f"F{frame}" if frame is not None else ""
+                export_A_b(A, b, dir=self.args.out_dir + "/A/", postfix=postfix, binary=self.args.export_matrix_binary)
         self.AMG_A()
         self.AMG_RAP()
         x, r_Axb = self.AMG_solve(b, maxiter=self.args.maxiter_Axb, tol=self.args.tol_Axb)
@@ -64,7 +64,7 @@ class AmgCuda:
 
     def update_P(self,Ps):
         for lv in range(len(Ps)):
-            P_ = Ps[lv]
+            P_ = (Ps[lv]).tocsr()
             self.extlib.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
 
     def cuda_set_A0(self,A0):

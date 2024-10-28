@@ -5,7 +5,7 @@ import numpy as np
 import subprocess
 
 
-def init_extlib(args, sim):
+def init_extlib(args, sim=""):
     prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
     if args.debug:

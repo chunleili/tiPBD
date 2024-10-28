@@ -50,11 +50,14 @@ def init_extlib(args, sim=""):
     extlib.fastmg_get_matsize.restype = ctypes.c_int
     extlib.fastmg_fetch_A.argtypes = [ctypes.c_int, arr_float, arr_int, arr_int]
     extlib.fastmg_fetch_A_data.argtypes = [arr_float]
+    extlib.fastmg_use_radical_omega.argtypes = [ctypes.c_int]
 
 
     extlib.fastmg_new()
     if args.scale_RAP:
         extlib.fastmg_scale_RAP.argtypes = [c_float, c_int]
+
+    extlib.fastmg_use_radical_omega(0)
 
     if sim=="cloth":
         extlib.fastFillCloth_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]

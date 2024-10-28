@@ -1193,6 +1193,7 @@ struct VCycle : Kernels {
     std::vector<float> residuals;
     size_t niter; //final number of iterations to break the loop
     float max_eig;
+    bool use_radical_omega=true;
 
     void set_scale_RAP(float s, int lv)
     {
@@ -1376,8 +1377,7 @@ struct VCycle : Kernels {
 
 
     void setup_weighted_jacobi() {
-        auto use_radical = true;
-        if(use_radical)
+        if(use_radical_omega)
         {
             // old way:
             // use only the A0 omega for all, and set radical omega(estimate lambda_min as 0.1)
@@ -2010,6 +2010,13 @@ extern "C" DLLEXPORT void fastmg_solve_only_smoother() {
 extern "C" DLLEXPORT void fastmg_set_coarse_solver_type(int t) {
     fastmg->coarse_solver_type = t;
 }
+
+
+extern "C" DLLEXPORT void fastmg_use_radical_omega(int flag) {
+    fastmg->use_radical_omega = bool(flag);
+}
+
+
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastFillCloth_new() {

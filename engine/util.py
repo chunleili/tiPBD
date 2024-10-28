@@ -1100,11 +1100,11 @@ def ending(args, ist):
     f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
     f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
     f"Frame {ist.initial_frame}-{args.end_frame}({args.end_frame-ist.initial_frame} frames)."+\
-    f"\nAvg: {avg_sim_time}s/ist.frame."+\
+    f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{ist.start_date},\nEnd\t{end_date}."+\
     f"\nTime of exporting: {ist.t_export_total:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
-    f"\nMax n_outer: {max_n_outer} \nMax n_outer ist.frame: {max_n_outer_index + ist.initial_frame}." + \
+    f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + ist.initial_frame}." + \
     f"\nstalled at {ist.all_stalled}"+\
     f"\n{ist.sim_name}" + \
     f"\ndt={args.delta_t}" + \

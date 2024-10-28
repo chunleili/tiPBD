@@ -29,6 +29,7 @@ from engine.init_extlib import init_extlib
 from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
+from engine.solver.direct_solver import DirectSolver
 from engine.util import is_diverge, is_stall, ending
 
 parser = argparse.ArgumentParser()
@@ -641,7 +642,7 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     tic_calcr = perf_counter()
     calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
     dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
-    r_Axb = r_Axb.tolist()
+    r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
     dual0 = np.linalg.norm(fulldual0)
 
     logging.info(f"    convergence factor: {calc_conv(r_Axb):.2g}")
@@ -1143,6 +1144,10 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
     A = fetch_A_from_cuda(0)
     return A
 
+
+
+
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1195,7 +1200,9 @@ def main():
         amg = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
         amg.init()
         ist.amgxsolver = amg
-
+    if args.solver_type == "DIRECT":
+        amg = DirectSolver(get_A0_python) #FIXME: maybe we should change a name for amg, like solver
+    
 
     print(f"initialize time:", perf_counter()-tic)
     ist.initial_frame = ist.frame
@@ -1235,7 +1242,7 @@ def main():
         exit()
     except Exception as e:
         if args.solver_type == "AMGX":
-            amgxsolver.finalize()
+            amg.finalize()
         logging.exception(f"Exception occurred:\n{e} ")
         raise e
 

@@ -21,10 +21,11 @@ from engine.file_utils import process_dirs,  do_restart, save_state,  export_A_b
 from engine.init_extlib import init_extlib
 from engine.mesh_io import write_mesh
 from engine.solver.build_Ps import build_Ps
-from engine.solver.amg_python import AmgPython
 from engine.cloth.bending import init_bending, solve_bending_constraints_xpbd
+from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
+from engine.solver.direct_solver import DirectSolver
 from engine.util import is_stall, ending
 
 
@@ -1183,6 +1184,8 @@ def init():
         amg = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
         amg.init()
         ist.amgxsolver = amg
+    if args.solver_type == "DIRECT":
+        amg = DirectSolver()
 
     
     tic_init = time.perf_counter()

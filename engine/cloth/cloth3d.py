@@ -1120,16 +1120,6 @@ def fill_G():
 # ---------------------------------------------------------------------------- #
 #                                  end fill A                                  #
 # ---------------------------------------------------------------------------- #
-def fill_A_in_cuda():
-    """Assemble A in cuda end"""
-    tic2 = perf_counter()
-    if args.use_withK:
-        get_A_withK()
-    else:
-        extlib.fastFillCloth_run(ist.pos.to_numpy())
-        extlib.fastmg_set_A0_from_fastFillCloth()
-    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
-
 def fetch_A_from_cuda(lv=0):
     nnz = extlib.fastmg_get_nnz(lv)
     matsize = extlib.fastmg_get_matsize(lv)
@@ -1143,22 +1133,29 @@ def fetch_A_data_from_cuda():
     A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NT, ist.NT))
     return A
 
+def fill_A_in_cuda():
+    """Assemble A in cuda end"""
+    tic2 = perf_counter()
+    if args.use_withK:
+        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
+        extlib.fastmg_set_A0(A.data.astype(np.float32), A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
+    else:
+        extlib.fastFillCloth_run(ist.pos.to_numpy())
+        extlib.fastmg_set_A0_from_fastFillCloth()
+    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
+
 def get_A0_python()->scipy.sparse.csr_matrix:
+    """get A0 from python end for build_P"""
     A = fill_A_csr_ti(ist)
     return A
 
 def get_A0_cuda()->scipy.sparse.csr_matrix:
+    """get A0 from cuda end for build_P"""
     if args.use_withK:
-        A = get_A_withK()
+        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
     else:
         fill_A_in_cuda()
         A = fetch_A_from_cuda(0)
-    return A
-
-def get_A_withK():
-    """Assemble A with K in cuda end"""
-    A = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
-    extlib.fastmg_set_A0(A.data, A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
     return A
 
 # ---------------------------------------------------------------------------- #

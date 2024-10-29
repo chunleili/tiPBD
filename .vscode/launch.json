@@ -32,6 +32,9 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
+              "-debug=1",
+              "-use_withK=0",
+              "-end_frame=200"
             ]
           }
     ]

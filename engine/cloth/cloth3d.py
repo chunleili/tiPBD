@@ -1233,12 +1233,6 @@ def init():
             ist.fill_A.cache_and_initFill()
     logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
-    # # colors, num_colors = graph_coloring(edge.to_numpy())
-    # logging.info(f"start coloring")
-    # tic = time.perf_counter()
-    # colors = greedy_coloring(edge.to_numpy())
-    # logging.info(f"end coloring, time: {time.perf_counter()-tic:.3f}s")
-
     if args.restart:
         do_restart()
 
@@ -1263,44 +1257,6 @@ def export_after_substep():
         logging.info(f"Time of exporting: {ist.t_export:.3f}s")
         logging.info(f"Time of ist.frame-{ist.frame}: {t_frame:.3f}s")
 
-class Viewer:
-    if args.use_viewer:
-        window = ti.ui.Window("Display Mesh", (1024, 1024))
-        canvas = window.get_canvas()
-        canvas.set_background_color((1, 1, 1))
-        scene = ti.ui.Scene()
-        camera = ti.ui.Camera()
-        # camera.position(0.5, 0.4702609, 1.52483202)
-        # camera.lookat(0.5, 0.9702609, -0.97516798)
-        camera.position(0.5, 0.0, 2.5)
-        camera.lookat(0.5, 0.5, 0.0)
-        camera.fov(90)
-        gui = window.get_gui()
-    
-    def do_render_taichi(viewer):
-        if args.use_viewer:
-            viewer.camera.track_user_inputs(viewer.window, movement_speed=0.003, hold_key=ti.ui.RMB)
-            viewer.scene.set_camera(viewer.camera)
-            viewer.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
-            viewer.scene.mesh(ist.pos, ist.tri, color=(1.0,0,0), two_sided=True)
-            viewer.canvas.scene(viewer.scene)
-            # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
-            viewer.window.show()
-            if args.save_image:
-                file_path = args.out_dir + f"{ist.frame:04d}.png"
-                viewer.window.save_image(file_path)  # export and show in GUI
-        
-    def do_render_control(viewer):
-        if args.use_viewer:
-            for e in viewer.window.get_events(ti.ui.PRESS):
-                if e.key in [ti.ui.ESCAPE]:
-                    exit()
-                if e.key == ti.ui.SPACE:
-                    paused = not paused
-                    print("paused:",paused)
-
-viewer = Viewer()
-
 
 def run():
     ist.timer_loop = time.perf_counter()
@@ -1312,8 +1268,6 @@ def run():
         while True:
             ist.tic_frame = time.perf_counter()
             ist.t_export = 0.0
-
-            viewer.do_render_control()
 
             if not ist.paused:
                 if args.solver_type == "XPBD":
@@ -1328,9 +1282,6 @@ def run():
                 print("Normallly end.")
                 ending(args,ist)
                 exit()
-
-            if args.use_viewer:
-                viewer.do_render_taichi(viewer)
 
             logging.info("\n")
             step_pbar.update(1)

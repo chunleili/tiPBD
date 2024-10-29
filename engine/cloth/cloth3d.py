@@ -414,12 +414,12 @@ def compute_K_kernel(K_diag:ti.types.ndarray(),):
         k0 = ist.lagrangian[i] / L * (1 - g[0]*g[0])
         k1 = ist.lagrangian[i] / L * (1 - g[1]*g[1])
         k2 = ist.lagrangian[i] / L * (1 - g[2]*g[2])
-        K_diag[idx0*3]   += k0
-        K_diag[idx0*3+1] += k1
-        K_diag[idx0*3+2] += k2
-        K_diag[idx1*3]   += k0
-        K_diag[idx1*3+1] += k1
-        K_diag[idx1*3+2] += k2
+        K_diag[idx0*3]   = k0
+        K_diag[idx0*3+1] = k1
+        K_diag[idx0*3+2] = k2
+        K_diag[idx1*3]   = k0
+        K_diag[idx1*3+1] = k1
+        K_diag[idx1*3+2] = k2
     ...
 
 
@@ -571,7 +571,15 @@ def report_multilevel_details(Ps, num_levels):
 
 
 def should_setup():
-    return ((ist.frame%args.setup_interval==0 or (args.restart==True and ist.frame==args.restart_frame)) and (ist.ite==0))
+    if ist.ite != 0:
+        return False
+    if ist.frame==1:
+        return True
+    if ist.frame%args.setup_interval==0:
+        return True
+    if args.restart and ist.frame==ist.initial_frame:
+        return True
+    return False
 
 
 
@@ -1045,7 +1053,7 @@ def fill_A_by_spmm(M_inv, ALPHA):
     G_ii, G_jj, G_vv = np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.float32)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, ist.gradC, ist.edge)
     G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(ist.NCONS, 3 * ist.NV))
-    print(f"fill_G: {time.perf_counter() - tic:.4f}s")
+    # print(f"fill_G: {time.perf_counter() - tic:.4f}s")
 
     tic = time.perf_counter()
     if args.use_withK:
@@ -1055,13 +1063,18 @@ def fill_A_by_spmm(M_inv, ALPHA):
         # https://blog.csdn.net/weixin_43940314/article/details/139448858
         ist.K_diag.fill(0.0)
         compute_K_kernel(ist.K_diag)
+        where_zeros = np.where(M_inv.diagonal()==0)
         mass = 1.0/(M_inv.diagonal()+1e-12)
         MK_inv = scipy.sparse.diags([1.0/(mass - ist.K_diag)], [0], format="dia")
         M_inv = MK_inv # replace old M_inv with MK_inv
+        logging.info(f"with K:  max M_inv diag: {np.max(M_inv.diagonal())}, min M_inv diag: {np.min(M_inv.diagonal())}")
+        
+        M_inv.data[0,where_zeros] = 0.0
+        ...
 
     A = G @ M_inv @ G.transpose() + ALPHA
     A = scipy.sparse.csr_matrix(A)
-    # print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
+    print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
     return A, G
 
 
@@ -1072,10 +1085,10 @@ def fastFill_fetch():
     return A
 
 
-@ti.kernel
-def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
-    for i in range(edge.shape[0]):
-        diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+# @ti.kernel
+# def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
+#     for i in range(edge.shape[0]):
+#         diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
 
 
 @ti.kernel
@@ -1149,7 +1162,10 @@ def fill_A_in_cuda():
 
 def get_A0_python()->scipy.sparse.csr_matrix:
     """get A0 from python end for build_P"""
-    A = fill_A_csr_ti(ist)
+    if args.use_withK:
+        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
+    else:
+        A = fill_A_csr_ti(ist)
     return A
 
 def get_A0_cuda()->scipy.sparse.csr_matrix:
@@ -1221,7 +1237,8 @@ def init():
         ist.tri_pairs, ist.bending_length = init_bending(ist.tri.to_numpy().reshape(-1, 3), ist.pos)
     if args.setup_num == 1:
         init_scale()
-    write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
+    write_mesh(args.out_dir + f"/mesh/{0:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
+    ist.frame = 1
     logging.info("Initializing pos and edge done")
 
     tic = time.perf_counter()
@@ -1234,7 +1251,7 @@ def init():
     logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:
-        do_restart()
+        do_restart(args,ist)
 
     inv_mass_np = np.repeat(ist.inv_mass.to_numpy(), 3, axis=0)
     ist.M_inv = scipy.sparse.diags(inv_mass_np)
@@ -1249,13 +1266,13 @@ def export_after_substep():
     if args.export_mesh:
         write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
     if args.export_state:
-        save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz")
+        save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
     ist.t_export += time.perf_counter()-ist.tic_export
     ist.t_export_total += ist.t_export
     t_frame = time.perf_counter()-ist.tic_frame
     if args.export_log:
         logging.info(f"Time of exporting: {ist.t_export:.3f}s")
-        logging.info(f"Time of ist.frame-{ist.frame}: {t_frame:.3f}s")
+        logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s")
 
 
 def run():

@@ -43,13 +43,11 @@ def use_another_outdir(dir):
     return dir
 
 
-
 def process_dirs(args):
     if args.auto_another_outdir:
         args.out_dir = use_another_outdir(args.out_dir)
-    make_and_clean_dirs(args.out_dir)
-
-
+    if not args.restart:
+        make_and_clean_dirs(args.out_dir)
 
 
 def parse_json_params(path, vars_to_overwrite):
@@ -82,14 +80,8 @@ def find_last_frame(dir):
     return last_frame
 
 def do_restart(args,ist):
-    if args.restart_from_last_frame :
-        args.restart_frame =  find_last_frame(args.out_dir)
-    if args.restart_frame == 0:
-        print("No restart file found.")
-    else:
-        load_state(args.restart_dir + f"{args.restart_frame:04d}.npz")
-        ist.frame = args.restart_frame
-        print(f"restart from last ist.frame: {args.restart_frame}")
+    load_state(args.restart_file,ist)
+    print(f"restart from frame {ist.frame}")
 
 
 def save_state(filename, ist):
@@ -97,7 +89,7 @@ def save_state(filename, ist):
     for i in range(1, len(state)):
         state[i] = state[i].to_numpy()
     np.savez(filename, *state)
-    print(f"Saved ist.frame-{ist.frame} states to '{filename}', {len(state)} variables")
+    print(f"Saved frame-{ist.frame} states to {filename}")
 
 def load_state(filename,ist):
     npzfile = np.load(filename)
@@ -105,7 +97,7 @@ def load_state(filename,ist):
     ist.frame = int(npzfile["arr_0"])
     for i in range(1, len(state)):
         state[i].from_numpy(npzfile["arr_" + str(i)])
-    print(f"Loaded ist.frame-{ist.frame} states to '{filename}', {len(state)} variables")
+    print(f"Loaded frame-{ist.frame} state from {filename}")
 
 
 

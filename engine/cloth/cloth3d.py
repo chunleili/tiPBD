@@ -26,7 +26,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import is_stall, ending
+from engine.util import is_stall, ending, is_diverge
 
 
 
@@ -774,6 +774,9 @@ def substep_all_solver():
             AMG_dlam2dpos(x)
         AMG_calc_r(r, r0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
+
+        if is_diverge(r, r_Axb, ist):
+            raise ValueError(f"Diverge detected at frame {ist.frame}, ite {ist.ite}")
 
         if is_stall(r, ist, args):
             logging.info("Stall detected, break")

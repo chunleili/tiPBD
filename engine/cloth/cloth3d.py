@@ -26,7 +26,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import is_stall, ending, is_diverge
+from engine.util import ending, ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter
 
 
 
@@ -52,8 +52,6 @@ N = args.N
 if args.setup_num==1: args.gravity = (0.0, 0.0, 0.0)
 else : args.gravity = (0.0, -9.8, 0.0)
 
-args.save_image = True
-args.use_viewer = False
 args.export_fullr = False
 args.calc_r_xpbd = True
 args.use_cpp_initFill = True
@@ -65,12 +63,7 @@ if args.arch == "gpu":
 else:
     ti.init(arch=ti.cpu)
 
-if args.use_PXPBD_v1 or args.use_PXPBD_v2:
-    ResidualDataPrimal = namedtuple('residual', ['dual','primal','Newton', 'ninner','t'])
-    Residual0DataPrimal = namedtuple('residual', ['dual','primal','Newton'])
-else:
-    ResidualData = namedtuple('residual', ['dual', 'ninner','t'])
-    Residual0Data = namedtuple('residual', ['dual'])
+
 
 class Cloth():
     def __init__(self) -> None:
@@ -81,6 +74,10 @@ class Cloth():
         self.all_stalled = [] 
         self.t_export = 0.0
         self.sim_name=f"cloth-N{args.N}"
+        self.r_iter = ResidualDataOneIter()
+        self.r_iter.mode = args.converge_condition
+        self.r_frame = ResidualDataOneFrame([])
+        self.r_all = ResidualDataAllFrame([],[])
 
         self.frame = 0
         self.ite=0
@@ -311,15 +308,13 @@ def calc_primary_residual(G,M_inv):
 def xpbd_calcr(tic_iter, dual0, r):
     tic_calcr = perf_counter()
     t_iter = perf_counter()-tic_iter
-    # dualr = np.linalg.norm(dual_residual.to_numpy())
     dualr = calc_norm(ist.dual_residual)
-    
-    # if export_fullr:
-    #     np.savez(args.out_dir+'/r/'+ f'fulldual_{ist.frame}-{ist.ite}', fulldual0)
 
     t_calcr = perf_counter()-tic_calcr
     tic_exportr = perf_counter()
-    r.append(ResidualData(dualr, 1, t_iter))
+    ist.r_iter.dual = dualr
+    ist.r_iter.dual0 = dual0
+
     if args.export_log:
         logging.info(f"{ist.frame}-{ist.ite}  dual0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{t_calcr:.2e}s")
     ist.t_export += perf_counter() - tic_exportr
@@ -360,9 +355,6 @@ def substep_xpbd():
 
         if dualr<args.tol:
             break
-        # if is_stall(r):
-        #     logging.info("Stall detected, break")
-        #     break
     ist.n_outer_all.append(ist.ite+1)
 
     if args.export_residual:
@@ -583,10 +575,10 @@ def should_setup():
 
 
 
-def AMG_calc_r(r, r0, tic_iter, r_Axb):
+def AMG_calc_r(ist,r_Axb):
     tic = time.perf_counter()
 
-    t_iter = perf_counter()-tic_iter
+    t_iter = perf_counter()-ist.tic_iter
     tic_calcr = perf_counter()
     calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
     dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
@@ -600,47 +592,47 @@ def AMG_calc_r(r, r0, tic_iter, r_Axb):
         primal_r = np.linalg.norm(primary_residual).astype(float)
         Newton_r = np.linalg.norm(np.concatenate((ist.dual_residual.to_numpy(), primary_residual))).astype(float)
 
-    # if export_fullr:
-    #     fulldual_final = dual_residual.to_numpy()
-    #     np.savez_compressed(args.out_dir+'/r/'+ f'fulldual_{ist.frame}-{ist.ite}', fulldual0, fulldual_final)
-
     logging.info(f"    convergence factor: {calc_conv(r_Axb):.2f}")
     logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
+    ist.r_iter.ite = ist.ite
+    ist.r_iter.frame = ist.frame
 
     if args.export_log:
+        ist.r_iter.dual = dual_r
+        ist.r_iter.r_Axb = r_Axb
+        ist.r_iter.ninner = len(r_Axb)-1
+        ist.r_iter.t = t_iter
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
         if args.use_PXPBD_v1 or args.use_PXPBD_v2:
-            r.append(ResidualDataPrimal(dual_r, primal_r, Newton_r, len(r_Axb), t_iter))
-            logging.info(f"{ist.frame}-{ist.ite} Newton:{Newton_r:.2e} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual:{dual_r:.2e} primal:{primal_r:.2e} iter:{len(r_Axb)}")
-        else:
-            r.append(ResidualData(dual_r, len(r_Axb), t_iter))
-            logging.info(f"{ist.frame}-{ist.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{r0.dual:.2e} dual:{dual_r:.2e}  iter:{len(r_Axb)}")
-
+            ist.r_iter.primal = primal_r
+            ist.r_iter.Newton = Newton_r
+        ist.r_iter.log_res()
+    ist.r_frame.frame = ist.frame
+    ist.r_frame.r_iters.append(ist.r_iter)
     ist.t_export += perf_counter()-tic
 
 
 
-def AMG_calc_r0():
+def AMG_calc_r0(ist):
     calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
     dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
     # compute_potential_energy()
     # compute_inertial_energy()
     # robj = (potential_energy[None]+inertial_energy[None])
+    ist.r_iter.dual0 = dual_r
     if args.use_PXPBD_v1 or args.use_PXPBD_v2:
         G = fill_G()
         primary_residual = calc_primary_residual(G, ist.M_inv)
         primal_r = np.linalg.norm(primary_residual).astype(float)
         Newton_r = np.linalg.norm(np.concatenate((ist.dual_residual.to_numpy(), primary_residual))).astype(float)
-
-        r0 = (Residual0DataPrimal(dual_r, primal_r, Newton_r))
-    else:
-        r0 = (Residual0Data(dual_r))
-    return r0
+        ist.r_iter.dual = dual_r
+        ist.r_iter.primal = primal_r
+        ist.r_iter.Newton = Newton_r
 
 
 def do_export_r(r):
     tic = time.perf_counter()
-    serialized_r = [r[i]._asdict() for i in range(len(r))]
+    serialized_r = [r[i].__dict__ for i in range(len(r))]
     r_json = json.dumps(serialized_r)
     with open(args.out_dir+'/r/'+ f'{ist.frame}.json', 'w') as file:
         file.write(r_json)
@@ -759,13 +751,10 @@ def substep_all_solver():
     tic1 = time.perf_counter()
     semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos, args.delta_t)
     reset_lagrangian(ist.lagrangian)
-    r = [] # residual list of one ist.frame
-    # fulldual0 = calc_dual()
-    # print("dual0: ", np.linalg.norm(fulldual0))
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
-    r0 = AMG_calc_r0()
+    AMG_calc_r0(ist)
     for ist.ite in range(args.maxiter):
-        tic_iter = perf_counter()
+        ist.tic_iter = perf_counter()
         if args.use_PXPBD_v1:
             copy_field(ist.pos_mid, ist.pos)
         compute_C_and_gradC_kernel(ist.pos, ist.gradC, ist.edge, ist.constraints, ist.rest_len) # required by dlam2dpos
@@ -780,30 +769,18 @@ def substep_all_solver():
             AMG_PXPBD_v2_dlam2dpos(x)
         else:
             AMG_dlam2dpos(x)
-        AMG_calc_r(r, r0, tic_iter, r_Axb)
-        logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
+        AMG_calc_r(ist, r_Axb)
+        logging.info(f"iter time(with export): {(perf_counter()-ist.tic_iter)*1000:.0f}ms")
 
-        if is_diverge(r, r_Axb, ist):
-            raise ValueError(f"Diverge detected at frame {ist.frame}, ite {ist.ite}")
-
-        if is_stall(r, ist, args):
-            logging.info("Stall detected, break")
+        if ist.r_iter.dual<args.tol:
             break
-
-        if args.use_PXPBD_v1:
-            rtol = 1e-1
-            if  r[-1].Newton<rtol*r[0].Newton:
-                break
-        else:
-            if r[-1].dual<args.tol:
-                break
 
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {ist.ite+1}")
     ist.n_outer_all.append(ist.ite+1)
     if args.export_residual:
-        do_export_r(r)
+        do_export_r(ist.r_frame.r_iters)
     update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
 
@@ -1188,9 +1165,7 @@ def init():
         log_level = logging.ERROR
     logging.basicConfig(level=log_level, format="%(message)s",filename=args.out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-
     logging.info(args)
-
 
     if args.use_cuda:
         global extlib

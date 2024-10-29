@@ -17,7 +17,6 @@ def filedialog():
     return filename
 
 
-
 def singleton(cls):
     _instance = {}
 
@@ -47,7 +46,6 @@ class SimConfig:
     #         return self.config["materials"][key]
     #     else:
     #         return default
-
 
 
 ############################################
@@ -90,7 +88,6 @@ def parse_cli(): # old version, use built-in argparse
     # 把init_args打包， ti.init(**args.init_args)
     args.init_args = {"arch": args.arch, "device_memory_fraction": args.device_memory_fraction, "kernel_profiler": args.kernel_profiler, "debug": args.debug}
     return args
-
 
 
 @singleton
@@ -236,9 +233,6 @@ def print_to_file(val, filename="field", dim=3):
 @ti.func
 def pos_to_grid_idx(x, y, z, dx, dy, dz):
     return ti.Vector([x / dx, y / dy, z / dz], ti.i32)
-
-
-
 
 
 ############################################
@@ -550,9 +544,6 @@ def trilinear_interpolate(val: ti.template(), x: ti.f32, y: ti.f32, z: ti.f32) -
     )
 
 
-
-
-
 ############################################
 # sdf
 
@@ -699,10 +690,9 @@ def collision_response(pos: ti.template(), sdf):
         #     vel -=  normal * min(normal_component, 0)
 
 
-
 ############################################
 # p2g
-   
+
 @ti.kernel
 def p2g_2d(x: ti.template(), dx: ti.f32, grid_m: ti.template()):
     """
@@ -788,11 +778,9 @@ def p2g(x: ti.template(), dx: ti.f32, grid_m: ti.template(), dim: ti.template())
                 grid_m[base + offset] += weight * p_mass
 
 
-
 ############################################
 # debug info
 
-            
 
 def debug_info(field, name="", dont_print_cli=False):
     field_np = field.to_numpy()
@@ -810,9 +798,6 @@ def debug_info(field, name="", dont_print_cli=False):
     else:
         np.savetxt(f"result/debug_{name}.csv", field_np, fmt="%.2f", delimiter="\t")
     return field_np
-
-
-
 
 
 ############################################
@@ -903,7 +888,6 @@ def collision_response_sdf(pos: ti.template(), sdf):
         pos -= sdf_val * normal
 
 
-
 def csr_is_equal(A, B):
     if A.shape != B.shape:
         print("shape not equal")
@@ -916,7 +900,6 @@ def csr_is_equal(A, B):
     if maxdiff > 1e-6:
         return False
     return True
-
 
 
 def print_all_globals(global_vars,args):
@@ -935,8 +918,6 @@ def print_all_globals(global_vars,args):
     logging.info("\n\n\n")
 
 
-
-
 def spy_A(A,b):
     import scipy.io
     import matplotlib.pyplot as plt
@@ -945,7 +926,6 @@ def spy_A(A,b):
     plt.spy(A, markersize=1)
     plt.show()
     exit()
-
 
 
 def is_symmetric(A):
@@ -979,8 +959,6 @@ def dense_mat_is_equal(A, B):
         assert False
     print("is equal!")
     return True
-
-
 
 
 def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
@@ -1031,55 +1009,101 @@ def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
             x[i] = (b[i] - rsum) / diag
 
 
+# if args.use_PXPBD_v1 or args.use_PXPBD_v2:
+#     ResidualDataPrimal = namedtuple('residual', ['dual','primal','Newton', 'ninner','t'])
+#     Residual0DataPrimal = namedtuple('residual', ['dual','primal','Newton'])
+# else:
+#     ResidualData = namedtuple('residual', ['dual', 'ninner','t'])
+#     Residual0Data = namedtuple('residual', ['dual'])
+from dataclasses import dataclass, field
+
+@dataclass
+class ResidualDataOneIter:
+    name = "residualOneIter"
+    ninner: int=0
+    t: float=0
+    dual: float=0
+    primal: float=0
+    Newton: float=0
+    dual0: float=0
+    primal0: float=0
+    Newton0: float=0
+    r_Axb: list[float] = field(default_factory=list)
+    frame: int=0
+    ite: int=0
+    mode: str="" # "args.converge_condition"
+
+    def log_res(self):
+        if self.mode == "Newton":
+            logging.info(f"{self.frame}-{self.ite} Newton:{self.Newton:.2e} rsys:{self.r_Axb[0]:.2e} {self.r_Axb[-1]:.2e} dual:{self.dual:.2e} primal:{self.primal:.2e} iter:{self.ninner}")
+        elif self.mode == "dual":
+            logging.info(f"{self.frame}-{self.ite} rsys:{self.r_Axb[0]:.2e} {self.r_Axb[-1]:.2e} dual0:{self.dual0:.2e} dual:{self.dual:.2e}  iter:{self.ninner}")
+
+@dataclass
+class ResidualDataOneFrame:
+    name = "residualOneFrame"
+    r_iters: list # list of ResidualDataOneIter
+    nouter: int=0
+    frame: int=0
+    t: float=0
+    t_export: float=0
+
+    def __len__(self):
+        return len(self.r_iters)
+
+@dataclass
+class ResidualDataAllFrame:
+    name = "residualAll"
+    r_frames: list # list of ResidualDataOneFrame
+    stalled_frame: list
+    t: float=0
 
 
-# if in last 5 iters, residuals not change 0.1%, then it is stalled
-def is_stall(r,ist,args):
-    if (ist.ite < 5):
+class CheckConverge:
+    def __init__(self, args):
+        self.args = args
+
+    # if in last 5 iters, residuals not change 0.1%, then it is stalled
+    def is_stall(self, r, ist):
+        if ist.ite < 5:
+            return False
+        # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
+        inc1 = r[-1].dual / r[-2].dual
+        inc2 = r[-2].dual / r[-3].dual
+        inc3 = r[-3].dual / r[-4].dual
+        inc4 = r[-4].dual / r[-5].dual
+        if self.args.use_PXPBD_v1:
+            inc1 = r[-1].Newton / r[-2].Newton
+            inc2 = r[-2].Newton / r[-3].Newton
+            inc3 = r[-3].Newton / r[-4].Newton
+            inc4 = r[-4].Newton / r[-5].Newton
+
+        # if all incs is in [0.999,1.001]
+        if np.all(
+            (inc1 > 0.999)
+            & (inc1 < 1.001)
+            & (inc2 > 0.999)
+            & (inc2 < 1.001)
+            & (inc3 > 0.999)
+            & (inc3 < 1.001)
+            & (inc4 > 0.999)
+            & (inc4 < 1.001)
+        ):
+            logging.info(f"Stall at {ist.frame}-{ist.ite}")
+            ist.all_stalled.append((ist.frame, ist.ite))
+            return True
         return False
-    # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
-    inc1 = r[-1].dual/r[-2].dual
-    inc2 = r[-2].dual/r[-3].dual
-    inc3 = r[-3].dual/r[-4].dual
-    inc4 = r[-4].dual/r[-5].dual
-    if args.use_PXPBD_v1:
-        inc1 = r[-1].Newton/r[-2].Newton
-        inc2 = r[-2].Newton/r[-3].Newton
-        inc3 = r[-3].Newton/r[-4].Newton
-        inc4 = r[-4].Newton/r[-5].Newton
-    
-    # if all incs is in [0.999,1.001]
-    if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
-        logging.info(f"Stall at {ist.frame}-{ist.ite}")
-        ist.all_stalled.append((ist.frame, ist.ite))
-        return True
-    return False
 
-
-
-
-
-def is_diverge(r,r_Axb,ist):
-    if np.isnan(r_Axb[-1]) or np.isinf(r_Axb[-1]):
-        return True
-
-    if np.isnan(r[-1].dual) or np.isinf(r[-1].dual):
-        return True
-
-    if (ist.ite < 5):
+    def is_diverge(self):
+        if np.isnan(r_Axb[-1]) or np.isinf(r_Axb[-1]):
+            return True
+        if np.isnan(r[-1].dual) or np.isinf(r[-1].dual):
+            return True
         return False
-
-    if r[-1].dual/r[-5].dual>5:
-        return True
     
-    if r_Axb[-1]>r_Axb[0]:
-        return True
-
-    return False
-
-
-
-
+    def is_converge():
+        if r[-1].dual<args.tol:
+            return True
 
 def ending(args, ist):
     import time, datetime

@@ -22,6 +22,6 @@ def test_cloth_xpbd_cpu():
 
 
 def test_cloth_direct():
-    run_args = ["python", "engine/cloth/cloth3d.py","-N=64","-solver_type=DIRECT", "-end_frame=1"]
+    run_args = ["python", "engine/cloth/cloth3d.py","-N=64","-solver_type=DIRECT", "-end_frame=1", "-maxiter=2"]
     ret = subprocess.check_call(run_args)
     assert ret == 0

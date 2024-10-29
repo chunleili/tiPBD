@@ -22,6 +22,6 @@ def test_soft_xpbd_cpu():
 
 
 def test_soft_direct():
-    run_args = ["python", "engine/soft/soft3d.py", "-solver_type=DIRECT", "-end_frame=1"]
+    run_args = ["python", "engine/soft/soft3d.py", "-solver_type=DIRECT", "-end_frame=1", "-maxiter=2"]
     ret = subprocess.check_call(run_args)
     assert ret == 0

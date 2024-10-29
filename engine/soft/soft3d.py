@@ -1190,7 +1190,7 @@ def main():
                 extlib=extlib,
                 get_A0=get_A0_cuda,
                 should_setup=should_setup,
-                AMG_A=AMG_A,
+                fill_A_in_cuda=AMG_A,
                 graph_coloring=graph_coloring_v2,
                 copy_A=True,
             )

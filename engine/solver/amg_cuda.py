@@ -12,7 +12,7 @@ class AmgCuda:
     --------
     see test_amg_cuda()
     """
-    def __init__(self, args, extlib, get_A0, AMG_A, should_setup, graph_coloring=None, copy_A=True):
+    def __init__(self, args, extlib, get_A0, fill_A_in_cuda, should_setup, graph_coloring=None, copy_A=True):
         """
         Initialize an instance of the AmgCuda class.
 
@@ -24,7 +24,7 @@ class AmgCuda:
 
         get_A0 : Function pointer for obtaining the matrix A0.
 
-        AMG_A : Function pointer for filling the matrix on the CUDA side.
+        fill_A_in_cuda : Function pointer for filling the matrix on the CUDA side.
 
         should_setup : Function pointer to determine if setup is needed.
 
@@ -38,7 +38,7 @@ class AmgCuda:
 
         # TODO: for now, we pass func ptr to distinguish between soft and cloth
         self.get_A0 = get_A0
-        self.AMG_A = AMG_A
+        self.fill_A_in_cuda = fill_A_in_cuda
         self.graph_coloring = graph_coloring
         self.should_setup = should_setup
 
@@ -49,7 +49,7 @@ class AmgCuda:
                 from engine.file_utils import  export_A_b
                 postfix = f"F{frame}" if frame is not None else ""
                 export_A_b(A, b, dir=self.args.out_dir + "/A/", postfix=postfix, binary=self.args.export_matrix_binary)
-        self.AMG_A()
+        self.fill_A_in_cuda()
         self.AMG_RAP()
         x, r_Axb = self.AMG_solve(b, maxiter=self.args.maxiter_Axb, tol=self.args.tol_Axb)
         return x, r_Axb

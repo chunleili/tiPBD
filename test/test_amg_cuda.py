@@ -36,7 +36,7 @@ def test_amg_cuda():
         extlib.fastmg_set_A0(A.data, A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
 
 
-    amg = AmgCuda(args, extlib, get_A0=get_A0, AMG_A=AMG_A, should_setup=should_setup)
+    amg = AmgCuda(args, extlib, get_A0=get_A0, fill_A_in_cuda=AMG_A, should_setup=should_setup)
     x, r_Axb = amg.run(b)
     print(r_Axb)
     print("x", x)   

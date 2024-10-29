@@ -54,7 +54,6 @@ else : args.gravity = (0.0, -9.8, 0.0)
 
 args.save_image = True
 args.use_viewer = False
-args.use_geometric_stiffness = False
 args.export_fullr = False
 args.calc_r_xpbd = True
 args.use_cpp_initFill = True
@@ -406,6 +405,12 @@ def compute_K_kernel(K_diag:ti.types.ndarray(),):
         # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
         # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
         # https://blog.csdn.net/weixin_43940314/article/details/139448858
+        # geometric stiffness
+        """
+            k = lambda[i]/l * (I - n * n')
+            K = | Hessian_{x1,x1}, Hessian_{x1,x2}   |  = | k  -k|
+                | Hessian_{x1,x2}, Hessian_{x2,x2}   |    |-k   k|
+        """
         k0 = ist.lagrangian[i] / L * (1 - g[0]*g[0])
         k1 = ist.lagrangian[i] / L * (1 - g[1]*g[1])
         k2 = ist.lagrangian[i] / L * (1 - g[2]*g[2])
@@ -946,31 +951,6 @@ class FillACloth():
         return order_in_e1, order_in_e2
 
 
-    # legacy
-    def fill_A_by_spmm(M_inv, ALPHA):
-        tic = time.perf_counter()
-        G_ii, G_jj, G_vv = np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.float32)
-        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, ist.gradC, ist.edge)
-        G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(ist.NCONS, 3 * ist.NV))
-        print(f"fill_G: {time.perf_counter() - tic:.4f}s")
-
-        tic = time.perf_counter()
-        if args.use_geometric_stiffness:
-            # Geometric Stiffness: K = ist.NCONS - H, we only use diagonal of H and then replace M_inv with K_inv
-            # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
-            # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
-            # https://blog.csdn.net/weixin_43940314/article/details/139448858
-            ist.K_diag.fill(0.0)
-            compute_K_kernel(ist.K_diag)
-            mass = 1.0/(M_inv.diagonal()+1e-12)
-            MK_inv = scipy.sparse.diags([1.0/(mass - ist.K_diag)], [0], format="dia")
-            M_inv = MK_inv # replace old M_inv with MK_inv
-
-        A = G @ M_inv @ G.transpose() + ALPHA
-        A = scipy.sparse.csr_matrix(A)
-        # print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
-        return A, G
-    
     
     @ti.kernel
     def init_adjacent_edge_abc_kernel(NE:int, edge:ti.template(), adjacent_edge:ti.types.ndarray(), num_adjacent_edge:ti.types.ndarray(), adjacent_edge_abc:ti.types.ndarray()):
@@ -1056,6 +1036,32 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
 
 
 
+# legacy
+def fill_A_by_spmm(M_inv, ALPHA):
+    tic = time.perf_counter()
+    G_ii, G_jj, G_vv = np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.float32)
+    fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, ist.gradC, ist.edge)
+    G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(ist.NCONS, 3 * ist.NV))
+    print(f"fill_G: {time.perf_counter() - tic:.4f}s")
+
+    tic = time.perf_counter()
+    if args.use_withK:
+        # Geometric Stiffness: gradG/gradX = M - K, we only use diagonal of K and then replace M_inv with K_inv
+        # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
+        # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
+        # https://blog.csdn.net/weixin_43940314/article/details/139448858
+        ist.K_diag.fill(0.0)
+        compute_K_kernel(ist.K_diag)
+        mass = 1.0/(M_inv.diagonal()+1e-12)
+        MK_inv = scipy.sparse.diags([1.0/(mass - ist.K_diag)], [0], format="dia")
+        M_inv = MK_inv # replace old M_inv with MK_inv
+
+    A = G @ M_inv @ G.transpose() + ALPHA
+    A = scipy.sparse.csr_matrix(A)
+    # print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
+    return A, G
+
+
 
 def fastFill_fetch():
     extlib.fastFillCloth_fetch_A_data(ist.spmat_data)
@@ -1114,10 +1120,14 @@ def fill_G():
 # ---------------------------------------------------------------------------- #
 #                                  end fill A                                  #
 # ---------------------------------------------------------------------------- #
-def AMG_A():
+def fill_A_in_cuda():
+    """Assemble A in cuda end"""
     tic2 = perf_counter()
-    extlib.fastFillCloth_run(ist.pos.to_numpy())
-    extlib.fastmg_set_A0_from_fastFillCloth()
+    if args.use_withK:
+        get_A_withK()
+    else:
+        extlib.fastFillCloth_run(ist.pos.to_numpy())
+        extlib.fastmg_set_A0_from_fastFillCloth()
     logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
 def fetch_A_from_cuda(lv=0):
@@ -1138,8 +1148,17 @@ def get_A0_python()->scipy.sparse.csr_matrix:
     return A
 
 def get_A0_cuda()->scipy.sparse.csr_matrix:
-    AMG_A()
-    A = fetch_A_from_cuda(0)
+    if args.use_withK:
+        A = get_A_withK()
+    else:
+        fill_A_in_cuda()
+        A = fetch_A_from_cuda(0)
+    return A
+
+def get_A_withK():
+    """Assemble A with K in cuda end"""
+    A = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
+    extlib.fastmg_set_A0(A.data, A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
     return A
 
 # ---------------------------------------------------------------------------- #
@@ -1174,7 +1193,7 @@ def init():
                 extlib=extlib,
                 get_A0=get_A0_cuda,
                 should_setup=should_setup,
-                AMG_A=AMG_A,
+                fill_A_in_cuda=fill_A_in_cuda,
                 graph_coloring=None,
                 copy_A=True,
             )

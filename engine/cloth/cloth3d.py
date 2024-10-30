@@ -26,6 +26,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
+from engine.solver.iterative_solver import GaussSeidelSolver
 from engine.util import ending, ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter
 
 
@@ -1196,6 +1197,8 @@ def init():
         ist.amgxsolver = amg
     if args.solver_type == "DIRECT":
         amg = DirectSolver(get_A0_python)
+    if args.solver_type == "GS":
+        amg = GaussSeidelSolver(get_A0_python)
 
     
     tic_init = time.perf_counter()

@@ -3,6 +3,8 @@ import numpy as np
 import logging
 import json
 import os
+from time import perf_counter
+import scipy
 
 
 def filedialog():
@@ -1031,13 +1033,85 @@ class ResidualDataOneIter:
     r_Axb: list[float] = field(default_factory=list)
     frame: int=0
     ite: int=0
-    mode: str="" # "args.converge_condition"
+    r: float=0
+    r0: float=0
+    t_export: float=0
+
+    def __init__(self, args, calc_dual, calc_primal):
+        self.tol = args.tol
+        self.rtol = args.rtol
+        self.mode = args.converge_condition
+        self.calc_dual = calc_dual
+        self.calc_primal = calc_primal
 
     def log_res(self):
         if self.mode == "Newton":
             logging.info(f"{self.frame}-{self.ite} Newton:{self.Newton:.2e} rsys:{self.r_Axb[0]:.2e} {self.r_Axb[-1]:.2e} dual:{self.dual:.2e} primal:{self.primal:.2e} iter:{self.ninner}")
         elif self.mode == "dual":
             logging.info(f"{self.frame}-{self.ite} rsys:{self.r_Axb[0]:.2e} {self.r_Axb[-1]:.2e} dual0:{self.dual0:.2e} dual:{self.dual:.2e}  iter:{self.ninner}")
+
+    def check(self):
+        if self.mode == "Newton":
+            self.r = self.Newton
+            self.r0 = self.Newton0
+        elif self.mode == "dual":
+            self.r = self.dual
+            self.r0 = self.dual0
+        if self.is_diverge():
+            raise Exception("diverge")
+        if self.is_converge():
+            return True
+        return False
+    
+    def is_diverge(self):
+        if np.isnan(self.r_Axb[-1]) or np.isinf(self.r_Axb[-1]):
+            return True
+        if np.isnan(self.r) or np.isinf(self.r):
+            return True
+        return False
+    
+    def is_converge(self):
+        if self.r<self.tol:
+            logging.info(f"converge by atol {self.r:.2e} < {self.tol:.2e}")
+            return True
+        if self.r<self.rtol * self.r0:
+            logging.info(f"converge by rtol {self.r:.2e} < {self.rtol * self.r0:.2e}")
+            return True
+
+    def calc_r(self, ist, r_Axb):
+        tic = perf_counter()
+        self.t = perf_counter()-ist.tic_iter
+        self.frame = ist.frame
+        self.ite = ist.ite
+        self.r_Axb = r_Axb.tolist() if not isinstance(r_Axb, list) else r_Axb
+        self.dual = self.calc_dual()
+        self.ninner = len(r_Axb)-1
+        if self.mode == "Newton":
+            self.primal, self.Newton = self.calc_primal()
+        self.log_res()
+        logging.info(f"    iter total time: {self.t*1000:.0f}ms")
+        logging.info(f"    convergence factor: {calc_conv(r_Axb):.2f}")
+        logging.info(f"    Calc r time: {(perf_counter()-tic)*1000:.0f}ms")
+        self.t_export += perf_counter()-tic
+
+    def calc_r0(self):
+        tic = perf_counter()
+        self.dual0 = self.calc_dual()
+        if self.mode == "Newton":
+            self.primal0, self.Newton0 = self.calc_primal()
+        self.t_export += perf_counter()-tic
+
+
+def calc_conv(r):
+    return (r[-1]/r[0])**(1.0/(len(r)-1))
+
+@ti.kernel
+def calc_norm(a:ti.template())->ti.f32:
+    sum = 0.0
+    for i in range(a.shape[0]):
+        sum += a[i] * a[i]
+    sum = ti.sqrt(sum)
+    return sum
 
 @dataclass
 class ResidualDataOneFrame:
@@ -1058,52 +1132,6 @@ class ResidualDataAllFrame:
     stalled_frame: list
     t: float=0
 
-
-class CheckConverge:
-    def __init__(self, args):
-        self.args = args
-
-    # if in last 5 iters, residuals not change 0.1%, then it is stalled
-    def is_stall(self, r, ist):
-        if ist.ite < 5:
-            return False
-        # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
-        inc1 = r[-1].dual / r[-2].dual
-        inc2 = r[-2].dual / r[-3].dual
-        inc3 = r[-3].dual / r[-4].dual
-        inc4 = r[-4].dual / r[-5].dual
-        if self.args.use_PXPBD_v1:
-            inc1 = r[-1].Newton / r[-2].Newton
-            inc2 = r[-2].Newton / r[-3].Newton
-            inc3 = r[-3].Newton / r[-4].Newton
-            inc4 = r[-4].Newton / r[-5].Newton
-
-        # if all incs is in [0.999,1.001]
-        if np.all(
-            (inc1 > 0.999)
-            & (inc1 < 1.001)
-            & (inc2 > 0.999)
-            & (inc2 < 1.001)
-            & (inc3 > 0.999)
-            & (inc3 < 1.001)
-            & (inc4 > 0.999)
-            & (inc4 < 1.001)
-        ):
-            logging.info(f"Stall at {ist.frame}-{ist.ite}")
-            ist.all_stalled.append((ist.frame, ist.ite))
-            return True
-        return False
-
-    def is_diverge(self):
-        if np.isnan(r_Axb[-1]) or np.isinf(r_Axb[-1]):
-            return True
-        if np.isnan(r[-1].dual) or np.isinf(r[-1].dual):
-            return True
-        return False
-    
-    def is_converge():
-        if r[-1].dual<args.tol:
-            return True
 
 def ending(args, ist):
     import time, datetime

@@ -27,7 +27,7 @@ from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.solver.iterative_solver import GaussSeidelSolver
-from engine.util import ending, ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter
+from engine.util import ending, ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm
 
 
 
@@ -75,8 +75,6 @@ class Cloth():
         self.all_stalled = [] 
         self.t_export = 0.0
         self.sim_name=f"cloth-N{args.N}"
-        self.r_iter = ResidualDataOneIter()
-        self.r_iter.mode = args.converge_condition
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
         self.args = args
@@ -299,12 +297,21 @@ def calc_dual_residual(
         # residual(lagrangian=0 for first iteration)
         dual_residual[i] = -(constraint + ist.alpha * lagrangian[i])
 
+
 def calc_primary_residual(G,M_inv):
     MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
     primary_residual = MASS @ (ist.pos.to_numpy().flatten() - ist.predict_pos.to_numpy().flatten()) - G.transpose() @ ist.lagrangian.to_numpy()
     where_zeros = np.where(M_inv.diagonal()==0)
     primary_residual = np.delete(primary_residual, where_zeros)
     return primary_residual
+
+
+def calc_primal():
+    G = fill_G()
+    primary_residual = calc_primary_residual(G, ist.M_inv)
+    primal_r = np.linalg.norm(primary_residual).astype(float)
+    Newton_r = np.linalg.norm(np.concatenate((ist.dual_residual.to_numpy(), primary_residual))).astype(float)
+    return primal_r, Newton_r
 
 
 def xpbd_calcr(tic_iter, dual0, r):
@@ -323,24 +330,12 @@ def xpbd_calcr(tic_iter, dual0, r):
     return dualr, dual0
 
 
-@ti.kernel
-def calc_norm(a:ti.template())->ti.f32:
-    sum = 0.0
-    for i in range(a.shape[0]):
-        sum += a[i] * a[i]
-    sum = ti.sqrt(sum)
-    return sum
-
-
-
 
 def substep_xpbd():
     semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos,args.delta_t)
     reset_lagrangian(ist.lagrangian)
 
-    calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
-    fulldual0 = ist.dual_residual.to_numpy()
-    dual0 = np.linalg.norm(fulldual0).astype(float)
+    dual0 = calc_dual()
     r = []
     for ist.ite in range(args.maxiter):
         tic_iter = perf_counter()
@@ -528,9 +523,6 @@ def transfer_back_to_pos_mfree(x):
 
 
 
-
-
-
 @ti.kernel
 def compute_potential_energy():
     ist.potential_energy[None] = 0.0
@@ -546,12 +538,6 @@ def compute_inertial_energy():
         if ist.inv_mass[i] == 0.0:
             continue
         ist.inertial_energy[None] += 0.5 / ist.inv_mass[i] * (ist.pos[i] - ist.predict_pos[i]).norm_sqr() * ist.inv_h2
-
-
-
-
-def calc_conv(r):
-    return (r[-1]/r[0])**(1.0/(len(r)-1))
 
 
 def report_multilevel_details(Ps, num_levels):
@@ -576,60 +562,11 @@ def should_setup():
     return False
 
 
-
-def AMG_calc_r(ist,r_Axb):
-    tic = time.perf_counter()
-
-    t_iter = perf_counter()-ist.tic_iter
-    tic_calcr = perf_counter()
+def calc_dual()->float:
     calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
-    dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
-    # compute_potential_energy()
-    # compute_inertial_energy()
-    # robj = (potential_energy[None]+inertial_energy[None])
-    r_Axb = r_Axb.tolist() if not isinstance(r_Axb, list) else r_Axb
-    if args.use_PXPBD_v1 or args.use_PXPBD_v2:
-        G = fill_G()
-        primary_residual = calc_primary_residual(G, ist.M_inv)
-        primal_r = np.linalg.norm(primary_residual).astype(float)
-        Newton_r = np.linalg.norm(np.concatenate((ist.dual_residual.to_numpy(), primary_residual))).astype(float)
+    dual = calc_norm(ist.dual_residual)
+    return dual
 
-    logging.info(f"    convergence factor: {calc_conv(r_Axb):.2f}")
-    logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
-    ist.r_iter.ite = ist.ite
-    ist.r_iter.frame = ist.frame
-
-    if args.export_log:
-        ist.r_iter.dual = dual_r
-        ist.r_iter.r_Axb = r_Axb
-        ist.r_iter.ninner = len(r_Axb)-1
-        ist.r_iter.t = t_iter
-        logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
-        if args.use_PXPBD_v1 or args.use_PXPBD_v2:
-            ist.r_iter.primal = primal_r
-            ist.r_iter.Newton = Newton_r
-        ist.r_iter.log_res()
-    ist.r_frame.frame = ist.frame
-    ist.r_frame.r_iters.append(ist.r_iter)
-    ist.t_export += perf_counter()-tic
-
-
-
-def AMG_calc_r0(ist):
-    calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
-    dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
-    # compute_potential_energy()
-    # compute_inertial_energy()
-    # robj = (potential_energy[None]+inertial_energy[None])
-    ist.r_iter.dual0 = dual_r
-    if args.use_PXPBD_v1 or args.use_PXPBD_v2:
-        G = fill_G()
-        primary_residual = calc_primary_residual(G, ist.M_inv)
-        primal_r = np.linalg.norm(primary_residual).astype(float)
-        Newton_r = np.linalg.norm(np.concatenate((ist.dual_residual.to_numpy(), primary_residual))).astype(float)
-        ist.r_iter.dual = dual_r
-        ist.r_iter.primal = primal_r
-        ist.r_iter.Newton = Newton_r
 
 
 def do_export_r(r):
@@ -743,18 +680,12 @@ def AMG_PXPBD_v1_b(G):
     
 
 
-
-def calc_dual():
-    calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
-    return ist.dual_residual.to_numpy()
-
-
 def substep_all_solver():
     tic1 = time.perf_counter()
     semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos, args.delta_t)
     reset_lagrangian(ist.lagrangian)
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
-    AMG_calc_r0(ist)
+    ist.r_iter.calc_r0()
     for ist.ite in range(args.maxiter):
         ist.tic_iter = perf_counter()
         if args.use_PXPBD_v1:
@@ -771,13 +702,11 @@ def substep_all_solver():
             AMG_PXPBD_v2_dlam2dpos(x)
         else:
             AMG_dlam2dpos(x)
-        AMG_calc_r(ist, r_Axb)
+        ist.r_iter.calc_r(ist, r_Axb)
         export_mat(ist, get_A0_cuda, b)
         logging.info(f"iter time(with export): {(perf_counter()-ist.tic_iter)*1000:.0f}ms")
-
-        if ist.r_iter.dual<args.tol:
+        if ist.r_iter.check():
             break
-
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {ist.ite+1}")
@@ -1201,6 +1130,8 @@ def init():
         amg = DirectSolver(get_A0_python)
     if args.solver_type == "GS":
         amg = GaussSeidelSolver(get_A0_python, args)
+
+    ist.r_iter = ResidualDataOneIter(args, calc_dual=calc_dual, calc_primal=calc_primal)
 
     
     tic_init = time.perf_counter()

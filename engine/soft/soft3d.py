@@ -30,7 +30,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import ending
+from engine.util import ending, calc_norm
 
 parser = argparse.ArgumentParser()
 
@@ -603,7 +603,8 @@ def fill_A_by_spmm(ist,  M_inv, ALPHA):
 
 def calc_dual(ist):
     calc_dual_residual(ist.dual_residual, ist.lagrangian, ist.constraint, ist.dual_residual)
-    return ist.dual_residual.to_numpy()
+    dual = calc_norm(ist.dual_residual)
+    return dual
 
 
 
@@ -635,7 +636,7 @@ def calc_conv(r):
     return (r[-1]/r[0])**(1.0/(len(r)-1))
 
 
-def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
+def AMG_calc_r(r,dual0, tic_iter, r_Axb):
     tic = time.perf_counter()
 
     t_iter = perf_counter()-tic_iter
@@ -643,7 +644,7 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
     dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
     r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
-    dual0 = np.linalg.norm(fulldual0)
+
 
     logging.info(f"    convergence factor: {calc_conv(r_Axb):.2g}")
     logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
@@ -669,11 +670,11 @@ def substep_all_solver(ist):
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
         compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
         if ist.ite==0:
-            fulldual0 = calc_dual(ist)
+            dual0 = calc_dual(ist)
         b = AMG_b(ist)
         x, r_Axb = amg.run(b)
         AMG_dlam2dpos(x)
-        dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
+        AMG_calc_r(r, dual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual<args.tol:
             break

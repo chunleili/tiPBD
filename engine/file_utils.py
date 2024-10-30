@@ -1,5 +1,5 @@
 import numpy as np
-
+from time import perf_counter
 
 
 def make_and_clean_dirs(dir):
@@ -99,6 +99,28 @@ def load_state(filename,ist):
         state[i].from_numpy(npzfile["arr_" + str(i)])
     print(f"Loaded frame-{ist.frame} state from {filename}")
 
+
+def export_mat(ist,get_A,b):
+    args = ist.args
+    tic = perf_counter()
+    if not args.export_matrix:
+        return
+    if ist.frame != args.export_matrix_frame:
+        return
+    if hasattr(args, "export_matrix_ite"):
+        if ist.ite != args.export_matrix_ite:
+            return
+    else:
+        if ist.ite != 0:
+            return
+    if args.export_matrix_dir is None:
+        dir = args.out_dir + "/A/"
+    else:
+        dir = args.export_matrix_dir
+    A = get_A()
+    postfix = f"F{ist.frame}" if ist.frame is not None else ""
+    export_A_b(A, b, dir=dir, postfix=postfix, binary=args.export_matrix_binary)
+    ist.t_export += perf_counter()-tic
 
 
 def export_A_b(A, b, dir, postfix=f"", binary=True):

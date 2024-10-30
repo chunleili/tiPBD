@@ -6,6 +6,8 @@ def add_common_args(parser):
     parser.add_argument("-out_dir", type=str, default="result/latest/")
     parser.add_argument("-export_matrix", type=int, default=False)
     parser.add_argument("-export_matrix_binary", type=int, default=True)
+    parser.add_argument("-export_matrix_dir", type=str, default=None)
+    parser.add_argument("-export_matrix_frame", type=int, default=None)
     parser.add_argument("-auto_another_outdir", type=int, default=False)
     parser.add_argument("-use_cuda", type=int, default=True)
     parser.add_argument("-cuda_dir", type=str, default="C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.5/bin")

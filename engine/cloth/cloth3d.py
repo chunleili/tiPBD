@@ -17,7 +17,7 @@ from time import perf_counter
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(prj_path)
-from engine.file_utils import process_dirs,  do_restart, save_state,  export_A_b
+from engine.file_utils import process_dirs,  do_restart, save_state,  export_mat
 from engine.init_extlib import init_extlib
 from engine.mesh_io import write_mesh
 from engine.solver.build_Ps import build_Ps
@@ -79,6 +79,7 @@ class Cloth():
         self.r_iter.mode = args.converge_condition
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
+        self.args = args
 
         self.frame = 0
         self.ite=0
@@ -771,6 +772,7 @@ def substep_all_solver():
         else:
             AMG_dlam2dpos(x)
         AMG_calc_r(ist, r_Axb)
+        export_mat(ist, get_A0_cuda, b)
         logging.info(f"iter time(with export): {(perf_counter()-ist.tic_iter)*1000:.0f}ms")
 
         if ist.r_iter.dual<args.tol:
@@ -1273,7 +1275,7 @@ def run():
                 
                 export_after_substep()
 
-            if ist.frame == args.end_frame:
+            if ist.frame >= args.end_frame:
                 print("Normallly end.")
                 ending(args,ist)
                 exit()

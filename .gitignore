@@ -48,3 +48,4 @@ cloth3d.spec
 .gitignore
 *.npz
 
+*.npy

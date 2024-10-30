@@ -1198,7 +1198,7 @@ def init():
     if args.solver_type == "DIRECT":
         amg = DirectSolver(get_A0_python)
     if args.solver_type == "GS":
-        amg = GaussSeidelSolver(get_A0_python)
+        amg = GaussSeidelSolver(get_A0_python, args)
 
     
     tic_init = time.perf_counter()

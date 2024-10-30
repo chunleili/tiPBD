@@ -1460,7 +1460,121 @@ args = ["engine/cloth/cloth3d.py",
         ]
 allargs.append(args)
 
-print(len(casenames))
+
+# case141: cloth global GS
+casenames[len(allargs)] = "cloth-global-GS"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=GS",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=100",
+        "-tol=1e-3",
+        "-delta_t=3e-3",
+        "-N=64",
+        "-end_frame=200",
+        ]
+allargs.append(args)
+
+# case142: cloth global AMG
+casenames[len(allargs)] = "cloth-global-AMG"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-tol=1e-3",
+        "-N=64",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=20",
+        "-smoother_niter=2",
+        "-build_P_method=strength0.1",
+        "-end_frame=100",
+        "-export_matrix=1",
+        "-export_matrix_frame=80"
+        ]
+allargs.append(args)
+
+
+
+# case143: cloth global GS ninner=100
+casenames[len(allargs)] = "cloth-global-GS"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=GS",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=100",
+        "-tol=1e-3",
+        "-delta_t=3e-3",
+        "-N=64",
+        "-end_frame=200",
+        ]
+allargs.append(args)
+
+
+
+
+# case144: cloth global GS
+casenames[len(allargs)] = "cloth-global-GS"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=GS",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=100",
+        "-tol=1e-3",
+        "-delta_t=3e-3",
+        "-N=1024",
+        "-end_frame=100",
+        ]
+allargs.append(args)
+
+# case145: cloth global AMG
+casenames[len(allargs)] = "cloth-global-AMG"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-tol=1e-3",
+        "-N=1024",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=20",
+        "-smoother_niter=2",
+        "-build_P_method=strength0.1",
+        "-end_frame=100",
+        ]
+allargs.append(args)
+
+# case146: cloth global GS ninner=100
+casenames[len(allargs)] = "cloth-global-GS"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=GS",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=100",
+        "-tol=1e-3",
+        "-delta_t=3e-3",
+        "-N=1024",
+        "-end_frame=100",
+        ]
+allargs.append(args)
+
+
 
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):

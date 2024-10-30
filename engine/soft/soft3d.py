@@ -30,7 +30,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import is_diverge, is_stall, ending
+from engine.util import ending
 
 parser = argparse.ArgumentParser()
 
@@ -677,14 +677,8 @@ def substep_all_solver(ist):
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if r[-1].dual<args.tol:
             break
-        # if is_stall(r):
-        #     logging.info("Stall detected, break")
-        #     break
         if r[-1].dual / r[0].dual <args.rtol:
             break
-        if is_diverge(r, r_Axb,ist):
-            logging.error("Diverge detected")
-            raise ValueError("Diverge detected")
     
     tic = time.perf_counter()
     logging.info(f"n_outer: {len(r)}")

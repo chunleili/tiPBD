@@ -102,13 +102,7 @@ args = ["engine/cloth/cloth3d.py",
         "-maxiter=50",
         "-delta_t=3e-3",
         "-tol=1e-4",
-        "-end_frame=21",
-        # "-export_matrix=1",
-        # "-export_matrix_frame=20",
-        # "-export_residual=1",
-        # "-restart=1",
-        # "-restart_frame=20",
-        # "-restart_dir=result/meta/",
+        "-end_frame=100",
         ]
 allargs.append(args)
 
@@ -118,15 +112,12 @@ args = ["engine/cloth/cloth3d.py",
         f"-end_frame=100",
         f"-out_dir=result/case{len(allargs)}-{day}-cloth1024-XPBD",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-arch=cpu",
+        "-arch=gpu",
         "-N=1024",
         "-maxiter=10000",
         "-delta_t=3e-3",
         "-tol=1e-4",
         "-end_frame=100",
-        # "-restart=1",
-        # "-restart_frame=20",
-        # "-restart_dir=result/meta/",
         ]
 allargs.append(args)
 
@@ -1521,7 +1512,7 @@ allargs.append(args)
 
 
 
-# case144: cloth global GS
+# case144: cloth global GS ninner=1
 casenames[len(allargs)] = "cloth-global-GS"
 args = ["engine/cloth/cloth3d.py",
         f"-end_frame={end_frame}",
@@ -1530,10 +1521,11 @@ args = ["engine/cloth/cloth3d.py",
         "-solver_type=GS",
         "-arch=cpu",
         "-maxiter=50",
-        "-maxiter_Axb=100",
-        "-tol=1e-3",
+        "-maxiter_Axb=1",
+        "-tol=1e-5",
+        "-tol_Axb=1e-6",
         "-delta_t=3e-3",
-        "-N=1024",
+        "-N=256",
         "-end_frame=100",
         ]
 allargs.append(args)
@@ -1545,9 +1537,11 @@ args = ["engine/cloth/cloth3d.py",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-tol=1e-3",
-        "-N=1024",
+        "-N=256",
         "-delta_t=3e-3",
         "-solver_type=AMG",
+        "-tol=1e-5",
+        "-tol_Axb=1e-6",
         "-arch=cpu",
         "-maxiter=50",
         "-maxiter_Axb=20",
@@ -1567,9 +1561,10 @@ args = ["engine/cloth/cloth3d.py",
         "-arch=cpu",
         "-maxiter=50",
         "-maxiter_Axb=100",
-        "-tol=1e-3",
+        "-tol=1e-5",
+        "-tol_Axb=1e-6",
         "-delta_t=3e-3",
-        "-N=1024",
+        "-N=256",
         "-end_frame=100",
         ]
 allargs.append(args)

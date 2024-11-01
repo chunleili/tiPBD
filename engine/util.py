@@ -1183,6 +1183,7 @@ def ending(args, ist):
 
     if args.solver_type == "AMGX":
         ist.amgxsolver.finalize()
+    exit()
 
 
 def export_after_substep(ist, args, **kwargs):

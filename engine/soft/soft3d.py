@@ -30,7 +30,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import ending, calc_norm
+from engine.util import ending, calc_norm, export_after_substep
 
 parser = argparse.ArgumentParser()
 
@@ -87,6 +87,7 @@ class SoftBody:
         self.NF = len(self.model_tri)
         self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.display_indices.from_numpy(self.model_tri.flatten())
+        self.tri = self.display_indices
 
         self.pos = ti.Vector.field(3, float, self.NV)
         self.pos_mid = ti.Vector.field(3, float, self.NV)
@@ -1146,7 +1147,7 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
-def main():
+def init():
     tic = perf_counter()
     process_dirs(args)
 
@@ -1198,48 +1199,38 @@ def main():
     if args.solver_type == "DIRECT":
         amg = DirectSolver(get_A0_python) #FIXME: maybe we should change a name for amg, like solver
     
-
     print(f"initialize time:", perf_counter()-tic)
+
+
+
+def main():
+    init()
+
     ist.initial_frame = ist.frame
     ist.t_export_total = 0.0
-
     ist.timer_loop = perf_counter()
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.initial_frame)
     try:
-        while True:
-            info("\n\n----------------------")
-            info(f"frame {ist.frame}")
-            t = perf_counter()
+        for f in range(ist.initial_frame, args.end_frame):
+            ist.tic_frame = time.perf_counter()
             ist.t_export = 0.0
 
             if args.solver_type == "XPBD":
                 substep_xpbd(ist)
             else:
                 substep_all_solver(ist)
+            export_after_substep(ist,args)
             ist.frame += 1
 
-            if args.export_mesh:
-                tic = perf_counter()
-                write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
-                ist.t_export += perf_counter() - tic
-
-            ist.t_export_total += ist.t_export
-
-            info(f"step time: {perf_counter() - t:.2f} s")
+            logging.info("\n")
             step_pbar.update(1)
-
+            logging.info("")
             if ist.frame >= args.end_frame:
                 print("Normallly end.")
                 ending(args,ist)
-                exit()
+
     except KeyboardInterrupt:
         ending(args,ist)
-        exit()
-    except Exception as e:
-        if args.solver_type == "AMGX":
-            amg.finalize()
-        logging.exception(f"Exception occurred:\n{e} ")
-        raise e
 
 if __name__ == "__main__":
     main()

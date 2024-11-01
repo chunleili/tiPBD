@@ -1231,14 +1231,16 @@ def init_solver(args):
             )
         else:
             amg = AmgPython(args, get_A0_python, should_setup, copy_A=True)
-    if args.solver_type == "AMGX":
+    elif args.solver_type == "AMGX":
         amg = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
         amg.init()
         ist.amgxsolver = amg
-    if args.solver_type == "DIRECT":
+    elif args.solver_type == "DIRECT":
         amg = DirectSolver(get_A0_python)
-    if args.solver_type == "GS":
+    elif args.solver_type == "GS":
         amg = GaussSeidelSolver(get_A0_python, args)
+    elif args.solver_type == "XPBD":
+        amg = None
     return amg
 
 
@@ -1294,10 +1296,10 @@ def run():
     ist.initial_frame = ist.frame
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
     ist.t_export_total = 0.0
-    args.export_strain = True
+    args.export_strain = False
 
     try:
-        while True:
+        for f in range(ist.initial_frame, args.end_frame):
             ist.tic_frame = time.perf_counter()
             ist.t_export = 0.0
 
@@ -1308,14 +1310,13 @@ def run():
             export_after_substep(ist,args)
             ist.frame += 1
 
-            if ist.frame >= args.end_frame:
-                print("Normallly end.")
-                ending(args,ist)
-                exit()
-
             logging.info("\n")
             step_pbar.update(1)
             logging.info("")
+            if ist.frame >= args.end_frame:
+                print("Normallly end.")
+                ending(args,ist)
+
 
     except KeyboardInterrupt:
         print("KeyboardInterrupt")

@@ -330,6 +330,13 @@ def write_mesh(filename, pos, tri, format="ply"):
     return mesh
 
 
+def write_edge(filename, data):
+    np.savetxt(filename + ".txt", data, fmt="%d")
+
+def write_tri(filename, data):
+    np.savetxt(filename + ".txt", data, fmt="%d")
+
+
 # TODO: only vtk support for now
 def write_mesh_with_strain(filename, pos, tri, **kwargs):
     binary = kwargs.get("binary", True)

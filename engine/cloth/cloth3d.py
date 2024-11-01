@@ -1071,16 +1071,6 @@ def fill_G():
     return G
 
 
-# DEPRECATED: transfer strain data from edge to triangle for output vtk
-def strain_edge_to_tri():
-    strain_edge = ist.strain.to_numpy()
-    tri = ist.tri.to_numpy().reshape(-1, 3)
-    strain_cell = np.zeros((ist.NT, 3), dtype=np.float32)
-    for i in range(tri.shape[0]):
-        for j in range(3):
-            strain_cell[i, j] = strain_edge[tri[i, j]] 
-    ist.strain_cell = strain_cell       
-
 
 # ---------------------------------------------------------------------------- #
 #                                  end fill A                                  #
@@ -1189,6 +1179,9 @@ def init():
     if args.setup_num == 1:
         init_scale()
     write_mesh(args.out_dir + f"/mesh/{0:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
+    from engine.mesh_io import write_edge, write_tri
+    write_edge(args.out_dir + f"/mesh/edge", ist.edge.to_numpy())
+    write_tri(args.out_dir + f"/mesh/tri", ist.tri.to_numpy().reshape(-1, 3))
     ist.frame = 1
     logging.info("Initializing pos and edge done")
 

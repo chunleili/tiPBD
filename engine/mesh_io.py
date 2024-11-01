@@ -473,3 +473,72 @@ def read_tri_cloth_obj(path):
     edges = list(edges for edges,_ in itertools.groupby(edges))
 
     return pos, np.array(edges), tri.flatten()
+
+
+def set_to_list(s):
+    for k, v in s.items():
+        s[k] = list(v)
+    return s
+
+
+def build_vertex2edge(edges: np.ndarray)->dict:
+    v2e = {} #vertex to edge
+    for edge_index, (v1, v2) in enumerate(edges):
+        if v1 not in v2e:
+            v2e[v1] = set()
+        if v2 not in v2e:
+            v2e[v2] = set()
+        v2e[v1].add(edge_index)
+        v2e[v2].add(edge_index)
+    
+    for k, v in v2e.items():
+        v2e[k] = list(v)
+    return v2e
+
+
+def build_vertex2tri(tri: np.ndarray)->dict:
+    assert tri.shape[1] == 3
+    v2t = {} #vertex to triangle
+    for tri_index, (v0, v1, v2) in enumerate(tri):
+        if v0 not in v2t:
+            v2t[v0] = set()
+        if v1 not in v2t:
+            v2t[v1] = set()
+        if v2 not in v2t:
+            v2t[v2] = set()
+        v2t[v0].add(tri_index)
+        v2t[v1].add(tri_index)
+        v2t[v2].add(tri_index)
+    
+    for k, v in v2t.items():
+        v2t[k] = list(v)
+    return v2t
+
+
+def build_edge2tri(edge: np.ndarray, v2t: dict, tri:np.ndarray)->dict:
+    """
+        Args:
+            edge: shape=(NE, 2)
+            v2t: vertex to triangle mapping (dict of list)
+        Returns:
+            e2t: edge to triangle mapping
+        Note: First call build_vertex2tri to get v2t
+    """    
+    assert edge.shape[1] == 2
+    assert tri.shape[1] == 3
+    e2t = {} #edge to triangle
+    for e in range(edge.shape[0]):
+        v0, v1 = edge[e]
+        tris0 = v2t[v0]
+        tris1 = v2t[v1]
+        # If a triangle has both v0 and v1, then it is an edge
+        tris = tris0 + tris1
+        for t in tris:
+            if v0 in tri[t] and v1 in tri[t]:
+                if e not in e2t:
+                    e2t[e] = set()
+                e2t[e].add(t)
+        
+    for k, v in e2t.items():
+        e2t[k] = list(v)
+    return e2t

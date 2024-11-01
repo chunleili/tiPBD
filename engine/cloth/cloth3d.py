@@ -123,7 +123,7 @@ class Cloth():
         self.strain = ti.field(ti.f32, shape=self.NE)
         self.max_strain = 0.0
 
-    def init(self):
+    def initialize(self):
         self.init_topology()
         self.init_physics()
         
@@ -132,9 +132,55 @@ class Cloth():
         self.alpha_tilde_np = np.array([self.alpha] * self.NCONS)
         self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
 
+
     def init_topology(self):
         init_tri(self.tri)
         init_edge(self.edge)
+
+        # write topology to file
+        from engine.mesh_io import write_edge, write_tri, build_vertex2edge, build_vertex2tri, build_edge2tri
+        write_edge(args.out_dir + f"/mesh/edge", self.edge.to_numpy())
+        write_tri(args.out_dir + f"/mesh/tri", self.tri.to_numpy().reshape(-1, 3))
+        self.v2e = build_vertex2edge(self.edge.to_numpy()) #dict
+        self.v2t = build_vertex2tri(self.tri.to_numpy().reshape(-1,3))   #dict
+        # 将字典的键转换为字符串
+        def convert_keys_to_str(d):
+            """递归地将字典的键转换为字符串"""
+            if isinstance(d, dict):
+                return {str(k): convert_keys_to_str(v) for k, v in d.items()}
+            elif isinstance(d, list):
+                return [convert_keys_to_str(i) for i in d]
+            else:
+                return d
+        
+        tri = self.tri.to_numpy().reshape(-1, 3)
+        edge = self.edge.to_numpy()
+        self.e2t = build_edge2tri(edge,self.v2t,tri)
+
+        # check topology
+        e = np.random.randint(self.NE)
+        v0,v1 = edge[e]
+        assert e in self.v2e[v0] #check v2e
+        for t in self.e2t[e]:    #check e2t
+            assert v0 in tri[t] and v1 in tri[t]
+        for t in self.v2t[v0]:   #check v2t
+            assert v0 in tri[t]
+
+
+        self.v2e_s = convert_keys_to_str(self.v2e)
+        self.v2t_s = convert_keys_to_str(self.v2t)
+        self.e2t_s = convert_keys_to_str(self.e2t)
+        with open(args.out_dir + f"/mesh/v2e.json", "w") as f:
+            s = json.dumps(self.v2e_s, indent=4)
+            f.write(s)
+        with open(args.out_dir + f"/mesh/v2t.json", "w") as f:
+            s = json.dumps(self.v2t_s, indent=4)
+            f.write(s)
+        with open(args.out_dir + f"/mesh/e2t.json", "w") as f:
+            s = json.dumps(self.e2t_s, indent=4)
+            f.write(s)
+        ...
+
 
     def init_physics(self):
         init_pos(self.inv_mass, self.pos, N, self.NV)
@@ -1219,14 +1265,12 @@ def init():
     logging.info(f"start date:{ist.start_date}")
 
     logging.info("\nInitializing Cloth...")
-    ist.init()
+    ist.initialize()
 
     if args.setup_num == 1:
         init_scale()
     write_mesh(args.out_dir + f"/mesh/{0:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
-    from engine.mesh_io import write_edge, write_tri
-    write_edge(args.out_dir + f"/mesh/edge", ist.edge.to_numpy())
-    write_tri(args.out_dir + f"/mesh/tri", ist.tri.to_numpy().reshape(-1, 3))
+
     ist.frame = 1
     logging.info("Initializing topology and physics done")
 

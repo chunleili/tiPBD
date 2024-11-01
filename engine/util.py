@@ -1187,15 +1187,19 @@ def ending(args, ist):
 
 def export_after_substep(ist, args, **kwargs):
     import time
-    from engine.mesh_io import write_mesh, write_edge_data
+    from engine.mesh_io import write_mesh, write_edge_data, write_ply_with_strain, edge_data_to_tri_data, write_vtk_with_strain
     from engine.file_utils import save_state
     ist.tic_export = time.perf_counter()
     if args.export_mesh:
-        # write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri.to_numpy(), strain=ist.strain_cell, binary=False)
         write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
         if args.export_strain:
             if ist.sim_type == "cloth":
-                write_edge_data(args.out_dir + f"/mesh/{ist.frame:04d}_strain", ist.strain.to_numpy())
+                # v1: simply write txt, need post process
+                # write_edge_data(args.out_dir + f"/mesh/{ist.frame:04d}_strain", ist.strain.to_numpy())
+                # v2: write mesh with strain directly in simulation
+                tri = ist.tri.to_numpy().reshape(-1, 3)
+                ist.strain_cell = edge_data_to_tri_data(ist.e2t, ist.strain.to_numpy(), tri)
+                write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), tri, strain=ist.strain_cell, binary=False)
     if args.export_state:
         save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
     ist.t_export += time.perf_counter()-ist.tic_export

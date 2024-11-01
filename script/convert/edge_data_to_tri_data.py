@@ -1,16 +1,10 @@
 import numpy as np
 import json
+import tqdm
+import sys,os
 
-def edge_data_to_tri_data(e2t, edge_data, tri):
-    tri_data = np.zeros((tri.shape[0]))
-    NE = edge_data.shape[0]
-    for e in range(NE):
-        tris = e2t[e]
-        for t in tris: # triangles that has edge e
-            # TODO: now we use sum square of edge data into one triangle data to get a scalar value, maybe we can use vec3
-            tri_data[t] += edge_data[e]**2
-    return tri_data
-
+sys.path.append(os.getcwd())
+from engine.mesh_io import edge_data_to_tri_data
 
 def edge_data_to_tri_data_batch(dir, frames):
     # E:\Dev\tiPBD\result\latest\mesh\0005_strain.txt

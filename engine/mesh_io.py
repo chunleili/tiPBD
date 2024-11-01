@@ -338,7 +338,7 @@ def write_tri(filename, data):
 
 
 # TODO: only vtk support for now
-def write_mesh_with_strain(filename, pos, tri, **kwargs):
+def write_vtk_with_strain(filename, pos, tri, **kwargs):
     binary = kwargs.get("binary", True)
     strain = kwargs.get("strain", None)
     if strain is None:
@@ -348,6 +348,33 @@ def write_mesh_with_strain(filename, pos, tri, **kwargs):
     mesh = meshio.Mesh(pos, cells, cell_data=cell_data)
     mesh.write(filename + ".vtk", binary=binary)
     return mesh
+
+
+def write_ply_with_strain(filename, pos, tri, strain, binary=False):
+    import plyfile
+    # meshio do not support writing user properties to ply, so we use plyfile
+    
+    # Create a structured array for faces
+    face_dtype = [('vertex_indices', 'int32', (3,)), ('strain', strain.dtype)]
+    faces = np.empty(len(tri), dtype=face_dtype)
+    faces['vertex_indices'] = tri
+    faces['strain'] = strain
+
+    # Convert pos to a structured array
+    vertex_dtype = [('x', pos.dtype), ('y', pos.dtype), ('z', pos.dtype)]
+    vertices_structured = np.array([tuple(v) for v in pos], dtype=vertex_dtype)
+
+    # Create a PLY file
+    ply = plyfile.PlyData([
+        plyfile.PlyElement.describe(vertices_structured, 'vertex'),
+        plyfile.PlyElement.describe(faces, 'face'),
+    ])
+
+    ply.text = not binary
+    filename = filename + ".ply"
+    ply.write(filename)
+    print(f'PLY file saved to {filename}')
+
 
 
 def write_edge_data(filename, data):
@@ -542,3 +569,15 @@ def build_edge2tri(edge: np.ndarray, v2t: dict, tri:np.ndarray)->dict:
     for k, v in e2t.items():
         e2t[k] = list(v)
     return e2t
+
+
+
+def edge_data_to_tri_data(e2t, edge_data, tri):
+    tri_data = np.zeros((tri.shape[0]))
+    NE = edge_data.shape[0]
+    for e in range(NE):
+        tris = e2t[e]
+        for t in tris: # triangles that has edge e
+            # TODO: now we use sum square of edge data into one triangle data to get a scalar value, maybe we can use vec3
+            tri_data[t] += edge_data[e]**2
+    return tri_data

@@ -91,7 +91,6 @@ class Cloth():
         self.alpha = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
         self.alpha_bending = 1.0 * (1.0 / args.delta_t / args.delta_t) #TODO: need to be tuned
     
-        self.ALPHA = None
         
         self.tri = ti.field(ti.i32, shape=3 * self.NT)
         self.edge        = ti.Vector.field(2, dtype=int, shape=(self.NE))
@@ -123,6 +122,26 @@ class Cloth():
         self.current_len = ti.field(ti.f32, shape=self.NE)
         self.strain = ti.field(ti.f32, shape=self.NE)
         self.max_strain = 0.0
+
+    def init(self):
+        self.init_topology()
+        self.init_physics()
+        
+        inv_mass_np = np.repeat(self.inv_mass.to_numpy(), 3, axis=0)
+        self.M_inv = scipy.sparse.diags(inv_mass_np)
+        self.alpha_tilde_np = np.array([self.alpha] * self.NCONS)
+        self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
+
+    def init_topology(self):
+        init_tri(self.tri)
+        init_edge(self.edge)
+
+    def init_physics(self):
+        init_pos(self.inv_mass, self.pos, N, self.NV)
+        init_rest_len(self.edge, self.rest_len, self.pos)
+        if args.use_bending:
+            self.tri_pairs, self.bending_length = init_bending(self.tri.to_numpy().reshape(-1, 3), self.pos)
+
 
 @ti.kernel
 def init_pos(
@@ -165,8 +184,6 @@ def init_tri(tri:ti.template()):
 @ti.kernel
 def init_edge(
     edge:ti.template(),
-    rest_len:ti.template(),
-    pos:ti.template(),
 ):
     for i, j in ti.ndrange(N + 1, N):
         edge_idx = i * N + j
@@ -185,10 +202,34 @@ def init_edge(
             edge[edge_idx] = ti.Vector([pos_idx, pos_idx + N + 2])
         else:
             edge[edge_idx] = ti.Vector([pos_idx + 1, pos_idx + N + 1])
+
+
+@ti.kernel
+def init_rest_len(
+    edge:ti.template(),
+    rest_len:ti.template(),
+    pos:ti.template(),
+):
     for i in range(ist.NE):
         idx1, idx2 = edge[i]
         p1, p2 = pos[idx1], pos[idx2]
         rest_len[i] = (p1 - p2).norm()
+
+
+@ti.kernel
+def init_edge_from_tri(
+    edge:ti.template(),
+    tri:ti.template(),
+):
+    for t in range(tri.shape[0]):
+        v0 = tri[t, 0]
+        v1 = tri[t, 1]
+        v2 = tri[t, 2]
+        # [0,1][1,2][2,0]: the counter-clockwise order, we use this
+        # [0,2][2,1][1,0]: the clockwise order, also reasonable
+        edge.append([min(v0, v1), max(v0, v1)])
+        edge.append([min(v1, v2), max(v1, v2)])
+        edge.append([min(v2, v0), max(v2, v0)])    
 
 
 
@@ -1119,25 +1160,17 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #
 # ---------------------------------------------------------------------------- #
-def init():
-    process_dirs(args)
-    
+def init_logger(args):
     log_level = logging.INFO
     if not args.export_log:
         log_level = logging.ERROR
     logging.basicConfig(level=log_level, format="%(message)s",filename=args.out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
     logging.info(args)
+    return args
 
-    if args.use_cuda:
-        global extlib
-        extlib = init_extlib(args,sim="cloth")
 
-    global ist
-    ist = Cloth()
-    args.frame = ist.frame
-    args.ite = ist.ite
-
+def init_solver(args):
     global amg
     if args.solver_type == "AMG":
         if args.use_cuda:
@@ -1160,22 +1193,34 @@ def init():
         amg = DirectSolver(get_A0_python)
     if args.solver_type == "GS":
         amg = GaussSeidelSolver(get_A0_python, args)
+    return amg
+
+
+
+def init():
+    tic_init = time.perf_counter()
+
+    process_dirs(args)
+    
+    init_logger(args)
+
+    if args.use_cuda:
+        global extlib
+        extlib = init_extlib(args,sim="cloth")
+
+    global ist
+    ist = Cloth()
+
+    init_solver(args)
 
     ist.r_iter = ResidualDataOneIter(args, calc_dual=calc_dual, calc_primal=calc_primal)
-
     
-    tic_init = time.perf_counter()
-    ist.start_date = datetime.datetime.now()
-    ist.start_date = ist.start_date.strftime("%Y-%m-%d-%H-%M-%S")
+    ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     logging.info(f"start date:{ist.start_date}")
 
-    logging.info("\nInitializing...")
-    logging.info("Initializing pos..")
-    init_pos(ist.inv_mass,ist.pos, args.N, ist.NV)
-    init_tri(ist.tri)
-    init_edge(ist.edge, ist.rest_len, ist.pos)
-    if args.use_bending:
-        ist.tri_pairs, ist.bending_length = init_bending(ist.tri.to_numpy().reshape(-1, 3), ist.pos)
+    logging.info("\nInitializing Cloth...")
+    ist.init()
+
     if args.setup_num == 1:
         init_scale()
     write_mesh(args.out_dir + f"/mesh/{0:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
@@ -1183,7 +1228,7 @@ def init():
     write_edge(args.out_dir + f"/mesh/edge", ist.edge.to_numpy())
     write_tri(args.out_dir + f"/mesh/tri", ist.tri.to_numpy().reshape(-1, 3))
     ist.frame = 1
-    logging.info("Initializing pos and edge done")
+    logging.info("Initializing topology and physics done")
 
     tic = time.perf_counter()
     if args.solver_type != "XPBD":
@@ -1196,12 +1241,6 @@ def init():
 
     if args.restart:
         do_restart(args,ist)
-
-    inv_mass_np = np.repeat(ist.inv_mass.to_numpy(), 3, axis=0)
-    ist.M_inv = scipy.sparse.diags(inv_mass_np)
-    ist.alpha_tilde_np = np.array([ist.alpha] * ist.NCONS)
-    ist.ALPHA = scipy.sparse.diags(ist.alpha_tilde_np)
-
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_init:.3f}s") 
 
 

@@ -32,9 +32,6 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-              "-end_frame=200",
-              "-solver_type=GS",
-              "-delta_t=3e-3"
             ]
           }
     ]

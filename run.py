@@ -1513,7 +1513,7 @@ allargs.append(args)
 
 
 # case144: cloth global GS ninner=1
-casenames[len(allargs)] = "cloth-global-GS"
+casenames[len(allargs)] = "cloth-global-GS-1"
 args = ["engine/cloth/cloth3d.py",
         f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
@@ -1552,7 +1552,7 @@ args = ["engine/cloth/cloth3d.py",
 allargs.append(args)
 
 # case146: cloth global GS ninner=100
-casenames[len(allargs)] = "cloth-global-GS"
+casenames[len(allargs)] = "cloth-global-GS-100"
 args = ["engine/cloth/cloth3d.py",
         f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",

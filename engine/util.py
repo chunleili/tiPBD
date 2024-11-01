@@ -1183,3 +1183,25 @@ def ending(args, ist):
 
     if args.solver_type == "AMGX":
         ist.amgxsolver.finalize()
+
+
+def export_after_substep(ist, args, **kwargs):
+    import time
+    from engine.mesh_io import write_mesh, write_edge_data
+    from engine.file_utils import save_state
+    ist.tic_export = time.perf_counter()
+    if args.export_mesh:
+        # write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri.to_numpy(), strain=ist.strain_cell, binary=False)
+        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
+        if args.export_strain:
+            if ist.sim_type == "cloth":
+                write_edge_data(args.out_dir + f"/mesh/{ist.frame:04d}_strain", ist.strain.to_numpy())
+    if args.export_state:
+        save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
+    ist.t_export += time.perf_counter()-ist.tic_export
+    ist.t_export_total += ist.t_export
+    t_frame = time.perf_counter()-ist.tic_frame
+    if args.export_log:
+        logging.info(f"Time of exporting: {ist.t_export:.3f}s")
+        logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s")
+

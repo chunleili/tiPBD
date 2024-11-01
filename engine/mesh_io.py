@@ -330,6 +330,29 @@ def write_mesh(filename, pos, tri, format="ply"):
     return mesh
 
 
+# TODO: only vtk support for now
+def write_mesh_with_strain(filename, pos, tri, **kwargs):
+    binary = kwargs.get("binary", True)
+    strain = kwargs.get("strain", None)
+    if strain is None:
+        raise ValueError("strain data is required")
+    cells = [("triangle", tri.reshape(-1, 3)),]
+    cell_data = {"strain": [strain]}
+    mesh = meshio.Mesh(pos, cells, cell_data=cell_data)
+    mesh.write(filename + ".vtk", binary=binary)
+    return mesh
+
+
+def write_edge_data(filename, data):
+    """ 
+    Write data stored in edges to file
+    e.g. write the strain of cloth
+    """
+    with open(filename+".txt", "w") as f:
+        f.write(f"edge shape={data.shape} dtype={data.dtype}\n")
+        np.savetxt(f, data)
+
+
 def read_tet(filename, build_face_flag=False):
     mesh = meshio.read(filename)
     pos = mesh.points

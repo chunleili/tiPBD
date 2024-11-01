@@ -27,7 +27,7 @@ from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.solver.iterative_solver import GaussSeidelSolver
-from engine.util import ending, ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm
+from engine.util import ending, ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, export_after_substep
 
 
 
@@ -74,6 +74,7 @@ class Cloth():
         self.n_outer_all = [] 
         self.all_stalled = [] 
         self.t_export = 0.0
+        self.sim_type = "cloth"
         self.sim_name=f"cloth-N{args.N}"
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
@@ -119,7 +120,9 @@ class Cloth():
         # self.# geometric stiffness, only retain diagonal elements
         self.K_diag = np.zeros((self.NV*3), dtype=float)
         # self.# Minv_gg = ti.Vector.field(3, dtype=float, shape=(self.NV))
-
+        self.current_len = ti.field(ti.f32, shape=self.NE)
+        self.strain = ti.field(ti.f32, shape=self.NE)
+        self.max_strain = 0.0
 
 @ti.kernel
 def init_pos(
@@ -426,6 +429,29 @@ def update_constraints_kernel(
 
 
 @ti.kernel
+def calc_strain_cloth_kernel(
+    edge:ti.template(),
+    rest_len:ti.template(),
+    pos:ti.template(),
+    NE:ti.i32,
+    current_len:ti.template(),
+    strain:ti.template(),
+):
+    for i in range(NE):
+        idx0, idx1 = edge[i]
+        dis = pos[idx0] - pos[idx1]
+        current_len[i] = dis.norm()
+        strain[i] = (current_len[i] - rest_len[i])/current_len[i]
+
+
+def calc_strain()->float:
+    calc_strain_cloth_kernel(ist.edge, ist.rest_len, ist.pos, ist.NE, ist.current_len, ist.strain)
+    ist.max_strain = np.max(ist.strain.to_numpy())
+    return ist.max_strain
+
+
+
+@ti.kernel
 def fill_gradC_triplets_kernel(
     ii:ti.types.ndarray(dtype=ti.i32),
     jj:ti.types.ndarray(dtype=ti.i32),
@@ -704,6 +730,8 @@ def substep_all_solver():
             AMG_dlam2dpos(x)
         ist.r_iter.calc_r(ist, r_Axb)
         export_mat(ist, get_A0_cuda, b)
+        s = calc_strain()
+        logging.info(f"max strain:{s:.2e}")
         logging.info(f"iter time(with export): {(perf_counter()-ist.tic_iter)*1000:.0f}ms")
         if ist.r_iter.check():
             break
@@ -1042,6 +1070,18 @@ def fill_G():
     print(f"    fill_G: {time.perf_counter() - tic:.4f}s")
     return G
 
+
+# DEPRECATED: transfer strain data from edge to triangle for output vtk
+def strain_edge_to_tri():
+    strain_edge = ist.strain.to_numpy()
+    tri = ist.tri.to_numpy().reshape(-1, 3)
+    strain_cell = np.zeros((ist.NT, 3), dtype=np.float32)
+    for i in range(tri.shape[0]):
+        for j in range(3):
+            strain_cell[i, j] = strain_edge[tri[i, j]] 
+    ist.strain_cell = strain_cell       
+
+
 # ---------------------------------------------------------------------------- #
 #                                  end fill A                                  #
 # ---------------------------------------------------------------------------- #
@@ -1172,39 +1212,25 @@ def init():
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_init:.3f}s") 
 
 
-def export_after_substep():
-    ist.tic_export = time.perf_counter()
-    if args.export_mesh:
-        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
-    if args.export_state:
-        save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
-    ist.t_export += time.perf_counter()-ist.tic_export
-    ist.t_export_total += ist.t_export
-    t_frame = time.perf_counter()-ist.tic_frame
-    if args.export_log:
-        logging.info(f"Time of exporting: {ist.t_export:.3f}s")
-        logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s")
-
 
 def run():
     ist.timer_loop = time.perf_counter()
     ist.initial_frame = ist.frame
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
     ist.t_export_total = 0.0
+    args.export_strain = True
 
     try:
         while True:
             ist.tic_frame = time.perf_counter()
             ist.t_export = 0.0
 
-            if not ist.paused:
-                if args.solver_type == "XPBD":
-                    substep_xpbd()
-                else:
-                    substep_all_solver()
-                ist.frame += 1
-                
-                export_after_substep()
+            if args.solver_type == "XPBD":
+                substep_xpbd()
+            else:
+                substep_all_solver()
+            export_after_substep(ist,args)
+            ist.frame += 1
 
             if ist.frame >= args.end_frame:
                 print("Normallly end.")

@@ -49,3 +49,5 @@ cloth3d.spec
 *.npz
 
 *.npy
+*.geo
+*.vtk

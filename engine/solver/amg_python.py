@@ -157,7 +157,27 @@ class AmgPython:
         else:
             self.old_V_cycle(levels, lvl+1, coarse_x, coarse_b)
         x += levels[lvl].P @ coarse_x
-        self.postsmoother(A, x, b)
+        self.postsmoother(A, x, b) 
+
+    # non recursive V_cycle norecur
+    def V_cycle_v2(self, levels, x0, b):
+        nl = len(levels)
+        levels[0].r=b
+        levels[0].x=x0
+
+        for l in range(nl - 1):
+            A = levels[l].A
+            levels[l].x = np.zeros(shape=A.shape[0])
+            self.presmoother(A, levels[l].x, levels[l].r)
+            levels[l+1].r = levels[l].R @ (levels[l].r - A @ levels[l].x)
+
+        levels[nl-1].x = self.coarse_solver(levels[nl-1].A, levels[nl-1].r)
+
+        for l in reversed(range(nl - 1)):
+            levels[l].x += levels[l].P @ levels[l+1].x
+            self.postsmoother(levels[l].A, levels[l].x, levels[l].r)
+
+        return levels[0].x
 
 
     def old_amg_cg_solve(self, levels, b, x0=None, tol=1e-5, maxiter=100):

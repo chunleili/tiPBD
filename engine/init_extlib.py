@@ -6,6 +6,9 @@ import subprocess
 
 
 def init_extlib(args, sim=""):
+    if not args.use_cuda:
+        return
+
     prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
     if args.debug:

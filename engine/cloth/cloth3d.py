@@ -860,6 +860,7 @@ def dict_to_ndarr(d:dict)->np.ndarray:
     arr = np.array([list(item) + [-1]*(max_len - len(item)) if len(item) < max_len else list(item)[:max_len] for item in d.values()])
     return arr, lengths
 
+@ti.data_oriented
 class FillACloth():
     def load(self):
         self.cache_and_initFill()
@@ -875,7 +876,8 @@ class FillACloth():
         ist.adjacent_edge_abc.fill(-1)
         self.init_adjacent_edge_abc_kernel(ist.NE,ist.edge,ist.adjacent_edge,ist.num_adjacent_edge,ist.adjacent_edge_abc)
 
-        ist.num_nonz = self.calc_num_nonz(ist.num_adjacent_edge) 
+        ist.num_nonz = self.calc_num_nonz(ist.num_adjacent_edge).astype(np.int32)
+
         data, indices, indptr = self.init_A_CSR_pattern(ist.num_adjacent_edge, ist.adjacent_edge)
         ii, jj = self.csr_index_to_coo_index(indptr, indices)
         print(f"initFill time: {perf_counter()-tic1:.3f}s")
@@ -922,6 +924,7 @@ class FillACloth():
             np.savez(f'cache_initFill_N{N}.npz', adjacent_edge=ist.adjacent_edge, num_adjacent_edge=ist.num_adjacent_edge, adjacent_edge_abc=ist.adjacent_edge_abc, num_nonz=ist.num_nonz, spmat_data=ist.spmat_data, spmat_indices=ist.spmat_indices, spmat_indptr=ist.spmat_indptr, spmat_ii=ist.spmat_ii, spmat_jj=ist.spmat_jj)
             print("time of caching:", perf_counter()-tic)
 
+    @staticmethod
     def calc_num_nonz(num_adjacent_edge):
         ist.num_nonz = np.sum(ist.num_adjacent_edge)+num_adjacent_edge.shape[0]
         return ist.num_nonz
@@ -930,6 +933,7 @@ class FillACloth():
         nnz_each_row = ist.num_adjacent_edge[:] + 1
         return nnz_each_row
 
+    @staticmethod
     def init_A_CSR_pattern(num_adjacent_edge, adjacent_edge):
         num_adj = ist.num_adjacent_edge
         adj = ist.adjacent_edge
@@ -950,6 +954,7 @@ class FillACloth():
         return data, indices, indptr
 
 
+    @staticmethod
     def csr_index_to_coo_index(indptr, indices):
         ii, jj = np.zeros_like(indices), np.zeros_like(indices)
         for i in range(ist.NE):
@@ -987,6 +992,7 @@ class FillACloth():
 
 
     
+    @staticmethod
     @ti.kernel
     def init_adjacent_edge_abc_kernel(NE:int, edge:ti.template(), adjacent_edge:ti.types.ndarray(), num_adjacent_edge:ti.types.ndarray(), adjacent_edge_abc:ti.types.ndarray()):
         for i in range(NE):
@@ -1013,7 +1019,7 @@ class FillACloth():
                 adjacent_edge_abc[i, j*3+2] = c
 
 
-
+    @staticmethod
     def init_adj_edge(edges: np.ndarray):
         # 构建数据结构
         vertex_to_edges = {}

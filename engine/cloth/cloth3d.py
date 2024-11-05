@@ -758,194 +758,6 @@ def dict_to_ndarr(d:dict)->np.ndarray:
     arr = np.array([list(item) + [-1]*(max_len - len(item)) if len(item) < max_len else list(item)[:max_len] for item in d.values()])
     return arr, lengths
 
-@ti.data_oriented
-class FillACloth():
-    def load(self):
-        self.cache_and_initFill()
-
-    def initFill_python(self):
-        tic1 = perf_counter()
-        print("Initializing adjacent edge and abc...")
-        ist.adjacent_edge, v2e_dict = self.init_adj_edge(edges=ist.edge.to_numpy())
-        ist.adjacent_edge,ist.num_adjacent_edge = dict_to_ndarr(ist.adjacent_edge)
-        v2e_np, num_v2e = dict_to_ndarr(v2e_dict)
-
-        ist.adjacent_edge_abc = np.empty((ist.NE, 20*3), dtype=np.int32)
-        ist.adjacent_edge_abc.fill(-1)
-        self.init_adjacent_edge_abc_kernel(ist.NE,ist.edge,ist.adjacent_edge,ist.num_adjacent_edge,ist.adjacent_edge_abc)
-
-        ist.num_nonz = self.calc_num_nonz(ist.num_adjacent_edge).astype(np.int32)
-
-        data, indices, indptr = self.init_A_CSR_pattern(ist.num_adjacent_edge, ist.adjacent_edge)
-        ii, jj = self.csr_index_to_coo_index(indptr, indices)
-        print(f"initFill time: {perf_counter()-tic1:.3f}s")
-        return ist.adjacent_edge, ist.num_adjacent_edge, ist.adjacent_edge_abc, ist.num_nonz, data, indices, indptr, ii, jj, v2e_np, num_v2e
-
-    def initFill_cpp(self):
-        tic1 = perf_counter()
-        print("Initializing adjacent edge and abc...")
-        extlib.initFillCloth_set(ist.edge.to_numpy(), ist.NE)
-        extlib.initFillCloth_run()
-        ist.num_nonz = extlib.initFillCloth_get_nnz()
-
-        MAX_ADJ = 20
-        MAX_V2E = MAX_ADJ
-        ist.adjacent_edge = np.zeros((ist.NE, MAX_ADJ), dtype=np.int32)
-        ist.num_adjacent_edge = np.zeros(ist.NE, dtype=np.int32)
-        ist.adjacent_edge_abc = np.zeros((ist.NE, MAX_ADJ*3), dtype=np.int32)
-        ist.spmat_data = np.zeros(ist.num_nonz, dtype=np.float32)
-        ist.spmat_indices = np.zeros(ist.num_nonz, dtype=np.int32)
-        ist.spmat_indptr = np.zeros(ist.NE+1, dtype=np.int32)
-        ist.spmat_ii = np.zeros(ist.num_nonz, dtype=np.int32)
-        ist.spmat_jj = np.zeros(ist.num_nonz, dtype=np.int32)
-        ist.v2e = np.zeros((ist.NV, MAX_V2E), dtype=np.int32)
-        ist.num_v2e = np.zeros(ist.NV, dtype=np.int32)
-
-        extlib.initFillCloth_get(ist.adjacent_edge, ist.num_adjacent_edge, ist.adjacent_edge_abc, ist.num_nonz, ist.spmat_indices, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj, ist.v2e, ist.num_v2e)
-        print(f"initFill time: {perf_counter()-tic1:.3f}s")
-        return ist.adjacent_edge, ist.num_adjacent_edge, ist.adjacent_edge_abc, ist.num_nonz, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj, ist.v2e, ist.num_v2e
-
-    def cache_and_initFill(self):
-        if  os.path.exists(f'cache_initFill_N{args.N}.npz') and args.use_cache:
-            npzfile= np.load(f'cache_initFill_N{args.N}.npz')
-            (ist.adjacent_edge, ist.num_adjacent_edge, ist.adjacent_edge_abc, ist.num_nonz, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj) = (npzfile[key] for key in ['adjacent_edge', 'num_adjacent_edge', 'adjacent_edge_abc', 'num_nonz', 'spmat_data', 'spmat_indices', 'spmat_indptr', 'spmat_ii', 'spmat_jj'])
-            ist.num_nonz = int(ist.num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
-            print(f"load cache_initFill_N{args.N}.npz")
-        else:
-            if args.use_cuda and args.use_cpp_initFill:
-                initFill = self.initFill_cpp
-            else:
-                initFill = self.initFill_python
-            ist.adjacent_edge, ist.num_adjacent_edge, ist.adjacent_edge_abc, ist.num_nonz, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj, ist.v2e, ist.num_v2e = initFill()
-            print("caching init fill...")
-            tic = perf_counter() # savez_compressed will save 10x space(1.4G->140MB), but much slower(33s)
-            np.savez(f'cache_initFill_N{args.N}.npz', adjacent_edge=ist.adjacent_edge, num_adjacent_edge=ist.num_adjacent_edge, adjacent_edge_abc=ist.adjacent_edge_abc, num_nonz=ist.num_nonz, spmat_data=ist.spmat_data, spmat_indices=ist.spmat_indices, spmat_indptr=ist.spmat_indptr, spmat_ii=ist.spmat_ii, spmat_jj=ist.spmat_jj)
-            print("time of caching:", perf_counter()-tic)
-
-    @staticmethod
-    def calc_num_nonz(num_adjacent_edge):
-        ist.num_nonz = np.sum(ist.num_adjacent_edge)+num_adjacent_edge.shape[0]
-        return ist.num_nonz
-
-    def calc_nnz_each_row(num_adjacent_edge):
-        nnz_each_row = ist.num_adjacent_edge[:] + 1
-        return nnz_each_row
-
-    @staticmethod
-    def init_A_CSR_pattern(num_adjacent_edge, adjacent_edge):
-        num_adj = ist.num_adjacent_edge
-        adj = ist.adjacent_edge
-        nonz = np.sum(num_adj)+ist.NE
-        indptr = np.zeros(ist.NE+1, dtype=np.int32)
-        indices = np.zeros(nonz, dtype=np.int32)
-        data = np.zeros(nonz, dtype=np.float32)
-
-        indptr[0] = 0
-        for i in range(0,ist.NE):
-            num_adj_i = num_adj[i]
-            indptr[i+1]=indptr[i] + num_adj_i + 1
-            indices[indptr[i]:indptr[i+1]-1]= adj[i][:num_adj_i]
-            indices[indptr[i+1]-1]=i
-
-        assert indptr[-1] == nonz
-
-        return data, indices, indptr
-
-
-    @staticmethod
-    def csr_index_to_coo_index(indptr, indices):
-        ii, jj = np.zeros_like(indices), np.zeros_like(indices)
-        for i in range(ist.NE):
-            ii[indptr[i]:indptr[i+1]]=i
-            jj[indptr[i]:indptr[i+1]]=indices[indptr[i]:indptr[i+1]]
-        return ii, jj
-
-
-    
-
-    
-    def load_cache_initFill_to_cuda(self):
-        self.cache_and_initFill()
-        extlib.fastFillCloth_set_data(ist.edge.to_numpy(), ist.NE, ist.inv_mass.to_numpy(), ist.NV, ist.pos.to_numpy(), ist.alpha)
-        extlib.fastFillCloth_init_from_python_cache(ist.adjacent_edge,
-                                            ist.num_adjacent_edge,
-                                            ist.adjacent_edge_abc,
-                                            ist.num_nonz,
-                                            ist.spmat_data,
-                                            ist.spmat_indices,
-                                            ist.spmat_indptr,
-                                            ist.spmat_ii,
-                                            ist.spmat_jj,
-                                            ist.NE,
-                                           ist.NV)
-
-
-
-
-    def compare_find_shared_v_order(v,e1,e2,edge):
-        # which is shared v in e1? 0 or 1
-        order_in_e1 = 0 if edge[e1][0] == v else 1
-        order_in_e2 = 0 if edge[e2][0] == v else 1
-        return order_in_e1, order_in_e2
-
-
-    
-    @staticmethod
-    @ti.kernel
-    def init_adjacent_edge_abc_kernel(NE:int, edge:ti.template(), adjacent_edge:ti.types.ndarray(), num_adjacent_edge:ti.types.ndarray(), adjacent_edge_abc:ti.types.ndarray()):
-        for i in range(NE):
-            ii0 = edge[i][0]
-            ii1 = edge[i][1]
-
-            num_adj = num_adjacent_edge[i]
-            for j in range(num_adj):
-                ia = adjacent_edge[i,j]
-                if ia == i:
-                    continue
-                jj0,jj1 = edge[ia]
-                a, b, c = -1, -1, -1
-                if ii0 == jj0:
-                    a, b, c = ii0, ii1, jj1
-                elif ii0 == jj1:
-                    a, b, c = ii0, ii1, jj0
-                elif ii1 == jj0:
-                    a, b, c = ii1, ii0, jj1
-                elif ii1 == jj1:
-                    a, b, c = ii1, ii0, jj0
-                adjacent_edge_abc[i, j*3] = a
-                adjacent_edge_abc[i, j*3+1] = b
-                adjacent_edge_abc[i, j*3+2] = c
-
-
-    @staticmethod
-    def init_adj_edge(edges: np.ndarray):
-        # 构建数据结构
-        vertex_to_edges = {}
-        for edge_index, (v1, v2) in enumerate(edges):
-            if v1 not in vertex_to_edges:
-                vertex_to_edges[v1] = set()
-            if v2 not in vertex_to_edges:
-                vertex_to_edges[v2] = set()
-            
-            vertex_to_edges[v1].add(edge_index)
-            vertex_to_edges[v2].add(edge_index)
-
-        # 初始化存储所有边的邻接边的字典
-        all_adjacent_edges = {}
-
-        # 查找并存储每条边的邻接边
-        for edge_index in range(len(edges)):
-            v1, v2 = edges[edge_index]
-            adjacent_edges = vertex_to_edges[v1] | vertex_to_edges[v2]  # 合并两个集合
-            adjacent_edges.remove(edge_index)  # 移除边本身
-            all_adjacent_edges[edge_index] = list(adjacent_edges)
-
-        return all_adjacent_edges, vertex_to_edges
-
-    # # 示例用法
-    # edges = np.array([[0, 1], [1, 2], [2, 0], [1, 3]])
-    # adjacent_edges_dict = init_adj_edge(edges)
-    # print(adjacent_edges_dict)
 
 # for cnt version, require init_A_CSR_pattern() to be called first
 @ti.kernel
@@ -1008,8 +820,8 @@ def fill_A_by_spmm(M_inv, ALPHA):
 
 
 def fastFill_fetch():
-    extlib.fastFillCloth_fetch_A_data(ist.spmat_data)
-    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NE, ist.NE))
+    extlib.fastFillCloth_fetch_A_data(ist.spmat.data)
+    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NE, ist.NE))
     return A
 
 
@@ -1048,8 +860,8 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
 
 
 def fill_A_csr_ti(ist):
-    fill_A_CSR_kernel(ist.spmat_data, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha)
-    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NE, ist.NE))
+    fill_A_CSR_kernel(ist.spmat.data, ist.spmat.indptr, ist.spmat.ii, ist.spmat.jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha)
+    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NE, ist.NE))
     return A
 
 def fill_G():
@@ -1070,13 +882,13 @@ def fetch_A_from_cuda(lv=0):
     nnz = extlib.fastmg_get_nnz(lv)
     matsize = extlib.fastmg_get_matsize(lv)
 
-    extlib.fastmg_fetch_A(lv, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr)
-    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(matsize, matsize))
+    extlib.fastmg_fetch_A(lv, ist.spmat.data, ist.spmat.indices, ist.spmat.indptr)
+    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(matsize, matsize))
     return A
 
 def fetch_A_data_from_cuda():
-    extlib.fastmg_fetch_A_data(ist.spmat_data)
-    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NT, ist.NT))
+    extlib.fastmg_fetch_A_data(ist.spmat.data)
+    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NT, ist.NT))
     return A
 
 def fill_A_in_cuda():
@@ -1189,11 +1001,11 @@ def init():
 
     tic = time.perf_counter()
     if args.solver_type != "XPBD":
-        ist.fill_A = FillACloth()
-        if args.use_cuda:
-            ist.fill_A.load_cache_initFill_to_cuda()
-        else:
-            ist.fill_A.cache_and_initFill()
+        from engine.cloth.fill_A import FillACloth
+        fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha, extlib, args.use_cache, args.use_cuda)
+        fill_A.init()
+        ist.spmat = fill_A.spmat
+        
     logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:

@@ -808,7 +808,7 @@ def substep_all_solver():
         if args.use_PXPBD_v1:
             G = fill_G()
             b, Minv_gg = AMG_PXPBD_v1_b(G)
-        x, r_Axb = amg.run(b)
+        x, r_Axb = linear_solver.run(b)
         if args.use_PXPBD_v1:
             AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
         elif args.use_PXPBD_v2:
@@ -830,6 +830,31 @@ def substep_all_solver():
         do_export_r(ist.r_frame.r_iters)
     update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
+
+
+
+
+
+def substep_Newton(ist,newton):
+    tic1 = time.perf_counter()
+    semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos, args.delta_t)
+    logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
+    ist.r_iter.calc_r0()
+    for ist.ite in range(args.maxiter):
+        converge = newton.step_one_iter(ist.pos)
+        if converge:
+            break
+    tic = time.perf_counter()
+    logging.info(f"n_outer: {ist.ite+1}")
+    ist.n_outer_all.append(ist.ite+1)
+    update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
+    ist.old_pos.from_numpy(ist.pos.to_numpy())
+    logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
+
+
+
+
+
 
 
 
@@ -1223,10 +1248,10 @@ def init_logger(args):
 
 
 def init_solver(args):
-    global amg
+    global linear_solver
     if args.solver_type == "AMG":
         if args.use_cuda:
-            amg = AmgCuda(
+            linear_solver = AmgCuda(
                 args=args,
                 extlib=extlib,
                 get_A0=get_A0_cuda,
@@ -1236,18 +1261,20 @@ def init_solver(args):
                 copy_A=True,
             )
         else:
-            amg = AmgPython(args, get_A0_python, should_setup, copy_A=True)
+            linear_solver = AmgPython(args, get_A0_python, should_setup, copy_A=True)
     elif args.solver_type == "AMGX":
-        amg = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
-        amg.init()
-        ist.amgxsolver = amg
+        linear_solver = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
+        linear_solver.init()
+        ist.amgxsolver = linear_solver
     elif args.solver_type == "DIRECT":
-        amg = DirectSolver(get_A0_python)
+        linear_solver = DirectSolver(get_A0_python)
     elif args.solver_type == "GS":
-        amg = GaussSeidelSolver(get_A0_python, args)
+        linear_solver = GaussSeidelSolver(get_A0_python, args)
     elif args.solver_type == "XPBD":
-        amg = None
-    return amg
+        linear_solver = None
+    return linear_solver
+
+
 
 
 
@@ -1266,6 +1293,12 @@ def init():
     ist = Cloth()
 
     init_solver(args)
+
+    if args.solver_type == "Newton":
+        from engine.cloth.newton_method import NewtonMethod
+        newton = NewtonMethod(ist)
+        ist.newton = newton
+
 
     ist.r_iter = ResidualDataOneIter(args, calc_dual=calc_dual, calc_primal=calc_primal)
     
@@ -1311,6 +1344,8 @@ def run():
 
             if args.solver_type == "XPBD":
                 substep_xpbd()
+            elif args.solver_type == "Newton":
+                substep_Newton()
             else:
                 substep_all_solver()
             export_after_substep(ist,args)

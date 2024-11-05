@@ -20,7 +20,7 @@ def add_common_args(parser):
     parser.add_argument("-export_residual", type=int, default=False)
     parser.add_argument("-restart", type=int, default=False)
     parser.add_argument("-restart_file", type=str, default="result/latest/state/20.npz")
-    parser.add_argument("-use_cache", type=int, default=True)
+    parser.add_argument("-use_cache", type=int, default=False)
     parser.add_argument("-export_mesh", type=int, default=True)
     parser.add_argument("-tol", type=float, default=1e-4)
     parser.add_argument("-rtol", type=float, default=1e-9)

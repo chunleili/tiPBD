@@ -1192,13 +1192,13 @@ def export_after_substep(ist, args, **kwargs):
     from engine.file_utils import save_state
     ist.tic_export = time.perf_counter()
     if args.export_mesh:
-        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
+        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri)
         if args.export_strain:
             if ist.sim_type == "cloth":
                 # v1: simply write txt, need post process
                 # write_edge_data(args.out_dir + f"/mesh/{ist.frame:04d}_strain", ist.strain.to_numpy())
                 # v2: write mesh with strain directly in simulation
-                tri = ist.tri.to_numpy().reshape(-1, 3)
+                tri = ist.tri
                 ist.strain_cell = edge_data_to_tri_data(ist.e2t, ist.strain.to_numpy(), tri)
                 write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), tri, strain=ist.strain_cell, binary=False)
     if args.export_state:

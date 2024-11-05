@@ -32,18 +32,16 @@ class NewtonMethod:
         self.NCONS = ist.NCONS
         self.NV = ist.NV
         self.delta_t = ist.delta_t
-        self.rest_len = ist.rest_len
-        self.edge = ist.edge
+        self.rest_len = ist.rest_len.to_numpy()
+        self.edge = ist.edge.to_numpy()
         self.gradient = np.zeros(self.NV*3, dtype=np.float32)
         self.descent_dir = np.zeros(self.NV*3, dtype=np.float32)
+        self.hessian = scipy.sparse.csr_matrix((self.NV*3, self.NV*3), dtype=np.float32)
         self.EPSILON = 1e-6
 
         def get_A():
             return self.hessian
         self.linear_solver = DirectSolver(get_A)
-
-        self.gradient = np.zeros(self.NV*3, dtype=np.float32)
-        self.hessian = scipy.sparse.csr_matrix((self.NV*3, self.NV*3), dtype=np.float32)
 
         self.use_line_search = True
         self.ls_beta = 0.1

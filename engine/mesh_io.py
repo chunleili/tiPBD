@@ -451,7 +451,7 @@ def generate_cube_mesh(len, grid_dx=0.1):
 
 
 
-def read_tri_cloth(filename):
+def read_tri_cloth_tetgen(filename):
     edge_file_name = filename + ".edge"
     node_file_name = filename + ".node"
     face_file_name = filename + ".face"

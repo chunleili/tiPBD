@@ -48,7 +48,6 @@ parser.add_argument("-smoother_type", type=str, default="chebyshev")
 
 args = parser.parse_args()
 
-N = args.N
 
 if args.setup_num==1: args.gravity = (0.0, 0.0, 0.0)
 else : args.gravity = (0.0, -9.8, 0.0)
@@ -82,201 +81,75 @@ class Cloth():
 
         self.frame = 0
         self.ite=0
-        self.NV = (N + 1)**2
-        self.NT = 2 * N**2
-        self.NE = 2 * N * (N + 1) + N**2
-        self.NCONS = self.NE
-        self.new_M = int(self.NE / 100)
+        
         self.compliance = args.compliance  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
         self.alpha = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
         self.alpha_bending = 1.0 * (1.0 / args.delta_t / args.delta_t) #TODO: need to be tuned
-    
-        
-        self.tri = ti.field(ti.i32, shape=3 * self.NT)
-        self.edge        = ti.Vector.field(2, dtype=int, shape=(self.NE))
-        self.pos         = ti.Vector.field(3, dtype=float, shape=(self.NV))
-        self.dpos        = ti.Vector.field(3, dtype=float, shape=(self.NV))
-        self.dpos_withg  = ti.Vector.field(3, dtype=float, shape=(self.NV))
-        self.old_pos     = ti.Vector.field(3, dtype=float, shape=(self.NV))
-        self.vel         = ti.Vector.field(3, dtype=float, shape=(self.NV))
-        self.pos_mid     = ti.Vector.field(3, dtype=float, shape=(self.NV))
-        self.inv_mass    = ti.field(dtype=float, shape=(self.NV))
-        self.rest_len    = ti.field(dtype=float, shape=(self.NE))
-        self.lagrangian  = ti.field(dtype=float, shape=(self.NE))  
-        self.constraints = ti.field(dtype=float, shape=(self.NE))  
-        self.dLambda     = ti.field(dtype=float, shape=(self.NE))
-        # self.# numerator   = ti.field(dtype=float, shape=(self.NE))
-        # self.# denominator = ti.field(dtype=float, shape=(self.NE))
-        self.gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(self.NE,2)) 
-        self.edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(self.NE))
-        self.dual_residual       = ti.field(shape=(self.NE),    dtype = ti.float32) # -C - alpha * self.lagrangian
-        self.nnz_each_row = np.zeros(self.NE, dtype=int)
-        self.potential_energy = ti.field(dtype=float, shape=())
-        self.inertial_energy = ti.field(dtype=float, shape=())
-        self.predict_pos = ti.Vector.field(3, dtype=float, shape=(self.NV))
-        # self.# primary_residual = np.zeros(dtype=float, shape=(3*self.NV))
-        # self.# K = ti.Matrix.field(3, 3, float, (self.NV, self.NV)) 
-        # self.# geometric stiffness, only retain diagonal elements
-        self.K_diag = np.zeros((self.NV*3), dtype=float)
-        # self.# Minv_gg = ti.Vector.field(3, dtype=float, shape=(self.NV))
-        self.current_len = ti.field(ti.f32, shape=self.NE)
-        self.strain = ti.field(ti.f32, shape=self.NE)
-        self.max_strain = 0.0
 
-    def initialize(self):
-        self.init_topology()
-        self.init_physics()
+        # cloth_type = "quad"
+        cloth_type = "tri"
+        args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
+
+        from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth
+        if cloth_type=="tri":
+            mesh = TriMeshCloth(args.cloth_mesh_file)
+            mesh.build()
+            self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
+            self.allocate_fields(self.NV, self.NE, self.NT)
+            mesh.fetch_fields(self.pos, self.inv_mass, self.edge, self.rest_len)
+            self.tri = mesh.tri
+        elif cloth_type=="quad":
+            mesh = QuadMeshCloth(args.N, args.setup_num)
+            self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
+            self.allocate_fields(self.NV, self.NE, self.NT)
+            mesh.pass_fields(self.pos, self.inv_mass, self.edge, self.tri_ti, self.rest_len)
+            mesh.build()
+            self.tri = self.tri_ti.to_numpy().reshape(-1,3)
+
+        if args.use_bending:
+            self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
+
+        if args.export_strain:
+            from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
+            write_and_rebuild_topology(self.edge,self.tri,args.out_dir)
         
+
         inv_mass_np = np.repeat(self.inv_mass.to_numpy(), 3, axis=0)
         self.M_inv = scipy.sparse.diags(inv_mass_np)
-        self.alpha_tilde_np = np.array([self.alpha] * self.NCONS)
+        self.alpha_tilde_np = np.array([self.alpha] * self.NE)
         self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
-
-
-    def init_topology(self):
-        init_tri(self.tri)
-        init_edge(self.edge)
-
-        # write topology to file
-        from engine.mesh_io import write_edge, write_tri, build_vertex2edge, build_vertex2tri, build_edge2tri
-        write_edge(args.out_dir + f"/mesh/edge", self.edge.to_numpy())
-        write_tri(args.out_dir + f"/mesh/tri", self.tri.to_numpy().reshape(-1, 3))
-        self.v2e = build_vertex2edge(self.edge.to_numpy()) #dict
-        self.v2t = build_vertex2tri(self.tri.to_numpy().reshape(-1,3))   #dict
-        # 将字典的键转换为字符串
-        def convert_keys_to_str(d):
-            """递归地将字典的键转换为字符串"""
-            if isinstance(d, dict):
-                return {str(k): convert_keys_to_str(v) for k, v in d.items()}
-            elif isinstance(d, list):
-                return [convert_keys_to_str(i) for i in d]
-            else:
-                return d
         
-        tri = self.tri.to_numpy().reshape(-1, 3)
-        edge = self.edge.to_numpy()
-        self.e2t = build_edge2tri(edge,self.v2t,tri)
+    
+    def allocate_fields(self, NV, NE, NT):
+        self.tri_ti      = ti.field(dtype=int, shape=NT*3)
+        self.edge        = ti.Vector.field(2, dtype=int, shape=(NE))
+        self.pos         = ti.Vector.field(3, dtype=float, shape=(NV))
+        self.dpos        = ti.Vector.field(3, dtype=float, shape=(NV))
+        self.dpos_withg  = ti.Vector.field(3, dtype=float, shape=(NV))
+        self.old_pos     = ti.Vector.field(3, dtype=float, shape=(NV))
+        self.vel         = ti.Vector.field(3, dtype=float, shape=(NV))
+        self.pos_mid     = ti.Vector.field(3, dtype=float, shape=(NV))
+        self.inv_mass    = ti.field(dtype=float, shape=(NV))
+        self.rest_len    = ti.field(dtype=float, shape=(NE))
+        self.lagrangian  = ti.field(dtype=float, shape=(NE))  
+        self.constraints = ti.field(dtype=float, shape=(NE))  
+        self.dLambda     = ti.field(dtype=float, shape=(NE))
+        self.gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
+        self.edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
+        self.dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * self.lagrangian
+        self.potential_energy = ti.field(dtype=float, shape=())
+        self.inertial_energy = ti.field(dtype=float, shape=())
+        self.predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
+        # self.# primary_residual = np.zeros(dtype=float, shape=(3*NV))
+        # self.# K = ti.Matrix.field(3, 3, float, (NV, NV)) 
+        # self.# geometric stiffness, only retain diagonal elements
+        self.K_diag = np.zeros((NV*3), dtype=float)
+        # self.# Minv_gg = ti.Vector.field(3, dtype=float, shape=(NV))
+        self.current_len = ti.field(ti.f32, shape=NE)
+        self.strain = ti.field(ti.f32, shape=NE)
+        self.max_strain = 0.0
 
-        # check topology
-        e = np.random.randint(self.NE)
-        v0,v1 = edge[e]
-        assert e in self.v2e[v0] #check v2e
-        for t in self.e2t[e]:    #check e2t
-            assert v0 in tri[t] and v1 in tri[t]
-        for t in self.v2t[v0]:   #check v2t
-            assert v0 in tri[t]
-
-
-        self.v2e_s = convert_keys_to_str(self.v2e)
-        self.v2t_s = convert_keys_to_str(self.v2t)
-        self.e2t_s = convert_keys_to_str(self.e2t)
-        with open(args.out_dir + f"/mesh/v2e.json", "w") as f:
-            s = json.dumps(self.v2e_s, indent=4)
-            f.write(s)
-        with open(args.out_dir + f"/mesh/v2t.json", "w") as f:
-            s = json.dumps(self.v2t_s, indent=4)
-            f.write(s)
-        with open(args.out_dir + f"/mesh/e2t.json", "w") as f:
-            s = json.dumps(self.e2t_s, indent=4)
-            f.write(s)
-        ...
-
-
-    def init_physics(self):
-        init_pos(self.inv_mass, self.pos, N, self.NV)
-        init_rest_len(self.edge, self.rest_len, self.pos)
-        if args.use_bending:
-            self.tri_pairs, self.bending_length = init_bending(self.tri.to_numpy().reshape(-1, 3), self.pos)
-
-
-@ti.kernel
-def init_pos(
-    inv_mass:ti.template(),
-    pos:ti.template(),
-    N:ti.i32,
-    NV:ti.i32,
-):
-    for i, j in ti.ndrange(N + 1, N + 1):
-        idx = i * (N + 1) + j
-        # pos[idx] = ti.Vector([i / N,  j / N, 0.5])  # vertical hang
-        pos[idx] = ti.Vector([i / N, 0.5, j / N]) # horizontal hang
-        inv_mass[idx] = 1.0
-    if args.setup_num == 0:
-        inv_mass[N] = 0.0
-        inv_mass[NV-1] = 0.0
-
-
-@ti.kernel
-def init_tri(tri:ti.template()):
-    for i, j in ti.ndrange(N, N):
-        tri_idx = 6 * (i * N + j)
-        pos_idx = i * (N + 1) + j
-        if (i + j) % 2 == 0:
-            tri[tri_idx + 0] = pos_idx
-            tri[tri_idx + 1] = pos_idx + N + 2
-            tri[tri_idx + 2] = pos_idx + 1
-            tri[tri_idx + 3] = pos_idx
-            tri[tri_idx + 4] = pos_idx + N + 1
-            tri[tri_idx + 5] = pos_idx + N + 2
-        else:
-            tri[tri_idx + 0] = pos_idx
-            tri[tri_idx + 1] = pos_idx + N + 1
-            tri[tri_idx + 2] = pos_idx + 1
-            tri[tri_idx + 3] = pos_idx + 1
-            tri[tri_idx + 4] = pos_idx + N + 1
-            tri[tri_idx + 5] = pos_idx + N + 2
-
-
-@ti.kernel
-def init_edge(
-    edge:ti.template(),
-):
-    for i, j in ti.ndrange(N + 1, N):
-        edge_idx = i * N + j
-        pos_idx = i * (N + 1) + j
-        edge[edge_idx] = ti.Vector([pos_idx, pos_idx + 1])
-    start = N * (N + 1)
-    for i, j in ti.ndrange(N, N + 1):
-        edge_idx = start + j * N + i
-        pos_idx = i * (N + 1) + j
-        edge[edge_idx] = ti.Vector([pos_idx, pos_idx + N + 1])
-    start = 2 * N * (N + 1)
-    for i, j in ti.ndrange(N, N):
-        edge_idx = start + i * N + j
-        pos_idx = i * (N + 1) + j
-        if (i + j) % 2 == 0:
-            edge[edge_idx] = ti.Vector([pos_idx, pos_idx + N + 2])
-        else:
-            edge[edge_idx] = ti.Vector([pos_idx + 1, pos_idx + N + 1])
-
-
-@ti.kernel
-def init_rest_len(
-    edge:ti.template(),
-    rest_len:ti.template(),
-    pos:ti.template(),
-):
-    for i in range(ist.NE):
-        idx1, idx2 = edge[i]
-        p1, p2 = pos[idx1], pos[idx2]
-        rest_len[i] = (p1 - p2).norm()
-
-
-@ti.kernel
-def init_edge_from_tri(
-    edge:ti.template(),
-    tri:ti.template(),
-):
-    for t in range(tri.shape[0]):
-        v0 = tri[t, 0]
-        v1 = tri[t, 1]
-        v2 = tri[t, 2]
-        # [0,1][1,2][2,0]: the counter-clockwise order, we use this
-        # [0,2][2,1][1,0]: the clockwise order, also reasonable
-        edge.append([min(v0, v1), max(v0, v1)])
-        edge.append([min(v1, v2), max(v1, v2)])
-        edge.append([min(v2, v0), max(v2, v0)])    
-
+    
 
 
 @ti.kernel
@@ -933,11 +806,11 @@ class FillACloth():
         return ist.adjacent_edge, ist.num_adjacent_edge, ist.adjacent_edge_abc, ist.num_nonz, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj, ist.v2e, ist.num_v2e
 
     def cache_and_initFill(self):
-        if  os.path.exists(f'cache_initFill_N{N}.npz') and args.use_cache:
-            npzfile= np.load(f'cache_initFill_N{N}.npz')
+        if  os.path.exists(f'cache_initFill_N{args.N}.npz') and args.use_cache:
+            npzfile= np.load(f'cache_initFill_N{args.N}.npz')
             (ist.adjacent_edge, ist.num_adjacent_edge, ist.adjacent_edge_abc, ist.num_nonz, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj) = (npzfile[key] for key in ['adjacent_edge', 'num_adjacent_edge', 'adjacent_edge_abc', 'num_nonz', 'spmat_data', 'spmat_indices', 'spmat_indptr', 'spmat_ii', 'spmat_jj'])
             ist.num_nonz = int(ist.num_nonz) # npz save int as np.array, it will cause bug in taichi kernel
-            print(f"load cache_initFill_N{N}.npz")
+            print(f"load cache_initFill_N{args.N}.npz")
         else:
             if args.use_cuda and args.use_cpp_initFill:
                 initFill = self.initFill_cpp
@@ -946,7 +819,7 @@ class FillACloth():
             ist.adjacent_edge, ist.num_adjacent_edge, ist.adjacent_edge_abc, ist.num_nonz, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr, ist.spmat_ii, ist.spmat_jj, ist.v2e, ist.num_v2e = initFill()
             print("caching init fill...")
             tic = perf_counter() # savez_compressed will save 10x space(1.4G->140MB), but much slower(33s)
-            np.savez(f'cache_initFill_N{N}.npz', adjacent_edge=ist.adjacent_edge, num_adjacent_edge=ist.num_adjacent_edge, adjacent_edge_abc=ist.adjacent_edge_abc, num_nonz=ist.num_nonz, spmat_data=ist.spmat_data, spmat_indices=ist.spmat_indices, spmat_indptr=ist.spmat_indptr, spmat_ii=ist.spmat_ii, spmat_jj=ist.spmat_jj)
+            np.savez(f'cache_initFill_N{args.N}.npz', adjacent_edge=ist.adjacent_edge, num_adjacent_edge=ist.num_adjacent_edge, adjacent_edge_abc=ist.adjacent_edge_abc, num_nonz=ist.num_nonz, spmat_data=ist.spmat_data, spmat_indices=ist.spmat_indices, spmat_indptr=ist.spmat_indptr, spmat_ii=ist.spmat_ii, spmat_jj=ist.spmat_jj)
             print("time of caching:", perf_counter()-tic)
 
     @staticmethod
@@ -1249,6 +1122,7 @@ def init_logger(args):
 
 def init_solver(args):
     global linear_solver
+    linear_solver = None
     if args.solver_type == "AMG":
         if args.use_cuda:
             linear_solver = AmgCuda(
@@ -1291,26 +1165,24 @@ def init():
 
     global ist
     ist = Cloth()
+    ist.delta_t = args.delta_t
 
     init_solver(args)
 
-    if args.solver_type == "Newton":
+    if args.solver_type == "NEWTON":
         from engine.cloth.newton_method import NewtonMethod
         newton = NewtonMethod(ist)
         ist.newton = newton
 
 
     ist.r_iter = ResidualDataOneIter(args, calc_dual=calc_dual, calc_primal=calc_primal)
-    
     ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     logging.info(f"start date:{ist.start_date}")
 
-    logging.info("\nInitializing Cloth...")
-    ist.initialize()
 
     if args.setup_num == 1:
         init_scale()
-    write_mesh(args.out_dir + f"/mesh/{0:04d}", ist.pos.to_numpy(), ist.tri.to_numpy())
+    write_mesh(args.out_dir + f"/mesh/{0:04d}", ist.pos.to_numpy(), ist.tri)
 
     ist.frame = 1
     logging.info("Initializing topology and physics done")
@@ -1344,8 +1216,8 @@ def run():
 
             if args.solver_type == "XPBD":
                 substep_xpbd()
-            elif args.solver_type == "Newton":
-                substep_Newton()
+            elif args.solver_type == "NEWTON":
+                substep_Newton(ist, ist.newton)
             else:
                 substep_all_solver()
             export_after_substep(ist,args)

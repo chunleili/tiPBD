@@ -1106,7 +1106,7 @@ class ResidualDataOneIter:
 
         if self.args.calc_strain and self.calc_strain is not None:
             self.max_strain = self.calc_strain()
-            s += f"strain {self.max_strain:.2e} "
+            s += f"strain:{self.max_strain:.2e} "
 
         self.t_calcr = perf_counter()-self.tic_calcr
         s += f"calcr:{self.t_calcr*1000:.2f}ms "

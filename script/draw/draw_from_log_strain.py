@@ -8,8 +8,8 @@ import os
 prj_dir = Path(__file__).parent.parent.parent
 os.chdir(prj_dir)
 
-frame = 99
-r_type = "max strain"
+frame = 74
+r_type = "strain"
 with0 = False
 
 def read_from_log(log_file, frame, r_type, with0=False):
@@ -34,10 +34,10 @@ def read_from_log(log_file, frame, r_type, with0=False):
                 r0.append( float(l.split(f"{r_type}0:")[1].split()[0]))
     return r, r0
 
-log_file = "result/case147-AMG-strain/strain.txt"
+log_file = "result/case147-1106-AMG-strain/latest.log"
 r, r0 = read_from_log(log_file, frame, r_type, with0)
 
-log_file = "result/case148-1106-XPBD-strain/strain.txt"
+log_file = "result/case148-1106-XPBD-strain/latest.log"
 r2, r02 = read_from_log(log_file, frame, r_type, with0)
 
 print(r2)

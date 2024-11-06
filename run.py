@@ -1570,31 +1570,32 @@ args = ["engine/cloth/cloth3d.py",
 allargs.append(args)
 
 
-# case147: 
+# case147: AMG-strain
 casenames[len(allargs)] = "AMG-strain"
 args = ["engine/cloth/cloth3d.py",
-        f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-export_strain=1",
-        "-end_frame=100",
+        "-end_frame=75",
         "-delta_t=3e-3",
         "-calc_strain=1",
         "-export_strain=1",
+        "-restart=1",
+        "-restart_file=result/meta/0074.npz",
         ]
 allargs.append(args)
 
 
-# case148: 
+# case148: XPBD-strain
 casenames[len(allargs)] = "XPBD-strain"
 args = ["engine/cloth/cloth3d.py",
-        f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-end_frame=100",
+        "-end_frame=75",
         "-delta_t=3e-3",
         "-solver_type=XPBD",
         "-arch=gpu",
+        "-restart=1",
+        "-restart_file=result/meta/0074.npz",
         "-maxiter=10000",
         "-calc_strain=1",
         "-export_strain=1",

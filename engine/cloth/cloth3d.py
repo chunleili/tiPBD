@@ -916,7 +916,6 @@ def init_logger(args):
     logging.basicConfig(level=log_level, format="%(message)s",filename=args.out_dir + f'/latest.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
     logging.info(args)
-    return args
 
 
 def init_solver(args):

@@ -15,6 +15,15 @@ def make_and_clean_dirs(dir):
     Path(dir + "/mesh/").mkdir(parents=True, exist_ok=True)
 
 
+def make_dirs(dir):
+    from pathlib import Path
+
+    Path(dir).mkdir(parents=True, exist_ok=True)
+    Path(dir + "/r/").mkdir(parents=True, exist_ok=True)
+    Path(dir + "/A/").mkdir(parents=True, exist_ok=True)
+    Path(dir + "/state/").mkdir(parents=True, exist_ok=True)
+    Path(dir + "/mesh/").mkdir(parents=True, exist_ok=True)
+
 
 def use_another_outdir(dir):
     import re
@@ -48,6 +57,8 @@ def process_dirs(args):
         args.out_dir = use_another_outdir(args.out_dir)
     if not args.restart:
         make_and_clean_dirs(args.out_dir)
+    else:
+        make_dirs(args.out_dir)
 
 
 def parse_json_params(path, vars_to_overwrite):

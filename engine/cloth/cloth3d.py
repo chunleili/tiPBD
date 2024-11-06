@@ -86,9 +86,9 @@ class Cloth():
         self.alpha = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
         self.alpha_bending = 1.0 * (1.0 / args.delta_t / args.delta_t) #TODO: need to be tuned
 
-        # cloth_type = "quad"
-        cloth_type = "tri"
-        args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
+        cloth_type = "quad"
+        # cloth_type = "tri"
+        # args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
 
         from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth
         if cloth_type=="tri":
@@ -111,7 +111,7 @@ class Cloth():
 
         if args.export_strain:
             from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
-            write_and_rebuild_topology(self.edge,self.tri,args.out_dir)
+            self.v2e, self.v2t, self.e2t = write_and_rebuild_topology(self.edge.to_numpy(),self.tri,args.out_dir)
         
 
         inv_mass_np = np.repeat(self.inv_mass.to_numpy(), 3, axis=0)
@@ -1005,7 +1005,7 @@ def init():
         fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha, extlib, args.use_cache, args.use_cuda)
         fill_A.init()
         ist.spmat = fill_A.spmat
-        
+
     logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
     if args.restart:
@@ -1019,7 +1019,6 @@ def run():
     ist.initial_frame = ist.frame
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
     ist.t_export_total = 0.0
-    args.export_strain = False
 
     try:
         for f in range(ist.initial_frame, args.end_frame):

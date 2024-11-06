@@ -87,7 +87,7 @@ class SoftBody:
         self.NF = len(self.model_tri)
         self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.display_indices.from_numpy(self.model_tri.flatten())
-        self.tri = self.display_indices
+        self.tri = self.model_tri.copy()
 
         self.pos = ti.Vector.field(3, float, self.NV)
         self.pos_mid = ti.Vector.field(3, float, self.NV)

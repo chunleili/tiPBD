@@ -1234,3 +1234,12 @@ def export_after_substep(ist, args, **kwargs):
         logging.info(f"Time of exporting: {ist.t_export:.3f}s")
         logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s")
 
+
+def init_logger(args):
+    import sys
+    log_level = logging.INFO
+    if not args.export_log:
+        log_level = logging.ERROR
+    logging.basicConfig(level=log_level, format="%(message)s",filename=args.out_dir + f'/latest.log',filemode='w')
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+    logging.info(args)

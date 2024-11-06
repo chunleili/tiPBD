@@ -3,12 +3,9 @@ import taichi as ti
 import numpy as np
 import time
 import scipy
-from pathlib import Path
 import os,sys
-from matplotlib import pyplot as plt
 import tqdm
 import argparse
-from collections import namedtuple
 import json
 import logging
 import datetime
@@ -17,17 +14,16 @@ from time import perf_counter
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(prj_path)
-from engine.file_utils import process_dirs,  do_restart, save_state,  export_mat
+from engine.file_utils import process_dirs,  do_restart,  export_mat
 from engine.init_extlib import init_extlib
 from engine.mesh_io import write_mesh
-from engine.solver.build_Ps import build_Ps
 from engine.cloth.bending import init_bending, solve_bending_constraints_xpbd
 from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.solver.iterative_solver import GaussSeidelSolver
-from engine.util import ending, ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, export_after_substep
+from engine.util import ending, ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, export_after_substep, init_logger
 
 
 
@@ -909,13 +905,7 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #
 # ---------------------------------------------------------------------------- #
-def init_logger(args):
-    log_level = logging.INFO
-    if not args.export_log:
-        log_level = logging.ERROR
-    logging.basicConfig(level=log_level, format="%(message)s",filename=args.out_dir + f'/latest.log',filemode='w')
-    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-    logging.info(args)
+
 
 
 def init_solver(args):

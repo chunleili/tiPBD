@@ -1169,7 +1169,7 @@ def ending(args, ist):
     sum_n_outer = sum(ist.n_outer_all)
     avg_n_outer = sum_n_outer / len_n_outer_all
     max_n_outer = max(ist.n_outer_all) if ist.n_outer_all else 0
-    max_n_outer_index = ist.n_outer_all.index(max_n_outer)
+    max_n_outer_index = ist.n_outer_all.index(max_n_outer) if ist.n_outer_all else 0
 
     n_outer_all_np = np.array(ist.n_outer_all, np.int32)    
     np.savetxt(args.out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")

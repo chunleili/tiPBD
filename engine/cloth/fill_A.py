@@ -18,7 +18,7 @@ class SpMat:
         self.indptr = indptr
         self.ii = ii
         self.jj = jj
-        assert jj is indices
+        assert  np.all(jj==indices)
 
     def create(self, nnz,num_rows):
         self.indptr = np.zeros(num_rows+1, dtype=np.int32)
@@ -37,7 +37,7 @@ class SpMat:
 
 @ti.data_oriented
 class FillACloth():
-    def __init__(self, pos, inv_mass, edge, alpha, extlib, use_cache, use_cuda) -> None:
+    def __init__(self, pos, inv_mass, edge, alpha, use_cache, use_cuda, extlib=None) -> None:
         self.pos = pos
         self.inv_mass = inv_mass
         self.edge = edge

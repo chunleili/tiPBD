@@ -1570,6 +1570,67 @@ args = ["engine/cloth/cloth3d.py",
 allargs.append(args)
 
 
+# case147: 
+casenames[len(allargs)] = "AMG-strain"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-export_strain=1",
+        "-end_frame=100",
+        "-delta_t=3e-3",
+        "-calc_strain=1",
+        "-export_strain=1",
+        ]
+allargs.append(args)
+
+
+# case148: 
+casenames[len(allargs)] = "XPBD-strain"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-end_frame=100",
+        "-delta_t=3e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=10000",
+        "-calc_strain=1",
+        "-export_strain=1",
+        ]
+allargs.append(args)
+
+
+# case149: 
+casenames[len(allargs)] = "AMG-energy"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-end_frame=100",
+        "-delta_t=3e-3",
+        "-calc_energy=1",
+        ]
+allargs.append(args)
+
+
+# case150: 
+casenames[len(allargs)] = "XPBD-energy"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-end_frame=100",
+        "-delta_t=3e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=10000",
+        "-calc_energy=1",
+        ]
+allargs.append(args)
+
+
 
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):

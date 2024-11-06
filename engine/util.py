@@ -1036,19 +1036,18 @@ class ResidualDataOneIter:
     r: float=0
     r0: float=0
     t_export: float=0
+    total_energy: float=0
 
-    def __init__(self, args, calc_dual, calc_primal):
+    def __init__(self, args, calc_dual=None, calc_primal=None, calc_total_energy=None, calc_strain=None):
         self.tol = args.tol
         self.rtol = args.rtol
         self.mode = args.converge_condition
+        self.args = args
         self.calc_dual = calc_dual
         self.calc_primal = calc_primal
+        self.calc_total_energy = calc_total_energy
+        self.calc_strain = calc_strain
 
-    def log_res(self):
-        if self.mode == "Newton":
-            logging.info(f"{self.frame}-{self.ite} Newton:{self.Newton:.2e} rsys:{self.r_Axb[0]:.2e} {self.r_Axb[-1]:.2e} dual:{self.dual:.2e} primal:{self.primal:.2e} iter:{self.ninner}")
-        elif self.mode == "dual":
-            logging.info(f"{self.frame}-{self.ite} rsys:{self.r_Axb[0]:.2e} {self.r_Axb[-1]:.2e} dual0:{self.dual0:.2e} dual:{self.dual:.2e}  iter:{self.ninner}")
 
     def check(self):
         if self.mode == "Newton":
@@ -1064,8 +1063,8 @@ class ResidualDataOneIter:
         return False
     
     def is_diverge(self):
-        if np.isnan(self.r_Axb[-1]) or np.isinf(self.r_Axb[-1]):
-            return True
+        # if np.isnan(self.r_Axb[-1]) or np.isinf(self.r_Axb[-1]):
+        #     return True
         if np.isnan(self.r) or np.isinf(self.r):
             return True
         return False
@@ -1078,21 +1077,46 @@ class ResidualDataOneIter:
             logging.info(f"converge by rtol {self.r:.2e} < {self.rtol * self.r0:.2e}")
             return True
 
-    def calc_r(self, ist, r_Axb):
-        tic = perf_counter()
-        self.t = perf_counter()-ist.tic_iter
-        self.frame = ist.frame
-        self.ite = ist.ite
-        self.r_Axb = r_Axb.tolist() if not isinstance(r_Axb, list) else r_Axb
+    def calc_r(self, frame, ite, tic_iter, r_Axb=None):
+        self.tic_calcr = perf_counter()
+        self.t_iter = perf_counter()-tic_iter
+
+        self.frame = frame
+        self.ite = ite
+        s = f"{frame}-{ite} "
+
         self.dual = self.calc_dual()
-        self.ninner = len(r_Axb)-1
-        if self.mode == "Newton":
+        s += f"dual0:{self.dual0:.2e} dual:{self.dual:.2e} "
+
+        if r_Axb is not None:
+            self.r_Axb = r_Axb.tolist() if not isinstance(r_Axb, list) else r_Axb
+            self.ninner = len(r_Axb)-1
+            s += f" rsys:{self.r_Axb[0]:.2e} {self.r_Axb[-1]:.2e} "
+            s += f"ninner:{self.ninner} "
+            self.conv_factor = calc_conv(r_Axb)
+            s += f"conv:{self.conv_factor:.2f} "
+
+        if self.args.calc_primal and self.calc_primal is not None:
             self.primal, self.Newton = self.calc_primal()
-        self.log_res()
-        logging.info(f"    iter total time: {self.t*1000:.0f}ms")
-        logging.info(f"    convergence factor: {calc_conv(r_Axb):.2f}")
-        logging.info(f"    Calc r time: {(perf_counter()-tic)*1000:.0f}ms")
-        self.t_export += perf_counter()-tic
+            s += f"Newton:{self.Newton:.2e} primal:{self.primal:.2e} "
+
+        if self.args.calc_energy and self.calc_total_energy is not None:
+            self.total_energy = self.calc_total_energy()
+            s += f"energy:{self.total_energy:.5e} "
+
+        if self.args.calc_strain and self.calc_strain is not None:
+            self.max_strain = self.calc_strain()
+            s += f"strain {self.max_strain:.2e} "
+
+        self.t_calcr = perf_counter()-self.tic_calcr
+        s += f"calcr:{self.t_calcr*1000:.2f}ms "
+
+        self.t_export += self.t_calcr
+
+        s+= f" titer:{self.t_iter:.2e}s"
+
+        logging.info(s)
+
 
     def calc_r0(self):
         tic = perf_counter()
@@ -1200,7 +1224,7 @@ def export_after_substep(ist, args, **kwargs):
                 # v2: write mesh with strain directly in simulation
                 tri = ist.tri
                 ist.strain_cell = edge_data_to_tri_data(ist.e2t, ist.strain.to_numpy(), tri)
-                write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), tri, strain=ist.strain_cell, binary=False)
+                write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), tri, strain=ist.strain_cell, binary=True)
     if args.export_state:
         save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
     ist.t_export += time.perf_counter()-ist.tic_export

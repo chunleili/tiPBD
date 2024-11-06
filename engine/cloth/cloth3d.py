@@ -148,6 +148,7 @@ class Cloth():
         self.current_len = ti.field(ti.f32, shape=NE)
         self.strain = ti.field(ti.f32, shape=NE)
         self.max_strain = 0.0
+        self.total_energy = 0.0
 
     
 
@@ -277,29 +278,12 @@ def calc_primal():
     return primal_r, Newton_r
 
 
-def xpbd_calcr(tic_iter, dual0, r):
-    tic_calcr = perf_counter()
-    t_iter = perf_counter()-tic_iter
-    dualr = calc_norm(ist.dual_residual)
-
-    t_calcr = perf_counter()-tic_calcr
-    tic_exportr = perf_counter()
-    ist.r_iter.dual = dualr
-    ist.r_iter.dual0 = dual0
-
-    if args.export_log:
-        logging.info(f"{ist.frame}-{ist.ite}  dual0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{t_calcr:.2e}s")
-    ist.t_export += perf_counter() - tic_exportr
-    return dualr, dual0
-
-
 
 def substep_xpbd():
     semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos,args.delta_t)
     reset_lagrangian(ist.lagrangian)
 
-    dual0 = calc_dual()
-    r = []
+    ist.r_iter.calc_r0()
     for ist.ite in range(args.maxiter):
         tic_iter = perf_counter()
 
@@ -311,14 +295,10 @@ def substep_xpbd():
         update_pos(ist.inv_mass, ist.dpos, ist.pos,args.omega)
 
         if args.calc_r_xpbd:
-            dualr, dualr0 = xpbd_calcr(tic_iter, dual0, r)
-
-        if dualr<args.tol:
+            ist.r_iter.calc_r(ist.frame, ist.ite, tic_iter)
+        if ist.r_iter.dual<args.tol:
             break
     ist.n_outer_all.append(ist.ite+1)
-
-    if args.export_residual:
-        do_export_r(r)
     update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
 
 
@@ -508,22 +488,31 @@ def transfer_back_to_pos_mfree(x):
     update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
 
 
+def calc_total_energy():
+    update_constraints_kernel(ist.pos, ist.edge, ist.rest_len, ist.constraints)
+    compute_potential_energy()
+    compute_inertial_energy()
+    ist.total_energy = ist.potential_energy[None] + ist.inertial_energy[None]
+    return ist.total_energy
+
 
 @ti.kernel
 def compute_potential_energy():
     ist.potential_energy[None] = 0.0
-    ist.inv_alpha = 1.0/ist.compliance
+    inv_alpha = 1.0/ist.compliance
     for i in range(ist.NE):
-        ist.potential_energy[None] += 0.5 * ist.inv_alpha * ist.constraints[i]**2
+        ist.potential_energy[None] += 0.5 * inv_alpha * ist.constraints[i]**2
+
+
 
 @ti.kernel
 def compute_inertial_energy():
     ist.inertial_energy[None] = 0.0
-    ist.inv_h2 = 1.0 / ist.delta_t**2
+    inv_h2 = 1.0 / ist.delta_t**2
     for i in range(ist.NV):
         if ist.inv_mass[i] == 0.0:
             continue
-        ist.inertial_energy[None] += 0.5 / ist.inv_mass[i] * (ist.pos[i] - ist.predict_pos[i]).norm_sqr() * ist.inv_h2
+        ist.inertial_energy[None] += 0.5 / ist.inv_mass[i] * (ist.pos[i] - ist.predict_pos[i]).norm_sqr() * inv_h2
 
 
 def report_multilevel_details(Ps, num_levels):
@@ -673,7 +662,7 @@ def substep_all_solver():
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     ist.r_iter.calc_r0()
     for ist.ite in range(args.maxiter):
-        ist.tic_iter = perf_counter()
+        tic_iter = perf_counter()
         if args.use_PXPBD_v1:
             copy_field(ist.pos_mid, ist.pos)
         compute_C_and_gradC_kernel(ist.pos, ist.gradC, ist.edge, ist.constraints, ist.rest_len) # required by dlam2dpos
@@ -688,11 +677,9 @@ def substep_all_solver():
             AMG_PXPBD_v2_dlam2dpos(x)
         else:
             AMG_dlam2dpos(x)
-        ist.r_iter.calc_r(ist, r_Axb)
+        ist.r_iter.calc_r(ist.frame,ist.ite, tic_iter, r_Axb)
         export_mat(ist, get_A0_cuda, b)
-        s = calc_strain()
-        logging.info(f"max strain:{s:.2e}")
-        logging.info(f"iter time(with export): {(perf_counter()-ist.tic_iter)*1000:.0f}ms")
+        logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if ist.r_iter.check():
             break
     
@@ -961,7 +948,11 @@ def init_solver(args):
     return linear_solver
 
 
-
+def init_r_iter(args, ist):
+    # init residual data
+    ist.r_iter = ResidualDataOneIter(args, 
+                                    calc_dual=calc_dual,
+                                    calc_primal=calc_primal, calc_total_energy=calc_total_energy, calc_strain=calc_strain)
 
 
 def init():
@@ -979,6 +970,9 @@ def init():
     ist = Cloth()
     ist.delta_t = args.delta_t
 
+    ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    logging.info(f"start date:{ist.start_date}")
+
     init_solver(args)
 
     if args.solver_type == "NEWTON":
@@ -986,11 +980,7 @@ def init():
         newton = NewtonMethod(ist)
         ist.newton = newton
 
-
-    ist.r_iter = ResidualDataOneIter(args, calc_dual=calc_dual, calc_primal=calc_primal)
-    ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    logging.info(f"start date:{ist.start_date}")
-
+    init_r_iter(args, ist)
 
     if args.setup_num == 1:
         init_scale()
@@ -1002,9 +992,14 @@ def init():
     tic = time.perf_counter()
     if args.solver_type != "XPBD":
         from engine.cloth.fill_A import FillACloth
-        fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha, extlib, args.use_cache, args.use_cuda)
+        if not args.use_cuda:
+            extlib = None
+        fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha,  args.use_cache, args.use_cuda, extlib)
         fill_A.init()
         ist.spmat = fill_A.spmat
+        ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
+        ist.num_adjacent_edge = fill_A.num_adjacent_edge
+        ist.num_nonz = fill_A.num_nonz
 
     logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 

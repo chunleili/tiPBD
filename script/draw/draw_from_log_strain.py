@@ -6,25 +6,10 @@ from pathlib import Path
 import os
 
 prj_dir = Path(__file__).parent.parent.parent
-
-# parser = argparse.ArgumentParser()
-
-# parser.add_argument("-case_name", type=str, default="case147-AMG-strain")
-# parser.add_argument("-frame", type=int, default=0)
-# parser.add_argument("-type", type=str, default="dual") 
-# "Newton" or "dual" or "primal"
-
-# case_name = parser.parse_args().case_name
-# log_file = prj_dir / f"result/{case_name}/{case_name}.log"
-
-# frame = parser.parse_args().frame
-# r_type = parser.parse_args().type
-
-prj_dir = Path(__file__).parent.parent.parent
 os.chdir(prj_dir)
 
 frame = 99
-r_type = "dual"
+r_type = "max strain"
 with0 = False
 
 def read_from_log(log_file, frame, r_type, with0=False):
@@ -36,9 +21,9 @@ def read_from_log(log_file, frame, r_type, with0=False):
         # 去掉空行
         lines = [line for line in lines if line]
 
-        # 提取出特定的frame, 例如以20-开头
-        lines = [line for line in lines if line.startswith(f"{frame}-")]
-        # print(lines)
+        # # 提取出特定的frame, 例如以20-开头
+        # lines = [line for line in lines if line.startswith(f"{frame}-")]
+        # # print(lines)
 
         # 提取出dual_r后面的数字， dual_r在行中间
         r = [line for line in lines if f"{r_type}:" in line]
@@ -49,10 +34,10 @@ def read_from_log(log_file, frame, r_type, with0=False):
                 r0.append( float(l.split(f"{r_type}0:")[1].split()[0]))
     return r, r0
 
-log_file = "result/case147-AMG-strain/latest.log"
+log_file = "result/case147-AMG-strain/strain.txt"
 r, r0 = read_from_log(log_file, frame, r_type, with0)
 
-log_file = "result/case148-1106-XPBD-strain/latest.log"
+log_file = "result/case148-1106-XPBD-strain/strain.txt"
 r2, r02 = read_from_log(log_file, frame, r_type, with0)
 
 print(r2)
@@ -65,8 +50,8 @@ axs[0].plot(r[:])
 axs[1].plot(r2[:])
 
 plt.xlabel("iteration")
-axs[0].set_ylabel(f"dual residual")
-axs[1].set_ylabel(f"dual residual")
+axs[0].set_ylabel(f"{r_type}")
+axs[1].set_ylabel(f"{r_type}")
 
 axs[0].legend([f"AMG"])
 axs[1].legend([f"XPBD"])

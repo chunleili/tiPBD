@@ -9,6 +9,7 @@ import argparse
 import logging
 import datetime
 from time import perf_counter
+from pathlib import Path
 
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,7 +38,10 @@ parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 parser.add_argument("-omega", type=float, default=0.25)
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_bending", type=int, default=False)
-
+parser.add_argument("-cloth_mesh_file", type=str, default="./data/model/tri_cloth/tri_cloth.obj")
+parser.add_argument("-cloth_mesh_type", type=str, default="quad")
+# ./data/model/tri_cloth/tri_cloth.obj
+# ./data/model/tri_cloth/N64.ply
 
 args = parser.parse_args()
 
@@ -58,7 +62,6 @@ class Cloth():
         self.n_outer_all = [] 
         self.all_stalled = [] 
         self.sim_type = "cloth"
-        self.sim_name=f"cloth-N{args.N}"
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
         self.args = args
@@ -85,25 +88,28 @@ class Cloth():
         self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
         
 
-    def build_cloth_mesh(self):
-        cloth_type = "quad"
+    def build_cloth_mesh(self, ):
+        # cloth_type = "quad" or
         # cloth_type = "tri"
         # args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
         from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth
-        if cloth_type=="tri":
+        if args.cloth_mesh_type=="tri":
             mesh = TriMeshCloth(args.cloth_mesh_file)
             mesh.build()
             self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
             self.allocate_fields(self.NV, self.NE, self.NT)
             mesh.fetch_fields(self.pos, self.inv_mass, self.edge, self.rest_len)
             self.tri = mesh.tri
-        elif cloth_type=="quad":
+            name = Path(args.cloth_mesh_file).name
+            self.sim_name=f"cloth-{name}"
+        elif args.cloth_mesh_type=="quad":
             mesh = QuadMeshCloth(args.N, args.setup_num)
             self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
             self.allocate_fields(self.NV, self.NE, self.NT)
             mesh.pass_fields(self.pos, self.inv_mass, self.edge, self.tri_ti, self.rest_len)
             mesh.build()
             self.tri = self.tri_ti.to_numpy().reshape(-1,3)
+            self.sim_name=f"cloth-N{args.N}"
 
     
     def allocate_fields(self, NV, NE, NT):

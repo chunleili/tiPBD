@@ -105,6 +105,7 @@ class Cloth():
         self.M_inv = scipy.sparse.diags(inv_mass_np)
         self.alpha_tilde_np = np.array([self.alpha] * self.NE)
         self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
+        self.NCONS = self.NE
         
     
     def allocate_fields(self, NV, NE, NT):
@@ -250,12 +251,11 @@ def calc_dual_residual(
 
 
 def calc_primary_residual(G,M_inv):
-    MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
+    MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()), format="csr")
     primary_residual = MASS @ (ist.pos.to_numpy().flatten() - ist.predict_pos.to_numpy().flatten()) - G.transpose() @ ist.lagrangian.to_numpy()
     where_zeros = np.where(M_inv.diagonal()==0)
     primary_residual = np.delete(primary_residual, where_zeros)
     return primary_residual
-
 
 def calc_primal():
     G = fill_G()
@@ -263,6 +263,60 @@ def calc_primal():
     primal_r = np.linalg.norm(primary_residual).astype(float)
     Newton_r = np.linalg.norm(np.concatenate((ist.dual_residual.to_numpy(), primary_residual))).astype(float)
     return primal_r, Newton_r
+
+
+# # FIXME: Why it is 10x higher than v1
+# @ti.kernel
+# def calc_primal_v2_kernel(
+#     edge:ti.template(),
+#     pos:ti.template(),
+#     predict_pos:ti.template(),
+#     lagrangian:ti.template(),
+#     inv_mass:ti.template(),
+# )->ti.f32:
+#     """
+#     res = M(x-x~) - G^T * lambda
+#     The first  part is 3nx1
+#     The second part is (3nxm) x (mx1) = 3nx1
+#     For each edge, we have two points, so each i is 6x1 dimension
+#     [x0]   [g0x]
+#     [y0]   [g0y]
+#     [z0] + [g0z]
+#     [x1]   [g1x]
+#     [y1]   [g1y]
+#     [z1]   [g1z]
+#     first add vec, then take norm for all edges
+#     Or individually calc norm sqr of each points finally sqrt.
+#     res <= norm(res)
+#     """
+#     res = 0.0
+#     for i in range(edge.shape[0]):
+#         idx0, idx1 = edge[i]
+#         dis = pos[idx0] - pos[idx1]
+#         g = dis.normalized()
+
+#         # vertex 0 
+#         vec1 = lagrangian[i] * g    #small 3x1 vector
+#         if inv_mass[idx0] != 0.0:
+#             vec1 += 1.0/inv_mass[idx0] * (pos[idx0] - predict_pos[idx0])
+#         q1 = vec1.norm_sqr()
+
+#         # vertex 1
+#         vec2 = lagrangian[i] * (-g)
+#         if inv_mass[idx1] != 0.0:
+#             vec2 += 1.0/inv_mass[idx1] * (pos[idx1] - predict_pos[idx1])
+#         q2 = vec2.norm_sqr()
+
+#         res += (q1 + q2)
+#     res = ti.sqrt(res)
+#     return res
+
+# # FIXME: Why it is 10x higher than v1
+# def calc_primal_v2():
+#     dual = np.linalg.norm(ist.dual_residual.to_numpy())
+#     primal = calc_primal_v2_kernel(ist.edge,ist.pos,ist.predict_pos,ist.lagrangian,ist.inv_mass)
+#     Newton_r = np.sqrt(dual**2 + primal**2)
+#     return primal, Newton_r
 
 
 
@@ -976,9 +1030,9 @@ def run():
             logging.info("\n")
             step_pbar.update(1)
             logging.info("")
-            
-        print("Normallly end.")
-        ending(args,ist)
+            if ist.frame >= args.end_frame:
+                print("Normallly end.")
+                ending(args,ist)
 
     except KeyboardInterrupt:
         print("KeyboardInterrupt")

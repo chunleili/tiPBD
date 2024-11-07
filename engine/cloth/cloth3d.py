@@ -91,6 +91,8 @@ class Cloth():
         self.M_inv = scipy.sparse.diags(inv_mass_np)
         self.alpha_tilde_np = np.array([self.alpha] * self.NE)
         self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
+        self.MASS = scipy.sparse.diags(1.0/(self.M_inv.diagonal()), format="csr")
+        self.NCONS = self.NE
         
 
     def build_mesh(self, ):

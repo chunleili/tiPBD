@@ -38,6 +38,8 @@ class NewtonMethod:
         self.descent_dir = np.zeros(self.NV*3, dtype=np.float32)
         self.hessian = scipy.sparse.csr_matrix((self.NV*3, self.NV*3), dtype=np.float32)
         self.EPSILON = 1e-6
+        self.M = ist.MASS
+        self.set_external_force(ist.args.gravity)
 
         def get_A():
             return self.hessian
@@ -65,16 +67,20 @@ class NewtonMethod:
         else:
             return False
         
+    def set_external_force(self, gravity):
+        self.external_force = np.tile(gravity, self.NV)
+        
 
     def evaluateGradient(self, x, gradient):
         gradient.fill(0)
 
         # springs
-        for j in range(self.NCONS):
-            if self.constraints[j].type == ConstraintType.ATTACHMENT:
-                self.EvaluateGradientOneConstraintAttachment(j, x, gradient)
-            else:
-                self.EvaluateGradientOneConstraintDistance(j, x, gradient)
+        # TODO implement this
+        # for j in range(self.NCONS):
+        #     if self.constraints[j].type == ConstraintType.ATTACHMENT:
+        #         self.EvaluateGradientOneConstraintAttachment(j, x, gradient)
+        #     else:
+        #         self.EvaluateGradientOneConstraintDistance(j, x, gradient)
 
         # external forces
         gradient -= self.external_force
@@ -102,12 +108,13 @@ class NewtonMethod:
 
     def evaluateHessian(self, x, hessian):
         # springs
+        # TODO implement this
         h_triplets = SpmatTriplets() ## ii jj vv
-        for j in range(self.NCONS):
-            if self.constraints[j].type == ConstraintType.ATTACHMENT:
-                self.EvaluateHessianOneConstraintAttachment(j, x, h_triplets)
-            else:
-                self.EvaluateHessianOneConstraintDistance(j, x, h_triplets)
+        # for j in range(self.NCONS):
+        #     if self.constraints[j].type == ConstraintType.ATTACHMENT:
+        #         self.EvaluateHessianOneConstraintAttachment(j, x, h_triplets)
+        #     else:
+        #         self.EvaluateHessianOneConstraintDistance(j, x, h_triplets)
         hessian = scipy.sparse.csr_matrix((h_triplets.vv, (h_triplets.ii, h_triplets.jj)), shape=(self.NV*3, self.NV*3))
         hessian = self.M + self.delta_t * self.delta_t * hessian
 

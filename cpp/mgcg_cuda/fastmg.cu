@@ -1844,18 +1844,18 @@ struct VCycle : Kernels {
             // cout<<"iter: "<<iter<<" residual: "<<residuals[iter]<<endl;
             niter = iter;
         }
-        timer1.stop();
-        elapsed1.push_back(timer1.elapsed());
-        cout<<elapsed1.size()<<" mgpcg time: "<<(elapsed1[0])<<" ms"<<endl;
-        cout<<elapsed2.size()<<" vcycle time: "<<sum(elapsed2)<<" ms"<<endl;
-        elapsed1.clear();
-        elapsed2.clear();
+        // timer1.stop();
+        // elapsed1.push_back(timer1.elapsed());
+        // cout<<elapsed1.size()<<" mgpcg time: "<<(elapsed1[0])<<" ms"<<endl;
+        // cout<<elapsed2.size()<<" vcycle time: "<<sum(elapsed2)<<" ms"<<endl;
+        // elapsed1.clear();
+        // elapsed2.clear();
 
-        cout<<elapsed_smoother.size()<<" smoother time: "<<avg(elapsed_smoother)<<" ms"<<" total time: "<<sum(elapsed_smoother)<<" ms"<<endl;
-        elapsed_smoother.clear();
+        // cout<<elapsed_smoother.size()<<" smoother time: "<<avg(elapsed_smoother)<<" ms"<<" total time: "<<sum(elapsed_smoother)<<" ms"<<endl;
+        // elapsed_smoother.clear();
 
-        cout<<elapsed3.size()<<" presolve time: "<<(elapsed3[0])<<" ms"<<endl;
-        elapsed3.clear();
+        // cout<<elapsed3.size()<<" presolve time: "<<(elapsed3[0])<<" ms"<<endl;
+        // elapsed3.clear();
 
         // cout<<"Ax=b residuals: "<<endl;
         // for(int i=0; i<niter;++i)

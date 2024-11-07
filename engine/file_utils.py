@@ -131,7 +131,7 @@ def export_mat(ist,get_A,b):
     A = get_A()
     postfix = f"F{ist.frame}" if ist.frame is not None else ""
     export_A_b(A, b, dir=dir, postfix=postfix, binary=args.export_matrix_binary)
-    ist.t_export += perf_counter()-tic
+    ist.r_iter.t_export += perf_counter()-tic
 
 
 def export_A_b(A, b, dir, postfix=f"", binary=True):

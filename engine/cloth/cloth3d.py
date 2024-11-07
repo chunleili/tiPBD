@@ -60,7 +60,6 @@ class Cloth():
         self.paused = False
         self.n_outer_all = [] 
         self.all_stalled = [] 
-        self.t_export = 0.0
         self.sim_type = "cloth"
         self.sim_name=f"cloth-N{args.N}"
         self.r_frame = ResidualDataOneFrame([])
@@ -599,6 +598,33 @@ def substep_all_solver():
     ist.r_iter.calc_r0()
     for ist.ite in range(args.maxiter):
         tic_iter = perf_counter()
+        compute_C_and_gradC_kernel(ist.pos, ist.gradC, ist.edge, ist.constraints, ist.rest_len) # required by dlam2dpos
+        b = AMG_b()
+        x, r_Axb = linsol.run(b)
+        AMG_dlam2dpos(x)
+        ist.r_iter.calc_r(ist.frame,ist.ite, tic_iter, r_Axb)
+        export_mat(ist, get_A0_cuda, b)
+        ist.r_frame.t_export += ist.r_iter.t_export
+        logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
+        if ist.r_iter.check():
+            break
+    tic = time.perf_counter()
+    logging.info(f"n_outer: {ist.ite+1}")
+    ist.n_outer_all.append(ist.ite+1)
+    update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
+    logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
+    
+
+
+
+def substep_all_solver_PXPBD_v1():
+    tic1 = time.perf_counter()
+    semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos, args.delta_t)
+    reset_lagrangian(ist.lagrangian)
+    logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
+    ist.r_iter.calc_r0()
+    for ist.ite in range(args.maxiter):
+        tic_iter = perf_counter()
         if args.use_PXPBD_v1:
             copy_field(ist.pos_mid, ist.pos)
         compute_C_and_gradC_kernel(ist.pos, ist.gradC, ist.edge, ist.constraints, ist.rest_len) # required by dlam2dpos
@@ -618,11 +644,9 @@ def substep_all_solver():
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
         if ist.r_iter.check():
             break
-    
     tic = time.perf_counter()
     logging.info(f"n_outer: {ist.ite+1}")
     ist.n_outer_all.append(ist.ite+1)
-
     update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
 
@@ -918,12 +942,11 @@ def init():
         init_scale()
     write_mesh(args.out_dir + f"/mesh/{0:04d}", ist.pos.to_numpy(), ist.tri)
 
-    ist.frame = 1
-
     init_fill()
 
+    ist.frame = 1
     if args.restart:
-        do_restart(args,ist)
+        do_restart(args,ist) #will change frame number
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_init:.3f}s") 
 
 
@@ -932,12 +955,12 @@ def run():
     ist.timer_loop = time.perf_counter()
     ist.initial_frame = ist.frame
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
-    ist.t_export_total = 0.0
+    ist.r_all.t_export = 0.0
 
     try:
         for f in range(ist.initial_frame, args.end_frame):
             ist.tic_frame = time.perf_counter()
-            ist.t_export = 0.0
+            ist.r_frame.t_export = 0.0
 
             if args.solver_type == "XPBD":
                 substep_xpbd()
@@ -945,15 +968,17 @@ def run():
                 substep_Newton(ist, ist.newton)
             else:
                 substep_all_solver()
+
             export_after_substep(ist,args)
+            ist.r_all.t_export += ist.r_frame.t_export
             ist.frame += 1
 
             logging.info("\n")
             step_pbar.update(1)
             logging.info("")
-            if ist.frame >= args.end_frame:
-                print("Normallly end.")
-                ending(args,ist)
+            
+        print("Normallly end.")
+        ending(args,ist)
 
     except KeyboardInterrupt:
         print("KeyboardInterrupt")

@@ -30,7 +30,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import ending, calc_norm, export_after_substep
+from engine.util import ending, calc_norm, export_after_substep, ResidualDataOneFrame, ResidualDataAllFrame
 
 parser = argparse.ArgumentParser()
 
@@ -75,6 +75,8 @@ class SoftBody:
     def __init__(self, path):
         self.frame = 0
         self.ite = 0
+        self.r_frame = ResidualDataOneFrame([])
+        self.r_all = ResidualDataAllFrame([],[])
 
         parent_directory_name = str(Path(path).parent.stem)
         self.sim_name = f"soft3d-{parent_directory_name}-{str(Path(path).stem)}"

@@ -105,7 +105,7 @@ class ResidualDataOneIter:
 
         self.t_export += self.t_calcr
 
-        s+= f" titer:{self.t_iter:.2e}s"
+        s+= f" t_iter:{self.t_iter:.2e}s"
 
         logging.info(s)
 
@@ -115,7 +115,7 @@ class ResidualDataOneIter:
         self.dual0 = self.calc_dual()
         if self.mode == "Newton":
             self.primal0, self.Newton0 = self.calc_primal()
-        self.t_export += perf_counter()-tic
+        self.t_export = perf_counter()-tic # reset t_export here
 
     
     def choose_mode(self, args):
@@ -162,8 +162,8 @@ def calc_norm(a:ti.template())->ti.f32:
 @dataclass
 class ResidualDataOneFrame:
     name = "residualOneFrame"
-    r_iters: list # list of ResidualDataOneIter
-    nouter: int=0
+    r_iters: list # list of ResidualDataOneIter NOT USED
+    n_outer: int=0
     frame: int=0
     t: float=0
     t_export: float=0
@@ -172,10 +172,11 @@ class ResidualDataOneFrame:
 @dataclass
 class ResidualDataAllFrame:
     name = "residualAll"
-    r_frames: list # list of ResidualDataOneFrame
+    r_frames: list # list of ResidualDataOneFrame NOT USED
     stalled_frame: list
     t: float=0
     t_export: float=0
+
 
 
 def ending(args, ist):
@@ -196,7 +197,7 @@ def ending(args, ist):
     np.savetxt(args.out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
 
     sim_time_with_export = time.perf_counter() - ist.timer_loop
-    sim_time = sim_time_with_export - ist.t_export_total
+    sim_time = sim_time_with_export - ist.r_all.t_export
     nframes = (args.end_frame - ist.initial_frame) if args.end_frame > ist.initial_frame else 1
     avg_sim_time = sim_time / nframes
 
@@ -206,7 +207,7 @@ def ending(args, ist):
     f"Frame {ist.initial_frame}-{args.end_frame}({args.end_frame-ist.initial_frame} frames)."+\
     f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{ist.start_date},\nEnd\t{end_date}."+\
-    f"\nTime of exporting: {ist.t_export_total:.3f}s" + \
+    f"\nTime of exporting: {ist.r_all.t_export:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
     f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + ist.initial_frame}." + \
     f"\nstalled at {ist.all_stalled}"+\
@@ -249,11 +250,10 @@ def export_after_substep(ist, args, **kwargs):
                 write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), tri, strain=ist.strain_cell, binary=True)
     if args.export_state:
         save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
-    ist.t_export += time.perf_counter()-ist.tic_export
-    ist.t_export_total += ist.t_export
+    ist.r_frame.t_export += time.perf_counter()-ist.tic_export
     t_frame = time.perf_counter()-ist.tic_frame
     if args.export_log:
-        logging.info(f"Time of exporting: {ist.t_export:.3f}s")
+        logging.info(f"Time of exporting: {ist.r_frame.t_export:.3f}s")
         logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s")
 
 

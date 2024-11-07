@@ -1609,9 +1609,11 @@ args = ["engine/cloth/cloth3d.py",
         f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-end_frame=100",
+        "-end_frame=75",
         "-delta_t=3e-3",
         "-calc_energy=1",
+        "-restart=1",
+        "-restart_file=result/meta/0074.npz",
         ]
 allargs.append(args)
 
@@ -1622,12 +1624,14 @@ args = ["engine/cloth/cloth3d.py",
         f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-end_frame=100",
+        "-end_frame=75",
         "-delta_t=3e-3",
         "-solver_type=XPBD",
         "-arch=gpu",
         "-maxiter=10000",
         "-calc_energy=1",
+        "-restart=1",
+        "-restart_file=result/meta/0074.npz",
         ]
 allargs.append(args)
 

@@ -6,7 +6,6 @@ import scipy
 import os,sys
 import tqdm
 import argparse
-import json
 import logging
 import datetime
 from time import perf_counter
@@ -44,22 +43,15 @@ parser.add_argument("-smoother_type", type=str, default="chebyshev")
 
 args = parser.parse_args()
 
-
 if args.setup_num==1: args.gravity = (0.0, 0.0, 0.0)
 else : args.gravity = (0.0, -9.8, 0.0)
 
-args.export_fullr = False
-args.calc_r_xpbd = True
-args.use_cpp_initFill = True
 args.PXPBD_ksi = 1.0
-
 
 if args.arch == "gpu":
     ti.init(arch=ti.gpu)
 else:
     ti.init(arch=ti.cpu)
-
-
 
 class Cloth():
     def __init__(self) -> None:
@@ -133,8 +125,6 @@ class Cloth():
         self.gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
         self.edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
         self.dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * self.lagrangian
-        self.potential_energy = ti.field(dtype=float, shape=())
-        self.inertial_energy = ti.field(dtype=float, shape=())
         self.predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
         # self.# primary_residual = np.zeros(dtype=float, shape=(3*NV))
         # self.# K = ti.Matrix.field(3, 3, float, (NV, NV)) 
@@ -145,6 +135,8 @@ class Cloth():
         self.strain = ti.field(ti.f32, shape=NE)
         self.max_strain = 0.0
         self.total_energy = 0.0
+        self.potential_energy = 0.0
+        self.inertial_energy = 0.0
 
     
 
@@ -290,8 +282,7 @@ def substep_xpbd():
         solve_distance_constraints_xpbd(ist.dual_residual, ist.inv_mass, ist.edge, ist.rest_len, ist.lagrangian, ist.dpos, ist.pos)
         update_pos(ist.inv_mass, ist.dpos, ist.pos,args.omega)
 
-        if args.calc_r_xpbd:
-            ist.r_iter.calc_r(ist.frame, ist.ite, tic_iter)
+        ist.r_iter.calc_r(ist.frame, ist.ite, tic_iter)
         if ist.r_iter.dual<args.tol:
             break
     ist.n_outer_all.append(ist.ite+1)
@@ -405,28 +396,10 @@ def fill_gradC_triplets_kernel(
                 ii[cnt],jj[cnt],vv[cnt] = j, 3 * pid + d, gradC[j, p][d]
                 cnt+=1
 
-
-
-@ti.kernel
-def fill_gradC_np_kernel(
-    G: ti.types.ndarray(),
-    gradC: ti.template(),
-    edge: ti.template(),
-):
-    for j in edge:
-        ind = edge[j]
-        for p in range(2): #which point in the edge
-            for d in range(3): #which dimension
-                pid = ind[p]
-                G[j, 3 * pid + d] = gradC[j, p][d]
-
-
 @ti.kernel
 def reset_lagrangian(lagrangian: ti.template()):
     for i in range(ist.NE):
         lagrangian[i] = 0.0
-
-
 
 
 # @ti.kernel
@@ -485,40 +458,13 @@ def transfer_back_to_pos_mfree(x):
 
 
 def calc_total_energy():
+    from engine.util import compute_potential_energy, compute_inertial_energy
     update_constraints_kernel(ist.pos, ist.edge, ist.rest_len, ist.constraints)
-    compute_potential_energy()
-    compute_inertial_energy()
-    ist.total_energy = ist.potential_energy[None] + ist.inertial_energy[None]
+    ist.potential_energy = compute_potential_energy(ist)
+    ist.inertial_energy = compute_inertial_energy(ist)
+    ist.total_energy = ist.potential_energy + ist.inertial_energy
     return ist.total_energy
 
-
-@ti.kernel
-def compute_potential_energy():
-    ist.potential_energy[None] = 0.0
-    inv_alpha = 1.0/ist.compliance
-    for i in range(ist.NE):
-        ist.potential_energy[None] += 0.5 * inv_alpha * ist.constraints[i]**2
-
-
-
-@ti.kernel
-def compute_inertial_energy():
-    ist.inertial_energy[None] = 0.0
-    inv_h2 = 1.0 / ist.delta_t**2
-    for i in range(ist.NV):
-        if ist.inv_mass[i] == 0.0:
-            continue
-        ist.inertial_energy[None] += 0.5 / ist.inv_mass[i] * (ist.pos[i] - ist.predict_pos[i]).norm_sqr() * inv_h2
-
-
-def report_multilevel_details(Ps, num_levels):
-    logging.info(f"    num_levels:{num_levels}")
-    num_points_level = []
-    for i in range(len(Ps)):
-        num_points_level.append(Ps[i].shape[0])
-    num_points_level.append(Ps[-1].shape[1])
-    for i in range(num_levels):
-        logging.info(f"    num points of level {i}: {num_points_level[i]}")
 
 
 def should_setup():
@@ -540,13 +486,7 @@ def calc_dual()->float:
 
 
 
-def do_export_r(r):
-    tic = time.perf_counter()
-    serialized_r = [r[i].__dict__ for i in range(len(r))]
-    r_json = json.dumps(serialized_r)
-    with open(args.out_dir+'/r/'+ f'{ist.frame}.json', 'w') as file:
-        file.write(r_json)
-    ist.t_export += time.perf_counter()-tic
+
 
 
 @ti.kernel
@@ -666,7 +606,7 @@ def substep_all_solver():
         if args.use_PXPBD_v1:
             G = fill_G()
             b, Minv_gg = AMG_PXPBD_v1_b(G)
-        x, r_Axb = linear_solver.run(b)
+        x, r_Axb = linsol.run(b)
         if args.use_PXPBD_v1:
             AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
         elif args.use_PXPBD_v2:
@@ -682,12 +622,9 @@ def substep_all_solver():
     tic = time.perf_counter()
     logging.info(f"n_outer: {ist.ite+1}")
     ist.n_outer_all.append(ist.ite+1)
-    if args.export_residual:
-        do_export_r(ist.r_frame.r_iters)
+
     update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
-
-
 
 
 
@@ -706,11 +643,6 @@ def substep_Newton(ist,newton):
     update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
     ist.old_pos.from_numpy(ist.pos.to_numpy())
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
-
-
-
-
-
 
 
 
@@ -908,12 +840,10 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
 
 
 
-def init_solver(args):
-    global linear_solver
-    linear_solver = None
+def init_linear_solver(args):
     if args.solver_type == "AMG":
         if args.use_cuda:
-            linear_solver = AmgCuda(
+            linsol = AmgCuda(
                 args=args,
                 extlib=extlib,
                 get_A0=get_A0_cuda,
@@ -923,25 +853,39 @@ def init_solver(args):
                 copy_A=True,
             )
         else:
-            linear_solver = AmgPython(args, get_A0_python, should_setup, copy_A=True)
+            linsol = AmgPython(args, get_A0_python, should_setup, copy_A=True)
     elif args.solver_type == "AMGX":
-        linear_solver = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
-        linear_solver.init()
-        ist.amgxsolver = linear_solver
+        linsol = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
+        linsol.init()
+        ist.amgxsolver = linsol
     elif args.solver_type == "DIRECT":
-        linear_solver = DirectSolver(get_A0_python)
+        linsol = DirectSolver(get_A0_python)
     elif args.solver_type == "GS":
-        linear_solver = GaussSeidelSolver(get_A0_python, args)
+        linsol = GaussSeidelSolver(get_A0_python, args)
     elif args.solver_type == "XPBD":
-        linear_solver = None
-    return linear_solver
+        linsol = None
+    else:
+        linsol = None
+    return linsol
 
 
 def init_r_iter(args, ist):
-    # init residual data
     ist.r_iter = ResidualDataOneIter(args, 
                                     calc_dual=calc_dual,
                                     calc_primal=calc_primal, calc_total_energy=calc_total_energy, calc_strain=calc_strain)
+
+
+def init_fill():
+    tic = time.perf_counter()
+    if args.solver_type != "XPBD":
+        from engine.cloth.fill_A import FillACloth
+        fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha,  args.use_cache, args.use_cuda, extlib)
+        fill_A.init()
+        ist.spmat = fill_A.spmat
+        ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
+        ist.num_adjacent_edge = fill_A.num_adjacent_edge
+        ist.num_nonz = fill_A.num_nonz
+    logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
 
 def init():
@@ -951,9 +895,8 @@ def init():
     
     init_logger(args)
 
-    if args.use_cuda:
-        global extlib
-        extlib = init_extlib(args,sim="cloth")
+    global extlib
+    extlib = init_extlib(args,sim="cloth")
 
     global ist
     ist = Cloth()
@@ -962,12 +905,12 @@ def init():
     ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     logging.info(f"start date:{ist.start_date}")
 
-    init_solver(args)
+    global linsol
+    linsol = init_linear_solver(args)
 
     if args.solver_type == "NEWTON":
         from engine.cloth.newton_method import NewtonMethod
-        newton = NewtonMethod(ist)
-        ist.newton = newton
+        ist.newton = NewtonMethod(ist)
 
     init_r_iter(args, ist)
 
@@ -976,21 +919,8 @@ def init():
     write_mesh(args.out_dir + f"/mesh/{0:04d}", ist.pos.to_numpy(), ist.tri)
 
     ist.frame = 1
-    logging.info("Initializing topology and physics done")
 
-    tic = time.perf_counter()
-    if args.solver_type != "XPBD":
-        from engine.cloth.fill_A import FillACloth
-        if not args.use_cuda:
-            extlib = None
-        fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha,  args.use_cache, args.use_cuda, extlib)
-        fill_A.init()
-        ist.spmat = fill_A.spmat
-        ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
-        ist.num_adjacent_edge = fill_A.num_adjacent_edge
-        ist.num_nonz = fill_A.num_nonz
-
-    logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
+    init_fill()
 
     if args.restart:
         do_restart(args,ist)
@@ -1024,7 +954,6 @@ def run():
             if ist.frame >= args.end_frame:
                 print("Normallly end.")
                 ending(args,ist)
-
 
     except KeyboardInterrupt:
         print("KeyboardInterrupt")

@@ -14,7 +14,7 @@ from pathlib import Path
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(prj_path)
-from engine.file_utils import process_dirs,  do_restart,  export_mat
+from engine.file_utils import process_dirs,  do_restart
 from engine.init_extlib import init_extlib
 from engine.mesh_io import write_mesh
 from engine.cloth.bending import init_bending, solve_bending_constraints_xpbd
@@ -23,7 +23,7 @@ from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.solver.iterative_solver import GaussSeidelSolver
-from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, init_logger
+from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, init_logger, do_post_iter
 
 
 
@@ -62,6 +62,11 @@ class Cloth():
         self.n_outer_all = [] 
         self.all_stalled = [] 
         self.sim_type = "cloth"
+        self.r_iter = ResidualDataOneIter(args,
+                                            calc_dual   =calc_dual,
+                                            calc_primal =calc_primal,
+                                            calc_total_energy=calc_total_energy,
+                                            calc_strain =calc_strain)
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
         self.args = args
@@ -73,7 +78,7 @@ class Cloth():
         self.alpha = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
         self.alpha_bending = 1.0 * (1.0 / args.delta_t / args.delta_t) #TODO: need to be tuned
 
-        self.build_cloth_mesh()
+        self.build_mesh()
 
         if args.use_bending:
             self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
@@ -88,7 +93,7 @@ class Cloth():
         self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
         
 
-    def build_cloth_mesh(self, ):
+    def build_mesh(self, ):
         # cloth_type = "quad" or
         # cloth_type = "tri"
         # args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
@@ -162,12 +167,6 @@ class Cloth():
     def update_pos(self):
         update_pos_kernel(ist.inv_mass, ist.dpos, ist.pos,args.omega)
 
-    def do_post_iter(self):
-        self.r_iter.calc_r(self.frame,self.ite, self.r_iter.tic_iter, self.r_iter.r_Axb)
-        export_mat(self, get_A0_cuda, self.b)
-        self.r_frame.t_export += self.r_iter.t_export
-        logging.info(f"iter time(with export): {(perf_counter()-self.r_iter.tic_iter)*1000:.0f}ms")
-
 
     def substep_all_solver(self):
         self.semi_euler()
@@ -179,7 +178,7 @@ class Cloth():
             self.b = self.compute_b()
             x, self.r_iter.r_Axb = linsol.run(self.b)
             self.dlam2dpos(x)
-            self.do_post_iter()
+            do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():
                 break
         self.n_outer_all.append(self.ite+1)
@@ -494,16 +493,18 @@ def transfer_back_to_pos_mfree(x):
     update_pos_kernel(ist.inv_mass, ist.dpos, ist.pos, args.omega)
 
 
+
+def update_constraints():
+    update_constraints_kernel(ist.pos, ist.edge, ist.rest_len, ist.constraints)
+
+
 def calc_total_energy():
     from engine.util import compute_potential_energy, compute_inertial_energy
-    update_constraints_kernel(ist.pos, ist.edge, ist.rest_len, ist.constraints)
+    update_constraints()
     ist.potential_energy = compute_potential_energy(ist)
     ist.inertial_energy = compute_inertial_energy(ist)
     ist.total_energy = ist.potential_energy + ist.inertial_energy
     return ist.total_energy
-
-
-
 
 
 def calc_dual()->float:
@@ -730,11 +731,6 @@ def init_linear_solver(args):
     return linsol
 
 
-def init_r_iter(args, ist):
-    ist.r_iter = ResidualDataOneIter(args, 
-                                    calc_dual=calc_dual,
-                                    calc_primal=calc_primal, calc_total_energy=calc_total_energy, calc_strain=calc_strain)
-
 
 def init_fill():
     tic = time.perf_counter()
@@ -773,7 +769,6 @@ def init():
         from engine.cloth.newton_method import NewtonMethod
         ist.newton = NewtonMethod(ist)
 
-    init_r_iter(args, ist)
 
     if args.setup_num == 1:
         init_scale()

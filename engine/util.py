@@ -321,3 +321,41 @@ def do_export_r(r, out_dir, frame):
     with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
         file.write(r_json)
     r.t_export += perf_counter()-tic
+
+
+
+def main_loop(ist,args):
+    import time
+    import tqdm
+
+    ist.timer_loop = time.perf_counter()
+    ist.initial_frame = ist.frame
+    step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
+    ist.r_all.t_export = 0.0
+
+    try:
+        for f in range(ist.initial_frame, args.end_frame):
+            ist.tic_frame = time.perf_counter()
+            ist.r_frame.t_export = 0.0
+
+            if args.solver_type == "XPBD":
+                ist.substep_xpbd()
+            elif args.solver_type == "NEWTON":
+                ist.substep_newton(ist.newton)
+            else:
+                ist.substep_all_solver()
+
+            export_after_substep(ist,args)
+            ist.r_all.t_export += ist.r_frame.t_export
+            ist.frame += 1
+
+            logging.info("\n")
+            step_pbar.update(1)
+            logging.info("")
+            
+        print("Normallly end.")
+        ending(args,ist)
+
+    except KeyboardInterrupt:
+        print("KeyboardInterrupt")
+        ending(args,ist)

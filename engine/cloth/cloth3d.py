@@ -589,6 +589,12 @@ def AMG_PXPBD_v1_b(G):
     return b, Minv_gg
     
 
+def do_post_iter():
+    ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
+    export_mat(ist, get_A0_cuda, ist.b)
+    ist.r_frame.t_export += ist.r_iter.t_export
+    logging.info(f"iter time(with export): {(perf_counter()-ist.r_iter.tic_iter)*1000:.0f}ms")
+
 
 def substep_all_solver():
     tic1 = time.perf_counter()
@@ -597,19 +603,15 @@ def substep_all_solver():
     logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
     ist.r_iter.calc_r0()
     for ist.ite in range(args.maxiter):
-        tic_iter = perf_counter()
+        ist.r_iter.tic_iter = perf_counter()
         compute_C_and_gradC_kernel(ist.pos, ist.gradC, ist.edge, ist.constraints, ist.rest_len) # required by dlam2dpos
-        b = AMG_b()
-        x, r_Axb = linsol.run(b)
+        ist.b = AMG_b()
+        x, ist.r_iter.r_Axb = linsol.run(ist.b)
         AMG_dlam2dpos(x)
-        ist.r_iter.calc_r(ist.frame,ist.ite, tic_iter, r_Axb)
-        export_mat(ist, get_A0_cuda, b)
-        ist.r_frame.t_export += ist.r_iter.t_export
-        logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
+        do_post_iter()
         if ist.r_iter.check():
             break
     tic = time.perf_counter()
-    logging.info(f"n_outer: {ist.ite+1}")
     ist.n_outer_all.append(ist.ite+1)
     update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")

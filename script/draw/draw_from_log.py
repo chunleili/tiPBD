@@ -6,21 +6,6 @@ from pathlib import Path
 import os
 
 prj_dir = Path(__file__).parent.parent.parent
-
-# parser = argparse.ArgumentParser()
-
-# parser.add_argument("-case_name", type=str, default="case147-AMG-strain")
-# parser.add_argument("-frame", type=int, default=0)
-# parser.add_argument("-type", type=str, default="dual") 
-# "Newton" or "dual" or "primal"
-
-# case_name = parser.parse_args().case_name
-# log_file = prj_dir / f"result/{case_name}/{case_name}.log"
-
-# frame = parser.parse_args().frame
-# r_type = parser.parse_args().type
-
-prj_dir = Path(__file__).parent.parent.parent
 os.chdir(prj_dir)
 
 frame = 99
@@ -49,7 +34,7 @@ def read_from_log(log_file, frame, r_type, with0=False):
                 r0.append( float(l.split(f"{r_type}0:")[1].split()[0]))
     return r, r0
 
-log_file = "result/case147-AMG-strain/latest.log"
+log_file = "result/latest/latest.log"
 r, r0 = read_from_log(log_file, frame, r_type, with0)
 
 log_file = "result/case148-1106-XPBD-strain/latest.log"

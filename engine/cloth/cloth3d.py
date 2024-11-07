@@ -504,16 +504,6 @@ def calc_total_energy():
 
 
 
-def should_setup():
-    if ist.ite != 0:
-        return False
-    if ist.frame==1:
-        return True
-    if ist.frame%args.setup_interval==0:
-        return True
-    if args.restart and ist.frame==ist.initial_frame:
-        return True
-    return False
 
 
 def calc_dual()->float:
@@ -699,6 +689,18 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #
 # ---------------------------------------------------------------------------- #
+def should_setup():
+    if ist.ite != 0:
+        return False
+    if ist.frame==1:
+        return True
+    if ist.frame%args.setup_interval==0:
+        return True
+    if args.restart and ist.frame==ist.initial_frame:
+        return True
+    return False
+
+
 def init_linear_solver(args):
     if args.solver_type == "AMG":
         if args.use_cuda:

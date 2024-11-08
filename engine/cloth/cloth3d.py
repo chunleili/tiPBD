@@ -39,9 +39,12 @@ parser.add_argument("-omega", type=float, default=0.25)
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
 parser.add_argument("-use_bending", type=int, default=False)
 parser.add_argument("-cloth_mesh_file", type=str, default="./data/model/tri_cloth/tri_cloth.obj")
-parser.add_argument("-cloth_mesh_type", type=str, default="quad")
+parser.add_argument("-cloth_mesh_type", type=str, default="quad", choices=["quad", "tri", "txt"])
 # ./data/model/tri_cloth/tri_cloth.obj
 # ./data/model/tri_cloth/N64.ply
+parser.add_argument("-pos_file", type=str, default="data/model/fast_mass_spring/pos.txt")
+parser.add_argument("-edge_file", type=str, default="data/model/fast_mass_spring/edge.txt")
+parser.add_argument("-tri_file", type=str, default="data/model/fast_mass_spring/tri.txt")
 
 args = parser.parse_args()
 
@@ -101,9 +104,8 @@ class Cloth():
         # cloth_type = "quad" or
         # cloth_type = "tri"
         # args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
-        from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth
+        from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth, TriMeshClothTxt
         if args.cloth_mesh_type=="tri":
-
             mesh = TriMeshCloth(args.cloth_mesh_file)
             mesh.build()
             self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
@@ -120,6 +122,14 @@ class Cloth():
             mesh.build()
             self.tri = self.tri_ti.to_numpy().reshape(-1,3)
             self.sim_name=f"cloth-N{args.N}"
+        if args.cloth_mesh_type=="txt":
+            mesh = TriMeshClothTxt(args.pos_file, args.edge_file, args.tri_file)
+            mesh.build()
+            self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
+            self.allocate_fields(self.NV, self.NE, self.NT)
+            mesh.fetch_fields(self.pos, self.inv_mass, self.edge, self.rest_len)
+            self.tri = mesh.tri
+            self.sim_name=f"cloth-txt"
 
     
     def allocate_fields(self, NV, NE, NT):

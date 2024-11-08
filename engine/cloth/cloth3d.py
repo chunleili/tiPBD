@@ -269,7 +269,7 @@ def solve_distance_constraints_xpbd(
     dpos:ti.template(),
     pos:ti.template(),
 ):
-    for i in range(pos.shape[0]):
+    for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
         invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
         dis = pos[idx0] - pos[idx1]
@@ -337,7 +337,7 @@ def calc_dual_residual(
     pos:ti.template(),
     alpha_tilde:ti.f32,
 ):
-    for i in range(pos.shape[0]):
+    for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraint = dis.norm() - rest_len[i]
@@ -379,7 +379,7 @@ def compute_C_and_gradC_kernel(
     constraints:ti.template(),
     rest_len:ti.template(),
 ):
-    for i in range(pos.shape[0]):
+    for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraints[i] = dis.norm() - rest_len[i]
@@ -391,7 +391,7 @@ def compute_C_and_gradC_kernel(
 
 @ti.kernel
 def compute_K_kernel(K_diag:ti.types.ndarray(),):
-    for i in range(ist.pos.shape[0]):
+    for i in range(ist.edge.shape[0]):
         idx0, idx1 = ist.edge[i]
         dis = ist.pos[idx0] - ist.pos[idx1]
         L= dis.norm()
@@ -426,7 +426,7 @@ def update_constraints_kernel(
     rest_len:ti.template(),
     constraints:ti.template(),
 ):
-    for i in range(pos.shape[0]):
+    for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraints[i] = dis.norm() - rest_len[i]
@@ -493,7 +493,7 @@ def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg=None):
 
 @ti.kernel
 def transfer_back_to_pos_mfree_kernel():
-    for i in range(ist.pos.shape[0]):
+    for i in range(ist.edge.shape[0]):
         idx0, idx1 = ist.edge[i]
         invM0, invM1 = ist.inv_mass[idx0], ist.inv_mass[idx1]
 
@@ -611,7 +611,7 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
     n = 0
     ist.NE = ist.adjacent_edge.shape[0]
     ti.loop_config(serialize=True)
-    for i in range(ist.pos.shape[0]): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
+    for i in range(ist.edge.shape[0]): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
         for k in range(num_adjacent_edge[i]):
             ia = adjacent_edge[i,k]
             a = adjacent_edge_abc[i, k * 3]

@@ -32,6 +32,9 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
+              "-solver_type=NEWTON",
+              "-cloth_mesh_type=txt",
+              "-delta_t=0.0333"
             ]
           }
     ]

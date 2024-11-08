@@ -750,15 +750,16 @@ def init_linear_solver(args):
 
 
 def init_fill():
+    if args.solver_type == "XPBD" or args.solver_type == "NEWTON":
+        return
     tic = time.perf_counter()
-    if args.solver_type != "XPBD":
-        from engine.cloth.fill_A import FillACloth
-        fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha_tilde,  args.use_cache, args.use_cuda, extlib)
-        fill_A.init()
-        ist.spmat = fill_A.spmat
-        ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
-        ist.num_adjacent_edge = fill_A.num_adjacent_edge
-        ist.num_nonz = fill_A.num_nonz
+    from engine.cloth.fill_A import FillACloth
+    fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha_tilde,  args.use_cache, args.use_cuda, extlib)
+    fill_A.init()
+    ist.spmat = fill_A.spmat
+    ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
+    ist.num_adjacent_edge = fill_A.num_adjacent_edge
+    ist.num_nonz = fill_A.num_nonz
     logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
 

@@ -63,9 +63,9 @@ class Cloth():
         self.all_stalled = [] 
         self.sim_type = "cloth"
         self.r_iter = ResidualDataOneIter(args,
-                                            calc_dual   =calc_dual,
+                                            calc_dual   =self.calc_dual,
                                             calc_primal =calc_primal,
-                                            calc_total_energy=calc_total_energy,
+                                            calc_total_energy=self.calc_total_energy,
                                             calc_strain =calc_strain)
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
@@ -74,11 +74,13 @@ class Cloth():
         self.frame = 0
         self.ite=0
         
+        self.delta_t = args.delta_t
         self.compliance = args.compliance  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
-        self.alpha = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
+        self.alpha_tilde = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
         self.alpha_bending = 1.0 * (1.0 / args.delta_t / args.delta_t) #TODO: need to be tuned
 
         self.build_mesh()
+        self.NCONS = self.NE
 
         if args.use_bending:
             self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
@@ -89,10 +91,10 @@ class Cloth():
 
         inv_mass_np = np.repeat(self.inv_mass.to_numpy(), 3, axis=0)
         self.M_inv = scipy.sparse.diags(inv_mass_np)
-        self.alpha_tilde_np = np.array([self.alpha] * self.NE)
-        self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
+        self.alpha_tilde_np = np.array([self.alpha_tilde] * self.NCONS)
+        self.ALPHA_TILDE = scipy.sparse.diags(self.alpha_tilde_np)
+        self.ALPHA_inv = scipy.sparse.diags([self.compliance**(-1)] * self.NCONS)
         self.MASS = scipy.sparse.diags(1.0/(self.M_inv.diagonal()), format="csr")
-        self.NCONS = self.NE
         
 
     def build_mesh(self, ):
@@ -101,6 +103,7 @@ class Cloth():
         # args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
         from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth
         if args.cloth_mesh_type=="tri":
+
             mesh = TriMeshCloth(args.cloth_mesh_file)
             mesh.build()
             self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
@@ -135,7 +138,7 @@ class Cloth():
         self.dLambda     = ti.field(dtype=float, shape=(NE))
         self.gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
         self.edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
-        self.dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * self.lagrangian
+        self.dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha_tilde * self.lagrangian
         self.predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
         # self.# primary_residual = np.zeros(dtype=float, shape=(3*NV))
         # self.# K = ti.Matrix.field(3, 3, float, (NV, NV)) 
@@ -167,8 +170,35 @@ class Cloth():
         return self.b
     
     def update_pos(self):
-        update_pos_kernel(ist.inv_mass, ist.dpos, ist.pos,args.omega)
+        update_pos_kernel(self.inv_mass, self.dpos, self.pos,args.omega)
+        
+    def update_constraints(self):
+        update_constraints_kernel(self.pos, self.edge, self.rest_len, self.constraints)
 
+
+    def calc_total_energy(self):
+        from engine.util import compute_potential_energy, compute_inertial_energy
+        self.update_constraints()
+        self.potential_energy = compute_potential_energy(self)
+        self.inertial_energy = compute_inertial_energy(self)
+        self.total_energy = self.potential_energy + self.inertial_energy
+        return self.total_energy
+
+
+    def calc_dual(self)->float:
+        calc_dual_residual(self.dual_residual, self.edge, self.rest_len, self.lagrangian, self.pos, self.alpha_tilde)
+        dual = calc_norm(self.dual_residual)
+        return dual
+
+    def fill_G(self):
+        tic = time.perf_counter()
+        compute_C_and_gradC_kernel(self.pos, self.gradC, self.edge, self.constraints, self.rest_len)
+        G_ii, G_jj, G_vv = np.zeros(self.NCONS*6, dtype=np.int32), np.zeros(self.NCONS*6, dtype=np.int32), np.zeros(self.NCONS*6, dtype=np.float32)
+        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, self.gradC, self.edge)
+        G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(self.NCONS, 3 * self.NV))
+        print(f"    fill_G: {time.perf_counter() - tic:.4f}s")
+        self.G = G
+        return G
 
     def substep_all_solver(self):
         self.semi_euler()
@@ -187,16 +217,7 @@ class Cloth():
         self.update_vel()
 
 
-    def substep_newton(self,newton):
-        self.semi_euler()
-        self.r_iter.calc_r0()
-        for self.ite in range(args.maxiter):
-            converge = newton.step_one_iter(self.pos)
-            if converge:
-                break
-        self.n_outer_all.append(self.ite+1)
-        self.update_vel()
-        self.old_pos.from_numpy(self.pos.to_numpy())
+
 
 
     def substep_xpbd(self):
@@ -229,7 +250,7 @@ def semi_euler_kernel(
     delta_t:ti.f32,
 ):
     g = ti.Vector(args.gravity)
-    for i in range(ist.NV):
+    for i in range(pos.shape[0]):
         if inv_mass[i] != 0.0:
             vel[i] += delta_t * g
             old_pos[i] = pos[i]
@@ -248,18 +269,18 @@ def solve_distance_constraints_xpbd(
     dpos:ti.template(),
     pos:ti.template(),
 ):
-    for i in range(ist.NE):
+    for i in range(pos.shape[0]):
         idx0, idx1 = edge[i]
         invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
         dis = pos[idx0] - pos[idx1]
         constraint = dis.norm() - rest_len[i]
         gradient = dis.normalized()
         l = -constraint / (invM0 + invM1)
-        delta_lagrangian = -(constraint + lagrangian[i] * ist.alpha) / (invM0 + invM1 + ist.alpha)
+        delta_lagrangian = -(constraint + lagrangian[i] * ist.alpha_tilde) / (invM0 + invM1 + ist.alpha_tilde)
         lagrangian[i] += delta_lagrangian
 
         # residual
-        dual_residual[i] = -(constraint + ist.alpha * lagrangian[i])
+        dual_residual[i] = -(constraint + ist.alpha_tilde * lagrangian[i])
         
         if invM0 != 0.0:
             dpos[idx0] += invM0 * delta_lagrangian * gradient
@@ -275,7 +296,7 @@ def update_pos_kernel(
     pos:ti.template(),
     omega:ti.f32,
 ):
-    for i in range(ist.NV):
+    for i in range(inv_mass.shape[0]):
         if inv_mass[i] != 0.0:
             pos[i] += omega * dpos[i]
 
@@ -287,7 +308,7 @@ def update_pos_blend(
     pos:ti.template(),
     dpos_withg:ti.template(),
 ):
-    for i in range(ist.NV):
+    for i in range(pos.shape[0]):
         if inv_mass[i] != 0.0:
             pos[i] += args.omega *((1-args.PXPBD_ksi) * dpos[i] + args.PXPBD_ksi * dpos_withg[i])
 
@@ -299,7 +320,7 @@ def update_vel_kernel(
     vel:ti.template(),
     pos:ti.template(),
 ):
-    for i in range(ist.NV):
+    for i in range(pos.shape[0]):
         if inv_mass[i] != 0.0:
             vel[i] = (pos[i] - old_pos[i]) / args.delta_t
 
@@ -314,14 +335,15 @@ def calc_dual_residual(
     rest_len:ti.template(),
     lagrangian:ti.template(),
     pos:ti.template(),
+    alpha_tilde:ti.f32,
 ):
-    for i in range(ist.NE):
+    for i in range(pos.shape[0]):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraint = dis.norm() - rest_len[i]
 
         # residual(lagrangian=0 for first iteration)
-        dual_residual[i] = -(constraint + ist.alpha * lagrangian[i])
+        dual_residual[i] = -(constraint + alpha_tilde * lagrangian[i])
 
 
 def calc_primary_residual(G,M_inv):
@@ -357,7 +379,7 @@ def compute_C_and_gradC_kernel(
     constraints:ti.template(),
     rest_len:ti.template(),
 ):
-    for i in range(ist.NE):
+    for i in range(pos.shape[0]):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraints[i] = dis.norm() - rest_len[i]
@@ -369,7 +391,7 @@ def compute_C_and_gradC_kernel(
 
 @ti.kernel
 def compute_K_kernel(K_diag:ti.types.ndarray(),):
-    for i in range(ist.NE):
+    for i in range(ist.pos.shape[0]):
         idx0, idx1 = ist.edge[i]
         dis = ist.pos[idx0] - ist.pos[idx1]
         L= dis.norm()
@@ -404,7 +426,7 @@ def update_constraints_kernel(
     rest_len:ti.template(),
     constraints:ti.template(),
 ):
-    for i in range(ist.NE):
+    for i in range(pos.shape[0]):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraints[i] = dis.norm() - rest_len[i]
@@ -471,7 +493,7 @@ def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg=None):
 
 @ti.kernel
 def transfer_back_to_pos_mfree_kernel():
-    for i in range(ist.NE):
+    for i in range(ist.pos.shape[0]):
         idx0, idx1 = ist.edge[i]
         invM0, invM1 = ist.inv_mass[idx0], ist.inv_mass[idx1]
 
@@ -496,23 +518,6 @@ def transfer_back_to_pos_mfree(x):
 
 
 
-def update_constraints():
-    update_constraints_kernel(ist.pos, ist.edge, ist.rest_len, ist.constraints)
-
-
-def calc_total_energy():
-    from engine.util import compute_potential_energy, compute_inertial_energy
-    update_constraints()
-    ist.potential_energy = compute_potential_energy(ist)
-    ist.inertial_energy = compute_inertial_energy(ist)
-    ist.total_energy = ist.potential_energy + ist.inertial_energy
-    return ist.total_energy
-
-
-def calc_dual()->float:
-    calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
-    dual = calc_norm(ist.dual_residual)
-    return dual
 
 
 
@@ -537,7 +542,7 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
                     jj:ti.types.ndarray(dtype=ti.i32),
                     adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
                     num_nonz:ti.i32,
-                    alpha:ti.f32):
+                    alpha_tilde:ti.f32):
     for cnt in range(num_nonz):
         i = ii[cnt] # row index
         j = jj[cnt] # col index
@@ -545,7 +550,7 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
         # Because the diag is the final element of each row, 
         # it is also the k-th adjacent edge of i-th edge.
         if i == j: # diag
-            data[cnt] = ist.inv_mass[ist.edge[i][0]] + ist.inv_mass[ist.edge[i][1]] + alpha
+            data[cnt] = ist.inv_mass[ist.edge[i][0]] + ist.inv_mass[ist.edge[i][1]] + alpha_tilde
             continue
         a = adjacent_edge_abc[i, k * 3]
         b = adjacent_edge_abc[i, k * 3 + 1]
@@ -558,7 +563,7 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
 
 
 # legacy
-def fill_A_by_spmm(M_inv, ALPHA):
+def fill_A_by_spmm(M_inv, ALPHA_TILDE):
     tic = time.perf_counter()
     G_ii, G_jj, G_vv = np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.float32)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, ist.gradC, ist.edge)
@@ -582,7 +587,7 @@ def fill_A_by_spmm(M_inv, ALPHA):
         M_inv.data[0,where_zeros] = 0.0
         ...
 
-    A = G @ M_inv @ G.transpose() + ALPHA
+    A = G @ M_inv @ G.transpose() + ALPHA_TILDE
     A = scipy.sparse.csr_matrix(A)
     print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
     return A, G
@@ -596,17 +601,17 @@ def fastFill_fetch():
 
 
 # @ti.kernel
-# def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
+# def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha_tilde:ti.f32, inv_mass:ti.template(), edge:ti.template()):
 #     for i in range(edge.shape[0]):
-#         diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+#         diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha_tilde
 
 
 @ti.kernel
-def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha:ti.f32):
+def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha_tilde:ti.f32):
     n = 0
     ist.NE = ist.adjacent_edge.shape[0]
     ti.loop_config(serialize=True)
-    for i in range(ist.NE): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
+    for i in range(ist.pos.shape[0]): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
         for k in range(num_adjacent_edge[i]):
             ia = adjacent_edge[i,k]
             a = adjacent_edge_abc[i, k * 3]
@@ -624,13 +629,13 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
         # diag
         ii[n] = i
         jj[n] = i
-        vv[n] = inv_mass[ist.edge[i][0]] + inv_mass[ist.edge[i][1]] + alpha
+        vv[n] = inv_mass[ist.edge[i][0]] + inv_mass[ist.edge[i][1]] + alpha_tilde
         n += 1 
 
 
 
 def fill_A_csr_ti(ist):
-    fill_A_CSR_kernel(ist.spmat.data, ist.spmat.indptr, ist.spmat.ii, ist.spmat.jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha)
+    fill_A_CSR_kernel(ist.spmat.data, ist.spmat.indptr, ist.spmat.ii, ist.spmat.jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha_tilde)
     A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NE, ist.NE))
     return A
 
@@ -665,7 +670,7 @@ def fill_A_in_cuda():
     """Assemble A in cuda end"""
     tic2 = perf_counter()
     if args.use_withK:
-        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
+        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA_TILDE)
         extlib.fastmg_set_A0(A.data.astype(np.float32), A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
     else:
         extlib.fastFillCloth_run(ist.pos.to_numpy())
@@ -675,7 +680,7 @@ def fill_A_in_cuda():
 def get_A0_python()->scipy.sparse.csr_matrix:
     """get A0 from python end for build_P"""
     if args.use_withK:
-        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
+        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA_TILDE)
     else:
         A = fill_A_csr_ti(ist)
     return A
@@ -683,7 +688,7 @@ def get_A0_python()->scipy.sparse.csr_matrix:
 def get_A0_cuda()->scipy.sparse.csr_matrix:
     """get A0 from cuda end for build_P"""
     if args.use_withK:
-        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
+        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA_TILDE)
     else:
         fill_A_in_cuda()
         A = fetch_A_from_cuda(0)
@@ -738,7 +743,7 @@ def init_fill():
     tic = time.perf_counter()
     if args.solver_type != "XPBD":
         from engine.cloth.fill_A import FillACloth
-        fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha,  args.use_cache, args.use_cuda, extlib)
+        fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha_tilde,  args.use_cache, args.use_cuda, extlib)
         fill_A.init()
         ist.spmat = fill_A.spmat
         ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
@@ -769,7 +774,7 @@ def init():
 
     if args.solver_type == "NEWTON":
         from engine.cloth.newton_method import NewtonMethod
-        ist.newton = NewtonMethod(ist)
+        ist = NewtonMethod()
 
 
     if args.setup_num == 1:

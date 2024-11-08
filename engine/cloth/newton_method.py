@@ -6,7 +6,7 @@ import sys, os
 sys.path.append(os.getcwd())
 
 from engine.solver.direct_solver import DirectSolver
-
+from engine.cloth.cloth3d import Cloth
 
 class SpmatTriplets:
     def __init__(self, n):
@@ -27,19 +27,20 @@ class Constraint:
         self.edge = edge
         self.rest_len = rest_len
 
-class NewtonMethod:
-    def __init__(self, ist):
-        self.NCONS = ist.NCONS
-        self.NV = ist.NV
-        self.delta_t = ist.delta_t
-        self.rest_len = ist.rest_len.to_numpy()
-        self.edge = ist.edge.to_numpy()
+class NewtonMethod(Cloth):
+    def __init__(self):
+        # self.NCONS = ist.NCONS
+        # self.NV = ist.NV
+        # self.delta_t = ist.delta_t
+        # self.rest_len = ist.rest_len.to_numpy()
+        # self.edge = ist.edge.to_numpy()
+        super().__init__()
         self.gradient = np.zeros(self.NV*3, dtype=np.float32)
         self.descent_dir = np.zeros(self.NV*3, dtype=np.float32)
         self.hessian = scipy.sparse.csr_matrix((self.NV*3, self.NV*3), dtype=np.float32)
         self.EPSILON = 1e-6
-        self.M = ist.MASS
-        self.set_external_force(ist.args.gravity)
+        self.M = self.MASS
+        self.set_external_force(self.args.gravity)
 
         def get_A():
             return self.hessian
@@ -48,6 +49,17 @@ class NewtonMethod:
         self.use_line_search = True
         self.ls_beta = 0.1
         self.ls_alpha = 0.25
+
+    def substep_newton(self):
+        self.semi_euler()
+        self.r_iter.calc_r0()
+        for self.ite in range(self.args.maxiter):
+            converge = self.step_one_iter(self.pos)
+            if converge:
+                break
+        self.n_outer_all.append(self.ite+1)
+        self.update_vel()
+        self.old_pos.from_numpy(self.pos.to_numpy())
 
     # https://github.com/chunleili/fast_mass_spring/blob/a203b39ae8f5ec295c242789fe8488dfb7c42951/fast_mass_spring/source/simulation.cpp#L510
     # integrateNewtonDescentOneIteration
@@ -73,19 +85,12 @@ class NewtonMethod:
 
     def evaluateGradient(self, x, gradient):
         gradient.fill(0)
+        self.fill_G()
+        gradient = self.G.T @ self.ALPHA_inv @ self.C
 
-        # springs
-        # TODO implement this
-        # for j in range(self.NCONS):
-        #     if self.constraints[j].type == ConstraintType.ATTACHMENT:
-        #         self.EvaluateGradientOneConstraintAttachment(j, x, gradient)
-        #     else:
-        #         self.EvaluateGradientOneConstraintDistance(j, x, gradient)
-
-        # external forces
         gradient -= self.external_force
         h_square = self.delta_t * self.delta_t
-        gradient = self.M @ (x - self.predicted_pos) + h_square * gradient
+        gradient = self.M @ (x - self.predict_pos) + h_square * gradient
 
 
     def EvaluateGradientOneConstraintAttachment(self, j, x, gradient):
@@ -109,13 +114,11 @@ class NewtonMethod:
     def evaluateHessian(self, x, hessian):
         # springs
         # TODO implement this
-        h_triplets = SpmatTriplets() ## ii jj vv
-        # for j in range(self.NCONS):
-        #     if self.constraints[j].type == ConstraintType.ATTACHMENT:
-        #         self.EvaluateHessianOneConstraintAttachment(j, x, h_triplets)
-        #     else:
-        #         self.EvaluateHessianOneConstraintDistance(j, x, h_triplets)
-        hessian = scipy.sparse.csr_matrix((h_triplets.vv, (h_triplets.ii, h_triplets.jj)), shape=(self.NV*3, self.NV*3))
+        # h_triplets = SpmatTriplets() ## ii jj vv
+        # hessian = scipy.sparse.csr_matrix((h_triplets.vv, (h_triplets.ii, h_triplets.jj)), shape=(self.NV*3, self.NV*3))
+        # TODO: implement this
+        fill_energyHessian()
+
         hessian = self.M + self.delta_t * self.delta_t * hessian
 
 

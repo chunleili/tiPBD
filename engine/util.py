@@ -399,7 +399,7 @@ def main_loop(ist,args):
             if args.solver_type == "XPBD":
                 ist.substep_xpbd()
             elif args.solver_type == "NEWTON":
-                ist.substep_newton(ist.newton)
+                ist.substep_newton()
             else:
                 ist.substep_all_solver()
 

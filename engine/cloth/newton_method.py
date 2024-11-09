@@ -8,44 +8,25 @@ sys.path.append(os.getcwd())
 
 from engine.solver.direct_solver import DirectSolver
 from engine.cloth.cloth3d import Cloth
+from engine.cloth.constraints import SetupConstraints
 
-class SpmatTriplets:
-    def __init__(self, n):
-        self.n = n
-        # self.ii = np.zeros(n, dtype=np.int32)
-        # self.jj = np.zeros(n, dtype=np.int32)
-        # self.vv = np.zeros(n, dtype=np.float32)
-        # self.k = 0 # current index
-        self.ii = []
-        self.jj = []
-        self.vv = []
-
-
-from enum import Enum
-class ConstraintType(Enum):
-    ATTACHMENT = 0
-    DISTANCE = 1
-
-class Constraint:
-    def __init__(self, type, edge, rest_len):
-        self.type = type
-        self.edge = edge
-        self.rest_len = rest_len
 
 @ti.data_oriented
 class NewtonMethod(Cloth):
     def __init__(self):
-        # self.NCONS = ist.NCONS
-        # self.NV = ist.NV
-        # self.delta_t = ist.delta_t
-        # self.rest_len = ist.rest_len.to_numpy()
-        # self.edge = ist.edge.to_numpy()
         super().__init__()
         self.gradient = np.zeros(self.NV*3, dtype=np.float32)
         self.descent_dir = np.zeros(self.NV*3, dtype=np.float32)
         self.hessian = scipy.sparse.csr_matrix((self.NV*3, self.NV*3), dtype=np.float32)
         self.EPSILON = 1e-6
-        self.stiffness = 120.0 # FIXME
+        self.stiffness = 80.0 # FIXME
+        self.stiffness_attachment = 120.0 # FIXME
+        # self.constraintsType = np.zeros(self.NCONS, dtype=ConstraintType)
+        # self.fixed_points = [0,420]
+        # self.set_constraints_type()
+        setupConstraints = SetupConstraints(self.pos.to_numpy(), self.edge.to_numpy())
+        setupConstraints.setup_constraints()
+        self.constraintsNew = setupConstraints.constraints
 
         self.set_mass()
         self.set_external_force(self.args.gravity)
@@ -137,11 +118,42 @@ class NewtonMethod(Cloth):
     def evaluateHessian(self, x, hessian):
         # springs
         # TODO implement this
-        hessian = scipy.sparse.dok_matrix((self.NV*3, self.NV*3),dtype=np.float32)
-        for j in range(self.NCONS):
-            hessian = self.EvaluateHessianOneConstraintDistance(j, x, hessian)
+        self.hessian = scipy.sparse.dok_matrix((self.NV*3, self.NV*3),dtype=np.float32)
+        self.hessian = self.EvaluateHessianImpl(x, self.hessian)
 
+        scipy.io.mmwrite('hessian1.mtx', hessian)
         hessian = self.MASS + self.delta_t * self.delta_t * hessian
+        return hessian
+    
+    def set_constraints_type(self):
+        for j in range(self.NCONS):
+            idx0, idx1 = self.edge[j]
+            if idx0 in self.fixed_points or idx1 in self.fixed_points:
+                self.constraintsType[j] = ConstraintType.ATTACHMENT
+            else:
+                self.constraintsType[j] = ConstraintType.DISTANCE
+
+
+    def EvaluateHessianImpl(self, x, hessian):
+        for j in range(self.NCONS):
+            # from constraint number j to point number i
+            if self.constraintsType[j] == ConstraintType.ATTACHMENT:
+                self.EvaluateHessianOneConstraintAttachment(j, x, hessian)
+            elif self.constraintsType[j] == ConstraintType.DISTANCE:
+                p1 = self.edge[j][0]
+                p2 = self.edge[j][1]
+                x_ij = x[p1] - x[p2]
+                l_ij = np.linalg.norm(x_ij)
+                l0 = self.rest_len[j]
+                ks = self.stiffness
+                k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
+                for row in range(3):
+                    for col in range(3):
+                        val = k[row, col]
+                        hessian[p1*3+row, p1*3+col] = val
+                        hessian[p1*3+row, p2*3+col] = -val
+                        hessian[p2*3+row, p1*3+col] = -val
+                        hessian[p2*3+row, p2*3+col] = val
         return hessian
 
     def EvaluateHessianOneConstraintAttachment(self, j, x, h_triplets):
@@ -158,23 +170,7 @@ class NewtonMethod(Cloth):
             h_triplets.vv.append(g)
     
 
-    def EvaluateHessianOneConstraintDistance(self, j, x, hessian):
-        # from constraint number j to point number i
-        p1 = self.edge[j][0]
-        p2 = self.edge[j][1]
-        x_ij = x[p1] - x[p2]
-        l_ij = np.linalg.norm(x_ij)
-        l0 = self.rest_len[j]
-        ks = self.stiffness
-        k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
-        for row in range(3):
-            for col in range(3):
-                val = k[row, col]
-                hessian[p1*3+row, p1*3+col] = val
-                hessian[p1*3+row, p2*3+col] = val
-                hessian[p2*3+row, p1*3+col] = val
-                hessian[p2*3+row, p2*3+col] = val
-        return hessian
+
 
         
     def line_search(self, x, gradient_dir, descent_dir):
@@ -252,24 +248,3 @@ class NewtonMethod(Cloth):
     #         h_triplet[idx1*3+1] = k1
     #         h_triplet[idx1*3+2] = k2
 
-
-class Constraint:
-    def __init__(self, stiffness):
-        # self.type = type
-        # self.edge = edge
-        # self.rest_len = rest_len
-        self.stiffness = stiffness
-
-class DistanceConstraint(Constraint):
-    def __init__(self, stiffness:float, p1:int, p2:int, rest_len:float):
-        super().__init__(stiffness)
-        self.p1 = p1
-        self.p2 = p2
-        self.rest_len = rest_len
-
-class AttachmentConstraint(Constraint):
-    def __init__(self, stiffness:float, p0:int, fixed_point:np.ndarray):
-        super().__init__(stiffness)
-        self.p0 = p0
-        assert fixed_point.shape == (3,)
-        self.fixed_point = fixed_point

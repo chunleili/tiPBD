@@ -142,7 +142,7 @@ class Cloth():
 
         inv_mass_np = np.repeat(self.inv_mass.to_numpy(), 3, axis=0)
         self.M_inv = scipy.sparse.diags(inv_mass_np)
-        self.alpha_tilde_np = np.array([self.alpha] * self.NE)
+        self.alpha_tilde_np = np.array([self.alpha_tilde] * self.NE)
         self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
         self.NCONS = self.NE
         

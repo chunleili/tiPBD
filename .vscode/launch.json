@@ -28,7 +28,7 @@
             "name": "Python: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "engine/cloth/cloth3d.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [

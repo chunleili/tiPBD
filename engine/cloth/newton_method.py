@@ -77,14 +77,12 @@ class NewtonMethod(Cloth):
         self.M_inv = scipy.sparse.diags([1.0/pmass]*self.NV*3)
         self.inv_mass_np = np.array([1.0/pmass]*self.NV)
         self.inv_mass.from_numpy(self.inv_mass_np)
-        ...
         
         
     def set_external_force(self, gravity):
         gravity_constant = np.array([0, -100, 0]) #FIXME
         self.external_force = np.tile(gravity_constant, self.NV)
         self.external_force = self.MASS @ self.external_force
-        ...
         
 
     def evaluateGradient(self, x, gradient):
@@ -148,10 +146,10 @@ class NewtonMethod(Cloth):
         for row in range(3):
             for col in range(3):
                 val = k[row, col]
-                hessian[p1*3+row, p1*3+col] = val
-                hessian[p1*3+row, p2*3+col] = -val
-                hessian[p2*3+row, p1*3+col] = -val
-                hessian[p2*3+row, p2*3+col] = val
+                hessian[p1*3+row, p1*3+col] += val
+                hessian[p1*3+row, p2*3+col] += -val
+                hessian[p2*3+row, p1*3+col] += -val
+                hessian[p2*3+row, p2*3+col] += val
         return hessian
     
 
@@ -160,7 +158,7 @@ class NewtonMethod(Cloth):
         i0 = c.p0
         g = c.stiffness
         for k in range(3):
-            hessian[i0*3+k, i0*3+k] = g
+            hessian[i0*3+k, i0*3+k] += g
         return hessian
         
         

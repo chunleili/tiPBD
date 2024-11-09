@@ -2,19 +2,18 @@ import numpy as np
 
 from enum import Enum
 class ConstraintType(Enum):
-    DISTANCE = 0
+    STRETCH = 0
     ATTACHMENT = 1
     ΒENDING = 2
+    def __str__(self):
+        return self.name
 
 class Constraint:
     def __init__(self, stiffness):
-        self.type = type
-        # self.edge = edge
-        # self.rest_len = rest_len
         self.stiffness = stiffness
 
 class SpringConstraint(Constraint):
-    def __init__(self, stiffness:float, p1:int, p2:int, rest_len:float, type='stretch'):
+    def __init__(self, stiffness:float, p1:int, p2:int, rest_len:float, type=ConstraintType.STRETCH):
         super().__init__(stiffness)
         self.p1 = p1
         self.p2 = p2
@@ -25,12 +24,12 @@ class SpringConstraint(Constraint):
         return f"SpringConstraint: {self.p1} - {self.p2} rest_len: {self.rest_len} stiffness: {self.stiffness} type: {self.type}"
 
 class AttachmentConstraint(Constraint):
-    def __init__(self, stiffness:float, p0:int, fixed_point:np.ndarray, type='attachment'):
+    def __init__(self, stiffness:float, p0:int, fixed_point:np.ndarray):
         super().__init__(stiffness)
         self.p0 = p0
         assert fixed_point.shape == (3,)
         self.fixed_point = fixed_point
-        self.type = type
+        self.type = ConstraintType.ATTACHMENT
 
     def __str__(self):
         return f"AttachmentConstraint: {self.p0} fixed_point: {self.fixed_point} stiffness: {self.stiffness} type: {self.type}"
@@ -55,6 +54,15 @@ class SetupConstraints:
         ac = AttachmentConstraint(self.stiffness_attachment, vertex_index, self.mesh.current_positions[vertex_index])
         self.constraints.append(ac)
 
+    def print_constraints(self, to_file=False):
+        if to_file:
+            with open("constraints.txt", "a") as f:
+                for i in self.constraints:
+                    print(i,file=f)
+        else:
+            for i in self.constraints:
+                print(i)
+                
     def setup_constraints(self):
         # generate attachment constraints.
         self.add_attachment_constraint(0)
@@ -75,11 +83,11 @@ class SetupConstraints:
                 if i + 2 < self.mesh.dim[0]:
                     index_row_1 = self.mesh.dim[1] * (i + 2) + k
                     p2 = self.mesh.current_positions[index_row_1]
-                    c = SpringConstraint(self.stiffness_bending, index_self, index_row_1, np.linalg.norm(p1 - p2), type='bending')
+                    c = SpringConstraint(self.stiffness_bending, index_self, index_row_1, np.linalg.norm(p1 - p2), type=ConstraintType.ΒENDING)
                     self.constraints.append(c)
                 if k + 2 < self.mesh.dim[1]:
                     index_column_1 = self.mesh.dim[1] * i + k + 2
                     p2 = self.mesh.current_positions[index_column_1]
-                    c = SpringConstraint(self.stiffness_bending, index_self, index_column_1, np.linalg.norm(p1 - p2), type='bending')
+                    c = SpringConstraint(self.stiffness_bending, index_self, index_column_1, np.linalg.norm(p1 - p2), type=ConstraintType.ΒENDING)
                     self.constraints.append(c)
         return self.constraints

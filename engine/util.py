@@ -417,3 +417,13 @@ def main_loop(ist,args):
     except KeyboardInterrupt:
         print("KeyboardInterrupt")
         ending(args,ist)
+
+
+def timeit(method):
+    def timed(*args, **kw):
+        ts = perf_counter()
+        result = method(*args, **kw)
+        te = perf_counter()
+        print(f"    {method.__name__} took: {(te-ts)*1000:.1f}ms")
+        return result
+    return timed

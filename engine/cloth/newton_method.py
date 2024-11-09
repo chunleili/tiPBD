@@ -27,6 +27,9 @@ class NewtonMethod(Cloth):
         setupConstraints = SetupConstraints(self.pos.to_numpy(), self.edge.to_numpy())
         setupConstraints.setup_constraints()
         self.constraintsNew = setupConstraints.constraints
+        # with open("constraints.txt", "a") as f:
+        #     for i in self.constraintsNew:
+        #         print(i,file=f)
 
         self.set_mass()
         self.set_external_force(self.args.gravity)
@@ -117,61 +120,49 @@ class NewtonMethod(Cloth):
 
     def evaluateHessian(self, x, hessian):
         # springs
-        # TODO implement this
         self.hessian = scipy.sparse.dok_matrix((self.NV*3, self.NV*3),dtype=np.float32)
         self.hessian = self.EvaluateHessianImpl(x, self.hessian)
-
-        scipy.io.mmwrite('hessian1.mtx', hessian)
-        hessian = self.MASS + self.delta_t * self.delta_t * hessian
+        scipy.io.mmwrite('hessian1.mtx', self.hessian)
+        hessian = self.MASS + self.delta_t * self.delta_t * self.hessian
         return hessian
     
-    def set_constraints_type(self):
-        for j in range(self.NCONS):
-            idx0, idx1 = self.edge[j]
-            if idx0 in self.fixed_points or idx1 in self.fixed_points:
-                self.constraintsType[j] = ConstraintType.ATTACHMENT
-            else:
-                self.constraintsType[j] = ConstraintType.DISTANCE
-
 
     def EvaluateHessianImpl(self, x, hessian):
-        for j in range(self.NCONS):
-            # from constraint number j to point number i
-            if self.constraintsType[j] == ConstraintType.ATTACHMENT:
-                self.EvaluateHessianOneConstraintAttachment(j, x, hessian)
-            elif self.constraintsType[j] == ConstraintType.DISTANCE:
-                p1 = self.edge[j][0]
-                p2 = self.edge[j][1]
-                x_ij = x[p1] - x[p2]
-                l_ij = np.linalg.norm(x_ij)
-                l0 = self.rest_len[j]
-                ks = self.stiffness
-                k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
-                for row in range(3):
-                    for col in range(3):
-                        val = k[row, col]
-                        hessian[p1*3+row, p1*3+col] = val
-                        hessian[p1*3+row, p2*3+col] = -val
-                        hessian[p2*3+row, p1*3+col] = -val
-                        hessian[p2*3+row, p2*3+col] = val
-        return hessian
-
-    def EvaluateHessianOneConstraintAttachment(self, j, x, h_triplets):
         # from constraint number j to point number i
-        i0 = self.edge[j][0]
-        i1 = self.edge[j][1]
-        g = self.stiffness
-        for k in range(3):
-            h_triplets.ii.append(i0*3+k)
-            h_triplets.jj.append(i0*3+k)
-            h_triplets.vv.append(g)
-            h_triplets.ii.append(i1*3+k)
-            h_triplets.jj.append(i1*3+k)
-            h_triplets.vv.append(g)
+        for c in self.constraintsNew:
+            if c.type == "attachment":
+                self.EvaluateHessianOneConstraintAttachment(c, x, hessian)
+            elif c.type == "stretch" or c.type == "bending":
+                self.EvaluateHessianOneConstraintDistance(c, x, hessian)
+        return hessian
+        
+
+    def EvaluateHessianOneConstraintDistance(self, c, x, hessian):
+        p1 = c.p1
+        p2 = c.p2
+        x_ij = x[p1] - x[p2]
+        l_ij = np.linalg.norm(x_ij)
+        l0 = c.rest_len
+        ks = c.stiffness
+        k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
+        for row in range(3):
+            for col in range(3):
+                val = k[row, col]
+                hessian[p1*3+row, p1*3+col] = val
+                hessian[p1*3+row, p2*3+col] = -val
+                hessian[p2*3+row, p1*3+col] = -val
+                hessian[p2*3+row, p2*3+col] = val
+        return hessian
     
 
-
-
+    def EvaluateHessianOneConstraintAttachment(self, c, x, hessian):
+        # from constraint number j to point number i
+        i0 = c.p0
+        g = c.stiffness
+        for k in range(3):
+            hessian[i0*3+k, i0*3+k] = g
+        return hessian
+        
         
     def line_search(self, x, gradient_dir, descent_dir):
         if not self.use_line_search:

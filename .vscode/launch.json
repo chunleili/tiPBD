@@ -34,7 +34,8 @@
             "args": [
               "-solver_type=NEWTON",
               "-cloth_mesh_type=txt",
-              "-delta_t=0.0333"
+              "-delta_t=0.0333",
+              "-use_cuda=0"
             ]
           }
     ]

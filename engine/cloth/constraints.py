@@ -45,9 +45,9 @@ class Mesh:
 
 class SetupConstraints:
     def __init__(self, pos, edge):
-        self.mesh = Mesh((20, 20), pos, edge)
+        self.mesh = Mesh((21, 21), pos, edge)
         self.stiffness_stretch = 80.0
-        self.stiffness_bending = 120.0
+        self.stiffness_bending = 20.0
         self.stiffness_attachment = 120.0
         self.constraints = []
 

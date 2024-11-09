@@ -278,6 +278,14 @@ def report_multilevel_details(Ps, num_levels):
 
 
 
+def calc_total_energy(ist, update_constraints):
+    update_constraints()
+    ist.potential_energy = compute_potential_energy(ist)
+    ist.inertial_energy = compute_inertial_energy(ist)
+    ist.total_energy = ist.potential_energy + ist.inertial_energy
+    return ist.total_energy
+
+
 def compute_potential_energy(ist)->float:
     res = compute_potential_energy_kernel(ist.constraints, ist.compliance)
     return res
@@ -321,3 +329,91 @@ def do_export_r(r, out_dir, frame):
     with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
         file.write(r_json)
     r.t_export += perf_counter()-tic
+
+
+
+def export_mat(ist,get_A,b):
+    args = ist.args
+    tic = perf_counter()
+    if not args.export_matrix:
+        return
+    if ist.frame != args.export_matrix_frame:
+        return
+    if hasattr(args, "export_matrix_ite"):
+        if ist.ite != args.export_matrix_ite:
+            return
+    else:
+        if ist.ite != 0:
+            return
+    if args.export_matrix_dir is None:
+        dir = args.out_dir + "/A/"
+    else:
+        dir = args.export_matrix_dir
+    A = get_A()
+    postfix = f"F{ist.frame}" if ist.frame is not None else ""
+    export_A_b(A, b, dir=dir, postfix=postfix, binary=args.export_matrix_binary)
+    ist.r_iter.t_export += perf_counter()-tic
+
+
+def export_A_b(A, b, dir, postfix=f"", binary=True):
+    from time import perf_counter
+    import scipy
+
+    print(f"Exporting A and b to {dir} with postfix {postfix}")
+    tic = perf_counter()
+    if binary:
+        # https://stackoverflow.com/a/8980156/19253199
+        scipy.sparse.save_npz(dir + f"/A_{postfix}.npz", A)
+        if b is not None:
+            np.save(dir + f"/b_{postfix}.npy", b)
+        # A = scipy.sparse.load_npz("A.npz") # load
+        # b = np.load("b.npy")
+    else:
+        scipy.io.mmwrite(dir + f"/A_{postfix}.mtx", A, symmetry='symmetric')
+        if b is not None:
+            np.savetxt(dir + f"/b_{postfix}.txt", b)
+    print(f"    export_A_b time: {perf_counter()-tic:.3f}s")
+    
+
+def do_post_iter(ist, get_A0_cuda):
+    ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
+    export_mat(ist, get_A0_cuda, ist.b)
+    ist.r_frame.t_export += ist.r_iter.t_export
+    logging.info(f"iter time(with export): {(perf_counter()-ist.r_iter.tic_iter)*1000:.0f}ms")
+
+
+def main_loop(ist,args):
+    import time
+    import tqdm
+
+    ist.timer_loop = time.perf_counter()
+    ist.initial_frame = ist.frame
+    step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
+    ist.r_all.t_export = 0.0
+
+    try:
+        for f in range(ist.initial_frame, args.end_frame):
+            ist.tic_frame = time.perf_counter()
+            ist.r_frame.t_export = 0.0
+
+            if args.solver_type == "XPBD":
+                ist.substep_xpbd()
+            elif args.solver_type == "NEWTON":
+                ist.substep_newton()
+            else:
+                ist.substep_all_solver()
+
+            export_after_substep(ist,args)
+            ist.r_all.t_export += ist.r_frame.t_export
+            ist.frame += 1
+
+            logging.info("\n")
+            step_pbar.update(1)
+            logging.info("")
+            
+        print("Normallly end.")
+        ending(args,ist)
+
+    except KeyboardInterrupt:
+        print("KeyboardInterrupt")
+        ending(args,ist)

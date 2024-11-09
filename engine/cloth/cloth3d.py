@@ -9,11 +9,12 @@ import argparse
 import logging
 import datetime
 from time import perf_counter
+from pathlib import Path
 
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(prj_path)
-from engine.file_utils import process_dirs,  do_restart,  export_mat
+from engine.file_utils import process_dirs,  do_restart
 from engine.init_extlib import init_extlib
 from engine.mesh_io import write_mesh
 from engine.cloth.bending import init_bending, solve_bending_constraints_xpbd
@@ -22,7 +23,7 @@ from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.solver.iterative_solver import GaussSeidelSolver
-from engine.util import ending, ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, export_after_substep, init_logger
+from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, init_logger, do_post_iter
 
 
 
@@ -33,20 +34,23 @@ parser = add_common_args(parser)
 
 parser.add_argument("-N", type=int, default=64)
 parser.add_argument("-compliance", type=float, default=1.0e-8)
-parser.add_argument("-use_PXPBD_v1", type=int, default=False)
-parser.add_argument("-use_PXPBD_v2", type=int, default=False)
-parser.add_argument("-use_bending", type=int, default=False)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
-
 parser.add_argument("-omega", type=float, default=0.25)
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
+parser.add_argument("-use_bending", type=int, default=False)
+parser.add_argument("-cloth_mesh_file", type=str, default="./data/model/tri_cloth/tri_cloth.obj")
+parser.add_argument("-cloth_mesh_type", type=str, default="quad", choices=["quad", "tri", "txt"])
+# ./data/model/tri_cloth/tri_cloth.obj
+# ./data/model/tri_cloth/N64.ply
+parser.add_argument("-pos_file", type=str, default="data/model/fast_mass_spring/pos.txt")
+parser.add_argument("-edge_file", type=str, default="data/model/fast_mass_spring/edge.txt")
+parser.add_argument("-tri_file", type=str, default="data/model/fast_mass_spring/tri.txt")
 
 args = parser.parse_args()
 
 if args.setup_num==1: args.gravity = (0.0, 0.0, 0.0)
 else : args.gravity = (0.0, -9.8, 0.0)
 
-args.PXPBD_ksi = 1.0
 
 if args.arch == "gpu":
     ti.init(arch=ti.gpu)
@@ -61,7 +65,11 @@ class Cloth():
         self.n_outer_all = [] 
         self.all_stalled = [] 
         self.sim_type = "cloth"
-        self.sim_name=f"cloth-N{args.N}"
+        self.r_iter = ResidualDataOneIter(args,
+                                            calc_dual   =self.calc_dual,
+                                            calc_primal =calc_primal,
+                                            calc_total_energy=self.calc_total_energy,
+                                            calc_strain =calc_strain)
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
         self.args = args
@@ -69,29 +77,60 @@ class Cloth():
         self.frame = 0
         self.ite=0
         
+        self.delta_t = args.delta_t
         self.compliance = args.compliance  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
-        self.alpha = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
+        self.alpha_tilde = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
         self.alpha_bending = 1.0 * (1.0 / args.delta_t / args.delta_t) #TODO: need to be tuned
 
-        cloth_type = "quad"
+        self.build_mesh()
+        self.NCONS = self.NE
+
+        if args.use_bending:
+            self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
+
+        if args.export_strain:
+            from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
+            self.v2e, self.v2t, self.e2t = write_and_rebuild_topology(self.edge.to_numpy(),self.tri,args.out_dir)
+
+        inv_mass_np = np.repeat(self.inv_mass.to_numpy(), 3, axis=0)
+        self.M_inv = scipy.sparse.diags(inv_mass_np)
+        self.alpha_tilde_np = np.array([self.alpha_tilde] * self.NCONS)
+        self.ALPHA_TILDE = scipy.sparse.diags(self.alpha_tilde_np)
+        self.ALPHA_inv = scipy.sparse.diags([self.compliance**(-1)] * self.NCONS)
+        self.MASS = scipy.sparse.diags(1.0/(self.M_inv.diagonal()), format="csr")
+        
+
+    def build_mesh(self, ):
+        # cloth_type = "quad" or
         # cloth_type = "tri"
         # args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
-
-        from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth
-        if cloth_type=="tri":
+        from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth, TriMeshClothTxt
+        if args.cloth_mesh_type=="tri":
             mesh = TriMeshCloth(args.cloth_mesh_file)
             mesh.build()
             self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
             self.allocate_fields(self.NV, self.NE, self.NT)
             mesh.fetch_fields(self.pos, self.inv_mass, self.edge, self.rest_len)
             self.tri = mesh.tri
-        elif cloth_type=="quad":
+            name = Path(args.cloth_mesh_file).name
+            self.sim_name=f"cloth-{name}"
+        elif args.cloth_mesh_type=="quad":
             mesh = QuadMeshCloth(args.N, args.setup_num)
             self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
             self.allocate_fields(self.NV, self.NE, self.NT)
             mesh.pass_fields(self.pos, self.inv_mass, self.edge, self.tri_ti, self.rest_len)
             mesh.build()
             self.tri = self.tri_ti.to_numpy().reshape(-1,3)
+            self.sim_name=f"cloth-N{args.N}"
+        if args.cloth_mesh_type=="txt":
+            mesh = TriMeshClothTxt(args.pos_file, args.edge_file, args.tri_file)
+            mesh.build()
+            self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
+            self.allocate_fields(self.NV, self.NE, self.NT)
+            mesh.fetch_fields(self.pos, self.inv_mass, self.edge, self.rest_len)
+            self.tri = mesh.tri
+            self.sim_name=f"cloth-txt"
+
 
         if args.use_bending:
             self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
@@ -124,13 +163,12 @@ class Cloth():
         self.dLambda     = ti.field(dtype=float, shape=(NE))
         self.gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
         self.edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
-        self.dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha * self.lagrangian
+        self.dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha_tilde * self.lagrangian
         self.predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
         # self.# primary_residual = np.zeros(dtype=float, shape=(3*NV))
         # self.# K = ti.Matrix.field(3, 3, float, (NV, NV)) 
         # self.# geometric stiffness, only retain diagonal elements
         self.K_diag = np.zeros((NV*3), dtype=float)
-        # self.# Minv_gg = ti.Vector.field(3, dtype=float, shape=(NV))
         self.current_len = ti.field(ti.f32, shape=NE)
         self.strain = ti.field(ti.f32, shape=NE)
         self.max_strain = 0.0
@@ -138,11 +176,97 @@ class Cloth():
         self.potential_energy = 0.0
         self.inertial_energy = 0.0
 
+
+    def semi_euler(self):
+        semi_euler_kernel(self.old_pos, self.inv_mass, self.vel, self.pos, self.predict_pos, args.delta_t)
+
+    def dlam2dpos(self,x):
+        transfer_back_to_pos_mfree(x)
+
+    def update_vel(self):
+        update_vel_kernel(self.old_pos, self.inv_mass, self.vel, self.pos)
+
+    def compute_C_and_gradC(self):
+        compute_C_and_gradC_kernel(self.pos, self.gradC, self.edge, self.constraints, self.rest_len)
+
+    def compute_b(self):
+        update_constraints_kernel(self.pos, self.edge, self.rest_len, self.constraints)
+        self.b = -self.constraints.to_numpy() - self.alpha_tilde_np * self.lagrangian.to_numpy()
+        return self.b
+    
+    def update_pos(self):
+        update_pos_kernel(self.inv_mass, self.dpos, self.pos,args.omega)
+        
+    def update_constraints(self):
+        update_constraints_kernel(self.pos, self.edge, self.rest_len, self.constraints)
+
+
+    def calc_total_energy(self):
+        from engine.util import compute_potential_energy, compute_inertial_energy
+        self.update_constraints()
+        self.potential_energy = compute_potential_energy(self)
+        self.inertial_energy = compute_inertial_energy(self)
+        self.total_energy = self.potential_energy + self.inertial_energy
+        return self.total_energy
+
+
+    def calc_dual(self)->float:
+        calc_dual_residual(self.dual_residual, self.edge, self.rest_len, self.lagrangian, self.pos, self.alpha_tilde)
+        dual = calc_norm(self.dual_residual)
+        return dual
+
+    def fill_G(self):
+        tic = time.perf_counter()
+        compute_C_and_gradC_kernel(self.pos, self.gradC, self.edge, self.constraints, self.rest_len)
+        G_ii, G_jj, G_vv = np.zeros(self.NCONS*6, dtype=np.int32), np.zeros(self.NCONS*6, dtype=np.int32), np.zeros(self.NCONS*6, dtype=np.float32)
+        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, self.gradC, self.edge)
+        G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(self.NCONS, 3 * self.NV))
+        print(f"    fill_G: {time.perf_counter() - tic:.4f}s")
+        self.G = G
+        return G
+
+    def substep_all_solver(self):
+        self.semi_euler()
+        self.lagrangian.fill(0)
+        self.r_iter.calc_r0()
+        for self.ite in range(args.maxiter):
+            self.r_iter.tic_iter = perf_counter()
+            self.compute_C_and_gradC()
+            self.b = self.compute_b()
+            x, self.r_iter.r_Axb = linsol.run(self.b)
+            self.dlam2dpos(x)
+            do_post_iter(self, get_A0_cuda)
+            if self.r_iter.check():
+                break
+        self.n_outer_all.append(self.ite+1)
+        self.update_vel()
+
+
+
+
+
+    def substep_xpbd(self):
+        self.semi_euler()
+        self.lagrangian.fill(0.0)
+        self.r_iter.calc_r0()
+        for self.ite in range(args.maxiter):
+            tic_iter = perf_counter()
+            self.dpos.fill(0.0)
+            if args.use_bending:
+                # TODO: should use seperate dual_residual_bending and lagrangian_bending
+                solve_bending_constraints_xpbd(self.dual_residual, self.inv_mass, self.lagrangian, self.dpos, self.pos, self.bending_length, self.tri_pairs, self.alpha_bending)
+            solve_distance_constraints_xpbd(self.dual_residual, self.inv_mass, self.edge, self.rest_len, self.lagrangian, self.dpos, self.pos)
+            update_pos_kernel(self.inv_mass, self.dpos, self.pos,args.omega)
+            self.r_iter.calc_r(self.frame, self.ite, tic_iter)
+            if self.r_iter.dual<args.tol:
+                break
+        self.n_outer_all.append(self.ite+1)
+        update_vel_kernel(self.old_pos, self.inv_mass, self.vel, self.pos)
     
 
 
 @ti.kernel
-def semi_euler(
+def semi_euler_kernel(
     old_pos:ti.template(),
     inv_mass:ti.template(),
     vel:ti.template(),
@@ -151,7 +275,7 @@ def semi_euler(
     delta_t:ti.f32,
 ):
     g = ti.Vector(args.gravity)
-    for i in range(ist.NV):
+    for i in range(pos.shape[0]):
         if inv_mass[i] != 0.0:
             vel[i] += delta_t * g
             old_pos[i] = pos[i]
@@ -170,18 +294,18 @@ def solve_distance_constraints_xpbd(
     dpos:ti.template(),
     pos:ti.template(),
 ):
-    for i in range(ist.NE):
+    for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
         invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
         dis = pos[idx0] - pos[idx1]
         constraint = dis.norm() - rest_len[i]
         gradient = dis.normalized()
         l = -constraint / (invM0 + invM1)
-        delta_lagrangian = -(constraint + lagrangian[i] * ist.alpha) / (invM0 + invM1 + ist.alpha)
+        delta_lagrangian = -(constraint + lagrangian[i] * ist.alpha_tilde) / (invM0 + invM1 + ist.alpha_tilde)
         lagrangian[i] += delta_lagrangian
 
         # residual
-        dual_residual[i] = -(constraint + ist.alpha * lagrangian[i])
+        dual_residual[i] = -(constraint + ist.alpha_tilde * lagrangian[i])
         
         if invM0 != 0.0:
             dpos[idx0] += invM0 * delta_lagrangian * gradient
@@ -191,13 +315,13 @@ def solve_distance_constraints_xpbd(
 
 
 @ti.kernel
-def update_pos(
+def update_pos_kernel(
     inv_mass:ti.template(),
     dpos:ti.template(),
     pos:ti.template(),
     omega:ti.f32,
 ):
-    for i in range(ist.NV):
+    for i in range(inv_mass.shape[0]):
         if inv_mass[i] != 0.0:
             pos[i] += omega * dpos[i]
 
@@ -209,27 +333,23 @@ def update_pos_blend(
     pos:ti.template(),
     dpos_withg:ti.template(),
 ):
-    for i in range(ist.NV):
+    for i in range(pos.shape[0]):
         if inv_mass[i] != 0.0:
             pos[i] += args.omega *((1-args.PXPBD_ksi) * dpos[i] + args.PXPBD_ksi * dpos_withg[i])
 
 
 @ti.kernel
-def update_vel(
+def update_vel_kernel(
     old_pos:ti.template(),
     inv_mass:ti.template(),    
     vel:ti.template(),
     pos:ti.template(),
 ):
-    for i in range(ist.NV):
+    for i in range(pos.shape[0]):
         if inv_mass[i] != 0.0:
             vel[i] = (pos[i] - old_pos[i]) / args.delta_t
 
 
-@ti.kernel 
-def reset_dpos(dpos:ti.template()):
-    for i in range(ist.NV):
-        dpos[i] = ti.Vector([0.0, 0.0, 0.0])
 
 
 
@@ -240,14 +360,15 @@ def calc_dual_residual(
     rest_len:ti.template(),
     lagrangian:ti.template(),
     pos:ti.template(),
+    alpha_tilde:ti.f32,
 ):
-    for i in range(ist.NE):
+    for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraint = dis.norm() - rest_len[i]
 
         # residual(lagrangian=0 for first iteration)
-        dual_residual[i] = -(constraint + ist.alpha * lagrangian[i])
+        dual_residual[i] = -(constraint + alpha_tilde * lagrangian[i])
 
 
 def calc_primary_residual(G,M_inv):
@@ -320,28 +441,6 @@ def calc_primal():
 
 
 
-def substep_xpbd():
-    semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos,args.delta_t)
-    reset_lagrangian(ist.lagrangian)
-
-    ist.r_iter.calc_r0()
-    for ist.ite in range(args.maxiter):
-        tic_iter = perf_counter()
-
-        reset_dpos(ist.dpos)
-        if args.use_bending:
-            # TODO: should use seperate dual_residual_bending and lagrangian_bending
-            solve_bending_constraints_xpbd(ist.dual_residual, ist.inv_mass, ist.lagrangian, ist.dpos, ist.pos, ist.bending_length, ist.tri_pairs, ist.alpha_bending)
-        solve_distance_constraints_xpbd(ist.dual_residual, ist.inv_mass, ist.edge, ist.rest_len, ist.lagrangian, ist.dpos, ist.pos)
-        update_pos(ist.inv_mass, ist.dpos, ist.pos,args.omega)
-
-        ist.r_iter.calc_r(ist.frame, ist.ite, tic_iter)
-        if ist.r_iter.dual<args.tol:
-            break
-    ist.n_outer_all.append(ist.ite+1)
-    update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
-
-
 
 
 # ---------------------------------------------------------------------------- #
@@ -355,7 +454,7 @@ def compute_C_and_gradC_kernel(
     constraints:ti.template(),
     rest_len:ti.template(),
 ):
-    for i in range(ist.NE):
+    for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraints[i] = dis.norm() - rest_len[i]
@@ -367,7 +466,7 @@ def compute_C_and_gradC_kernel(
 
 @ti.kernel
 def compute_K_kernel(K_diag:ti.types.ndarray(),):
-    for i in range(ist.NE):
+    for i in range(ist.edge.shape[0]):
         idx0, idx1 = ist.edge[i]
         dis = ist.pos[idx0] - ist.pos[idx1]
         L= dis.norm()
@@ -402,7 +501,7 @@ def update_constraints_kernel(
     rest_len:ti.template(),
     constraints:ti.template(),
 ):
-    for i in range(ist.NE):
+    for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraints[i] = dis.norm() - rest_len[i]
@@ -449,10 +548,7 @@ def fill_gradC_triplets_kernel(
                 ii[cnt],jj[cnt],vv[cnt] = j, 3 * pid + d, gradC[j, p][d]
                 cnt+=1
 
-@ti.kernel
-def reset_lagrangian(lagrangian: ti.template()):
-    for i in range(ist.NE):
-        lagrangian[i] = 0.0
+
 
 
 # @ti.kernel
@@ -472,7 +568,7 @@ def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg=None):
 
 @ti.kernel
 def transfer_back_to_pos_mfree_kernel():
-    for i in range(ist.NE):
+    for i in range(ist.edge.shape[0]):
         idx0, idx1 = ist.edge[i]
         invM0, invM1 = ist.inv_mass[idx0], ist.inv_mass[idx1]
 
@@ -487,247 +583,15 @@ def transfer_back_to_pos_mfree_kernel():
             ist.dpos[idx1] -= invM1 * delta_lagrangian * gradient
 
 
-@ti.kernel
-def transfer_back_to_pos_mfree_kernel_withg():
-    for i in range(ist.NE):
-        idx0, idx1 = ist.edge[i]
-        invM0, invM1 = ist.inv_mass[idx0], ist.inv_mass[idx1]
-        gradient = ist.gradC[i, 0]
-        if invM0 != 0.0:
-            ist.dpos_withg[idx0] += invM0 * ist.lagrangian[i] * gradient 
-        if invM1 != 0.0:
-            ist.dpos_withg[idx1] -= invM1 * ist.lagrangian[i] * gradient
-
-    for i in range(ist.NV):
-        if ist.inv_mass[i] != 0.0:
-            ist.dpos_withg[i] += ist.predict_pos[i] - ist.old_pos[i]
 
 
 def transfer_back_to_pos_mfree(x):
     ist.dLambda.from_numpy(x)
-    reset_dpos(ist.dpos)
+    ist.dpos.fill(0.0)
     transfer_back_to_pos_mfree_kernel()
-    update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
+    update_pos_kernel(ist.inv_mass, ist.dpos, ist.pos, args.omega)
 
 
-def calc_total_energy():
-    from engine.util import compute_potential_energy, compute_inertial_energy
-    update_constraints_kernel(ist.pos, ist.edge, ist.rest_len, ist.constraints)
-    ist.potential_energy = compute_potential_energy(ist)
-    ist.inertial_energy = compute_inertial_energy(ist)
-    ist.total_energy = ist.potential_energy + ist.inertial_energy
-    return ist.total_energy
-
-
-
-def should_setup():
-    if ist.ite != 0:
-        return False
-    if ist.frame==1:
-        return True
-    if ist.frame%args.setup_interval==0:
-        return True
-    if args.restart and ist.frame==ist.initial_frame:
-        return True
-    return False
-
-
-def calc_dual()->float:
-    calc_dual_residual(ist.dual_residual, ist.edge, ist.rest_len, ist.lagrangian, ist.pos)
-    dual = calc_norm(ist.dual_residual)
-    return dual
-
-
-
-
-
-
-@ti.kernel
-def PXPBD_b_kernel(pos:ti.template(), predict_pos:ti.template(), lagrangian:ti.template(), inv_mass:ti.template(), gradC:ti.template(), b:ti.types.ndarray(), Minv_gg:ti.template()):
-    for i in range(ist.NE):
-        idx0, idx1 = ist.edge[i]
-        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
-
-        if invM0 != 0.0:
-            Minv_gg[idx0] = invM0 * lagrangian[i] * gradC[i, 0] + (pos[idx0] - predict_pos[idx0])
-        if invM1 != 0.0:
-            Minv_gg[idx1] = invM1 * lagrangian[i] * gradC[i, 1] + (pos[idx0] - predict_pos[idx0])
-
-    for i in range(ist.NE):
-        idx0, idx1 = ist.edge[i]
-        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
-        if invM1 != 0.0 and invM0 != 0.0:
-            b[idx0] += gradC[i, 0] @ Minv_gg[idx0] + gradC[i, 1] @ Minv_gg[idx1]
-
-        #     Minv_gg =  (pos.to_numpy().flatten() - predict_pos.to_numpy().flatten()) - M_inv @ G.transpose() @ lagrangian.to_numpy()
-        #     b += G @ Minv_gg
-
-
-# v1-mfree
-def PXPBD_v1_mfree_transfer_back_to_pos(x, Minv_gg):
-    ist.dLambda.from_numpy(x)
-    reset_dpos(ist.dpos)
-    PXPBD_v1_mfree_transfer_back_to_pos_kernel(Minv_gg)
-    update_pos(ist.inv_mass, ist.dpos, ist.pos)
-
-
-# v1-mfree
-@ti.kernel
-def PXPBD_v1_mfree_transfer_back_to_pos_kernel(Minv_gg:ti.template()):
-    for i in range(ist.NE):
-        idx0, idx1 = ist.edge[i]
-        invM0, invM1 = ist.inv_mass[idx0], ist.inv_mass[idx1]
-
-        delta_lagrangian = ist.dLambda[i]
-        ist.lagrangian[i] += delta_lagrangian
-
-        gradient = ist.gradC[i, 0]
-        
-        if invM0 != 0.0:
-            ist.dpos[idx0] += invM0 * delta_lagrangian * gradient - Minv_gg[idx0]
-        if invM1 != 0.0:
-            ist.dpos[idx1] -= invM1 * delta_lagrangian * gradient - Minv_gg[idx1]
-        
-
-
-# original XPBD dlam2dpos
-def AMG_dlam2dpos(x):
-    tic = time.perf_counter()
-    transfer_back_to_pos_mfree(x)
-    logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
-
-
-# v1: with g, modify b and dpos
-def AMG_PXPBD_v1_dlam2dpos(x,G, Minv_gg):
-    dLambda_ = x.copy()
-    ist.lagrangian.from_numpy(ist.lagrangian.to_numpy() + dLambda_)
-    dpos = ist.M_inv @ G.transpose() @ dLambda_ 
-    dpos -=  Minv_gg
-    dpos = dpos.reshape(-1, 3)
-    ist.pos.from_numpy(ist.pos_mid.to_numpy() + ist.omega*dpos)
-
-
-# v2: blended, only modify dpos
-def AMG_PXPBD_v2_dlam2dpos(x):
-    tic = time.perf_counter()
-    ist.dLambda.from_numpy(x)
-    reset_dpos(ist.dpos)
-    ist.dpos_withg.fill(0)
-    transfer_back_to_pos_mfree_kernel()
-    update_pos(ist.inv_mass, ist.dpos, ist.pos)
-    compute_C_and_gradC_kernel(ist.pos, ist.gradC, ist.edge, ist.constraints, ist.rest_len) # required by dlam2dpos
-    # G = fill_G()
-    transfer_back_to_pos_mfree_kernel_withg()
-    # dpos_withg_np = (predict_pos.to_numpy() - pos.to_numpy()).flatten() + M_inv @ G.transpose() @ lagrangian.to_numpy()
-    # dpos_withg.from_numpy(dpos_withg_np.reshape(-1, 3))
-    update_pos_blend(ist.inv_mass, ist.dpos, ist.pos, ist.dpos_withg)
-    update_pos(ist.inv_mass, ist.dpos_withg, ist.pos)
-    logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
-
-
-def AMG_b():
-    update_constraints_kernel(ist.pos, ist.edge, ist.rest_len, ist.constraints)
-    b = -ist.constraints.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
-    return b
-
-
-def AMG_PXPBD_v1_b(G):
-    # #we calc inverse mass times gg(primary residual), because NCONS may contains infinity for fixed pin points. And gg always appears with inv_mass.
-    update_constraints_kernel(ist.pos, ist.edge, ist.rest_len, ist.constraints)
-    b = -ist.constraints.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
-
-    # PXPBD_b_kernel(pos, predict_pos, lagrangian, inv_mass, gradC, b, Minv_gg)
-    MASS = scipy.sparse.diags(1.0/(ist.M_inv.diagonal()+1e-12), format="csr")
-    Minv_gg =  MASS@ist.M_inv@(ist.pos.to_numpy().flatten() - ist.predict_pos.to_numpy().flatten()) - ist.M_inv @ G.transpose() @ ist.lagrangian.to_numpy()
-    b += G @ Minv_gg
-    return b, Minv_gg
-    
-
-
-def substep_all_solver():
-    tic1 = time.perf_counter()
-    semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos, args.delta_t)
-    reset_lagrangian(ist.lagrangian)
-    logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
-    ist.r_iter.calc_r0()
-    for ist.ite in range(args.maxiter):
-        tic_iter = perf_counter()
-        compute_C_and_gradC_kernel(ist.pos, ist.gradC, ist.edge, ist.constraints, ist.rest_len) # required by dlam2dpos
-        b = AMG_b()
-        x, r_Axb = linsol.run(b)
-        AMG_dlam2dpos(x)
-        ist.r_iter.calc_r(ist.frame,ist.ite, tic_iter, r_Axb)
-        export_mat(ist, get_A0_cuda, b)
-        ist.r_frame.t_export += ist.r_iter.t_export
-        logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        if ist.r_iter.check():
-            break
-    tic = time.perf_counter()
-    logging.info(f"n_outer: {ist.ite+1}")
-    ist.n_outer_all.append(ist.ite+1)
-    update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
-    logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
-    
-
-
-
-def substep_all_solver_PXPBD_v1():
-    tic1 = time.perf_counter()
-    semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos, args.delta_t)
-    reset_lagrangian(ist.lagrangian)
-    logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
-    ist.r_iter.calc_r0()
-    for ist.ite in range(args.maxiter):
-        tic_iter = perf_counter()
-        if args.use_PXPBD_v1:
-            copy_field(ist.pos_mid, ist.pos)
-        compute_C_and_gradC_kernel(ist.pos, ist.gradC, ist.edge, ist.constraints, ist.rest_len) # required by dlam2dpos
-        b = AMG_b()
-        if args.use_PXPBD_v1:
-            G = fill_G()
-            b, Minv_gg = AMG_PXPBD_v1_b(G)
-        x, r_Axb = linsol.run(b)
-        if args.use_PXPBD_v1:
-            AMG_PXPBD_v1_dlam2dpos(x, G, Minv_gg)
-        elif args.use_PXPBD_v2:
-            AMG_PXPBD_v2_dlam2dpos(x)
-        else:
-            AMG_dlam2dpos(x)
-        ist.r_iter.calc_r(ist.frame,ist.ite, tic_iter, r_Axb)
-        export_mat(ist, get_A0_cuda, b)
-        logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        if ist.r_iter.check():
-            break
-    tic = time.perf_counter()
-    logging.info(f"n_outer: {ist.ite+1}")
-    ist.n_outer_all.append(ist.ite+1)
-    update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
-    logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
-
-
-
-def substep_Newton(ist,newton):
-    tic1 = time.perf_counter()
-    semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos, args.delta_t)
-    logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
-    ist.r_iter.calc_r0()
-    for ist.ite in range(args.maxiter):
-        converge = newton.step_one_iter(ist.pos)
-        if converge:
-            break
-    tic = time.perf_counter()
-    logging.info(f"n_outer: {ist.ite+1}")
-    ist.n_outer_all.append(ist.ite+1)
-    update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
-    ist.old_pos.from_numpy(ist.pos.to_numpy())
-    logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
-
-
-
-@ti.kernel
-def copy_field(dst: ti.template(), src: ti.template()):
-    for i in src:
-        dst[i] = src[i]
 
 
 
@@ -743,13 +607,6 @@ def init_scale():
 # ---------------------------------------------------------------------------- #
 #                                 start fill A                                 #
 # ---------------------------------------------------------------------------- #
-def dict_to_ndarr(d:dict)->np.ndarray:
-    lengths = np.array([len(v) for v in d.values()])
-
-    max_len = max(len(item) for item in d.values())
-    # 使用填充或截断的方式转换为NumPy数组
-    arr = np.array([list(item) + [-1]*(max_len - len(item)) if len(item) < max_len else list(item)[:max_len] for item in d.values()])
-    return arr, lengths
 
 
 # for cnt version, require init_A_CSR_pattern() to be called first
@@ -760,7 +617,7 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
                     jj:ti.types.ndarray(dtype=ti.i32),
                     adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
                     num_nonz:ti.i32,
-                    alpha:ti.f32):
+                    alpha_tilde:ti.f32):
     for cnt in range(num_nonz):
         i = ii[cnt] # row index
         j = jj[cnt] # col index
@@ -768,7 +625,7 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
         # Because the diag is the final element of each row, 
         # it is also the k-th adjacent edge of i-th edge.
         if i == j: # diag
-            data[cnt] = ist.inv_mass[ist.edge[i][0]] + ist.inv_mass[ist.edge[i][1]] + alpha
+            data[cnt] = ist.inv_mass[ist.edge[i][0]] + ist.inv_mass[ist.edge[i][1]] + alpha_tilde
             continue
         a = adjacent_edge_abc[i, k * 3]
         b = adjacent_edge_abc[i, k * 3 + 1]
@@ -781,7 +638,7 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
 
 
 # legacy
-def fill_A_by_spmm(M_inv, ALPHA):
+def fill_A_by_spmm(M_inv, ALPHA_TILDE):
     tic = time.perf_counter()
     G_ii, G_jj, G_vv = np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.float32)
     fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, ist.gradC, ist.edge)
@@ -805,7 +662,7 @@ def fill_A_by_spmm(M_inv, ALPHA):
         M_inv.data[0,where_zeros] = 0.0
         ...
 
-    A = G @ M_inv @ G.transpose() + ALPHA
+    A = G @ M_inv @ G.transpose() + ALPHA_TILDE
     A = scipy.sparse.csr_matrix(A)
     print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
     return A, G
@@ -819,17 +676,17 @@ def fastFill_fetch():
 
 
 # @ti.kernel
-# def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha:ti.f32, inv_mass:ti.template(), edge:ti.template()):
+# def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha_tilde:ti.f32, inv_mass:ti.template(), edge:ti.template()):
 #     for i in range(edge.shape[0]):
-#         diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha
+#         diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha_tilde
 
 
 @ti.kernel
-def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha:ti.f32):
+def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha_tilde:ti.f32):
     n = 0
     ist.NE = ist.adjacent_edge.shape[0]
     ti.loop_config(serialize=True)
-    for i in range(ist.NE): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
+    for i in range(ist.edge.shape[0]): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
         for k in range(num_adjacent_edge[i]):
             ia = adjacent_edge[i,k]
             a = adjacent_edge_abc[i, k * 3]
@@ -847,13 +704,13 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
         # diag
         ii[n] = i
         jj[n] = i
-        vv[n] = inv_mass[ist.edge[i][0]] + inv_mass[ist.edge[i][1]] + alpha
+        vv[n] = inv_mass[ist.edge[i][0]] + inv_mass[ist.edge[i][1]] + alpha_tilde
         n += 1 
 
 
 
 def fill_A_csr_ti(ist):
-    fill_A_CSR_kernel(ist.spmat.data, ist.spmat.indptr, ist.spmat.ii, ist.spmat.jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha)
+    fill_A_CSR_kernel(ist.spmat.data, ist.spmat.indptr, ist.spmat.ii, ist.spmat.jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha_tilde)
     A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NE, ist.NE))
     return A
 
@@ -888,7 +745,7 @@ def fill_A_in_cuda():
     """Assemble A in cuda end"""
     tic2 = perf_counter()
     if args.use_withK:
-        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
+        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA_TILDE)
         extlib.fastmg_set_A0(A.data.astype(np.float32), A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
     else:
         extlib.fastFillCloth_run(ist.pos.to_numpy())
@@ -898,7 +755,7 @@ def fill_A_in_cuda():
 def get_A0_python()->scipy.sparse.csr_matrix:
     """get A0 from python end for build_P"""
     if args.use_withK:
-        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
+        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA_TILDE)
     else:
         A = fill_A_csr_ti(ist)
     return A
@@ -906,7 +763,7 @@ def get_A0_python()->scipy.sparse.csr_matrix:
 def get_A0_cuda()->scipy.sparse.csr_matrix:
     """get A0 from cuda end for build_P"""
     if args.use_withK:
-        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA)
+        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA_TILDE)
     else:
         fill_A_in_cuda()
         A = fetch_A_from_cuda(0)
@@ -915,7 +772,16 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #
 # ---------------------------------------------------------------------------- #
-
+def should_setup():
+    if ist.ite != 0:
+        return False
+    if ist.frame==1:
+        return True
+    if ist.frame%args.setup_interval==0:
+        return True
+    if args.restart and ist.frame==ist.initial_frame:
+        return True
+    return False
 
 
 def init_linear_solver(args):
@@ -947,22 +813,18 @@ def init_linear_solver(args):
     return linsol
 
 
-def init_r_iter(args, ist):
-    ist.r_iter = ResidualDataOneIter(args, 
-                                    calc_dual=calc_dual,
-                                    calc_primal=calc_primal, calc_total_energy=calc_total_energy, calc_strain=calc_strain)
-
 
 def init_fill():
+    if args.solver_type == "XPBD" or args.solver_type == "NEWTON":
+        return
     tic = time.perf_counter()
-    if args.solver_type != "XPBD":
-        from engine.cloth.fill_A import FillACloth
-        fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha,  args.use_cache, args.use_cuda, extlib)
-        fill_A.init()
-        ist.spmat = fill_A.spmat
-        ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
-        ist.num_adjacent_edge = fill_A.num_adjacent_edge
-        ist.num_nonz = fill_A.num_nonz
+    from engine.cloth.fill_A import FillACloth
+    fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha_tilde,  args.use_cache, args.use_cuda, extlib)
+    fill_A.init()
+    ist.spmat = fill_A.spmat
+    ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
+    ist.num_adjacent_edge = fill_A.num_adjacent_edge
+    ist.num_nonz = fill_A.num_nonz
     logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
 
@@ -988,9 +850,8 @@ def init():
 
     if args.solver_type == "NEWTON":
         from engine.cloth.newton_method import NewtonMethod
-        ist.newton = NewtonMethod(ist)
+        ist = NewtonMethod()
 
-    init_r_iter(args, ist)
 
     if args.setup_num == 1:
         init_scale()
@@ -1005,43 +866,11 @@ def init():
 
 
 
-def run():
-    ist.timer_loop = time.perf_counter()
-    ist.initial_frame = ist.frame
-    step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
-    ist.r_all.t_export = 0.0
-
-    try:
-        for f in range(ist.initial_frame, args.end_frame):
-            ist.tic_frame = time.perf_counter()
-            ist.r_frame.t_export = 0.0
-
-            if args.solver_type == "XPBD":
-                substep_xpbd()
-            elif args.solver_type == "NEWTON":
-                substep_Newton(ist, ist.newton)
-            else:
-                substep_all_solver()
-
-            export_after_substep(ist,args)
-            ist.r_all.t_export += ist.r_frame.t_export
-            ist.frame += 1
-
-            logging.info("\n")
-            step_pbar.update(1)
-            logging.info("")
-            if ist.frame >= args.end_frame:
-                print("Normallly end.")
-                ending(args,ist)
-
-    except KeyboardInterrupt:
-        print("KeyboardInterrupt")
-        ending(args,ist)
-
 
 def main():
     init()
-    run()
+    from engine.util import main_loop
+    main_loop(ist, args)
 
 if __name__ == "__main__":
     main()

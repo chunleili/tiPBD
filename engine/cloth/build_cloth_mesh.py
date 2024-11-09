@@ -19,7 +19,7 @@ class TriMeshCloth:
         rest_len.from_numpy(self.rest_len)
 
     def build(self):
-        self.pos, self.edge, self.tri = self.read_tri_cloth_obj(self.mesh_file)
+        self.pos, self.edge, self.tri = self.read_tri_cloth_mesh(self.mesh_file)
         self.NV = len(self.pos)
         self.NT = len(self.tri)
         self.NE = len(self.edge)
@@ -29,10 +29,10 @@ class TriMeshCloth:
         self.fixed_points = [0, self.NV-1]
         self.init_mass(self.inv_mass, self.fixed_points)
         return self.pos, self.edge, self.tri, self.inv_mass, self.rest_len
-
+    
 
     @staticmethod
-    def read_tri_cloth_obj(path):
+    def read_tri_cloth_mesh(path):
         import meshio
         print(f"path is {path}")
         mesh = meshio.read(path)
@@ -268,3 +268,28 @@ def write_and_rebuild_topology(edge:np.ndarray, tri:np.ndarray, out_dir:str):
 
 
 
+class TriMeshClothTxt(TriMeshCloth):
+    def __init__(self, pos_file, edge_file, tri_file) -> None:
+        self.pos_file = pos_file
+        self.edge_file = edge_file
+        self.tri_file = tri_file
+
+    def build(self):
+        self.pos, self.edge, self.tri = self.read_from_txt(self.pos_file, self.edge_file, self.tri_file)
+        self.NV = len(self.pos)
+        self.NT = len(self.tri)
+        self.NE = len(self.edge)
+        self.rest_len = np.zeros(self.NE, dtype=np.float32)
+        self.inv_mass = np.ones(self.NV, dtype=np.float32)
+        self.init_rest_len(self.edge, self.rest_len, self.pos)
+        self.fixed_points = [0, self.NV-1]
+        self.init_mass(self.inv_mass, self.fixed_points)
+        return self.pos, self.edge, self.tri, self.inv_mass, self.rest_len
+    
+    @staticmethod
+    def read_from_txt(pos_file, edge_file, tri_file):
+        """Read directly from 3 txt file. It is useful for debug"""
+        edge = np.loadtxt(edge_file, dtype=np.int32)
+        tri = np.loadtxt(tri_file, dtype=np.int32).reshape(-1, 3)
+        pos = np.loadtxt(pos_file, dtype=np.float32)
+        return pos, edge, tri

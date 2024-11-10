@@ -1,5 +1,5 @@
 import numpy as np
-
+import taichi as ti
 from enum import Enum
 class ConstraintType(Enum):
     STRETCH = 0
@@ -21,7 +21,23 @@ class SpringConstraint(Constraint):
         self.type = type
 
     def __str__(self):
-        return f"SpringConstraint: {self.p1} - {self.p2} rest_len: {self.rest_len} stiffness: {self.stiffness} type: {self.type}"
+        return f"SpringConstraint: {self.p1} - {self.p2} rest_len: {self.rest_len:.10g} stiffness: {self.stiffness} type: {self.type.name.lower()}"
+
+    def __eq__(self, value: object) -> bool:
+        if not isinstance(value, SpringConstraint):
+            return False
+        if self.p1 != value.p1:
+            return False
+        if self.p2 != value.p2:
+            return False
+        if self.rest_len != value.rest_len:
+            return False
+        if self.stiffness != value.stiffness:
+            return False
+        if self.type != value.type:
+            return False
+        return True
+
 
 class AttachmentConstraint(Constraint):
     def __init__(self, stiffness:float, p0:int, fixed_point:np.ndarray):
@@ -32,8 +48,20 @@ class AttachmentConstraint(Constraint):
         self.type = ConstraintType.ATTACHMENT
 
     def __str__(self):
-        return f"AttachmentConstraint: {self.p0} fixed_point: {self.fixed_point} stiffness: {self.stiffness} type: {self.type}"
+        return f"AttachmentConstraint: {self.p0} fixed_point: {self.fixed_point} stiffness: {self.stiffness} type: {self.type.name.lower()}"
 
+    def __eq__(self, value: object) -> bool:
+        if not isinstance(value, AttachmentConstraint):
+            return False
+        if self.p0 != value.p0:
+            return False
+        if self.type != value.type:
+            return False
+        if not np.allclose(self.fixed_point, value.fixed_point):
+            return False
+        if self.stiffness != value.stiffness:
+            return False
+        return True
 
 class Mesh:
     def __init__(self, dim, pos, edge):
@@ -54,14 +82,6 @@ class SetupConstraints:
         ac = AttachmentConstraint(self.stiffness_attachment, vertex_index, self.mesh.current_positions[vertex_index])
         self.constraints.append(ac)
 
-    def print_constraints(self, to_file=False):
-        if to_file:
-            with open("constraints.txt", "a") as f:
-                for i in self.constraints:
-                    print(i,file=f)
-        else:
-            for i in self.constraints:
-                print(i)
                 
     def setup_constraints(self):
         # generate attachment constraints.
@@ -91,3 +111,39 @@ class SetupConstraints:
                     c = SpringConstraint(self.stiffness_bending, index_self, index_column_1, np.linalg.norm(p1 - p2), type=ConstraintType.ΒENDING)
                     self.constraints.append(c)
         return self.constraints
+    
+    
+    def read_constraints(self,file):
+        constraints = []
+        with open(file, "rt") as f:
+            lines = f.readlines()
+            for line in lines:
+                if "SpringConstraint" in line:
+                    parts = line.split()
+                    p1 = int(parts[1])
+                    p2 = int(parts[3])
+                    rest_len = float(parts[5])
+                    stiffness = float(parts[7])
+                    if parts[9] == "bending":
+                        type = ConstraintType.ΒENDING
+                    else:
+                        type = ConstraintType.STRETCH
+                    c = SpringConstraint(stiffness, p1, p2, rest_len, type)
+                    constraints.append(c)
+                elif "AttachmentConstraint" in line:
+                    line = line.replace("(", "")
+                    line = line.replace(")", "")
+                    line = line.replace(",", " ")
+                    parts = line.split()
+                    for i,p in enumerate(parts):
+                        if p == "vertex":
+                            p0 = int(parts[i+1])
+                        elif p == "fixed_point:":
+                            fixed_point = np.array([float(parts[i+1]), float(parts[i+2]), float(parts[i+3])])
+                        elif p == "stiffness:":
+                            stiffness = float(parts[i+1])
+                        
+                    c = AttachmentConstraint(stiffness, p0, fixed_point)
+                    constraints.append(c)
+        return constraints    
+    

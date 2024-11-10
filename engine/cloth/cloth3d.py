@@ -855,7 +855,9 @@ def init():
 
     if args.setup_num == 1:
         init_scale()
-    write_mesh(args.out_dir + f"/mesh/{0:04d}", ist.pos.to_numpy(), ist.tri)
+        
+    pos_np = ist.pos.to_numpy() if type(ist.pos) != np.ndarray else ist.pos
+    write_mesh(args.out_dir + f"/mesh/{0:04d}", pos_np, ist.tri)
 
     init_fill()
 

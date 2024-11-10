@@ -239,7 +239,8 @@ def export_after_substep(ist, args, **kwargs):
     from engine.file_utils import save_state
     ist.tic_export = time.perf_counter()
     if args.export_mesh:
-        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.tri)
+        pos_np = ist.pos.to_numpy() if type(ist.pos) != np.ndarray else ist.pos
+        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", pos_np, ist.tri)
         if args.export_strain:
             if ist.sim_type == "cloth":
                 # v1: simply write txt, need post process
@@ -247,7 +248,7 @@ def export_after_substep(ist, args, **kwargs):
                 # v2: write mesh with strain directly in simulation
                 tri = ist.tri
                 ist.strain_cell = edge_data_to_tri_data(ist.e2t, ist.strain.to_numpy(), tri)
-                write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), tri, strain=ist.strain_cell, binary=True)
+                write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", pos_np, tri, strain=ist.strain_cell, binary=True)
     if args.export_state:
         save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
     ist.r_frame.t_export += time.perf_counter()-ist.tic_export
@@ -424,6 +425,16 @@ def timeit(method):
         ts = perf_counter()
         result = method(*args, **kw)
         te = perf_counter()
-        print(f"    {method.__name__} took: {(te-ts)*1000:.1f}ms")
+        print(f"    {method.__name__} took: {(te-ts)*1000:.0f}ms")
         return result
     return timed
+
+
+def norm_sqr(x):
+    return np.linalg.norm(x)**2
+
+def norm(x):
+    return np.linalg.norm(x)
+
+def normalize(x):
+    return x / np.linalg.norm(x)

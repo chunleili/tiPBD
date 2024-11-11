@@ -1644,8 +1644,11 @@ args = ["engine/cloth/cloth3d.py",
         "-solver_type=NEWTON",
         "-cloth_mesh_type=txt",
         "-delta_t=0.0333",
-        "-use_cuda=0",
-        "-maxiter=10"
+        "-use_cuda=1",
+        "-maxiter=10",
+        "-calc_energy=1",
+        "-compliance=0.00833333333333333", #1.0/120.0
+        "-N=20"
         ]
 allargs.append(args)
 
@@ -1663,17 +1666,6 @@ def run_case(case_num:int):
         args = [pythonExe, *args]
     log_args(args)
 
-    # call(args)
-
-    # stderr_file = f"result/meta/stderr_{case_num}.txt"
-    # with open(stderr_file, "w") as f:
-    #     try:
-    #         subprocess.check_call(args, stderr=f)
-    #     except Exception as e:
-    #     # except subprocess.CalledProcessError as e:
-    #         date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
-    #         logging.exception(f"Case {case_num} failed with error\nDate={date}\nSee {stderr_file} for details\n")
-    #         # raise
     try:
         subprocess.check_call(args)
     except subprocess.CalledProcessError as e:

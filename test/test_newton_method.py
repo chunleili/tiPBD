@@ -35,9 +35,17 @@ class TestNewtonMethod(NewtonMethod):
         self.constraintsNew = cons
 
     
+    def test_evaluateHessian(self, x):
+        hessian_py = self.calc_hessian_imply_py(x)
+        hessian_ti = self.calc_hessian_imply_ti(x)
+        from engine.util import csr_is_equal
+        csr_is_equal(hessian_py,hessian_ti)
+        return hessian_py
+    
 
 if __name__ == '__main__':
     t = TestNewtonMethod()
     t.prepare_data()
     t.test_read_constraints()
     t.test_obj_function()
+    t.test_evaluateHessian(t.x)

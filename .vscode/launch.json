@@ -28,19 +28,12 @@
             "name": "Python: Current File",
             "type": "debugpy",
             "request": "launch",
-            // "program": "engine/cloth/cloth3d.py",
-            "program": "${file}",
+            "program": "engine/cloth/cloth3d.py",
+            // "program": "${file}",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-              "-solver_type=NEWTON",
-              "-cloth_mesh_type=txt",
-              "-delta_t=0.0333",
-              "-use_cuda=1",
-              "-maxiter=10",
-              "-calc_energy=1",
-              "-compliance=0.00833333333333333", //1.0/120.0
-              "-N=20"
+
             ]
           }
     ]

@@ -78,8 +78,11 @@ class SetupConstraints:
         self.stiffness_stretch = 1.0/args.compliance
         self.stiffness_bending = 20.0
         self.stiffness_attachment = self.stiffness_stretch
-        self.constraints = []
         self.fixed_points_num = [0, self.mesh.dim[1] * (self.mesh.dim[0] - 1)]
+        self.constraints = []
+        self.setup_constraints()
+        self.adapter = constraintsAdapter(self.constraints) #FIXME: no attachment now
+        
 
     def add_attachment_constraint(self, vertex_index):
         ac = AttachmentConstraint(self.stiffness_attachment, vertex_index, self.mesh.current_positions[vertex_index])
@@ -88,8 +91,9 @@ class SetupConstraints:
                 
     def setup_constraints(self):
         # generate attachment constraints.
-        for idx in self.fixed_points_num:
-            self.add_attachment_constraint(idx)
+        # for idx in self.fixed_points_num:
+        #     self.add_attachment_constraint(idx)
+
         # self.add_attachment_constraint(0)
         # self.add_attachment_constraint(self.mesh.dim[1] * (self.mesh.dim[0] - 1))
 
@@ -155,3 +159,39 @@ class SetupConstraints:
                     constraints.append(c)
         return constraints    
     
+
+
+@ti.data_oriented
+class constraintsAdapter:
+    def __init__(self, constraintsNew):
+        NVERTS_ONE_CONS = 2
+
+        self.constraintsNew = constraintsNew
+        NCONS = len(constraintsNew)
+        self.NCONS = NCONS
+        self.val_np = np.zeros(dtype=np.float32, shape=NCONS)
+        self.rest_len_np = np.zeros(dtype=np.float32, shape=NCONS)
+        self.vert_np = np.zeros(dtype=np.int32, shape=(NCONS, NVERTS_ONE_CONS)) 
+        self.stiffness_np = np.zeros(dtype=np.float32, shape=NCONS)
+        self.list_to_ndarray()
+
+
+        self.val = ti.field(dtype=float, shape=NCONS)
+        self.rest_len = ti.field(dtype=float, shape=NCONS)
+        self.vert = ti.Vector.field(NVERTS_ONE_CONS, dtype=int, shape=NCONS)
+        self.stiffness = ti.field(dtype=float, shape=NCONS)
+        self.ndarray_to_fields()
+    
+
+    def list_to_ndarray(self):
+        for i in range(self.NCONS):
+            self.rest_len_np[i] = self.constraintsNew[i].rest_len
+            self.vert_np[i, 0] = self.constraintsNew[i].p1
+            self.vert_np[i, 1] = self.constraintsNew[i].p2
+            self.stiffness_np[i] = self.constraintsNew[i].stiffness
+
+    def ndarray_to_fields(self):
+        self.val.from_numpy(self.val_np)
+        self.rest_len.from_numpy(self.rest_len_np)
+        self.vert.from_numpy(self.vert_np)
+        self.stiffness.from_numpy(self.stiffness_np)

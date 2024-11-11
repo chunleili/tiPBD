@@ -438,3 +438,50 @@ def norm(x):
 
 def normalize(x):
     return x / np.linalg.norm(x)
+
+
+
+def spy_A(A,b):
+    import scipy.io
+    import matplotlib.pyplot as plt
+    print("A:", A.shape, " b:", b.shape)
+    scipy.io.mmwrite("A.mtx", A)
+    plt.spy(A, markersize=1)
+    plt.show()
+    exit()
+
+
+def is_symmetric(A):
+    AT = A.transpose()
+    diff = A - AT
+    if diff.nnz == 0:
+        return True
+    maxdiff = np.max(np.abs(diff.data))
+    return maxdiff < 1e-6
+
+def csr_is_equal(A, B, tol=1e-4):
+    if A.shape != B.shape:
+        print("shape not equal")
+        assert False
+    diff = A - B
+    if diff.nnz == 0:
+        print("csr is equal! nnz=0")
+        return True
+    maxdiff = np.abs(diff.data).max()
+    where = np.abs(diff.data).argmax()
+    coo = A.tocoo()
+    i,j = coo.row[where], coo.col[where]
+    print("maxdiff: ", maxdiff)
+    if maxdiff > tol:
+        assert False, f"maxdiff:{maxdiff}, where=({i},{j})"
+    print("csr is equal!")
+    return True
+
+def dense_mat_is_equal(A, B):
+    diff = A - B
+    maxdiff = np.abs(diff).max()
+    print("maxdiff: ", maxdiff)
+    if maxdiff > 1e-6:
+        assert False
+    print("is equal!")
+    return True

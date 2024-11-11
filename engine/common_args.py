@@ -1,5 +1,5 @@
 def add_common_args(parser):
-    parser.add_argument("-maxiter", type=int, default=50)
+    parser.add_argument("-maxiter", type=int, default=10)
     parser.add_argument("-delta_t", type=float, default=1e-3)
     parser.add_argument("-solver_type", type=str, default="AMG", choices=["XPBD",  "AMG", "AMGX", "DIRECT", "LUMPED", "GS","NEWTON"])
     parser.add_argument("-end_frame", type=int, default=10)

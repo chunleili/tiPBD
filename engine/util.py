@@ -288,7 +288,7 @@ def calc_total_energy(ist, update_constraints):
 
 
 def compute_potential_energy(ist)->float:
-    res = compute_potential_energy_kernel(ist.constraints, ist.compliance)
+    res = compute_potential_energy_kernel(ist.constraints, ist.alpha_tilde, ist.delta_t)
     return res
 
 def compute_inertial_energy(ist)->float:
@@ -298,11 +298,12 @@ def compute_inertial_energy(ist)->float:
 @ti.kernel
 def compute_potential_energy_kernel(
     constraints: ti.template(),
-    compliance: ti.f32,
+    alpha_tilde: ti.template(),
+    delta_t: ti.f32,
 )->ti.f32:
     potential_energy = 0.0
-    inv_alpha = 1.0/compliance
     for i in range(constraints.shape[0]):
+        inv_alpha =  1.0 / (alpha_tilde[i]*delta_t**2)
         potential_energy += 0.5 * inv_alpha * constraints[i]**2
     return potential_energy
 

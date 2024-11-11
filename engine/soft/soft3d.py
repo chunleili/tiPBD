@@ -79,6 +79,8 @@ class SoftBody:
         self.r_all = ResidualDataAllFrame([],[])
         self.mesh_file = mesh_file
         self.args = args
+        self.delta_t = args.delta_t
+
 
         dir = str(Path(mesh_file).parent.stem)
         self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
@@ -125,7 +127,7 @@ class SoftBody:
 
         self.par_2_tet = ti.field(int, NV)
         self.gradC = ti.Vector.field(3, ti.f32, shape=(NT, 4))
-        self.constraint = ti.field(ti.f32, shape=(NT))
+        self.constraints = ti.field(ti.f32, shape=(NT))
         self.dpos = ti.Vector.field(3, ti.f32, shape=(NV))
         self.residual = ti.field(ti.f32, shape=NT)
         self.dual_residual = ti.field(ti.f32, shape=NT)
@@ -186,7 +188,7 @@ class SoftBody:
             self.B,
             self.pos,
             self.alpha_tilde,
-            self.constraint,
+            self.constraints,
             self.residual,
             self.gradC,
             self.dlambda,
@@ -197,7 +199,7 @@ class SoftBody:
         semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, gravity)
 
     def compute_C_and_gradC(self):
-        compute_C_and_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.constraint, self.gradC)
+        compute_C_and_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.constraints, self.gradC)
     
     def dlam2dpos(self,x):
         tic = time.perf_counter()
@@ -208,7 +210,7 @@ class SoftBody:
         update_vel_kernel(args.delta_t, self.pos, self.old_pos, self.vel)
     
     def compute_b(self):
-        b = -self.constraint.to_numpy() - self.alpha_tilde_np * self.lagrangian.to_numpy()
+        b = -self.constraints.to_numpy() - self.alpha_tilde_np * self.lagrangian.to_numpy()
         return b
     
     def solve_constraints_xpbd(self):
@@ -220,7 +222,7 @@ class SoftBody:
             self.B,
             self.pos,
             self.alpha_tilde,
-            self.constraint,
+            self.constraints,
             self.residual,
             self.gradC,
             self.dlambda,
@@ -256,7 +258,7 @@ class SoftBody:
             tic = time.perf_counter()
             self.solve_constraints_xpbd()
             collsion_response(self.pos)
-            calc_dual_residual(self.alpha_tilde, self.lagrangian, self.constraint, self.dual_residual)
+            calc_dual_residual(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
             dualr = np.linalg.norm(self.residual.to_numpy())
             if self.ite == 0:
                 dualr0 = dualr.copy()
@@ -295,7 +297,7 @@ def substep_xpbd(ist):
             ist.B,
             ist.pos,
             ist.alpha_tilde,
-            ist.constraint,
+            ist.constraints,
             ist.residual,
             ist.gradC,
             ist.dlambda,
@@ -303,7 +305,7 @@ def substep_xpbd(ist):
             args.omega
         )
         collsion_response(ist.pos)
-        calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
+        calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
         dualr = np.linalg.norm(ist.residual.to_numpy())
         if ist.ite == 0:
             dualr0 = dualr.copy()
@@ -334,7 +336,7 @@ def substep_all_solver(ist):
     for ist.ite in range(args.maxiter):
         tic_iter = perf_counter()
         ist.pos_mid.from_numpy(ist.pos.to_numpy())
-        compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
+        compute_C_and_gradC_kernel(ist.pos_mid, ist.tet_indices, ist.B, ist.constraints, ist.gradC)
         if ist.ite==0:
             dual0 = calc_dual(ist)
         b = AMG_b(ist)
@@ -534,7 +536,7 @@ def solve_constraints_kernel(
     B: ti.template(),
     pos: ti.template(),
     alpha_tilde: ti.template(),
-    constraint: ti.template(),
+    constraints: ti.template(),
     residual: ti.template(),
     gradC: ti.template(),
     dlambda: ti.template(),
@@ -553,7 +555,7 @@ def solve_constraints_kernel(
         D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
         F = D_s @ B[t]
         U, S, V = ti.svd(F)
-        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        constraints[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
         gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
         denominator = (
@@ -562,7 +564,7 @@ def solve_constraints_kernel(
             + inv_mass[p2] * g2.norm_sqr()
             + inv_mass[p3] * g3.norm_sqr()
         )
-        residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+        residual[t] = -(constraints[t] + alpha_tilde[t] * lagrangian[t])
         dlambda[t] = residual[t] / (denominator + alpha_tilde[t])
         lagrangian[t] += dlambda[t]
 
@@ -572,7 +574,7 @@ def compute_C_and_gradC_kernel(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
     B: ti.template(),
-    constraint: ti.template(),
+    constraints: ti.template(),
     gradC: ti.template(),
 ):
     for t in range(tet_indices.shape[0]):
@@ -584,7 +586,7 @@ def compute_C_and_gradC_kernel(
         D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
         F = D_s @ B[t]
         U, S, V = ti.svd(F)
-        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        constraints[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
         # g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
         # g0_ = g0/g0.norm()
@@ -595,7 +597,7 @@ def compute_C_and_gradC_kernel(
 
 
 def update_constraints():
-    update_constraints_kernel(ist.pos, ist.tet_indices, ist.B, ist.constraint)
+    update_constraints_kernel(ist.pos, ist.tet_indices, ist.B, ist.constraints)
 
 
 @ti.kernel
@@ -603,7 +605,7 @@ def update_constraints_kernel(
     pos: ti.template(), #pos not pos_mid
     tet_indices: ti.template(),
     B: ti.template(),
-    constraint: ti.template(),
+    constraints: ti.template(),
 ):
     for t in range(tet_indices.shape[0]):
         p0 = tet_indices[t][0]
@@ -614,18 +616,18 @@ def update_constraints_kernel(
         D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
         F = D_s @ B[t]
         U, S, V = ti.svd(F)
-        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        constraints[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
 
 
 @ti.kernel
 def compute_dual_residual(
-    constraint: ti.template(),
+    constraints: ti.template(),
     alpha_tilde: ti.template(),
     lagrangian: ti.template(),
     dual_residual:ti.template()
 ):
     for t in range(dual_residual.shape[0]):
-        dual_residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+        dual_residual[t] = -(constraints[t] + alpha_tilde[t] * lagrangian[t])
 
 
 @ti.kernel
@@ -637,7 +639,7 @@ def solve_constraints_kernel(
     B: ti.template(),
     pos: ti.template(),
     alpha_tilde: ti.template(),
-    constraint: ti.template(),
+    constraints: ti.template(),
     residual: ti.template(),
     gradC: ti.template(),
     dlambda: ti.template(),
@@ -659,7 +661,7 @@ def solve_constraints_kernel(
         D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
         F = D_s @ B[t]
         U, S, V = ti.svd(F)
-        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        constraints[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
         gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
         denorminator = (
@@ -668,7 +670,7 @@ def solve_constraints_kernel(
             + inv_mass[p2] * g2.norm_sqr()
             + inv_mass[p3] * g3.norm_sqr()
         )
-        residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+        residual[t] = -(constraints[t] + alpha_tilde[t] * lagrangian[t])
         dlambda[t] = residual[t] / (denorminator + alpha_tilde[t])
 
         lagrangian[t] += dlambda[t]
@@ -760,10 +762,10 @@ def compute_inertial_energy(inertial_energy:ti.template(),
 @ti.kernel
 def calc_dual_residual(alpha_tilde:ti.template(),
                        lagrangian:ti.template(),
-                       constraint:ti.template(),
+                       constraints:ti.template(),
                        dual_residual:ti.template()):
     for i in range(dual_residual.shape[0]):
-        dual_residual[i] = -(constraint[i] + alpha_tilde[i] * lagrangian[i])
+        dual_residual[i] = -(constraints[i] + alpha_tilde[i] * lagrangian[i])
 
 def calc_primary_residual(G,M_inv,predict_pos,pos,lagrangian):
     MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
@@ -808,14 +810,14 @@ def fill_A_by_spmm(ist,  M_inv, ALPHA):
 
 
 def calc_dual():
-    calc_dual_residual(ist.dual_residual, ist.lagrangian, ist.constraint, ist.dual_residual)
+    calc_dual_residual(ist.dual_residual, ist.lagrangian, ist.constraints, ist.dual_residual)
     dual = calc_norm(ist.dual_residual)
     return dual
 
 
 
 def AMG_b(ist):
-    b = -ist.constraint.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
+    b = -ist.constraints.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
     return b
 
 
@@ -847,7 +849,7 @@ def AMG_calc_r(r,dual0, tic_iter, r_Axb):
 
     t_iter = perf_counter()-tic_iter
     tic_calcr = perf_counter()
-    calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
+    calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
     dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
     r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
 

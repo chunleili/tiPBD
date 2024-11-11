@@ -71,12 +71,15 @@ class Mesh:
         
 
 class SetupConstraints:
-    def __init__(self, pos, edge):
-        self.mesh = Mesh((21, 21), pos, edge)
-        self.stiffness_stretch = 80.0
+    def __init__(self, pos, edge, args):
+        self.args = args
+        # self.mesh = Mesh((21, 21), pos, edge)
+        self.mesh = Mesh((args.N+1, args.N+1), pos, edge)
+        self.stiffness_stretch = 1.0/args.compliance
         self.stiffness_bending = 20.0
-        self.stiffness_attachment = 120.0
+        self.stiffness_attachment = self.stiffness_stretch
         self.constraints = []
+        self.fixed_points_num = [0, self.mesh.dim[1] * (self.mesh.dim[0] - 1)]
 
     def add_attachment_constraint(self, vertex_index):
         ac = AttachmentConstraint(self.stiffness_attachment, vertex_index, self.mesh.current_positions[vertex_index])
@@ -85,8 +88,10 @@ class SetupConstraints:
                 
     def setup_constraints(self):
         # generate attachment constraints.
-        self.add_attachment_constraint(0)
-        self.add_attachment_constraint(self.mesh.dim[1] * (self.mesh.dim[0] - 1))
+        for idx in self.fixed_points_num:
+            self.add_attachment_constraint(idx)
+        # self.add_attachment_constraint(0)
+        # self.add_attachment_constraint(self.mesh.dim[1] * (self.mesh.dim[0] - 1))
 
         # generate stretch constraints. assign a stretch constraint for each edge.
         for e in self.mesh.edge_list:
@@ -94,6 +99,9 @@ class SetupConstraints:
             p2 = self.mesh.current_positions[e[1]]
             c = SpringConstraint(self.stiffness_stretch, e[0], e[1], np.linalg.norm(p1 - p2))
             self.constraints.append(c)
+
+        if not self.args.use_bending:
+            return self.constraints
 
         # generate bending constraints. naive
         for i in range(self.mesh.dim[0]):

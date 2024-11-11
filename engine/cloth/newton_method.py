@@ -56,7 +56,7 @@ class NewtonMethod(Cloth):
         self.stiffness = 80.0 # FIXME
         self.stiffness_attachment = 120.0 # FIXME
 
-        setupConstraints = SetupConstraints(self.pos, self.edge.to_numpy())
+        setupConstraints = SetupConstraints(self.pos, self.edge.to_numpy(), self.args)
         setupConstraints.setup_constraints()
         self.constraintsNew = setupConstraints.constraints
         self.setupConstraints = setupConstraints
@@ -118,7 +118,8 @@ class NewtonMethod(Cloth):
             return False
         
     def set_mass(self):
-        pmass = 1.0 / self.NV
+        # pmass = 1.0 / self.NV
+        pmass = 1.0
         self.MASS = scipy.sparse.diags([pmass]*self.NV*3)
         self.M_inv = scipy.sparse.diags([1.0/pmass]*self.NV*3)
         self.inv_mass_np = np.array([1.0/pmass]*self.NV)
@@ -262,3 +263,6 @@ class NewtonMethod(Cloth):
         l0 = c.rest_len
         res = 0.5 * c.stiffness * (l_ij - l0) ** 2
         return res 
+    
+    def calc_total_energy(self):
+        return super().calc_total_energy()

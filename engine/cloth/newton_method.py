@@ -126,9 +126,10 @@ class NewtonMethod(Cloth):
         # scipy.io.mmwrite('mass.mtx', self.MASS)
         
         
-    def calc_external_force(self, gravity=None):
+    def calc_external_force(self, gravity=[0,-9.8,0]):
+        # gravity = [0,-100,0] fast mass spring
         self.external_force = np.zeros(self.NV*3, dtype=np.float32)
-        gravity_constant = np.array([0, -100, 0]) #FIXME
+        gravity_constant = np.array(gravity) #FIXME
         ext = np.tile(gravity_constant, self.NV)
         self.external_force = self.MASS @ ext
         
@@ -243,7 +244,8 @@ class NewtonMethod(Cloth):
         inertia_term = 0.5 * x_diff.transpose() @ self.MASS @ x_diff
 
         h_square = self.delta_t * self.delta_t
-        res = inertia_term + potential_term * h_square
+        # res = inertia_term + potential_term * h_square #fast mass spring
+        res = inertia_term/h_square + potential_term
         return res
     
     # // 0.5*k*(current_length)^2

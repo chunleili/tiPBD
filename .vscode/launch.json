@@ -33,11 +33,12 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-              "-solver_type=NEWTON",
+              "-solver_type=AMG",
               "-cloth_mesh_type=txt",
               "-delta_t=0.0333",
               "-use_cuda=0",
-              "-maxiter=10"
+              "-maxiter=10",
+              "-calc_energy=1"
             ]
           }
     ]

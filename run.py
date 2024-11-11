@@ -1635,6 +1635,19 @@ args = ["engine/cloth/cloth3d.py",
         ]
 allargs.append(args)
 
+# case151 NEWTON
+casenames[len(allargs)] = "XPBD-energy"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=NEWTON",
+        "-cloth_mesh_type=txt",
+        "-delta_t=0.0333",
+        "-use_cuda=0",
+        "-maxiter=10"
+        ]
+allargs.append(args)
 
 
 def run_case(case_num:int):

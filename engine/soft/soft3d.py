@@ -25,7 +25,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import calc_norm, ResidualDataOneFrame, ResidualDataAllFrame, ResidualDataOneIter, do_post_iter
+from engine.util import calc_norm, ResidualDataOneFrame, ResidualDataAllFrame, ResidualDataOneIter, do_post_iter, init_logger
 
 parser = argparse.ArgumentParser()
 
@@ -1071,17 +1071,6 @@ def init_linear_solver():
         linsol=None
     return linsol
 
-
-def init_logger(args):
-    import sys
-    log_level = logging.INFO
-    if not args.export_log:
-        log_level = logging.ERROR
-    logging.basicConfig(level=log_level, format="%(message)s",filename=args.out_dir + f'/latest.log',filemode='w')
-    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-    logging.info(args)
-    # logger2 = logging.getLogger('logger2')
-    # logger2.addHandler(logging.FileHandler(args.out_dir + f'/build_P_time.log', 'a'))
 
 
 def init():

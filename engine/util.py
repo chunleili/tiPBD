@@ -166,7 +166,7 @@ class ResidualDataOneFrame:
     n_outer: int=0
     frame: int=0
     t: float=0
-    t_export: float=0
+    # t_export: float=0
 
 
 @dataclass
@@ -204,10 +204,10 @@ def ending(args, ist):
     s = f"\n-------\n"+\
     f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
     f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
+    f"Time of exporting: {ist.r_all.t_export:.3f}s\n" + \
     f"Frame {ist.initial_frame}-{args.end_frame}({args.end_frame-ist.initial_frame} frames)."+\
     f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{ist.start_date},\nEnd\t{end_date}."+\
-    f"\nTime of exporting: {ist.r_all.t_export:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
     f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + ist.initial_frame}." + \
     f"\nstalled at {ist.all_stalled}"+\
@@ -237,7 +237,7 @@ def export_after_substep(ist, args, **kwargs):
     import time
     from engine.mesh_io import write_mesh, write_edge_data, write_ply_with_strain, edge_data_to_tri_data, write_vtk_with_strain
     from engine.file_utils import save_state
-    ist.tic_export = time.perf_counter()
+    tic_export = time.perf_counter()
     if args.export_mesh:
         pos_np = ist.pos.to_numpy() if type(ist.pos) != np.ndarray else ist.pos
         write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", pos_np, ist.tri)
@@ -251,10 +251,9 @@ def export_after_substep(ist, args, **kwargs):
                 write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", pos_np, tri, strain=ist.strain_cell, binary=True)
     if args.export_state:
         save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
-    ist.r_frame.t_export += time.perf_counter()-ist.tic_export
+    ist.r_all.t_export += time.perf_counter()-tic_export
     t_frame = time.perf_counter()-ist.tic_frame
     if args.export_log:
-        logging.info(f"Time of exporting: {ist.r_frame.t_export:.3f}s")
         logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s")
 
 
@@ -380,7 +379,8 @@ def export_A_b(A, b, dir, postfix=f"", binary=True):
 def do_post_iter(ist, get_A0_cuda):
     ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
     export_mat(ist, get_A0_cuda, ist.b)
-    ist.r_frame.t_export += ist.r_iter.t_export
+    ist.r_all.t_export += ist.r_iter.t_export
+    ist.r_iter.t_export = 0.0
     logging.info(f"iter time(with export): {(perf_counter()-ist.r_iter.tic_iter)*1000:.0f}ms")
 
 
@@ -396,7 +396,6 @@ def main_loop(ist,args):
     try:
         for f in range(ist.initial_frame, args.end_frame):
             ist.tic_frame = time.perf_counter()
-            ist.r_frame.t_export = 0.0
 
             if args.solver_type == "XPBD":
                 ist.substep_xpbd()
@@ -406,7 +405,6 @@ def main_loop(ist,args):
                 ist.substep_all_solver()
 
             export_after_substep(ist,args)
-            ist.r_all.t_export += ist.r_frame.t_export
             ist.frame += 1
 
             logging.info("\n")

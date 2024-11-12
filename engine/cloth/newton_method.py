@@ -44,6 +44,10 @@ class NewtonMethod(Cloth):
         calc_hessian_instance = CalculateHessian(self.adapter, self.MASS, self.delta_t)
         self.evaluateHessian = calc_hessian_instance.evaluateHessian
 
+        self.calc_external_force(self.args.gravity)
+        calc_gradient_instance = CalculateGradient(self.adapter, self.MASS, self.delta_t, self.external_force, self.predict_pos)
+        self.evaluateGradient = calc_gradient_instance.evaluateGradient
+
 
     def calc_predict_pos(self):
         self.predict_pos = (self.pos + self.delta_t * self.vel)
@@ -108,80 +112,6 @@ class NewtonMethod(Cloth):
         self.external_force = self.MASS @ ext
         
 
-    @timeit
-    def evaluateGradient(self, x):
-        # gradient = self.calc_gradient_imply_py(x)
-        gradient = self.calc_gradient_imply_ti(x)
-        return gradient
-    
-
-    def calc_gradient_imply_ti(self, x):
-        assert x.shape[1]==3
-        stiffness = self.adapter.stiffness
-        rest_len = self.adapter.rest_len
-        vert = self.adapter.vert
-        NCONS = self.adapter.NCONS
-        
-        gradient = np.zeros((self.NV, 3), dtype=np.float32)
-
-        @ti.kernel
-        def kernel(x:ti.types.ndarray(dtype=tm.vec3),
-                   vert:ti.template(),
-                   rest_len:ti.template(),
-                   NCONS:ti.i32,
-                   gradient:ti.types.ndarray(dtype=tm.vec3),
-                   stiffness:ti.template()
-                   ):
-            for i in range(NCONS):
-                i0, i1 = vert[i]
-                x_ij = x[i0] - x[i1]
-                l_ij = x_ij.norm()
-                g_ij = stiffness[i] * (l_ij - rest_len[i]) * x_ij.normalized()
-                gradient[i0] += g_ij
-                gradient[i1] -= g_ij
-                
-        kernel(x,vert,rest_len, NCONS, gradient, stiffness)
-        gradient = gradient.flatten()
-        gradient -= self.external_force
-        h_square = self.delta_t * self.delta_t
-        x_tilde = self.predict_pos
-        gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
-        return gradient
-    
-
-
-    def calc_gradient_imply_py(self, x):
-        gradient = np.zeros((self.NV* 3), dtype=np.float32)
-        for c in self.constraintsNew:
-            if c.type == ConstraintType.ATTACHMENT:
-                self.EvaluateGradientOneConstraintAttachment(c, x, gradient.reshape(-1,3))
-            elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
-                self.EvaluateGradientOneConstraintDistance(c, x, gradient.reshape(-1,3))
-        gradient -= self.external_force
-        h_square = self.delta_t * self.delta_t
-        x_tilde = self.predict_pos
-        gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
-        return gradient
-
-
-    def EvaluateGradientOneConstraintAttachment(self, c, x, gradient):
-        assert x.shape[1] == 3
-        assert gradient.shape[1] == 3
-        # from constraint number j to point number i
-        i0 = c.p0
-        g = c.stiffness * (x[i0] - c.fixed_point)
-        gradient[i0] += g
-
-    def EvaluateGradientOneConstraintDistance(self, c, x, gradient):
-        assert x.shape[1] == 3
-        assert gradient.shape[1] == 3
-        # from constraint number j to point number i
-        i0 = c.p1
-        i1 = c.p2
-        x_ij = x[i0] - x[i1]
-        g_ij = c.stiffness * (norm(x_ij) - c.rest_len) * normalize(x_ij)
-        gradient[i0] += g_ij
-        gradient[i1] -= g_ij
 
         
     
@@ -365,3 +295,92 @@ class CalculateHessian():
         for k in range(3):
             hessian[i0*3+k, i0*3+k] += g
         return hessian
+    
+
+class CalculateGradient():
+    def __init__(self, adapter, MASS, delta_t, external_force, predict_pos):
+        self.stiffness = adapter.stiffness
+        self.rest_len = adapter.rest_len
+        self.vert = adapter.vert
+        self.NCONS = adapter.NCONS
+        self.MASS = MASS
+        self.delta_t = delta_t
+        self.external_force = external_force
+        self.predict_pos = predict_pos
+
+
+    @timeit
+    def evaluateGradient(self, x):
+        # gradient = self.calc_gradient_imply_py(x)
+        gradient = self.calc_gradient_imply_ti(x)
+        return gradient
+    
+
+    def calc_gradient_imply_ti(self, x):
+        assert x.shape[1]==3
+        stiffness = self.stiffness
+        rest_len = self.rest_len
+        vert = self.vert
+        NCONS = self.NCONS
+        self.NV = x.shape[0]
+        
+        gradient = np.zeros((self.NV, 3), dtype=np.float32)
+
+        @ti.kernel
+        def kernel(x:ti.types.ndarray(dtype=tm.vec3),
+                   vert:ti.template(),
+                   rest_len:ti.template(),
+                   NCONS:ti.i32,
+                   gradient:ti.types.ndarray(dtype=tm.vec3),
+                   stiffness:ti.template()
+                   ):
+            for i in range(NCONS):
+                i0, i1 = vert[i]
+                x_ij = x[i0] - x[i1]
+                l_ij = x_ij.norm()
+                g_ij = stiffness[i] * (l_ij - rest_len[i]) * x_ij.normalized()
+                gradient[i0] += g_ij
+                gradient[i1] -= g_ij
+                
+        kernel(x,vert,rest_len, NCONS, gradient, stiffness)
+        gradient = gradient.flatten()
+        gradient -= self.external_force
+        h_square = self.delta_t * self.delta_t
+        x_tilde = self.predict_pos
+        gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
+        return gradient
+    
+
+
+    def calc_gradient_imply_py(self, x):
+        gradient = np.zeros((self.NV* 3), dtype=np.float32)
+        for c in self.constraintsNew:
+            if c.type == ConstraintType.ATTACHMENT:
+                self.EvaluateGradientOneConstraintAttachment(c, x, gradient.reshape(-1,3))
+            elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
+                self.EvaluateGradientOneConstraintDistance(c, x, gradient.reshape(-1,3))
+        gradient -= self.external_force
+        h_square = self.delta_t * self.delta_t
+        x_tilde = self.predict_pos
+        gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
+        return gradient
+
+
+    def EvaluateGradientOneConstraintAttachment(self, c, x, gradient):
+        assert x.shape[1] == 3
+        assert gradient.shape[1] == 3
+        # from constraint number j to point number i
+        i0 = c.p0
+        g = c.stiffness * (x[i0] - c.fixed_point)
+        gradient[i0] += g
+
+    def EvaluateGradientOneConstraintDistance(self, c, x, gradient):
+        assert x.shape[1] == 3
+        assert gradient.shape[1] == 3
+        # from constraint number j to point number i
+        i0 = c.p1
+        i1 = c.p2
+        x_ij = x[i0] - x[i1]
+        g_ij = c.stiffness * (norm(x_ij) - c.rest_len) * normalize(x_ij)
+        gradient[i0] += g_ij
+        gradient[i1] -= g_ij

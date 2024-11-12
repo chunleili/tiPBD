@@ -1,10 +1,33 @@
 """Base class for all physical solver"""
 
 import taichi as ti
+
+from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter
 @ti.data_oriented
 class PhysicalBase:
-    def __init__(self) -> None:
-        pass
+    def __init__(self,args) -> None:
+        self.frame = 0
+        self.ite = 0
+        self.n_outer_all = [] 
+        self.all_stalled = [] 
+        self.args = args
+        self.delta_t = args.delta_t
+        self.r_iter = ResidualDataOneIter(self.args,
+                                            calc_dual   =self.calc_dual,
+                                            calc_primal =self.calc_primal,
+                                            calc_total_energy=self.calc_total_energy,
+                                            calc_strain =self.calc_strain)
+        self.r_frame = ResidualDataOneFrame([])
+        self.r_all = ResidualDataAllFrame([],[])
+    
+    def calc_dual(self):
+        raise NotImplementedError
+    
+    def calc_primal(self):
+        raise NotImplementedError
+    
+    def calc_strain(self):
+        raise NotImplementedError
 
     def calc_total_energy(self):
         self.update_constraints()

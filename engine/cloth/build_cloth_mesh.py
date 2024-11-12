@@ -89,14 +89,13 @@ class QuadMeshCloth():
         self.NCONS = self.NE
         self.setup_num = setup_num # 0: fixed point, 1: strech and no fixed point
     
-    def build(self):
-        # self.create_fields()
-        # init topology
+    def build(self, init_physical=True):
         self.init_tri(self.tri, self.N)
         self.init_edge(self.edge, self.N)
-
-        # init_physical
         self.init_pos(self.pos, self.N)
+
+        if not init_physical:
+            return
         self.init_mass(self.inv_mass, self.N, self.NV, self.setup_num )
         self.init_rest_len(self.edge, self.rest_len, self.pos)
 

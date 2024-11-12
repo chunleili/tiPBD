@@ -10,6 +10,7 @@ import logging
 import datetime
 from time import perf_counter
 from pathlib import Path
+import taichi.math as tm
 
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -59,24 +60,12 @@ else:
     ti.init(arch=ti.cpu)
 
 class Cloth(PhysicalBase):
-    def __init__(self) -> None:
+    def __init__(self,args) -> None:
         self.Ps = None
         self.num_levels = 0
         self.paused = False
-        self.n_outer_all = [] 
-        self.all_stalled = [] 
         self.sim_type = "cloth"
-        self.r_iter = ResidualDataOneIter(args,
-                                            calc_dual   =self.calc_dual,
-                                            calc_primal =calc_primal,
-                                            calc_total_energy=self.calc_total_energy,
-                                            calc_strain =calc_strain)
-        self.r_frame = ResidualDataOneFrame([])
-        self.r_all = ResidualDataAllFrame([],[])
-        self.args = args
 
-        self.frame = 0
-        self.ite=0
 
         self.delta_t = args.delta_t
         self.compliance = args.compliance  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
@@ -832,11 +821,11 @@ def init():
     extlib = init_extlib(args,sim="cloth")
 
     global ist
-    ist = Cloth()
-
     if args.solver_type == "NEWTON":
         from engine.cloth.newton_method import NewtonMethod
-        ist = NewtonMethod()
+        ist = NewtonMethod(args)
+    else:
+        ist = Cloth(args)
 
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_init:.3f}s") 
 

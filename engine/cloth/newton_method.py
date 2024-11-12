@@ -12,7 +12,7 @@ from engine.solver.direct_solver import DirectSolver
 from engine.cloth.cloth3d import Cloth
 from engine.cloth.constraints import SetupConstraints, ConstraintType
 from engine.util import timeit, norm, norm_sqr, normalize, debug, debugmat,csr_is_equal
-
+from engine.physical_base import PhysicalBase
 
 
 @ti.data_oriented
@@ -48,6 +48,8 @@ class NewtonMethod(Cloth):
 
         self.calc_gradient_imply_ti = CalculateGradientTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
         # self.calc_gradient_imply_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
+
+        self.calc_obj_func_imply_ti = CalculateObjectiveFunctionTaichi(self.adapter.vert, self.adapter.rest_len, self.adapter.stiffness, self.NCONS, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
 
     @timeit
     def evaluateGradient(self, x):
@@ -148,6 +150,20 @@ class NewtonMethod(Cloth):
         return energy
 
 
+class CalculateObjectiveFunctionTaichi():
+    def __init__(self, vert, rest_len, stiffness, NCONS, MASS, delta_t, external_force, predict_pos):
+        self.vert = vert
+        self.rest_len = rest_len
+        self.stiffness = stiffness
+        self.NCONS = NCONS
+        self.MASS = MASS
+        self.delta_t = delta_t
+        self.external_force = external_force
+        self.predict_pos = predict_pos
+
+    def run(self, x):
+        return self.calc_obj_func_imply_ti(x)
+
     def calc_obj_func_imply_ti(self,x) -> float:
         @ti.kernel
         def kernel(x:ti.types.ndarray(dtype=tm.vec3),
@@ -164,7 +180,7 @@ class NewtonMethod(Cloth):
                 potential += 0.5 * stiffness[i] * (l_ij - l0) ** 2
             return potential
         
-        potential_term = kernel(x,self.adapter.vert,self.adapter.rest_len, self.adapter.NCONS, self.adapter.stiffness)
+        potential_term = kernel(x,self.vert,self.rest_len, self.NCONS, self.stiffness)
 
         potential_term -= x.flatten()@ self.external_force
 
@@ -434,3 +450,41 @@ class CalculateGradientPython():
         g_ij = c.stiffness * (norm(x_ij) - c.rest_len) * normalize(x_ij)
         gradient[i0] += g_ij
         gradient[i1] -= g_ij
+
+
+from engine.physical_data import PhysicalData
+class NewNewtonMethod(PhysicalBase):
+    def __init__(self,args):
+        super().__init__(args)
+        
+        self.pos = self.pos.to_numpy()
+        self.predict_pos = self.predict_pos.to_numpy()
+        self.vel = self.vel.to_numpy()
+
+        self.EPSILON = 1e-15
+
+        def get_A():
+            return self.hessian
+        self.linear_solver = DirectSolver(get_A)
+
+        self.use_line_search = True
+        self.ls_beta = 0.1
+        self.ls_alpha = 0.25
+        self.ls_step_size = 1.0
+
+        physdata = PhysicalData()
+        physdata.read_json(args.physical_data_file)
+        stiffness = physdata.stiffness
+        rest_len = physdata.rest_len
+        vert = physdata.vert
+        self.NV = physdata.NV
+        self.NCONS = physdata.NCONS
+        self.NVERTS_ONE_CONS = physdata.NVERTS_ONE_CONS
+        delta_t = physdata.delta_t
+        external_force = physdata.external_force
+        predict_pos = physdata.predict_pos
+
+        MASS = physdata.set_mass_matrix()
+
+        self.calc_hessian_imply_ti = CalculateHessianTaichi(stiffness, rest_len, vert, MASS, delta_t).run
+        self.calc_gradient_imply_ti = CalculateGradientTaichi(stiffness, rest_len, vert, MASS, delta_t,  external_force, predict_pos).run

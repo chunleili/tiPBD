@@ -71,13 +71,13 @@ class Mesh:
         
 
 class SetupConstraints:
-    def __init__(self, pos, edge, args):
-        self.args = args
+    def __init__(self, pos:np.ndarray, edge:np.ndarray, N=20, stiffness_stretch=120.0, stiffness_bending=20.0, stiffness_attachment=120.0, fixed_points_num=[0,410], use_bending=True):
         # self.mesh = Mesh((21, 21), pos, edge)
-        self.mesh = Mesh((args.N+1, args.N+1), pos, edge)
-        self.stiffness_stretch = 1.0/args.compliance
-        self.stiffness_bending = 20.0
+        self.mesh = Mesh((N+1, N+1), pos, edge)
+        self.stiffness_stretch = stiffness_stretch
+        self.stiffness_bending = stiffness_bending
         self.stiffness_attachment = self.stiffness_stretch
+        self.use_bending = use_bending
         self.fixed_points_num = [0, self.mesh.dim[1] * (self.mesh.dim[0] - 1)]
         self.constraints = []
         self.setup_constraints()
@@ -104,7 +104,7 @@ class SetupConstraints:
             c = SpringConstraint(self.stiffness_stretch, e[0], e[1], np.linalg.norm(p1 - p2))
             self.constraints.append(c)
 
-        if not self.args.use_bending:
+        if not self.use_bending:
             return self.constraints
 
         # generate bending constraints. naive

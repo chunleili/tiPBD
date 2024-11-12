@@ -26,7 +26,7 @@ class NewtonMethod(Cloth):
 
         self.EPSILON = 1e-15
 
-        self.setupConstraints = SetupConstraints(self.pos, self.edge.to_numpy(), self.args)
+        self.setupConstraints = SetupConstraints(self.pos, self.edge.to_numpy())
         self.constraintsNew = self.setupConstraints.constraints
         self.adapter = self.setupConstraints.adapter #from AOS to SOA
 
@@ -40,16 +40,20 @@ class NewtonMethod(Cloth):
         self.ls_beta = 0.1
         self.ls_alpha = 0.25
         self.ls_step_size = 1.0
-
-        calc_hessian_instance = CalculateHessian(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t)
-        self.evaluateHessian = calc_hessian_instance.evaluateHessian
-
+        
         self.calc_external_force(self.args.gravity)
 
-        calc_gradient_instance_ti = CalculateGradientTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t, self.external_force, self.predict_pos)
-        # calc_gradient_instance_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos) # python version
-        self.evaluateGradient = calc_gradient_instance_ti.evaluateGradient
+        self.calc_hessian_imply_ti = CalculateHessianTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t).run
+        self.calc_hessian_imply_py = CalculateHessianPython(self.constraintsNew, self.MASS, self.delta_t).run
 
+        self.calc_gradient_imply_ti = CalculateGradientTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
+        self.calc_gradient_imply_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
+
+    def evaluateGradient(self, x):
+        return self.calc_gradient_imply_ti(x)
+
+    def evaluateHessian(self, x):
+        return self.calc_hessian_imply_ti(x)
 
     def calc_predict_pos(self):
         self.predict_pos = (self.pos + self.delta_t * self.vel)
@@ -186,7 +190,8 @@ class NewtonMethod(Cloth):
         return super().calc_total_energy()
     
 
-class CalculateHessian():
+
+class CalculateHessianTaichi():
     def __init__(self, stiffness, rest_len, vert, MASS, delta_t):
         self.stiffness = stiffness
         self.rest_len = rest_len
@@ -195,24 +200,10 @@ class CalculateHessian():
         self.MASS = MASS
         self.delta_t = delta_t
 
-
     @timeit
-    def evaluateHessian(self, x):
-        # hessian = self.calc_hessian_imply_py(x) #python impl version
+    def run(self, x):
         hessian = self.calc_hessian_imply_ti(x)   #taichi impl version
         return hessian
-
-    def calc_hessian_imply_py(self, x)->scipy.sparse.csr_matrix:
-        hessian = scipy.sparse.dok_matrix((self.NV*3, self.NV*3),dtype=np.float32)
-        for c in self.constraintsNew:
-            if c.type == ConstraintType.ATTACHMENT:
-                self.EvaluateHessianOneConstraintAttachment(c, x, hessian)
-            elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
-                self.EvaluateHessianOneConstraintDistance(c, x, hessian)
-        hessian = self.MASS + self.delta_t * self.delta_t * hessian
-        hessian = hessian.tocsr()
-        return hessian
-    
 
     def calc_hessian_imply_ti(self, x) -> scipy.sparse.csr_matrix:
         assert x.shape[1]==3
@@ -273,6 +264,31 @@ class CalculateHessian():
         return hessian
     
 
+class CalculateHessianPython():
+    def __init__(self, constraintsNew, MASS, delta_t):
+        self.constraintsNew = constraintsNew
+        self.NCONS = len(constraintsNew)
+        self.MASS = MASS
+        self.delta_t = delta_t
+    
+    @timeit
+    def run(self, x):
+        hessian = self.calc_hessian_imply_py(x)
+        return hessian
+
+    def calc_hessian_imply_py(self, x)->scipy.sparse.csr_matrix:
+        self.NV = x.shape[0]
+        hessian = scipy.sparse.dok_matrix((self.NV*3, self.NV*3),dtype=np.float32)
+        for c in self.constraintsNew:
+            if c.type == ConstraintType.ATTACHMENT:
+                self.EvaluateHessianOneConstraintAttachment(c, x, hessian)
+            elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
+                self.EvaluateHessianOneConstraintDistance(c, x, hessian)
+        hessian = self.MASS + self.delta_t * self.delta_t * hessian
+        hessian = hessian.tocsr()
+        return hessian
+    
+    
     def EvaluateHessianOneConstraintDistance(self, c, x, hessian):
         p1 = c.p1
         p2 = c.p2
@@ -313,7 +329,7 @@ class CalculateGradientTaichi():
 
 
     @timeit
-    def evaluateGradient(self, x):
+    def run(self, x):
         gradient = self.calc_gradient_imply_ti(x)
         return gradient
     
@@ -362,7 +378,7 @@ class CalculateGradientPython():
         self.delta_t = delta_t
 
     @timeit
-    def evaluateGradient(self, x):
+    def run(self, x):
         gradient = self.calc_gradient_imply_py(x)
         return gradient
     

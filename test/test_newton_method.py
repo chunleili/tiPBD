@@ -10,8 +10,8 @@ def load_vector(file):
 
 
 class TestNewtonMethod(NewtonMethod):
-    def __init__(self):
-        super().__init__()
+    def __init__(self,args):
+        super().__init__(args)
 
     def prepare_data(self):
         self.x = load_vector('x.mtx')
@@ -42,10 +42,24 @@ class TestNewtonMethod(NewtonMethod):
         csr_is_equal(hessian_py,hessian_ti)
         return hessian_py
     
+    def test_evaluteGradient(self, x):
+        gradient_py = self.calc_gradient_imply_py(x)
+        gradient_ti = self.calc_gradient_imply_ti(x)
+        from engine.util import is_equal
+        is_equal(gradient_py, gradient_ti)
+        return gradient_py
+    
 
 if __name__ == '__main__':
+    import argparse
+    from engine.common_args import add_common_args
+    parser = argparse.ArgumentParser()
+    parser = add_common_args(parser)
+    args = parser.parse_args()
+
     t = TestNewtonMethod()
     t.prepare_data()
     t.test_read_constraints()
     t.test_obj_function()
     t.test_evaluateHessian(t.x)
+    t.test_evaluteGradient(t.x)

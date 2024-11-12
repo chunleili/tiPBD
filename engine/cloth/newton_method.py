@@ -46,7 +46,7 @@ class NewtonMethod(Cloth):
 
         self.setupConstraints = SetupConstraints(self.pos, self.edge.to_numpy(), self.args)
         self.constraintsNew = self.setupConstraints.constraints
-        self.adapter = self.setupConstraints.adapter
+        self.adapter = self.setupConstraints.adapter #from AOS to SOA
 
         self.set_mass()
 
@@ -125,6 +125,47 @@ class NewtonMethod(Cloth):
 
     @timeit
     def evaluateGradient(self, x):
+        # gradient = self.calc_gradient_imply_py(x)
+        gradient = self.calc_gradient_imply_ti(x)
+        return gradient
+    
+
+    def calc_gradient_imply_ti(self, x):
+        assert x.shape[1]==3
+        stiffness = self.adapter.stiffness
+        rest_len = self.adapter.rest_len
+        vert = self.adapter.vert
+        NCONS = self.adapter.NCONS
+        
+        gradient = np.zeros((self.NV, 3), dtype=np.float32)
+
+        @ti.kernel
+        def kernel(x:ti.types.ndarray(dtype=tm.vec3),
+                   vert:ti.template(),
+                   rest_len:ti.template(),
+                   NCONS:ti.i32,
+                   gradient:ti.types.ndarray(dtype=tm.vec3),
+                   stiffness:ti.template()
+                   ):
+            for i in range(NCONS):
+                i0, i1 = vert[i]
+                x_ij = x[i0] - x[i1]
+                l_ij = x_ij.norm()
+                g_ij = stiffness[i] * (l_ij - rest_len[i]) * x_ij.normalized()
+                gradient[i0] += g_ij
+                gradient[i1] -= g_ij
+                
+        kernel(x,vert,rest_len, NCONS, gradient, stiffness)
+        gradient = gradient.flatten()
+        gradient -= self.external_force
+        h_square = self.delta_t * self.delta_t
+        x_tilde = self.predict_pos
+        gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
+        return gradient
+    
+
+
+    def calc_gradient_imply_py(self, x):
         gradient = np.zeros((self.NV* 3), dtype=np.float32)
         for c in self.constraintsNew:
             if c.type == ConstraintType.ATTACHMENT:

@@ -57,7 +57,7 @@ if __name__ == '__main__':
     parser = add_common_args(parser)
     args = parser.parse_args()
 
-    t = TestNewtonMethod()
+    t = TestNewtonMethod(args)
     t.prepare_data()
     t.test_read_constraints()
     t.test_obj_function()

@@ -11,7 +11,7 @@ sys.path.append(os.getcwd())
 from engine.solver.direct_solver import DirectSolver
 from engine.cloth.cloth3d import Cloth
 from engine.cloth.constraints import SetupConstraints, ConstraintType
-from engine.util import timeit, norm, norm_sqr, normalize, debug, debugmat
+from engine.util import timeit, norm, norm_sqr, normalize, debug, debugmat,csr_is_equal
 
 
 
@@ -40,18 +40,20 @@ class NewtonMethod(Cloth):
         self.ls_beta = 0.1
         self.ls_alpha = 0.25
         self.ls_step_size = 1.0
-        
+
         self.calc_external_force(self.args.gravity)
 
         self.calc_hessian_imply_ti = CalculateHessianTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t).run
-        self.calc_hessian_imply_py = CalculateHessianPython(self.constraintsNew, self.MASS, self.delta_t).run
+        # self.calc_hessian_imply_py = CalculateHessianPython(self.constraintsNew, self.MASS, self.delta_t).run
 
         self.calc_gradient_imply_ti = CalculateGradientTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
-        self.calc_gradient_imply_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
+        # self.calc_gradient_imply_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
 
+    @timeit
     def evaluateGradient(self, x):
-        return self.calc_gradient_imply_ti(x)
+        return self.calc_gradient_imply_ti(x)  
 
+    @timeit
     def evaluateHessian(self, x):
         return self.calc_hessian_imply_ti(x)
 
@@ -117,9 +119,6 @@ class NewtonMethod(Cloth):
         self.external_acc = ext.copy().reshape(-1,3)
         self.external_force = self.MASS @ ext
         
-
-
-        
     
     def line_search(self, x, gradient_dir, descent_dir):
         if not self.use_line_search:
@@ -142,17 +141,44 @@ class NewtonMethod(Cloth):
         else:
             self.ls_step_size = t
         return t
-    
+
+
     def evaluateObjectiveFunction(self, x):
-        energy1 = self.calc_obj_func_imply_py(x)
-        # energy2 = self.calc_obj_func_imply_ti()
-        return energy1
+        energy = self.calc_obj_func_imply_ti(x)
+        return energy
+
+
+    def calc_obj_func_imply_ti(self,x) -> float:
+        @ti.kernel
+        def kernel(x:ti.types.ndarray(dtype=tm.vec3),
+                   vert:ti.template(),
+                   rest_len:ti.template(),
+                   NCONS:ti.i32,
+                   stiffness:ti.template(),
+                   )->ti.f32:
+            potential = 0.0
+            for i in range(NCONS):
+                x_ij = x[vert[i][0]] - x[vert[i][1]]
+                l_ij = (x_ij).norm()
+                l0 = rest_len[i]
+                potential += 0.5 * stiffness[i] * (l_ij - l0) ** 2
+            return potential
+        
+        potential_term = kernel(x,self.adapter.vert,self.adapter.rest_len, self.adapter.NCONS, self.adapter.stiffness)
+
+        potential_term -= x.flatten()@ self.external_force
+
+        x_diff = x.flatten() - self.predict_pos.flatten()
+        inertia_term = 0.5 * x_diff.transpose() @ self.MASS @ x_diff
+
+        h_square = self.delta_t * self.delta_t
+        # res = inertia_term + potential_term * h_square #fast mass spring
+        res = inertia_term/h_square + potential_term
+        return res     
+    
     
 
-    def calc_obj_func_imply_ti(self) -> float:
-        return super().calc_total_energy()
-    
-
+class ObjectiveFunctionImplyPython():
     def calc_obj_func_imply_py(self, x):
         potential_term = 0.0
         for c in self.constraintsNew:
@@ -170,13 +196,13 @@ class NewtonMethod(Cloth):
         # res = inertia_term + potential_term * h_square #fast mass spring
         res = inertia_term/h_square + potential_term
         return res
-    
+
     # // 0.5*k*(current_length)^2
     def EvaluatePotentialEnergyAttachment(self, c, x):
         assert x.shape[1] == 3
         res = 0.5 * c.stiffness * norm_sqr(x[c.p0] - c.fixed_point)
         return res
-    
+
     # // 0.5*k*(current_length - rest_length)^2
     def EvaluatePotentialEnergyDistance(self, c, x):
         assert x.shape[1] == 3
@@ -185,10 +211,7 @@ class NewtonMethod(Cloth):
         l0 = c.rest_len
         res = 0.5 * c.stiffness * (l_ij - l0) ** 2
         return res 
-    
-    def calc_total_energy(self):
-        return super().calc_total_energy()
-    
+
 
 
 class CalculateHessianTaichi():
@@ -200,7 +223,6 @@ class CalculateHessianTaichi():
         self.MASS = MASS
         self.delta_t = delta_t
 
-    @timeit
     def run(self, x):
         hessian = self.calc_hessian_imply_ti(x)   #taichi impl version
         return hessian
@@ -271,7 +293,6 @@ class CalculateHessianPython():
         self.MASS = MASS
         self.delta_t = delta_t
     
-    @timeit
     def run(self, x):
         hessian = self.calc_hessian_imply_py(x)
         return hessian
@@ -328,7 +349,6 @@ class CalculateGradientTaichi():
         self.NV = predict_pos.shape[0]
 
 
-    @timeit
     def run(self, x):
         gradient = self.calc_gradient_imply_ti(x)
         return gradient
@@ -377,7 +397,6 @@ class CalculateGradientPython():
         self.MASS = MASS
         self.delta_t = delta_t
 
-    @timeit
     def run(self, x):
         gradient = self.calc_gradient_imply_py(x)
         return gradient

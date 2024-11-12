@@ -61,6 +61,7 @@ else:
 
 class Cloth(PhysicalBase):
     def __init__(self,args) -> None:
+        super().__init__(args)
         self.Ps = None
         self.num_levels = 0
         self.paused = False

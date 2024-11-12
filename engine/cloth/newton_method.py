@@ -35,8 +35,8 @@ def debugmat(x, name='mat'):
 
 @ti.data_oriented
 class NewtonMethod(Cloth):
-    def __init__(self):
-        super().__init__()
+    def __init__(self,args):
+        super().__init__(args)
         self.gradient = np.zeros(self.NV*3, dtype=np.float32)
         self.descent_dir = np.zeros(self.NV*3, dtype=np.float32)
         self.hessian = scipy.sparse.csr_matrix((self.NV*3, self.NV*3), dtype=np.float32)
@@ -219,7 +219,7 @@ class NewtonMethod(Cloth):
         vv = np.zeros(dtype=np.float32,shape=MAX_NNZ)
 
 
-        # @ti.kernel
+        @ti.kernel
         def kernel(x:ti.types.ndarray(dtype=tm.vec3),
                    vert:ti.template(),
                    rest_len:ti.template(),
@@ -232,11 +232,12 @@ class NewtonMethod(Cloth):
             for i in range(NCONS):
                 p1, p2 = vert[i]
                 x_ij = x[p1] - x[p2]
-                l_ij = norm(x_ij)
+                # l_ij = norm(x_ij)
+                l_ij = x_ij.norm()
                 l0 = rest_len[i]
                 ks = stiffness[i]
-                # k = ks * (tm.eye(3) - l0/l_ij*(tm.eye(3) - x_ij.outer_product(x_ij)/(l_ij*l_ij)))
-                k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
+                k = ks * (tm.eye(3) - l0/l_ij*(tm.eye(3) - x_ij.outer_product(x_ij)/(l_ij*l_ij)))
+                # k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
                 for row in ti.static(range(3)):
                     for col in ti.static(range(3)):
                         val = k[row, col]
@@ -312,7 +313,7 @@ class NewtonMethod(Cloth):
     
     def evaluateObjectiveFunction(self, x):
         energy1 = self.calc_obj_func_imply_py(x)
-        energy2 = self.calc_obj_func_imply_ti()
+        # energy2 = self.calc_obj_func_imply_ti()
         return energy1
     
 

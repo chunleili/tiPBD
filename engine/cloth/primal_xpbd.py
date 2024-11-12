@@ -10,6 +10,8 @@ class PrimalXPBD(Cloth):
     def __init__(self):
         super().__init__()
         self.Minv_gg = ti.Vector.field(3, dtype=float, shape=(self.NV))
+        self.dpos_withg  = ti.Vector.field(3, dtype=float, shape=(self.NV))
+
 
     # v1: with g, modify b and dpos
     def AMG_PXPBD_v1_dlam2dpos(self, x,G, Minv_gg):
@@ -160,3 +162,15 @@ def transfer_back_to_pos_mfree_kernel_withg(
     for i in range(inv_mass.shape[0]):
         if inv_mass[i] != 0.0:
             dpos_withg[i] += predict_pos[i] - old_pos[i]
+
+
+@ti.kernel
+def update_pos_blend(
+    inv_mass:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+    dpos_withg:ti.template(),
+):
+    for i in range(pos.shape[0]):
+        if inv_mass[i] != 0.0:
+            pos[i] += args.omega *((1-args.PXPBD_ksi) * dpos[i] + args.PXPBD_ksi * dpos_withg[i])

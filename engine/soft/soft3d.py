@@ -68,8 +68,9 @@ c_int = ctypes.c_int
 
 class SoftBody:
     def __init__(self, mesh_file):
-        self.frame = 0
-        self.ite = 0
+        self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        logging.info(self.start_date)
+
         self.r_iter = ResidualDataOneIter(args,
                                             calc_dual   =calc_dual,
                                             calc_primal =calc_primal,
@@ -81,6 +82,8 @@ class SoftBody:
         self.args = args
         self.delta_t = args.delta_t
 
+        self.frame = 0
+        self.ite = 0
 
         dir = str(Path(mesh_file).parent.stem)
         self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
@@ -95,6 +98,16 @@ class SoftBody:
         self.ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
         self.all_stalled = []
         self.initialize()
+
+        if args.export_mesh:
+            write_mesh(args.out_dir + f"/mesh/{self.frame:04d}", self.pos.to_numpy(), self.model_tri)
+
+        if args.solver_type != "XPBD" and args.solver_type != "NEWTON":
+            from engine.soft.fill_A import init_direct_fill_A
+            init_direct_fill_A(self,extlib)
+
+        self.linsol = init_linear_solver()
+
         info(f"Creating instance done")
 
 
@@ -239,7 +252,7 @@ class SoftBody:
             self.pos_mid.from_numpy(self.pos.to_numpy())
             self.compute_C_and_gradC()
             self.b = self.compute_b()
-            x, self.r_iter.r_Axb = linsol.run(self.b)
+            x, self.r_iter.r_Axb = ist.linsol.run(self.b)
             self.dlam2dpos(x)
             do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():
@@ -340,7 +353,7 @@ def substep_all_solver(ist):
         if ist.ite==0:
             dual0 = calc_dual(ist)
         b = AMG_b(ist)
-        x, r_Axb = linsol.run(b)
+        x, r_Axb = ist.linsol.run(b)
         AMG_dlam2dpos(x)
         AMG_calc_r(r, dual0, tic_iter, r_Axb)
         logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
@@ -1077,28 +1090,10 @@ def init():
     tic = perf_counter()
     process_dirs(args)
     init_logger(args)
-
     global extlib
     extlib = init_extlib(args,sim="soft")
-
     global ist
     ist = SoftBody(args.model_path)
-    args.frame = ist.frame
-    args.ite = ist.ite
-
-    ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    logging.info(ist.start_date)
-
-    if args.export_mesh:
-        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
-
-    if args.solver_type != "XPBD":
-        from engine.soft.fill_A import init_direct_fill_A
-        init_direct_fill_A(ist,extlib)
-
-    global linsol
-    linsol = init_linear_solver()
-    
     print(f"initialize time:", perf_counter()-tic)
 
 

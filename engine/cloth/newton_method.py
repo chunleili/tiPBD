@@ -41,12 +41,14 @@ class NewtonMethod(Cloth):
         self.ls_alpha = 0.25
         self.ls_step_size = 1.0
 
-        calc_hessian_instance = CalculateHessian(self.adapter, self.MASS, self.delta_t)
+        calc_hessian_instance = CalculateHessian(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t)
         self.evaluateHessian = calc_hessian_instance.evaluateHessian
 
         self.calc_external_force(self.args.gravity)
-        calc_gradient_instance = CalculateGradient(self.adapter, self.MASS, self.delta_t, self.external_force, self.predict_pos)
-        self.evaluateGradient = calc_gradient_instance.evaluateGradient
+
+        calc_gradient_instance_ti = CalculateGradientTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t, self.external_force, self.predict_pos)
+        # calc_gradient_instance_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos) # python version
+        self.evaluateGradient = calc_gradient_instance_ti.evaluateGradient
 
 
     def calc_predict_pos(self):
@@ -185,11 +187,11 @@ class NewtonMethod(Cloth):
     
 
 class CalculateHessian():
-    def __init__(self, adapter, MASS, delta_t):
-        self.stiffness = adapter.stiffness
-        self.rest_len = adapter.rest_len
-        self.vert = adapter.vert
-        self.NCONS = adapter.NCONS
+    def __init__(self, stiffness, rest_len, vert, MASS, delta_t):
+        self.stiffness = stiffness
+        self.rest_len = rest_len
+        self.vert = vert
+        self.NCONS = stiffness.shape[0]
         self.MASS = MASS
         self.delta_t = delta_t
 
@@ -297,21 +299,21 @@ class CalculateHessian():
         return hessian
     
 
-class CalculateGradient():
-    def __init__(self, adapter, MASS, delta_t, external_force, predict_pos):
-        self.stiffness = adapter.stiffness
-        self.rest_len = adapter.rest_len
-        self.vert = adapter.vert
-        self.NCONS = adapter.NCONS
+class CalculateGradientTaichi():
+    def __init__(self, stiffness, rest_len, vert, MASS, delta_t, external_force, predict_pos):
+        self.stiffness = stiffness
+        self.rest_len = rest_len
+        self.vert = vert
         self.MASS = MASS
         self.delta_t = delta_t
         self.external_force = external_force
         self.predict_pos = predict_pos
+        self.NCONS = stiffness.shape[0]
+        self.NV = predict_pos.shape[0]
 
 
     @timeit
     def evaluateGradient(self, x):
-        # gradient = self.calc_gradient_imply_py(x)
         gradient = self.calc_gradient_imply_ti(x)
         return gradient
     
@@ -351,8 +353,21 @@ class CalculateGradient():
         return gradient
     
 
+class CalculateGradientPython():
+    def __init__(self, constraintsNew, MASS, delta_t, external_force, predict_pos):
+        self.constraintsNew = constraintsNew
+        self.external_force = external_force
+        self.predict_pos = predict_pos
+        self.MASS = MASS
+        self.delta_t = delta_t
 
+    @timeit
+    def evaluateGradient(self, x):
+        gradient = self.calc_gradient_imply_py(x)
+        return gradient
+    
     def calc_gradient_imply_py(self, x):
+        self.NV = x.shape[0]
         gradient = np.zeros((self.NV* 3), dtype=np.float32)
         for c in self.constraintsNew:
             if c.type == ConstraintType.ATTACHMENT:

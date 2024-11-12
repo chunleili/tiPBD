@@ -51,6 +51,7 @@ class NewtonMethod(Cloth):
         self.old_pos = self.old_pos.to_numpy()
         self.predict_pos = self.predict_pos.to_numpy()
         self.vel = self.vel.to_numpy()
+        self.inv_mass = self.inv_mass.to_numpy()
 
         self.EPSILON = 1e-15
         self.stiffness = 80.0 # FIXME
@@ -71,8 +72,29 @@ class NewtonMethod(Cloth):
         self.ls_alpha = 0.25
         self.ls_step_size = 1.0
 
+
+    def semi_euler(self):
+        @ti.kernel
+        def semi_euler_kernel(
+            old_pos:ti.types.ndarray(dtype=tm.vec3),
+            inv_mass:ti.types.ndarray(),
+            vel:ti.types.ndarray(dtype=tm.vec3),
+            pos:ti.types.ndarray(dtype=tm.vec3),
+            predict_pos:ti.types.ndarray(dtype=tm.vec3),
+            delta_t:ti.f32,
+            external_acc:ti.types.ndarray(dtype=tm.vec3)
+        ):
+            for i in range(pos.shape[0]):
+                if inv_mass[i] != 0.0:
+                    vel[i] += delta_t * external_acc[i]
+                    old_pos[i] = pos[i]
+                    pos[i] += delta_t * vel[i]
+                    predict_pos[i] = pos[i]
+        semi_euler_kernel(self.old_pos, self.inv_mass, self.vel, self.pos, self.predict_pos, self.delta_t, self.external_acc)
+
     def calc_predict_pos(self):
         self.predict_pos = (self.pos + self.delta_t * self.vel)
+        self.pos_ti
     
     def update_pos_and_vel(self,new_pos):
         self.vel = (new_pos - self.pos) / self.delta_t
@@ -80,9 +102,10 @@ class NewtonMethod(Cloth):
 
     @timeit
     def substep_newton(self):
-        self.calc_predict_pos()
-        pos_next = self.predict_pos.copy()
+        # self.calc_predict_pos()
         self.calc_external_force(self.args.gravity)
+        self.semi_euler()
+        pos_next = self.predict_pos.copy()
 
         for self.ite in range(self.args.maxiter):
             converge = self.step_one_iter(pos_next)
@@ -121,8 +144,8 @@ class NewtonMethod(Cloth):
         pmass = 1.0
         self.MASS = scipy.sparse.diags([pmass]*self.NV*3)
         self.M_inv = scipy.sparse.diags([1.0/pmass]*self.NV*3)
-        self.inv_mass_np = np.array([1.0/pmass]*self.NV)
-        self.inv_mass.from_numpy(self.inv_mass_np)
+        # self.inv_mass_np = np.array([1.0/pmass]*self.NV)
+        # self.inv_mass.from_numpy(self.inv_mass_np)
         # scipy.io.mmwrite('mass.mtx', self.MASS)
         
         
@@ -131,6 +154,7 @@ class NewtonMethod(Cloth):
         self.external_force = np.zeros(self.NV*3, dtype=np.float32)
         gravity_constant = np.array(gravity) #FIXME
         ext = np.tile(gravity_constant, self.NV)
+        self.external_acc = ext.copy().reshape(-1,3)
         self.external_force = self.MASS @ ext
         
 
@@ -142,7 +166,7 @@ class NewtonMethod(Cloth):
                 self.EvaluateGradientOneConstraintAttachment(c, x, gradient.reshape(-1,3))
             elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
                 self.EvaluateGradientOneConstraintDistance(c, x, gradient.reshape(-1,3))
-        gradient -= self.external_force
+        # gradient -= self.external_force
         h_square = self.delta_t * self.delta_t
         x_tilde = self.predict_pos
         gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
@@ -295,7 +319,7 @@ class NewtonMethod(Cloth):
             elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
                 potential_term += self.EvaluatePotentialEnergyDistance(c, x.reshape(-1,3))
 
-        potential_term -= x.flatten()@ self.external_force
+        # potential_term -= x.flatten()@ self.external_force
 
         x_diff = x.flatten() - self.predict_pos.flatten()
         inertia_term = 0.5 * x_diff.transpose() @ self.MASS @ x_diff

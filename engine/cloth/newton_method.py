@@ -19,7 +19,7 @@ from engine.physical_base import PhysicalBase
 class NewtonMethod(Cloth):
     def __init__(self,args):
         super().__init__(args)
-        
+
         self.pos = self.pos.to_numpy()
         self.predict_pos = self.predict_pos.to_numpy()
         self.vel = self.vel.to_numpy()
@@ -36,7 +36,6 @@ class NewtonMethod(Cloth):
             return self.hessian
         self.linear_solver = DirectSolver(get_A)
 
-
         self.calc_external_force(self.args.gravity)
 
         self.calc_hessian_imply_ti = CalculateHessianTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t).run
@@ -51,7 +50,6 @@ class NewtonMethod(Cloth):
         ls = LineSearch(self.calc_obj_func_imply_ti)
         self.line_search = ls.line_search
 
-
     @timeit
     def evaluateGradient(self, x):
         return self.calc_gradient_imply_ti(x)  
@@ -62,7 +60,7 @@ class NewtonMethod(Cloth):
 
     def calc_predict_pos(self):
         self.predict_pos = (self.pos + self.delta_t * self.vel)
-    
+
     def update_pos_and_vel(self,new_pos):
         self.vel = (new_pos - self.pos) / self.delta_t
         self.pos = new_pos.copy()
@@ -79,7 +77,6 @@ class NewtonMethod(Cloth):
                 break
         self.n_outer_all.append(self.ite+1)
         self.update_pos_and_vel(pos_next)
-        
 
     # https://github.com/chunleili/fast_mass_spring/blob/a203b39ae8f5ec295c242789fe8488dfb7c42951/fast_mass_spring/source/simulation.cpp#L510
     # integrateNewtonDescentOneIteration
@@ -90,7 +87,7 @@ class NewtonMethod(Cloth):
         if nrmsqr < self.EPSILON:
             print(f'gradient nrmsqr {nrmsqr} <EPSILON')
             return True
-        
+
         self.hessian = self.evaluateHessian(x)
 
         descent_dir,_ = self.linear_solver.run(gradient)
@@ -105,14 +102,13 @@ class NewtonMethod(Cloth):
             return True
         else:
             return False
-        
+
     def set_mass(self):
         # pmass = 1.0 / self.NV
         pmass = 1.0
         self.MASS = scipy.sparse.diags([pmass]*self.NV*3)
         self.M_inv = scipy.sparse.diags([1.0/pmass]*self.NV*3)
-        
-        
+
     def calc_external_force(self, gravity=[0,-9.8,0]):
         # gravity = [0,-100,0] fast mass spring
         self.external_force = np.zeros(self.NV*3, dtype=np.float32)
@@ -120,20 +116,39 @@ class NewtonMethod(Cloth):
         ext = np.tile(gravity_constant, self.NV)
         self.external_acc = ext.copy().reshape(-1,3)
         self.external_force = self.MASS @ ext
+
+
+class LineSearch:
+    def __init__(
+        self,
+        evaluateObjectiveFunction,
+        use_line_search=True,
+        ls_alpha=0.25,
+        ls_beta=0.1,
+        ls_step_size=1.0,
+        ΕPSILON=1e-15,
+    ):
+        """
+        Args:
+            evaluateObjectiveFunction: function to evaluate the objective function, input is x(shape=(NV,3)), output is scalar
+            use_line_search: whether to use line search
+            ls_alpha: the factor to control the slope
+            ls_beta: the factor to decrease the step size
+            ls_step_size: the initial step size
+            ΕPSILON: the tolerance to determine minimum step size
         
-class LineSearch():
-    def __init__(self, evaluateObjectiveFunction):
-        self.use_line_search = True
-        self.ls_beta = 0.1
-        self.ls_alpha = 0.25
-        self.ls_step_size = 1.0
-        self.EPSILON = 1e-15
+        """
+        self.use_line_search = use_line_search
+        self.ls_alpha = ls_alpha
+        self.ls_beta = ls_beta
+        self.ls_step_size = ls_step_size
+        self.EPSILON = ΕPSILON
         self.evaluateObjectiveFunction = evaluateObjectiveFunction
 
     def line_search(self, x, gradient_dir, descent_dir):
         if not self.use_line_search:
             return self.ls_step_size
-        
+
         t = 1.0/self.ls_beta
         currentObjectiveValue = self.evaluateObjectiveFunction(x)
         ls_times = 0
@@ -152,7 +167,6 @@ class LineSearch():
         else:
             self.ls_step_size = t
         return t
-        
 
 
 class CalculateObjectiveFunctionTaichi():
@@ -196,8 +210,7 @@ class CalculateObjectiveFunctionTaichi():
         # res = inertia_term + potential_term * h_square #fast mass spring
         res = inertia_term/h_square + potential_term
         return res     
-    
-    
+
 
 class CalculateObjectiveFunctionPython():
     def __init__(self, constraintsNew, MASS, delta_t, external_force, predict_pos):
@@ -242,7 +255,6 @@ class CalculateObjectiveFunctionPython():
         l0 = c.rest_len
         res = 0.5 * c.stiffness * (l_ij - l0) ** 2
         return res 
-
 
 
 class CalculateHessianTaichi():
@@ -315,7 +327,7 @@ class CalculateHessianTaichi():
         hessian = scipy.sparse.coo_matrix((vv,(ii,jj)),shape=(NV*3, NV*3),dtype=np.float32)
         hessian = self.MASS + self.delta_t * self.delta_t * hessian
         return hessian
-    
+
 
 class CalculateHessianPython():
     def __init__(self, constraintsNew, MASS, delta_t):
@@ -365,7 +377,7 @@ class CalculateHessianPython():
         for k in range(3):
             hessian[i0*3+k, i0*3+k] += g
         return hessian
-    
+
 
 class CalculateGradientTaichi():
     def __init__(self, stiffness, rest_len, vert, MASS, delta_t, external_force, predict_pos):
@@ -418,7 +430,7 @@ class CalculateGradientTaichi():
         x_tilde = self.predict_pos
         gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
         return gradient
-    
+
 
 class CalculateGradientPython():
     def __init__(self, constraintsNew, MASS, delta_t, external_force, predict_pos):
@@ -481,11 +493,6 @@ class NewNewtonMethod(PhysicalBase):
         def get_A():
             return self.hessian
         self.linear_solver = DirectSolver(get_A)
-
-        self.use_line_search = True
-        self.ls_beta = 0.1
-        self.ls_alpha = 0.25
-        self.ls_step_size = 1.0
 
         physdata = PhysicalData()
         physdata.read_json(args.physical_data_file)

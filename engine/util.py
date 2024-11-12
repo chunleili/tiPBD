@@ -229,7 +229,7 @@ def ending(args, ist):
         file.write(s)
 
     if args.solver_type == "AMGX":
-        ist.amgxsolver.finalize()
+        ist.linsol.finalize()
     exit()
 
 

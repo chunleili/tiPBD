@@ -1074,8 +1074,6 @@ def init_linear_solver():
             linsol = AmgPython(args, get_A0_python, should_setup)
     elif args.solver_type == "AMGX":
         linsol = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
-        linsol.init()
-        ist.amgxsolver = linsol
     elif args.solver_type == "DIRECT":
         linsol = DirectSolver(get_A0_python)
     elif args.solver_type == "XPBD":

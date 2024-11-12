@@ -18,6 +18,7 @@ class AmgxSolver:
         self.pyamgx = pyamgx
 
         self.get_A0 = get_A0
+        self.init()
 
     def run(self, b):
         tic = time.perf_counter()

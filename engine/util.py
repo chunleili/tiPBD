@@ -444,3 +444,22 @@ def dense_mat_is_equal(A, B):
         assert False
     print("is equal!")
     return True
+
+
+def debug(x, name='vec'):  
+    print(f'{name}: {x.shape}')
+    norm = np.linalg.norm(x)
+    max_val = np.max(x)
+    amax = np.argmax(x)
+    min_val = np.min(x)
+    amin = np.argmin(x)
+    print(f'    norm: {norm} max_val: {max_val}, amax: {amax} min_val: {min_val}, amin: {amin}\n')
+    np.savetxt(f'{name}.txt', x)
+
+def debugmat(x, name='mat'):  
+    print(f'{name}: {x.shape}')
+    norm = np.linalg.norm(x.data)
+    max_val = np.max(x.data)
+    min_val = np.min(x.data)
+    print(f'    norm: {norm} max_val: {max_val}  min_val: {min_val}\n')
+    scipy.io.mmwrite(f"{name}.mtx", x)

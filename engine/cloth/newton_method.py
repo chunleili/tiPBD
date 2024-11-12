@@ -11,25 +11,7 @@ sys.path.append(os.getcwd())
 from engine.solver.direct_solver import DirectSolver
 from engine.cloth.cloth3d import Cloth
 from engine.cloth.constraints import SetupConstraints, ConstraintType
-from engine.util import timeit, norm, norm_sqr, normalize
-
-def debug(x, name='vec'):  
-    print(f'{name}: {x.shape}')
-    norm = np.linalg.norm(x)
-    max_val = np.max(x)
-    amax = np.argmax(x)
-    min_val = np.min(x)
-    amin = np.argmin(x)
-    print(f'    norm: {norm} max_val: {max_val}, amax: {amax} min_val: {min_val}, amin: {amin}\n')
-    np.savetxt(f'{name}.txt', x)
-
-def debugmat(x, name='mat'):  
-    print(f'{name}: {x.shape}')
-    norm = np.linalg.norm(x.data)
-    max_val = np.max(x.data)
-    min_val = np.min(x.data)
-    print(f'    norm: {norm} max_val: {max_val}  min_val: {min_val}\n')
-    scipy.io.mmwrite(f"{name}.mtx", x)
+from engine.util import timeit, norm, norm_sqr, normalize, debug, debugmat
 
 
 
@@ -58,6 +40,9 @@ class NewtonMethod(Cloth):
         self.ls_beta = 0.1
         self.ls_alpha = 0.25
         self.ls_step_size = 1.0
+
+        calc_hessian_instance = CalculateHessian(self.adapter, self.MASS, self.delta_t)
+        self.evaluateHessian = calc_hessian_instance.evaluateHessian
 
 
     def calc_predict_pos(self):
@@ -198,108 +183,8 @@ class NewtonMethod(Cloth):
         gradient[i0] += g_ij
         gradient[i1] -= g_ij
 
-    @timeit
-    def evaluateHessian(self, x):
-        # hessian = self.calc_hessian_imply_py(x) #python impl version
-        hessian = self.calc_hessian_imply_ti(x)   #taichi impl version
-        return hessian
-
-    def calc_hessian_imply_py(self, x)->scipy.sparse.csr_matrix:
-        hessian = scipy.sparse.dok_matrix((self.NV*3, self.NV*3),dtype=np.float32)
-        for c in self.constraintsNew:
-            if c.type == ConstraintType.ATTACHMENT:
-                self.EvaluateHessianOneConstraintAttachment(c, x, hessian)
-            elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
-                self.EvaluateHessianOneConstraintDistance(c, x, hessian)
-        hessian = self.MASS + self.delta_t * self.delta_t * hessian
-        hessian = hessian.tocsr()
-        return hessian
+        
     
-
-    def calc_hessian_imply_ti(self, x) -> scipy.sparse.csr_matrix:
-        assert x.shape[1]==3
-        stiffness = self.adapter.stiffness
-        rest_len = self.adapter.rest_len
-        vert = self.adapter.vert
-        NCONS = self.adapter.NCONS
-        
-        MAX_NNZ = NCONS* 50     # estimate the nnz: 3*3*4*NCONS
-
-        ii = np.zeros(dtype=np.int32,  shape=MAX_NNZ)
-        jj = np.zeros(dtype=np.int32,  shape=MAX_NNZ)
-        vv = np.zeros(dtype=np.float32,shape=MAX_NNZ)
-
-
-        @ti.kernel
-        def kernel(x:ti.types.ndarray(dtype=tm.vec3),
-                   vert:ti.template(),
-                   rest_len:ti.template(),
-                   NCONS:ti.i32,
-                   ii:ti.types.ndarray(),
-                   jj:ti.types.ndarray(),
-                   vv:ti.types.ndarray(),
-                   ):
-            kk = 0
-            for i in range(NCONS):
-                p1, p2 = vert[i]
-                x_ij = x[p1] - x[p2]
-                # l_ij = norm(x_ij)
-                l_ij = x_ij.norm()
-                l0 = rest_len[i]
-                ks = stiffness[i]
-                k = ks * (tm.eye(3) - l0/l_ij*(tm.eye(3) - x_ij.outer_product(x_ij)/(l_ij*l_ij)))
-                # k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
-                for row in ti.static(range(3)):
-                    for col in ti.static(range(3)):
-                        val = k[row, col]
-                        ii[kk] = 3*p1 + row
-                        jj[kk] = 3*p1 + col
-                        vv[kk] = val
-                        kk += 1
-                        ii[kk] = 3*p1 + row
-                        jj[kk] = 3*p2 + col
-                        vv[kk] = -val
-                        kk += 1
-                        ii[kk] = 3*p2 + row
-                        jj[kk] = 3*p1 + col
-                        vv[kk] = -val
-                        kk += 1
-                        ii[kk] = 3*p2 + row
-                        jj[kk] = 3*p2 + col
-                        vv[kk] = val
-                        kk += 1
-        kernel(x,vert,rest_len, NCONS, ii, jj, vv)
-        hessian = scipy.sparse.coo_matrix((vv,(ii,jj)),shape=(self.NV*3, self.NV*3),dtype=np.float32)
-        hessian = self.MASS + self.delta_t * self.delta_t * hessian
-        return hessian
-    
-
-    def EvaluateHessianOneConstraintDistance(self, c, x, hessian):
-        p1 = c.p1
-        p2 = c.p2
-        x_ij = x[p1] - x[p2]
-        l_ij = np.linalg.norm(x_ij)
-        l0 = c.rest_len
-        ks = c.stiffness
-        k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
-        for row in range(3):
-            for col in range(3):
-                val = k[row, col]
-                hessian[p1*3+row, p1*3+col] += val
-                hessian[p1*3+row, p2*3+col] += -val
-                hessian[p2*3+row, p1*3+col] += -val
-                hessian[p2*3+row, p2*3+col] += val
-        return hessian
-
-    def EvaluateHessianOneConstraintAttachment(self, c, x, hessian):
-        # from constraint number j to point number i
-        i0 = c.p0
-        g = c.stiffness
-        for k in range(3):
-            hessian[i0*3+k, i0*3+k] += g
-        return hessian
-        
-        
     def line_search(self, x, gradient_dir, descent_dir):
         if not self.use_line_search:
             return self.ls_step_size
@@ -367,3 +252,116 @@ class NewtonMethod(Cloth):
     
     def calc_total_energy(self):
         return super().calc_total_energy()
+    
+
+class CalculateHessian():
+    def __init__(self, adapter, MASS, delta_t):
+        self.stiffness = adapter.stiffness
+        self.rest_len = adapter.rest_len
+        self.vert = adapter.vert
+        self.NCONS = adapter.NCONS
+        self.MASS = MASS
+        self.delta_t = delta_t
+
+
+    @timeit
+    def evaluateHessian(self, x):
+        # hessian = self.calc_hessian_imply_py(x) #python impl version
+        hessian = self.calc_hessian_imply_ti(x)   #taichi impl version
+        return hessian
+
+    def calc_hessian_imply_py(self, x)->scipy.sparse.csr_matrix:
+        hessian = scipy.sparse.dok_matrix((self.NV*3, self.NV*3),dtype=np.float32)
+        for c in self.constraintsNew:
+            if c.type == ConstraintType.ATTACHMENT:
+                self.EvaluateHessianOneConstraintAttachment(c, x, hessian)
+            elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
+                self.EvaluateHessianOneConstraintDistance(c, x, hessian)
+        hessian = self.MASS + self.delta_t * self.delta_t * hessian
+        hessian = hessian.tocsr()
+        return hessian
+    
+
+    def calc_hessian_imply_ti(self, x) -> scipy.sparse.csr_matrix:
+        assert x.shape[1]==3
+        stiffness = self.stiffness
+        rest_len = self.rest_len
+        vert = self.vert
+        NCONS = self.NCONS
+        NV = x.shape[0]
+        
+        MAX_NNZ = NCONS* 50     # estimate the nnz: 3*3*4*NCONS
+
+        ii = np.zeros(dtype=np.int32,  shape=MAX_NNZ)
+        jj = np.zeros(dtype=np.int32,  shape=MAX_NNZ)
+        vv = np.zeros(dtype=np.float32,shape=MAX_NNZ)
+
+
+        @ti.kernel
+        def kernel(x:ti.types.ndarray(dtype=tm.vec3),
+                   vert:ti.template(),
+                   rest_len:ti.template(),
+                   NCONS:ti.i32,
+                   ii:ti.types.ndarray(),
+                   jj:ti.types.ndarray(),
+                   vv:ti.types.ndarray(),
+                   ):
+            kk = 0
+            for i in range(NCONS):
+                p1, p2 = vert[i]
+                x_ij = x[p1] - x[p2]
+                # l_ij = norm(x_ij)
+                l_ij = x_ij.norm()
+                l0 = rest_len[i]
+                ks = stiffness[i]
+                k = ks * (tm.eye(3) - l0/l_ij*(tm.eye(3) - x_ij.outer_product(x_ij)/(l_ij*l_ij)))
+                # k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
+                for row in ti.static(range(3)):
+                    for col in ti.static(range(3)):
+                        val = k[row, col]
+                        ii[kk] = 3*p1 + row
+                        jj[kk] = 3*p1 + col
+                        vv[kk] = val
+                        kk += 1
+                        ii[kk] = 3*p1 + row
+                        jj[kk] = 3*p2 + col
+                        vv[kk] = -val
+                        kk += 1
+                        ii[kk] = 3*p2 + row
+                        jj[kk] = 3*p1 + col
+                        vv[kk] = -val
+                        kk += 1
+                        ii[kk] = 3*p2 + row
+                        jj[kk] = 3*p2 + col
+                        vv[kk] = val
+                        kk += 1
+        kernel(x,vert,rest_len, NCONS, ii, jj, vv)
+        hessian = scipy.sparse.coo_matrix((vv,(ii,jj)),shape=(NV*3, NV*3),dtype=np.float32)
+        hessian = self.MASS + self.delta_t * self.delta_t * hessian
+        return hessian
+    
+
+    def EvaluateHessianOneConstraintDistance(self, c, x, hessian):
+        p1 = c.p1
+        p2 = c.p2
+        x_ij = x[p1] - x[p2]
+        l_ij = np.linalg.norm(x_ij)
+        l0 = c.rest_len
+        ks = c.stiffness
+        k = ks * (np.eye(3) - l0/l_ij*(np.eye(3) - np.outer(x_ij, x_ij)/(l_ij*l_ij)))
+        for row in range(3):
+            for col in range(3):
+                val = k[row, col]
+                hessian[p1*3+row, p1*3+col] += val
+                hessian[p1*3+row, p2*3+col] += -val
+                hessian[p2*3+row, p1*3+col] += -val
+                hessian[p2*3+row, p2*3+col] += val
+        return hessian
+
+    def EvaluateHessianOneConstraintAttachment(self, c, x, hessian):
+        # from constraint number j to point number i
+        i0 = c.p0
+        g = c.stiffness
+        for k in range(3):
+            hessian[i0*3+k, i0*3+k] += g
+        return hessian

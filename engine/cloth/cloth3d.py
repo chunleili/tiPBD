@@ -24,6 +24,7 @@ from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.solver.iterative_solver import GaussSeidelSolver
 from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, init_logger, do_post_iter
+from engine.physical_base import PhysicalBase
 
 
 
@@ -57,7 +58,7 @@ if args.arch == "gpu":
 else:
     ti.init(arch=ti.cpu)
 
-class Cloth():
+class Cloth(PhysicalBase):
     def __init__(self) -> None:
         self.Ps = None
         self.num_levels = 0
@@ -212,15 +213,6 @@ class Cloth():
         
     def update_constraints(self):
         update_constraints_kernel(self.pos, self.edge, self.rest_len, self.constraints)
-
-
-    def calc_total_energy(self):
-        from engine.util import compute_potential_energy, compute_inertial_energy
-        self.update_constraints()
-        self.potential_energy = compute_potential_energy(self)
-        self.inertial_energy = compute_inertial_energy(self)
-        self.total_energy = self.potential_energy + self.inertial_energy
-        return self.total_energy
 
 
     def calc_dual(self)->float:

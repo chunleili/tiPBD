@@ -113,8 +113,11 @@ class ResidualDataOneIter:
     def calc_r0(self):
         tic = perf_counter()
         self.dual0 = self.calc_dual()
-        if self.mode == "Newton":
+        if self.mode == ResidualType.Newton:
             self.primal0, self.Newton0 = self.calc_primal()
+        if self.mode == ResidualType.energy:
+            self.total_energy0 = self.calc_total_energy()
+
         self.t_export = perf_counter()-tic # reset t_export here
 
     
@@ -277,49 +280,6 @@ def report_multilevel_details(Ps, num_levels):
         logging.info(f"    num points of level {i}: {num_points_level[i]}")
 
 
-
-def calc_total_energy(ist, update_constraints):
-    update_constraints()
-    ist.potential_energy = compute_potential_energy(ist)
-    ist.inertial_energy = compute_inertial_energy(ist)
-    ist.total_energy = ist.potential_energy + ist.inertial_energy
-    return ist.total_energy
-
-
-def compute_potential_energy(ist)->float:
-    res = compute_potential_energy_kernel(ist.constraints, ist.alpha_tilde, ist.delta_t)
-    return res
-
-def compute_inertial_energy(ist)->float:
-    res = compute_inertial_energy_kernel(ist.pos, ist.predict_pos, ist.inv_mass, ist.delta_t)
-    return res
-
-@ti.kernel
-def compute_potential_energy_kernel(
-    constraints: ti.template(),
-    alpha_tilde: ti.template(),
-    delta_t: ti.f32,
-)->ti.f32:
-    potential_energy = 0.0
-    for i in range(constraints.shape[0]):
-        inv_alpha =  1.0 / (alpha_tilde[i]*delta_t**2)
-        potential_energy += 0.5 * inv_alpha * constraints[i]**2
-    return potential_energy
-
-@ti.kernel
-def compute_inertial_energy_kernel(
-    pos: ti.template(),
-    predict_pos: ti.template(),
-    inv_mass: ti.template(),
-    delta_t: ti.f32,
-)->ti.f32:
-    inertial_energy = 0.0
-    inv_h2 = 1.0 / delta_t**2
-    for i in range(pos.shape[0]):
-        if inv_mass[i] == 0.0:
-            continue
-        inertial_energy += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
-    return inertial_energy
 
 
 

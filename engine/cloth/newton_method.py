@@ -94,7 +94,6 @@ class NewtonMethod(Cloth):
 
     def calc_predict_pos(self):
         self.predict_pos = (self.pos + self.delta_t * self.vel)
-        self.pos_ti
     
     def update_pos_and_vel(self,new_pos):
         self.vel = (new_pos - self.pos) / self.delta_t
@@ -102,9 +101,9 @@ class NewtonMethod(Cloth):
 
     @timeit
     def substep_newton(self):
-        # self.calc_predict_pos()
+        self.calc_predict_pos()
         self.calc_external_force(self.args.gravity)
-        self.semi_euler()
+        # self.semi_euler()
         pos_next = self.predict_pos.copy()
 
         for self.ite in range(self.args.maxiter):
@@ -166,7 +165,7 @@ class NewtonMethod(Cloth):
                 self.EvaluateGradientOneConstraintAttachment(c, x, gradient.reshape(-1,3))
             elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
                 self.EvaluateGradientOneConstraintDistance(c, x, gradient.reshape(-1,3))
-        # gradient -= self.external_force
+        gradient -= self.external_force
         h_square = self.delta_t * self.delta_t
         x_tilde = self.predict_pos
         gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
@@ -312,6 +311,16 @@ class NewtonMethod(Cloth):
         return t
     
     def evaluateObjectiveFunction(self, x):
+        energy1 = self.calc_obj_func_imply_py(x)
+        energy2 = self.calc_obj_func_imply_ti()
+        return energy1
+    
+
+    def calc_obj_func_imply_ti(self) -> float:
+        return super().calc_total_energy()
+    
+
+    def calc_obj_func_imply_py(self, x):
         potential_term = 0.0
         for c in self.constraintsNew:
             if c.type == ConstraintType.ATTACHMENT:
@@ -319,7 +328,7 @@ class NewtonMethod(Cloth):
             elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
                 potential_term += self.EvaluatePotentialEnergyDistance(c, x.reshape(-1,3))
 
-        # potential_term -= x.flatten()@ self.external_force
+        potential_term -= x.flatten()@ self.external_force
 
         x_diff = x.flatten() - self.predict_pos.flatten()
         inertia_term = 0.5 * x_diff.transpose() @ self.MASS @ x_diff

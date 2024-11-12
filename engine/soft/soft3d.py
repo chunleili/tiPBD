@@ -74,7 +74,7 @@ class SoftBody:
         self.r_iter = ResidualDataOneIter(args,
                                             calc_dual   =calc_dual,
                                             calc_primal =calc_primal,
-                                            calc_total_energy=calc_total_energy,
+                                            calc_total_energy=self.calc_total_energy,
                                             calc_strain =calc_strain)
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
@@ -990,14 +990,6 @@ def calc_strain()->float:
     ist.max_strain = np.max(ist.strain.to_numpy())
     return ist.max_strain
 
-
-def calc_total_energy():
-    from engine.util import compute_potential_energy, compute_inertial_energy
-    update_constraints()
-    ist.potential_energy = compute_potential_energy(ist)
-    ist.inertial_energy = compute_inertial_energy(ist)
-    ist.total_energy = ist.potential_energy + ist.inertial_energy
-    return ist.total_energy
 
 
 def calc_primary_residual(G,M_inv):

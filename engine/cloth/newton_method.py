@@ -50,6 +50,7 @@ class NewtonMethod(Cloth):
         # self.calc_gradient_imply_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
 
         self.calc_obj_func_imply_ti = CalculateObjectiveFunctionTaichi(self.adapter.vert, self.adapter.rest_len, self.adapter.stiffness, self.NCONS, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
+        self.calc_obj_func_imply_py = CalculateObjectiveFunctionPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
 
     @timeit
     def evaluateGradient(self, x):
@@ -147,6 +148,8 @@ class NewtonMethod(Cloth):
 
     def evaluateObjectiveFunction(self, x):
         energy = self.calc_obj_func_imply_ti(x)
+        # energy2 = self.calc_obj_func_imply_py(x)
+        # assert np.abs(energy-energy2)<1e-5
         return energy
 
 
@@ -194,7 +197,17 @@ class CalculateObjectiveFunctionTaichi():
     
     
 
-class ObjectiveFunctionImplyPython():
+class CalculateObjectiveFunctionPython():
+    def __init__(self, constraintsNew, MASS, delta_t, external_force, predict_pos):
+        self.constraintsNew = constraintsNew
+        self.MASS = MASS
+        self.delta_t = delta_t
+        self.external_force = external_force
+        self.predict_pos = predict_pos
+
+    def run(self, x):
+        return self.calc_obj_func_imply_py(x)
+
     def calc_obj_func_imply_py(self, x):
         potential_term = 0.0
         for c in self.constraintsNew:

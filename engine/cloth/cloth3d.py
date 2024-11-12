@@ -26,6 +26,7 @@ from engine.solver.direct_solver import DirectSolver
 from engine.solver.iterative_solver import GaussSeidelSolver
 from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, init_logger, do_post_iter
 from engine.physical_base import PhysicalBase
+from engine.line_search import LineSearch
 
 
 
@@ -59,6 +60,7 @@ if args.arch == "gpu":
 else:
     ti.init(arch=ti.cpu)
 
+@ti.data_oriented
 class Cloth(PhysicalBase):
     def __init__(self,args) -> None:
         super().__init__(args)
@@ -83,9 +85,6 @@ class Cloth(PhysicalBase):
             from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
             self.v2e, self.v2t, self.e2t = write_and_rebuild_topology(self.edge.to_numpy(),self.tri,args.out_dir)
 
-
-
-
         self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         logging.info(f"start date:{self.start_date}")
 
@@ -100,7 +99,12 @@ class Cloth(PhysicalBase):
         else:
             pos_np = self.pos.to_numpy() if type(self.pos) != np.ndarray else self.pos
             write_mesh(args.out_dir + f"/mesh/{0:04d}", pos_np, self.tri)
-        
+
+        self.ls = LineSearch(self.calc_objective_function, use_line_search=True, ls_alpha=0.25, ls_beta=0.1, ls_step_size=1.0, ΕPSILON=1e-15)
+
+    def calc_objective_function(self, x):
+        return self.calc_total_energy()
+
 
     def build_mesh(self, ):
         # cloth_type = "quad" or
@@ -184,8 +188,11 @@ class Cloth(PhysicalBase):
     def semi_euler(self):
         semi_euler_kernel(self.old_pos, self.inv_mass, self.vel, self.pos, self.predict_pos, args.delta_t)
 
-    def dlam2dpos(self,x):
-        transfer_back_to_pos_mfree(x)
+
+                
+    def dlam2dpos(self,dlam):
+        self.dLambda.from_numpy(dlam)
+        dlam2dpos_kernel(self.edge, self.inv_mass, self.dLambda, self.lagrangian, self.gradC, self.dpos)
 
     def update_vel(self):
         update_vel_kernel(self.old_pos, self.inv_mass, self.vel, self.pos)
@@ -228,8 +235,9 @@ class Cloth(PhysicalBase):
             self.r_iter.tic_iter = perf_counter()
             self.compute_C_and_gradC()
             self.b = self.compute_b()
-            x, self.r_iter.r_Axb = self.linsol.run(self.b)
-            self.dlam2dpos(x)
+            dlambda, self.r_iter.r_Axb = self.linsol.run(self.b)
+            self.dlam2dpos(dlambda)
+            self.update_pos()
             do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():
                 break
@@ -552,31 +560,29 @@ def transfer_back_to_pos_matrix(x, M_inv, G, pos_mid, Minv_gg=None):
     dpos = dpos.reshape(-1, 3)
     ist.pos.from_numpy(pos_mid.to_numpy() + args.omega*dpos)
 
+
+
 @ti.kernel
-def transfer_back_to_pos_mfree_kernel():
-    for i in range(ist.edge.shape[0]):
-        idx0, idx1 = ist.edge[i]
-        invM0, invM1 = ist.inv_mass[idx0], ist.inv_mass[idx1]
-
-        delta_lagrangian = ist.dLambda[i]
-        ist.lagrangian[i] += delta_lagrangian
-
-        gradient = ist.gradC[i, 0]
-        
+def dlam2dpos_kernel(
+    edge:ti.template(),
+    inv_mass:ti.template(),
+    dLambda:ti.template(),
+    lagrangian:ti.template(),
+    gradC:ti.template(),
+    dpos:ti.template(),
+):
+    for i in range(dpos.shape[0]):
+        dpos[i] = ti.Vector([0.0, 0.0, 0.0])
+    
+    for i in range(edge.shape[0]):
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        lagrangian[i] += dLambda[i]
+        gradient = gradC[i, 0]
         if invM0 != 0.0:
-            ist.dpos[idx0] += invM0 * delta_lagrangian * gradient
+            dpos[idx0] += invM0 * dLambda[i] * gradient
         if invM1 != 0.0:
-            ist.dpos[idx1] -= invM1 * delta_lagrangian * gradient
-
-
-
-
-def transfer_back_to_pos_mfree(x):
-    ist.dLambda.from_numpy(x)
-    ist.dpos.fill(0.0)
-    transfer_back_to_pos_mfree_kernel()
-    update_pos_kernel(ist.inv_mass, ist.dpos, ist.pos, args.omega)
-
+            dpos[idx1] -= invM1 * dLambda[i] * gradient
 
 
 

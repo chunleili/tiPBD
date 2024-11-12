@@ -76,10 +76,10 @@ class Cloth():
 
         self.frame = 0
         self.ite=0
-        
+
         self.delta_t = args.delta_t
         self.compliance = args.compliance  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
-        self.alpha_tilde = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
+        self.alpha_tilde_constant = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
         self.alpha_bending = 1.0 * (1.0 / args.delta_t / args.delta_t) #TODO: need to be tuned
 
         self.build_mesh()
@@ -92,12 +92,23 @@ class Cloth():
             from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
             self.v2e, self.v2t, self.e2t = write_and_rebuild_topology(self.edge.to_numpy(),self.tri,args.out_dir)
 
-        inv_mass_np = np.repeat(self.inv_mass.to_numpy(), 3, axis=0)
-        self.M_inv = scipy.sparse.diags(inv_mass_np)
-        self.alpha_tilde_np = np.array([self.alpha_tilde] * self.NCONS)
-        self.ALPHA_TILDE = scipy.sparse.diags(self.alpha_tilde_np)
-        self.ALPHA_inv = scipy.sparse.diags([self.compliance**(-1)] * self.NCONS)
-        self.MASS = scipy.sparse.diags(1.0/(self.M_inv.diagonal()), format="csr")
+
+
+
+        self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        logging.info(f"start date:{self.start_date}")
+
+        self.linsol = init_linear_solver(args)
+        if args.setup_num == 1:
+            init_scale()
+            
+        init_fill(self)
+
+        if args.restart:
+            do_restart(args,self) #will change frame number
+        else:
+            pos_np = self.pos.to_numpy() if type(self.pos) != np.ndarray else self.pos
+            write_mesh(args.out_dir + f"/mesh/{0:04d}", pos_np, self.tri)
         
 
     def build_mesh(self, ):
@@ -142,39 +153,41 @@ class Cloth():
 
         inv_mass_np = np.repeat(self.inv_mass.to_numpy(), 3, axis=0)
         self.M_inv = scipy.sparse.diags(inv_mass_np)
-        self.alpha_tilde_np = np.array([self.alpha_tilde] * self.NE)
-        self.ALPHA = scipy.sparse.diags(self.alpha_tilde_np)
-        self.NCONS = self.NE
+        self.MASS = scipy.sparse.diags(1.0/(inv_mass_np), format="csr")
+        self.alpha_tilde_np = np.array([self.alpha_tilde_constant] * self.NCONS)
+        self.ALPHA_TILDE = scipy.sparse.diags(self.alpha_tilde_np)
+        self.alpha_tilde.from_numpy(self.alpha_tilde_np)
         
     
     def allocate_fields(self, NV, NE, NT):
+        NCONS = self.NE
+        self.NCONS = NCONS
         self.tri_ti      = ti.field(dtype=int, shape=NT*3)
         self.edge        = ti.Vector.field(2, dtype=int, shape=(NE))
         self.pos         = ti.Vector.field(3, dtype=float, shape=(NV))
         self.dpos        = ti.Vector.field(3, dtype=float, shape=(NV))
-        self.dpos_withg  = ti.Vector.field(3, dtype=float, shape=(NV))
         self.old_pos     = ti.Vector.field(3, dtype=float, shape=(NV))
         self.vel         = ti.Vector.field(3, dtype=float, shape=(NV))
         self.pos_mid     = ti.Vector.field(3, dtype=float, shape=(NV))
         self.inv_mass    = ti.field(dtype=float, shape=(NV))
-        self.rest_len    = ti.field(dtype=float, shape=(NE))
-        self.lagrangian  = ti.field(dtype=float, shape=(NE))  
-        self.constraints = ti.field(dtype=float, shape=(NE))  
-        self.dLambda     = ti.field(dtype=float, shape=(NE))
-        self.gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NE,2)) 
-        self.edge_center = ti.Vector.field(3, dtype = ti.float32, shape=(NE))
-        self.dual_residual       = ti.field(shape=(NE),    dtype = ti.float32) # -C - alpha_tilde * self.lagrangian
+        self.rest_len    = ti.field(dtype=float, shape=(NCONS))
+        self.lagrangian  = ti.field(dtype=float, shape=(NCONS))  
+        self.constraints = ti.field(dtype=float, shape=(NCONS))  
+        self.dLambda     = ti.field(dtype=float, shape=(NCONS))
+        self.gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NCONS,2)) 
+        self.dual_residual= ti.field(shape=(NCONS),    dtype = ti.float32) # -C-alpha_tilde * self.lagrangian
         self.predict_pos = ti.Vector.field(3, dtype=float, shape=(NV))
-        # self.# primary_residual = np.zeros(dtype=float, shape=(3*NV))
-        # self.# K = ti.Matrix.field(3, 3, float, (NV, NV)) 
-        # self.# geometric stiffness, only retain diagonal elements
-        self.K_diag = np.zeros((NV*3), dtype=float)
-        self.current_len = ti.field(ti.f32, shape=NE)
+        self.current_len = ti.field(ti.f32, shape=NCONS)
+        self.dual_residual= ti.field(shape=(NCONS),    dtype = ti.float32)
+        self.alpha_tilde = ti.field(dtype=float, shape=(NCONS))
         self.strain = ti.field(ti.f32, shape=NE)
         self.max_strain = 0.0
         self.total_energy = 0.0
         self.potential_energy = 0.0
         self.inertial_energy = 0.0
+        self.K_diag = np.zeros((NV*3), dtype=float)
+        # self.# K = ti.Matrix.field(3, 3, float, (NV, NV)) 
+        # self.# geometric stiffness, only retain diagonal elements
 
 
     def semi_euler(self):
@@ -233,7 +246,7 @@ class Cloth():
             self.r_iter.tic_iter = perf_counter()
             self.compute_C_and_gradC()
             self.b = self.compute_b()
-            x, self.r_iter.r_Axb = linsol.run(self.b)
+            x, self.r_iter.r_Axb = self.linsol.run(self.b)
             self.dlam2dpos(x)
             do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():
@@ -255,7 +268,7 @@ class Cloth():
             if args.use_bending:
                 # TODO: should use seperate dual_residual_bending and lagrangian_bending
                 solve_bending_constraints_xpbd(self.dual_residual, self.inv_mass, self.lagrangian, self.dpos, self.pos, self.bending_length, self.tri_pairs, self.alpha_bending)
-            solve_distance_constraints_xpbd(self.dual_residual, self.inv_mass, self.edge, self.rest_len, self.lagrangian, self.dpos, self.pos)
+            solve_distance_constraints_xpbd(self.dual_residual, self.inv_mass, self.edge, self.rest_len, self.lagrangian, self.dpos, self.pos, self.alpha_tilde)
             update_pos_kernel(self.inv_mass, self.dpos, self.pos,args.omega)
             self.r_iter.calc_r(self.frame, self.ite, tic_iter)
             if self.r_iter.dual<args.tol:
@@ -293,6 +306,7 @@ def solve_distance_constraints_xpbd(
     lagrangian:ti.template(),
     dpos:ti.template(),
     pos:ti.template(),
+    alpha_tilde:ti.template(),
 ):
     for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
@@ -301,11 +315,11 @@ def solve_distance_constraints_xpbd(
         constraint = dis.norm() - rest_len[i]
         gradient = dis.normalized()
         l = -constraint / (invM0 + invM1)
-        delta_lagrangian = -(constraint + lagrangian[i] * ist.alpha_tilde) / (invM0 + invM1 + ist.alpha_tilde)
+        delta_lagrangian = -(constraint + lagrangian[i] * alpha_tilde[i]) / (invM0 + invM1 + alpha_tilde[i])
         lagrangian[i] += delta_lagrangian
 
         # residual
-        dual_residual[i] = -(constraint + ist.alpha_tilde * lagrangian[i])
+        dual_residual[i] = -(constraint + alpha_tilde[i] * lagrangian[i])
         
         if invM0 != 0.0:
             dpos[idx0] += invM0 * delta_lagrangian * gradient
@@ -326,16 +340,6 @@ def update_pos_kernel(
             pos[i] += omega * dpos[i]
 
 
-@ti.kernel
-def update_pos_blend(
-    inv_mass:ti.template(),
-    dpos:ti.template(),
-    pos:ti.template(),
-    dpos_withg:ti.template(),
-):
-    for i in range(pos.shape[0]):
-        if inv_mass[i] != 0.0:
-            pos[i] += args.omega *((1-args.PXPBD_ksi) * dpos[i] + args.PXPBD_ksi * dpos_withg[i])
 
 
 @ti.kernel
@@ -360,7 +364,7 @@ def calc_dual_residual(
     rest_len:ti.template(),
     lagrangian:ti.template(),
     pos:ti.template(),
-    alpha_tilde:ti.f32,
+    alpha_tilde:ti.template(),
 ):
     for i in range(edge.shape[0]):
         idx0, idx1 = edge[i]
@@ -368,7 +372,7 @@ def calc_dual_residual(
         constraint = dis.norm() - rest_len[i]
 
         # residual(lagrangian=0 for first iteration)
-        dual_residual[i] = -(constraint + alpha_tilde * lagrangian[i])
+        dual_residual[i] = -(constraint + alpha_tilde[i] * lagrangian[i])
 
 
 def calc_primary_residual(G,M_inv):
@@ -617,7 +621,7 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
                     jj:ti.types.ndarray(dtype=ti.i32),
                     adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
                     num_nonz:ti.i32,
-                    alpha_tilde:ti.f32):
+                    alpha_tilde:ti.template()):
     for cnt in range(num_nonz):
         i = ii[cnt] # row index
         j = jj[cnt] # col index
@@ -625,7 +629,7 @@ def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32),
         # Because the diag is the final element of each row, 
         # it is also the k-th adjacent edge of i-th edge.
         if i == j: # diag
-            data[cnt] = ist.inv_mass[ist.edge[i][0]] + ist.inv_mass[ist.edge[i][1]] + alpha_tilde
+            data[cnt] = ist.inv_mass[ist.edge[i][0]] + ist.inv_mass[ist.edge[i][1]] + alpha_tilde[i]
             continue
         a = adjacent_edge_abc[i, k * 3]
         b = adjacent_edge_abc[i, k * 3 + 1]
@@ -682,7 +686,7 @@ def fastFill_fetch():
 
 
 @ti.kernel
-def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha_tilde:ti.f32):
+def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha_tilde:ti.template()):
     n = 0
     ist.NE = ist.adjacent_edge.shape[0]
     ti.loop_config(serialize=True)
@@ -704,7 +708,7 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
         # diag
         ii[n] = i
         jj[n] = i
-        vv[n] = inv_mass[ist.edge[i][0]] + inv_mass[ist.edge[i][1]] + alpha_tilde
+        vv[n] = inv_mass[ist.edge[i][0]] + inv_mass[ist.edge[i][1]] + alpha_tilde[i]
         n += 1 
 
 
@@ -814,12 +818,12 @@ def init_linear_solver(args):
 
 
 
-def init_fill():
+def init_fill(ist):
     if args.solver_type == "XPBD" or args.solver_type == "NEWTON":
         return
     tic = time.perf_counter()
     from engine.cloth.fill_A import FillACloth
-    fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha_tilde,  args.use_cache, args.use_cuda, extlib)
+    fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha_tilde_constant,  args.use_cache, args.use_cuda, extlib)
     fill_A.init()
     ist.spmat = fill_A.spmat
     ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
@@ -832,7 +836,6 @@ def init():
     tic_init = time.perf_counter()
 
     process_dirs(args)
-    
     init_logger(args)
 
     global extlib
@@ -840,30 +843,11 @@ def init():
 
     global ist
     ist = Cloth()
-    ist.delta_t = args.delta_t
-
-    ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    logging.info(f"start date:{ist.start_date}")
-
-    global linsol
-    linsol = init_linear_solver(args)
 
     if args.solver_type == "NEWTON":
         from engine.cloth.newton_method import NewtonMethod
         ist = NewtonMethod()
 
-
-    if args.setup_num == 1:
-        init_scale()
-        
-    pos_np = ist.pos.to_numpy() if type(ist.pos) != np.ndarray else ist.pos
-    write_mesh(args.out_dir + f"/mesh/{0:04d}", pos_np, ist.tri)
-
-    init_fill()
-
-    ist.frame = 1
-    if args.restart:
-        do_restart(args,ist) #will change frame number
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_init:.3f}s") 
 
 

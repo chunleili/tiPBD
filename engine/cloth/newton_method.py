@@ -37,25 +37,12 @@ def debugmat(x, name='mat'):
 class NewtonMethod(Cloth):
     def __init__(self,args):
         super().__init__(args)
-        self.gradient = np.zeros(self.NV*3, dtype=np.float32)
-        self.descent_dir = np.zeros(self.NV*3, dtype=np.float32)
-        self.hessian = scipy.sparse.csr_matrix((self.NV*3, self.NV*3), dtype=np.float32)
         
-        # back up the original data
-        self.pos_ti = self.pos
-        self.old_pos_ti = self.old_pos
-        self.predict_pos_ti = self.predict_pos
-        self.vel_ti = self.vel
-
         self.pos = self.pos.to_numpy()
-        self.old_pos = self.old_pos.to_numpy()
         self.predict_pos = self.predict_pos.to_numpy()
         self.vel = self.vel.to_numpy()
-        self.inv_mass = self.inv_mass.to_numpy()
 
         self.EPSILON = 1e-15
-        self.stiffness = 80.0 # FIXME
-        self.stiffness_attachment = 120.0 # FIXME
 
         self.setupConstraints = SetupConstraints(self.pos, self.edge.to_numpy(), self.args)
         self.constraintsNew = self.setupConstraints.constraints
@@ -73,25 +60,6 @@ class NewtonMethod(Cloth):
         self.ls_step_size = 1.0
 
 
-    def semi_euler(self):
-        @ti.kernel
-        def semi_euler_kernel(
-            old_pos:ti.types.ndarray(dtype=tm.vec3),
-            inv_mass:ti.types.ndarray(),
-            vel:ti.types.ndarray(dtype=tm.vec3),
-            pos:ti.types.ndarray(dtype=tm.vec3),
-            predict_pos:ti.types.ndarray(dtype=tm.vec3),
-            delta_t:ti.f32,
-            external_acc:ti.types.ndarray(dtype=tm.vec3)
-        ):
-            for i in range(pos.shape[0]):
-                if inv_mass[i] != 0.0:
-                    vel[i] += delta_t * external_acc[i]
-                    old_pos[i] = pos[i]
-                    pos[i] += delta_t * vel[i]
-                    predict_pos[i] = pos[i]
-        semi_euler_kernel(self.old_pos, self.inv_mass, self.vel, self.pos, self.predict_pos, self.delta_t, self.external_acc)
-
     def calc_predict_pos(self):
         self.predict_pos = (self.pos + self.delta_t * self.vel)
     
@@ -103,7 +71,6 @@ class NewtonMethod(Cloth):
     def substep_newton(self):
         self.calc_predict_pos()
         self.calc_external_force(self.args.gravity)
-        # self.semi_euler()
         pos_next = self.predict_pos.copy()
 
         for self.ite in range(self.args.maxiter):
@@ -118,20 +85,22 @@ class NewtonMethod(Cloth):
     # integrateNewtonDescentOneIteration
     def step_one_iter(self, x):
         print(f'ite: {self.ite}')   
-        #  evaluate gradient direction
-        self.gradient = self.evaluateGradient(x, self.gradient)
-        nrmsqr = norm_sqr(self.gradient)
+        gradient = self.evaluateGradient(x)
+        nrmsqr = norm_sqr(gradient)
         if nrmsqr < self.EPSILON:
             print(f'gradient nrmsqr {nrmsqr} <EPSILON')
             return True
         
         self.hessian = self.evaluateHessian(x)
-        self.descent_dir,_ = self.linear_solver.run(self.gradient)
-        self.descent_dir = -self.descent_dir
-        step_size = self.line_search(x, self.gradient, self.descent_dir)
+
+        descent_dir,_ = self.linear_solver.run(gradient)
+        descent_dir = -descent_dir
+
+        step_size = self.line_search(x, gradient, descent_dir)
         print(f"energy: {self.total_energy}")
-        x += self.descent_dir.reshape(-1,3) * step_size
-        #  report convergence
+
+        x += descent_dir.reshape(-1,3) * step_size
+
         if step_size < self.EPSILON:
             print(f'step_size {step_size} <EPSILON')
             return True
@@ -143,9 +112,6 @@ class NewtonMethod(Cloth):
         pmass = 1.0
         self.MASS = scipy.sparse.diags([pmass]*self.NV*3)
         self.M_inv = scipy.sparse.diags([1.0/pmass]*self.NV*3)
-        # self.inv_mass_np = np.array([1.0/pmass]*self.NV)
-        # self.inv_mass.from_numpy(self.inv_mass_np)
-        # scipy.io.mmwrite('mass.mtx', self.MASS)
         
         
     def calc_external_force(self, gravity=[0,-9.8,0]):
@@ -158,8 +124,8 @@ class NewtonMethod(Cloth):
         
 
     @timeit
-    def evaluateGradient(self, x, gradient):
-        gradient.fill(0)
+    def evaluateGradient(self, x):
+        gradient = np.zeros((self.NV* 3), dtype=np.float32)
         for c in self.constraintsNew:
             if c.type == ConstraintType.ATTACHMENT:
                 self.EvaluateGradientOneConstraintAttachment(c, x, gradient.reshape(-1,3))
@@ -173,12 +139,16 @@ class NewtonMethod(Cloth):
 
 
     def EvaluateGradientOneConstraintAttachment(self, c, x, gradient):
+        assert x.shape[1] == 3
+        assert gradient.shape[1] == 3
         # from constraint number j to point number i
         i0 = c.p0
         g = c.stiffness * (x[i0] - c.fixed_point)
         gradient[i0] += g
 
     def EvaluateGradientOneConstraintDistance(self, c, x, gradient):
+        assert x.shape[1] == 3
+        assert gradient.shape[1] == 3
         # from constraint number j to point number i
         i0 = c.p1
         i1 = c.p2

@@ -36,10 +36,6 @@ class NewtonMethod(Cloth):
             return self.hessian
         self.linear_solver = DirectSolver(get_A)
 
-        self.use_line_search = True
-        self.ls_beta = 0.1
-        self.ls_alpha = 0.25
-        self.ls_step_size = 1.0
 
         self.calc_external_force(self.args.gravity)
 
@@ -51,6 +47,10 @@ class NewtonMethod(Cloth):
 
         self.calc_obj_func_imply_ti = CalculateObjectiveFunctionTaichi(self.adapter.vert, self.adapter.rest_len, self.adapter.stiffness, self.NCONS, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
         self.calc_obj_func_imply_py = CalculateObjectiveFunctionPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
+
+        ls = LineSearch(self.calc_obj_func_imply_ti)
+        self.line_search = ls.line_search
+
 
     @timeit
     def evaluateGradient(self, x):
@@ -97,7 +97,6 @@ class NewtonMethod(Cloth):
         descent_dir = -descent_dir
 
         step_size = self.line_search(x, gradient, descent_dir)
-        print(f"energy: {self.total_energy}")
 
         x += descent_dir.reshape(-1,3) * step_size
 
@@ -122,7 +121,15 @@ class NewtonMethod(Cloth):
         self.external_acc = ext.copy().reshape(-1,3)
         self.external_force = self.MASS @ ext
         
-    
+class LineSearch():
+    def __init__(self, evaluateObjectiveFunction):
+        self.use_line_search = True
+        self.ls_beta = 0.1
+        self.ls_alpha = 0.25
+        self.ls_step_size = 1.0
+        self.EPSILON = 1e-15
+        self.evaluateObjectiveFunction = evaluateObjectiveFunction
+
     def line_search(self, x, gradient_dir, descent_dir):
         if not self.use_line_search:
             return self.ls_step_size
@@ -137,20 +144,15 @@ class NewtonMethod(Cloth):
             rhs = currentObjectiveValue + self.ls_alpha * t * np.dot(gradient_dir, descent_dir)
             ls_times += 1
         self.total_energy = lhs
-        print(f'ls_times: {ls_times}')
+        print(f'    energy: {self.total_energy}')
+        print(f'    ls_times: {ls_times}')
 
         if t < self.EPSILON:
             t = 0.0
         else:
             self.ls_step_size = t
         return t
-
-
-    def evaluateObjectiveFunction(self, x):
-        energy = self.calc_obj_func_imply_ti(x)
-        # energy2 = self.calc_obj_func_imply_py(x)
-        # assert np.abs(energy-energy2)<1e-5
-        return energy
+        
 
 
 class CalculateObjectiveFunctionTaichi():
@@ -501,3 +503,4 @@ class NewNewtonMethod(PhysicalBase):
 
         self.calc_hessian_imply_ti = CalculateHessianTaichi(stiffness, rest_len, vert, MASS, delta_t).run
         self.calc_gradient_imply_ti = CalculateGradientTaichi(stiffness, rest_len, vert, MASS, delta_t,  external_force, predict_pos).run
+        self.calc_obj_func_imply_ti = CalculateObjectiveFunctionTaichi(vert, rest_len, stiffness, self.NCONS, MASS, delta_t, external_force, predict_pos).run

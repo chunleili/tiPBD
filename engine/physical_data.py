@@ -1,10 +1,12 @@
 import numpy as np
 
 class PhysicalData:
-    def __init__(self, stiffness=None, rest_len=None, vert=None, mass=None, delta_t=None, external_force=None, fixed_points_idx=None, *pargs, **kwargs):
+    def __init__(self, pos=None, stiffness=None, rest_len=None, vert=None, mass=None, delta_t=None, external_force=None, fixed_points_idx=None, *pargs, **kwargs):
         """
         Parameters
         ----------
+        pos : np.ndarray(dtype=np.float32, shape=(NV, 3))
+            position of the vertices
         stiffness : np.ndarray(dtype=np.float32, shape=(NCONS,))
             stiffness of the constraints
         rest_len : np.ndarray(dtype=np.float32, shape=(NCONS,))
@@ -20,6 +22,7 @@ class PhysicalData:
         fixed_points_idx : list of int
             indices of the fixed points
         """
+        self.pos = pos
         self.stiffness = stiffness
         self.rest_len = rest_len
         self.vert = vert # vertex index for each constraint
@@ -41,6 +44,7 @@ class PhysicalData:
             path to the json file
 
             Must contain the following keys:
+            - pos
             - stiffness
             - rest_len
             - vert
@@ -52,6 +56,7 @@ class PhysicalData:
         import json
         with open(json_path, "rt") as f:
             data = json.load(f)
+        self.pos = np.array(data["pos"], dtype=np.float32)
         self.stiffness = np.array(data["stiffness"], dtype=np.float32)
         self.rest_len = np.array(data["rest_len"], dtype=np.float32)
         self.vert = np.array(data["vert"], dtype=np.int32)
@@ -78,6 +83,7 @@ class PhysicalData:
         import json
         # mandatory keys
         data = {
+            "pos": self.pos.tolist(),
             "stiffness": self.stiffness.tolist(),
             "rest_len": self.rest_len.tolist(),
             "vert": self.vert.tolist(),
@@ -105,6 +111,7 @@ class PhysicalData:
         self.external_force_np = self.external_force.copy()
 
         # allocate fields
+        self.pos = ti.Vector.field(3, dtype=float, shape=self.NV)
         self.stiffness = ti.field(dtype=float, shape=self.NCONS)
         self.rest_len = ti.field(dtype=float, shape=self.NCONS)
         self.vert = ti.Vector.field(NVERTS_ONE_CONS, dtype=int, shape=self.NCONS)
@@ -112,6 +119,7 @@ class PhysicalData:
         self.external_force = ti.Vector.field(3, dtype=float, shape=self.NV)
 
         # copy the numpy arrays to the fields
+        self.pos.from_numpy(self.pos_np)
         self.stiffness.from_numpy(self.stiffness_np)
         self.rest_len.from_numpy(self.rest_len_np)
         self.vert.from_numpy(self.vert_np)

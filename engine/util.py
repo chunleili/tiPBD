@@ -5,6 +5,7 @@ import json
 from time import perf_counter
 from dataclasses import dataclass, field
 from enum import Enum
+import scipy
 
 
 class ResidualType(Enum):
@@ -463,3 +464,17 @@ def debugmat(x, name='mat'):
     min_val = np.min(x.data)
     print(f'    norm: {norm} max_val: {max_val}  min_val: {min_val}\n')
     scipy.io.mmwrite(f"{name}.mtx", x)
+
+
+def set_mass_matrix(mass):
+    mass3 = np.repeat(mass, 3)
+    MASS = scipy.sparse.diags(mass3, 0)
+    return MASS
+
+def set_gravity_as_force(mass, gravity=[0,-9.8,0]):
+    NV = mass.shape[0]
+    mass3 = np.repeat(mass, 3)
+    gravity_constant = np.array(gravity)
+    external_acc = np.tile(gravity_constant, NV)
+    force = mass3 * external_acc
+    return force.reshape(-1,3)

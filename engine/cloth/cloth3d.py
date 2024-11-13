@@ -24,9 +24,11 @@ from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.solver.iterative_solver import GaussSeidelSolver
-from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter, calc_norm, init_logger, do_post_iter
+from engine.util import norm_sqr, calc_norm, init_logger, do_post_iter, timeit, set_gravity_as_force
 from engine.physical_base import PhysicalBase
 from engine.line_search import LineSearch
+from engine.physical_data import PhysicalData
+
 
 
 
@@ -101,6 +103,21 @@ class Cloth(PhysicalBase):
             write_mesh(args.out_dir + f"/mesh/{0:04d}", pos_np, self.tri)
 
         self.ls = LineSearch(self.calc_objective_function, use_line_search=True, ls_alpha=0.25, ls_beta=0.1, ls_step_size=1.0, ΕPSILON=1e-15)
+
+        self.stiffness = (1.0/self.compliance) * np.ones(self.NCONS, dtype=np.float32)
+        self.mass = 1.0/self.inv_mass.to_numpy()
+        self.force = set_gravity_as_force(self.mass, args.gravity)
+        self.physdata = PhysicalData(pos=self.pos.to_numpy(),
+                                     vel= self.vel.to_numpy(),
+                                     stiffness=self.stiffness,
+                                     rest_len=self.rest_len.to_numpy(),
+                                     vert=self.edge.to_numpy(),
+                                     mass=1.0/self.inv_mass.to_numpy(),
+                                     delta_t=self.delta_t,
+                                     force=self.force,
+                                            )
+
+
 
     def calc_objective_function(self, x):
         return self.calc_total_energy()
@@ -829,8 +846,8 @@ def init():
 
     global ist
     if args.solver_type == "NEWTON":
-        from engine.cloth.newton_method import NewtonMethod
-        ist = NewtonMethod(args)
+        from engine.cloth.newton_method import NewNewtonMethod
+        ist = NewNewtonMethod(args)
     else:
         ist = Cloth(args)
 

@@ -24,8 +24,8 @@ class TestNewtonMethod(NewtonMethod):
 
 
     def test_obj_function(self):
-        self.calc_external_force()
-        print(f"norm of external force: {norm(self.external_force):.10g}")
+        self.calc_force()
+        print(f"norm of external force: {norm(self.force):.10g}")
         obj = super().evaluateObjectiveFunction(self.x)
         print(f"Objective function: {obj:.10g}")
         return obj

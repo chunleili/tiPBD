@@ -1,12 +1,16 @@
 import numpy as np
 
 class PhysicalData:
-    def __init__(self, pos=None, stiffness=None, rest_len=None, vert=None, mass=None, delta_t=None, external_force=None, fixed_points_idx=None, *pargs, **kwargs):
+    def __init__(self, pos=None, vel=None, stiffness=None, rest_len=None, vert=None, mass=None, delta_t=None, force=None, fixed_points_idx=None, *pargs, **kwargs):
         """
         Parameters
         ----------
         pos : np.ndarray(dtype=np.float32, shape=(NV, 3))
             position of the vertices
+        vel : np.ndarray(dtype=np.float32, shape=(NV, 3))
+            velocity of the vertices
+        pos_old : np.ndarray(dtype=np.float32, shape=(NV, 3))
+            last substep position of the vertices
         stiffness : np.ndarray(dtype=np.float32, shape=(NCONS,))
             stiffness of the constraints
         rest_len : np.ndarray(dtype=np.float32, shape=(NCONS,))
@@ -17,18 +21,19 @@ class PhysicalData:
             mass of the vertices
         delta_t : float
             time step size
-        external_force : np.ndarray(dtype=np.float32, shape=(NV, 3))
+        force : np.ndarray(dtype=np.float32, shape=(NV, 3))
             external force applied to the vertices
         fixed_points_idx : list of int
             indices of the fixed points
         """
         self.pos = pos
+        self.vel = vel
         self.stiffness = stiffness
         self.rest_len = rest_len
         self.vert = vert # vertex index for each constraint
         self.mass = mass
         self.delta_t = delta_t
-        self.external_force = external_force
+        self.force = force
         self.NV = self.mass.shape[0]
         self.NCONS = self.stiffness.shape[0]
         self.NVERTS_ONE_CONS = self.vert.shape[1]
@@ -45,24 +50,26 @@ class PhysicalData:
 
             Must contain the following keys:
             - pos
+            - vel
             - stiffness
             - rest_len
             - vert
             - mass
             - delta_t
-            - external_force
+            - force
             - fixed_points_idx
         """
         import json
         with open(json_path, "rt") as f:
             data = json.load(f)
         self.pos = np.array(data["pos"], dtype=np.float32)
+        self.vel = np.array(data["vel"], dtype=np.float32)
         self.stiffness = np.array(data["stiffness"], dtype=np.float32)
         self.rest_len = np.array(data["rest_len"], dtype=np.float32)
         self.vert = np.array(data["vert"], dtype=np.int32)
         self.mass = np.array(data["mass"], dtype=np.float32)
         self.delta_t = data["delta_t"]
-        self.external_force = np.array(data["external_force"], dtype=np.float32)
+        self.force = np.array(data["force"], dtype=np.float32)
         self.fixed_points_idx = data["fixed_points_idx"]
         self.NV = self.mass.shape[0]
         self.NCONS = self.stiffness.shape[0]
@@ -84,12 +91,13 @@ class PhysicalData:
         # mandatory keys
         data = {
             "pos": self.pos.tolist(),
+            "vel": self.vel.tolist(),
             "stiffness": self.stiffness.tolist(),
             "rest_len": self.rest_len.tolist(),
             "vert": self.vert.tolist(),
             "mass": self.mass.tolist(),
             "delta_t": self.delta_t,
-            "external_force": self.external_force.tolist(),
+            "force": self.force.tolist(),
             "fixed_points_idx": self.fixed_points_idx
         }
         # optional keys
@@ -108,7 +116,7 @@ class PhysicalData:
         self.rest_len_np = self.rest_len.copy()
         self.vert_np = self.vert.copy()
         self.mass_np = self.mass.copy()
-        self.external_force_np = self.external_force.copy()
+        self.force_np = self.force.copy()
 
         # allocate fields
         self.pos = ti.Vector.field(3, dtype=float, shape=self.NV)
@@ -116,7 +124,7 @@ class PhysicalData:
         self.rest_len = ti.field(dtype=float, shape=self.NCONS)
         self.vert = ti.Vector.field(NVERTS_ONE_CONS, dtype=int, shape=self.NCONS)
         self.mass = ti.field(dtype=float, shape=self.NV)
-        self.external_force = ti.Vector.field(3, dtype=float, shape=self.NV)
+        self.force = ti.Vector.field(3, dtype=float, shape=self.NV)
 
         # copy the numpy arrays to the fields
         self.pos.from_numpy(self.pos_np)
@@ -124,16 +132,6 @@ class PhysicalData:
         self.rest_len.from_numpy(self.rest_len_np)
         self.vert.from_numpy(self.vert_np)
         self.mass.from_numpy(self.mass_np)
-        self.external_force.from_numpy(self.external_force_np)
-
-    def set_mass_matrix(self,):
-        import scipy
-        assert self.mass.shape[0] == self.NV
-        m_ = np.repeat(self.mass, 3)
-        self.MASS = scipy.sparse.diags(m_, 0)
-        assert self.MASS == (self.NV * 3, self.NV * 3)
-
-
-
+        self.force.from_numpy(self.force_np)
 
         

@@ -3,6 +3,7 @@
 import taichi as ti
 
 from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter
+from engine.physical_data import PhysicalData
 @ti.data_oriented
 class PhysicalBase:
     def __init__(self,args) -> None:
@@ -19,6 +20,20 @@ class PhysicalBase:
                                             calc_strain =self.calc_strain)
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
+
+
+    def to_physdata(self, physdata):
+        physdata.pos = self.pos.to_numpy()
+        physdata.stiffness = self.stiffness.to_numpy()
+        physdata.rest_len = self.rest_len.to_numpy()
+        physdata.vert = self.vert.to_numpy()
+        physdata.mass = self.mass.to_numpy()
+        physdata.delta_t = self.delta_t
+        physdata.force = self.force.to_numpy()
+        if not hasattr(self.args, "physdata_json_file"):
+            self.args.physdata_json_file = "physdata.json"
+        physdata.write_json(self.args.physdata_json_file)
+
     
     def calc_dual(self):
         raise NotImplementedError

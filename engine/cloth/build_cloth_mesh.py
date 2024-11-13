@@ -157,9 +157,9 @@ class QuadMeshCloth():
         for i, j in ti.ndrange(N + 1, N + 1):
             idx = i * (N + 1) + j
             inv_mass[idx] = 1.0
-        if setup_num == 0: # fix point
-            inv_mass[N] = 0.0
-            inv_mass[NV-1] = 0.0
+        # if setup_num == 0: # fix point
+        #     inv_mass[N] = 0.0
+        #     inv_mass[NV-1] = 0.0
 
     @staticmethod
     @ti.kernel

@@ -32,20 +32,33 @@ class ResidualDataOneIter:
     # r: float=0
     # r0: float=0
     t_export: float=0
-    total_energy: float=0
-    total_energy0: float=0
+    energy: float=0
+    energy0: float=0
     max_strain: float=0
     max_strain0: float=0
 
-    def __init__(self, args, calc_dual=None, calc_primal=None, calc_total_energy=None, calc_strain=None):
-        self.tol = args.tol
-        self.rtol = args.rtol
-        self.args = args
+    def __init__(
+        self,
+        calc_dual=None,
+        calc_primal=None,
+        calc_energy=None,
+        calc_strain=None,
+        tol=1e-6,
+        rtol=1e-2,
+        converge_condition="dual",
+        args = None
+    ):
+        self.tol = tol
+        self.rtol = rtol
         self.calc_dual = calc_dual
         self.calc_primal = calc_primal
-        self.calc_total_energy = calc_total_energy
+        self.calc_energy = calc_energy
         self.calc_strain = calc_strain
-        self.choose_mode(args)
+        if args is not None:
+            self.use_calc_primal = args.calc_primal
+            self.use_calc_energy = args.calc_energy
+            self.use_calc_strain = args.calc_strain
+        self.choose_mode(converge_condition)
 
     def check(self):
         '''Check Convergence'''
@@ -55,12 +68,12 @@ class ResidualDataOneIter:
         if self.is_converge():
             return True
         return False
-    
+
     def is_diverge(self):
         if np.isnan(self.r) or np.isinf(self.r):
             return True
         return False
-    
+
     def is_converge(self):
         if self.r<self.tol:
             logging.info(f"converge by atol {self.r:.2e} < {self.tol:.2e}")
@@ -89,15 +102,15 @@ class ResidualDataOneIter:
             self.conv_factor = calc_conv(r_Axb)
             s += f"conv:{self.conv_factor:.2f} "
 
-        if self.args.calc_primal and self.calc_primal is not None:
+        if self.use_calc_primal and self.calc_primal is not None:
             self.primal, self.Newton = self.calc_primal()
             s += f"Newton:{self.Newton:.2e} primal:{self.primal:.2e} "
 
-        if self.args.calc_energy and self.calc_total_energy is not None:
-            self.total_energy = self.calc_total_energy()
-            s += f"energy:{self.total_energy:.5e} "
+        if self.use_calc_energy and self.calc_energy is not None:
+            self.energy = self.calc_energy()
+            s += f"energy:{self.energy:.5e} "
 
-        if self.args.calc_strain and self.calc_strain is not None:
+        if self.use_calc_strain and self.calc_strain is not None:
             self.max_strain = self.calc_strain()
             s += f"strain:{self.max_strain:.2e} "
 
@@ -110,28 +123,26 @@ class ResidualDataOneIter:
 
         logging.info(s)
 
-
     def calc_r0(self):
         tic = perf_counter()
         self.dual0 = self.calc_dual()
         if self.mode == ResidualType.Newton:
             self.primal0, self.Newton0 = self.calc_primal()
         if self.mode == ResidualType.energy:
-            self.total_energy0 = self.calc_total_energy()
+            self.energy0 = self.calc_energy()
 
         self.t_export = perf_counter()-tic # reset t_export here
 
-    
-    def choose_mode(self, args):
-        if args.converge_condition == "dual":
+    def choose_mode(self, converge_condition):
+        if converge_condition == "dual":
             self.mode = ResidualType.dual
-        elif args.converge_condition == "primal":
+        elif converge_condition == "primal":
             self.mode = ResidualType.primal
-        elif args.converge_condition == "energy":
+        elif converge_condition == "energy":
             self.mode = ResidualType.energy
-        elif args.converge_condition == "strain":
+        elif converge_condition == "strain":
             self.mode = ResidualType.strain
-        elif args.converge_condition == "Newton":
+        elif converge_condition == "Newton":
             self.mode = ResidualType.Newton
 
     def set_r(self):
@@ -145,8 +156,8 @@ class ResidualDataOneIter:
             self.r = self.primal
             self.r0 = self.primal0
         elif self.mode == ResidualType.energy:
-            self.r = self.total_energy
-            self.r0 = self.total_energy0
+            self.r = self.energy
+            self.r0 = self.energy0
         elif self.mode == ResidualType.strain:
             self.r = self.max_strain
             self.r0 = self.max_strain0
@@ -180,7 +191,6 @@ class ResidualDataAllFrame:
     stalled_frame: list
     t: float=0
     t_export: float=0
-
 
 
 def ending(args, ist):
@@ -281,9 +291,6 @@ def report_multilevel_details(Ps, num_levels):
         logging.info(f"    num points of level {i}: {num_points_level[i]}")
 
 
-
-
-
 def do_export_r(r, out_dir, frame):
     tic = perf_counter()
     serialized_r = [r[i].__dict__ for i in range(len(r))]
@@ -291,7 +298,6 @@ def do_export_r(r, out_dir, frame):
     with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
         file.write(r_json)
     r.t_export += perf_counter()-tic
-
 
 
 def export_mat(ist,get_A,b):
@@ -335,7 +341,7 @@ def export_A_b(A, b, dir, postfix=f"", binary=True):
         if b is not None:
             np.savetxt(dir + f"/b_{postfix}.txt", b)
     print(f"    export_A_b time: {perf_counter()-tic:.3f}s")
-    
+
 
 def do_post_iter(ist, get_A0_cuda):
     ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
@@ -398,7 +404,6 @@ def norm(x):
 
 def normalize(x):
     return x / np.linalg.norm(x)
-
 
 
 def spy_A(A,b):
@@ -472,6 +477,7 @@ def set_mass_matrix(mass):
     return MASS
 
 def set_gravity_as_force(mass, gravity=[0,-9.8,0]):
+    assert len(gravity) == 3, "gravity should be a 3d vector"
     NV = mass.shape[0]
     mass3 = np.repeat(mass, 3)
     gravity_constant = np.array(gravity)

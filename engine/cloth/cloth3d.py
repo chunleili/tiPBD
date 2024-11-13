@@ -24,7 +24,7 @@ from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.solver.iterative_solver import GaussSeidelSolver
-from engine.util import norm_sqr, calc_norm, init_logger, do_post_iter, timeit, set_gravity_as_force
+from engine.util import norm_sqr, calc_norm, init_logger, do_post_iter, timeit, set_gravity_as_force, ResidualDataOneIter
 from engine.physical_base import PhysicalBase
 from engine.line_search import LineSearch
 from engine.physical_data import PhysicalData
@@ -65,23 +65,31 @@ else:
 @ti.data_oriented
 class Cloth(PhysicalBase):
     def __init__(self,args) -> None:
-        super().__init__(args)
-        self.Ps = None
-        self.num_levels = 0
-        self.paused = False
+        super().__init__()
+        self.args = args
+        
+        self.r_iter = ResidualDataOneIter(
+                        calc_dual=self.calc_dual,
+                        calc_primal =self.calc_primal,
+                        calc_energy =self.calc_energy,
+                        calc_strain =self.calc_strain,
+                        tol=args.tol,
+                        rtol=args.rtol,
+                        converge_condition=args.converge_condition,
+                        args = args,
+                                    )
+        
         self.sim_type = "cloth"
 
-
-        self.delta_t = args.delta_t
-        self.compliance = args.compliance  #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
-        self.alpha_tilde_constant = self.compliance * (1.0 / args.delta_t / args.delta_t)  # timestep related compliance, see XPBD self.paper
-        self.alpha_bending = 1.0 * (1.0 / args.delta_t / args.delta_t) #TODO: need to be tuned
 
         self.build_mesh()
         self.NCONS = self.NE
 
         if args.use_bending:
             self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
+
+        self.init_physdata_uniform(args.N, args.setup_num, args.delta_t, self.NV, self.NCONS, self.pos.to_numpy(), self.edge.to_numpy(), args.compliance, args.gravity)
+
 
         if args.export_strain:
             from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
@@ -102,11 +110,11 @@ class Cloth(PhysicalBase):
             pos_np = self.pos.to_numpy() if type(self.pos) != np.ndarray else self.pos
             write_mesh(args.out_dir + f"/mesh/{0:04d}", pos_np, self.tri)
 
-        self.ls = LineSearch(self.calc_objective_function, use_line_search=True, ls_alpha=0.25, ls_beta=0.1, ls_step_size=1.0, ΕPSILON=1e-15)
+        # self.ls = LineSearch(self.calc_objective_function, use_line_search=True, ls_alpha=0.25, ls_beta=0.1, ls_step_size=1.0, ΕPSILON=1e-15)
 
-        self.stiffness = (1.0/self.compliance) * np.ones(self.NCONS, dtype=np.float32)
-        self.mass = 1.0/self.inv_mass.to_numpy()
-        self.force = set_gravity_as_force(self.mass, args.gravity)
+        # self.stiffness = (1.0/self.compliance) * np.ones(self.NCONS, dtype=np.float32)
+        # self.mass = 1.0/self.inv_mass.to_numpy()
+        # self.force = set_gravity_as_force(self.mass, args.gravity)
         self.physdata = PhysicalData(pos=self.pos.to_numpy(),
                                      vel= self.vel.to_numpy(),
                                      stiffness=self.stiffness,
@@ -120,7 +128,107 @@ class Cloth(PhysicalBase):
 
 
     def calc_objective_function(self, x):
-        return self.calc_total_energy()
+        return self.calc_energy()
+
+
+    def init_physdata_uniform(self, N, setup_num, delta_t, NV, NCONS, pos, edge, compliance, gravity_constant):
+        physdata = PhysicalData()
+        # ---------------------------------------------------------------------------- #
+        #                                    delta t                                   #
+        # ---------------------------------------------------------------------------- #
+
+        physdata.delta_t = delta_t
+        # ---------------------------------------------------------------------------- #
+        #                                      pin                                     #
+        # ---------------------------------------------------------------------------- #
+        pin = np.zeros(NV, dtype=np.int32)
+        if setup_num == 0:
+            pin_idx = [N, NV-1]
+            pin[pin_idx] = 1
+
+        physdata.pin = pin
+        # ---------------------------------------------------------------------------- #
+        #                                     mass                                     #
+        # ---------------------------------------------------------------------------- #
+        mass = np.zeros(NV, dtype=np.float32)
+        inv_mass = np.zeros(NV, dtype=np.float32)
+        mass[:]=1.0
+        mass[pin!=0] = 0.0     #FIXME:should be infinity?
+        inv_mass[:] = 1.0
+        inv_mass[pin!=0] = 0.0 
+        
+        inv_mass3 = np.repeat(inv_mass, 3, axis=0)
+        M_inv = scipy.sparse.diags(inv_mass3)
+        mass3 = np.repeat(mass, 3, axis=0)
+        MASS = scipy.sparse.diags(mass3, format="csr")
+
+        physdata.mass = mass
+        physdata.MASS = MASS
+        # ---------------------------------------------------------------------------- #
+        #                                   stiffnes                                   #
+        # ---------------------------------------------------------------------------- #
+        alpha_tilde_constant = compliance * (1.0 / delta_t / delta_t)  
+        # timestep related compliance, see XPBD paper 
+        # #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
+        alpha_bending_constant = 1.0 * (1.0 / delta_t / delta_t) #TODO: need to be tuned
+        stiffness = np.zeros(NCONS, dtype=np.float32)
+        stiffness[:] = 1.0/compliance
+
+        alpha_tilde_np = np.array([alpha_tilde_constant] * NCONS)
+        ALPHA_TILDE = scipy.sparse.diags(alpha_tilde_np)
+
+        physdata.stiffness = stiffness
+        # ---------------------------------------------------------------------------- #
+        #                                     force                                    #
+        # ---------------------------------------------------------------------------- #
+        force = set_gravity_as_force(mass, gravity_constant)
+        physdata.force = force
+        # ---------------------------------------------------------------------------- #
+        #                                   rest len                                   #
+        # ---------------------------------------------------------------------------- #
+        @ti.kernel
+        def init_rest_len(
+            edge:ti.types.ndarray(dtype=tm.ivec2),
+            pos:ti.types.ndarray(dtype=tm.vec3),
+            rest_len:ti.types.ndarray(),
+        ):
+            for i in range(edge.shape[0]):
+                idx1, idx2 = edge[i]
+                p1, p2 = pos[idx1], pos[idx2]
+                rest_len[i] = (p1 - p2).norm()
+        rest_len = np.zeros(NCONS, dtype=np.float32)
+        init_rest_len(edge, pos, rest_len)
+
+        physdata.rest_len = rest_len
+
+        self.delta_t = delta_t
+        self.inv_mass.from_numpy(inv_mass)
+        self.alpha_tilde.from_numpy(alpha_tilde_np)
+        self.rest_len.from_numpy(rest_len)
+        self.alpha_tilde_constant = alpha_tilde_constant
+        self.alpha_bending_constant = alpha_bending_constant
+        self.M_inv = M_inv
+        self.ALPHA_TILDE = ALPHA_TILDE
+
+        self.stiffness = stiffness
+        self.force = force
+        return physdata
+
+    # @staticmethod
+    # @ti.kernel
+    # def init_mass(
+    #     inv_mass:ti.template(),
+    #     N:ti.i32,
+    #     NV:ti.i32,
+    #     setup_num:ti.i32,
+    # ):
+    #     for i, j in ti.ndrange(N + 1, N + 1):
+    #         idx = i * (N + 1) + j
+    #         inv_mass[idx] = 1.0
+    #     # if setup_num == 0: # fix point
+    #     #     inv_mass[N] = 0.0
+    #     #     inv_mass[NV-1] = 0.0
+    
 
 
     def build_mesh(self, ):
@@ -130,29 +238,35 @@ class Cloth(PhysicalBase):
         from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth, TriMeshClothTxt
         if args.cloth_mesh_type=="tri":
             mesh = TriMeshCloth(args.cloth_mesh_file)
-            mesh.build()
-            self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
-            self.allocate_fields(self.NV, self.NE, self.NT)
-            mesh.fetch_fields(self.pos, self.inv_mass, self.edge, self.rest_len)
-            self.tri = mesh.tri
+            pos, edge, tri = mesh.build()
+            self.N = mesh.N
+            # self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
+            # self.allocate_fields(self.NV, self.NE, self.NT)
+            # mesh.fetch_fields(self.pos, self.inv_mass, self.edge, self.rest_len)
+            # self.tri = mesh.tri
             name = Path(args.cloth_mesh_file).name
             self.sim_name=f"cloth-{name}"
         elif args.cloth_mesh_type=="quad":
-            mesh = QuadMeshCloth(args.N, args.setup_num)
-            self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
-            self.allocate_fields(self.NV, self.NE, self.NT)
-            mesh.pass_fields(self.pos, self.inv_mass, self.edge, self.tri_ti, self.rest_len)
-            mesh.build()
-            self.tri = self.tri_ti.to_numpy().reshape(-1,3)
+            mesh = QuadMeshCloth(args.N)
+            # self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
+            # self.allocate_fields(self.NV, self.NE, self.NT)
+            # mesh.pass_fields(self.pos, self.inv_mass, self.edge, self.tri_ti, self.rest_len)
+            pos, edge, tri = mesh.build()
+            # self.tri = self.tri_ti.to_numpy().reshape(-1,3)
             self.sim_name=f"cloth-N{args.N}"
         if args.cloth_mesh_type=="txt":
             mesh = TriMeshClothTxt(args.pos_file, args.edge_file, args.tri_file)
-            mesh.build()
-            self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
-            self.allocate_fields(self.NV, self.NE, self.NT)
-            mesh.fetch_fields(self.pos, self.inv_mass, self.edge, self.rest_len)
-            self.tri = mesh.tri
+            pos, edge, tri = mesh.build()
+            # self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
+            # self.allocate_fields(self.NV, self.NE, self.NT)
+            # mesh.fetch_fields(self.pos, self.inv_mass, self.edge, self.rest_len)
+            # self.tri = mesh.tri
             self.sim_name=f"cloth-txt"
+        self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
+        self.allocate_fields(self.NV, self.NE, self.NT)
+        self.pos.from_numpy(pos)
+        self.edge.from_numpy(edge)
+        self.tri = tri
 
 
         if args.use_bending:
@@ -163,12 +277,7 @@ class Cloth(PhysicalBase):
             self.v2e, self.v2t, self.e2t = write_and_rebuild_topology(self.edge.to_numpy(),self.tri,args.out_dir)
         
 
-        inv_mass_np = np.repeat(self.inv_mass.to_numpy(), 3, axis=0)
-        self.M_inv = scipy.sparse.diags(inv_mass_np)
-        self.MASS = scipy.sparse.diags(1.0/(inv_mass_np), format="csr")
-        self.alpha_tilde_np = np.array([self.alpha_tilde_constant] * self.NCONS)
-        self.ALPHA_TILDE = scipy.sparse.diags(self.alpha_tilde_np)
-        self.alpha_tilde.from_numpy(self.alpha_tilde_np)
+
         
     
     def allocate_fields(self, NV, NE, NT):
@@ -194,7 +303,7 @@ class Cloth(PhysicalBase):
         self.alpha_tilde = ti.field(dtype=float, shape=(NCONS))
         self.strain = ti.field(ti.f32, shape=NE)
         self.max_strain = 0.0
-        self.total_energy = 0.0
+        self.energy = 0.0
         self.potential_energy = 0.0
         self.inertial_energy = 0.0
         self.K_diag = np.zeros((NV*3), dtype=float)
@@ -219,7 +328,7 @@ class Cloth(PhysicalBase):
 
     def compute_b(self):
         update_constraints_kernel(self.pos, self.edge, self.rest_len, self.constraints)
-        self.b = -self.constraints.to_numpy() - self.alpha_tilde_np * self.lagrangian.to_numpy()
+        self.b = -self.constraints.to_numpy() - self.alpha_tilde.to_numpy() * self.lagrangian.to_numpy()
         return self.b
     
     def update_pos(self):

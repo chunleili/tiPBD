@@ -6,18 +6,11 @@ from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualData
 from engine.physical_data import PhysicalData
 @ti.data_oriented
 class PhysicalBase:
-    def __init__(self,args) -> None:
+    def __init__(self) -> None:
         self.frame = 0
         self.ite = 0
         self.n_outer_all = [] 
         self.all_stalled = [] 
-        self.args = args
-        self.delta_t = args.delta_t
-        self.r_iter = ResidualDataOneIter(self.args,
-                                            calc_dual   =self.calc_dual,
-                                            calc_primal =self.calc_primal,
-                                            calc_total_energy=self.calc_total_energy,
-                                            calc_strain =self.calc_strain)
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
 
@@ -44,12 +37,12 @@ class PhysicalBase:
     def calc_strain(self):
         raise NotImplementedError
 
-    def calc_total_energy(self):
+    def calc_energy(self):
         self.update_constraints()
         self.potential_energy = self.compute_potential_energy()
         self.inertial_energy = self.compute_inertial_energy()
-        self.total_energy = self.potential_energy + self.inertial_energy
-        return self.total_energy
+        self.energy = self.potential_energy + self.inertial_energy
+        return self.energy
 
     def compute_potential_energy(self)->float:
         res = compute_potential_energy_kernel(self.constraints, self.alpha_tilde, self.delta_t)

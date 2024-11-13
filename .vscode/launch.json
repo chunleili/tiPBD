@@ -32,7 +32,6 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-              "-solver_type=NEWTON",
             ]
           },
           {

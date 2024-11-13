@@ -4,6 +4,7 @@ Build the cloth mesh
 
 
 import taichi as ti
+import taichi.math as tm
 import numpy as np
 
 @ti.data_oriented
@@ -12,23 +13,24 @@ class TriMeshCloth:
         self.mesh_file = mesh_file
         # FIXME setup_num
 
-    def fetch_fields(self, pos, inv_mass, edge, rest_len):
-        pos.from_numpy(self.pos)
-        inv_mass.from_numpy(self.inv_mass)
-        edge.from_numpy(self.edge)
-        rest_len.from_numpy(self.rest_len)
+    # def fetch_fields(self, pos, inv_mass, edge, rest_len):
+    #     pos.from_numpy(self.pos)
+    #     # inv_mass.from_numpy(self.inv_mass)
+    #     edge.from_numpy(self.edge)
+        # rest_len.from_numpy(self.rest_len)
 
     def build(self):
         self.pos, self.edge, self.tri = self.read_tri_cloth_mesh(self.mesh_file)
         self.NV = len(self.pos)
         self.NT = len(self.tri)
         self.NE = len(self.edge)
-        self.rest_len = np.zeros(self.NE, dtype=np.float32)
-        self.inv_mass = np.ones(self.NV, dtype=np.float32)
-        self.init_rest_len(self.edge, self.rest_len, self.pos)
-        self.fixed_points = [0, self.NV-1]
-        self.init_mass(self.inv_mass, self.fixed_points)
-        return self.pos, self.edge, self.tri, self.inv_mass, self.rest_len
+        # self.rest_len = np.zeros(self.NE, dtype=np.float32)
+        # self.inv_mass = np.ones(self.NV, dtype=np.float32)
+        # self.init_rest_len(self.edge, self.rest_len, self.pos)
+        # self.fixed_points = [0, self.NV-1]
+        # self.init_mass(self.inv_mass, self.fixed_points)
+        # return self.pos, self.edge, self.tri, self.inv_mass, self.rest_len
+        return self.pos, self.edge, self.tri
     
 
     @staticmethod
@@ -56,23 +58,23 @@ class TriMeshCloth:
         return pos, np.array(edges), tri
     
 
-    @staticmethod
-    @ti.kernel
-    def init_rest_len(
-        edge:ti.types.ndarray(),
-        rest_len:ti.types.ndarray(),
-        pos:ti.types.ndarray(dtype=ti.types.vector(3,float)),
-    ):
-        for i in range(edge.shape[0]):
-            idx1, idx2 = edge[i,0], edge[i,1]
-            p1, p2 = pos[idx1], pos[idx2]
-            rest_len[i] = (p1 - p2).norm()
+    # @staticmethod
+    # @ti.kernel
+    # def init_rest_len(
+    #     edge:ti.types.ndarray(),
+    #     rest_len:ti.types.ndarray(),
+    #     pos:ti.types.ndarray(dtype=ti.types.vector(3,float)),
+    # ):
+    #     for i in range(edge.shape[0]):
+    #         idx1, idx2 = edge[i,0], edge[i,1]
+    #         p1, p2 = pos[idx1], pos[idx2]
+    #         rest_len[i] = (p1 - p2).norm()
 
-    @staticmethod
-    def init_mass(inv_mass:np.ndarray, fixed_points:list):
-        inv_mass[:] = 1.0
-        for i in fixed_points:
-            inv_mass[i] = 0.0
+    # @staticmethod
+    # def init_mass(inv_mass:np.ndarray, fixed_points:list):
+    #     inv_mass[:] = 1.0
+    #     for i in fixed_points:
+    #         inv_mass[i] = 0.0
     
 
 
@@ -81,63 +83,69 @@ class TriMeshCloth:
 
 @ti.data_oriented
 class QuadMeshCloth():
-    def __init__(self, N, setup_num=0) -> None:
+    def __init__(self, N) -> None:
         self.N = N
         self.NV = (N + 1)**2
         self.NT = 2 * N**2
         self.NE = 2 * N * (N + 1) + N**2
         self.NCONS = self.NE
-        self.setup_num = setup_num # 0: fixed point, 1: strech and no fixed point
+        # self.setup_num = setup_num # 0: fixed point, 1: strech and no fixed point
     
-    def build(self, init_physical=True):
+    def build(self):
+        self.pos = np.zeros((self.NV, 3), dtype=np.float32)
+        self.edge = np.zeros((self.NE, 2), dtype=np.int32)
+        self.tri = np.zeros((self.NT* 3), dtype=np.int32)
+
         self.init_tri(self.tri, self.N)
         self.init_edge(self.edge, self.N)
         self.init_pos(self.pos, self.N)
 
-        if not init_physical:
-            return
-        self.init_mass(self.inv_mass, self.N, self.NV, self.setup_num )
-        self.init_rest_len(self.edge, self.rest_len, self.pos)
+        return self.pos, self.edge, self.tri.reshape(-1, 3)
+
+        # if not init_physical:
+        #     return
+        # self.init_mass(self.inv_mass, self.N, self.NV, self.setup_num )
+        # self.init_rest_len(self.edge, self.rest_len, self.pos)
 
 
-    # pass fields from outside, not used
-    def pass_fields(self,pos, inv_mass, edge, tri, rest_len):
-        self.pos = pos
-        self.inv_mass = inv_mass
-        self.edge = edge
-        self.tri = tri
-        self.rest_len = rest_len
+    # # pass fields from outside, not used
+    # def pass_fields(self,pos, inv_mass, edge, tri, rest_len):
+    #     self.pos = pos
+    #     self.inv_mass = inv_mass
+    #     self.edge = edge
+    #     self.tri = tri
+    #     self.rest_len = rest_len
 
-    def create_fields(self):
-        self.pos = ti.Vector.field(3, dtype=ti.f32, shape=self.NV)
-        self.inv_mass = ti.field(dtype=ti.f32, shape=self.NV)
-        self.edge = ti.Vector.field(2, dtype=ti.i32, shape=self.NE)
-        self.tri = ti.field(ti.i32, shape=3 * self.NT)
-        self.rest_len = ti.field(dtype=ti.f32, shape=self.NE)
+    # def create_fields(self):
+    #     self.pos = ti.Vector.field(3, dtype=ti.f32, shape=self.NV)
+    #     self.inv_mass = ti.field(dtype=ti.f32, shape=self.NV)
+    #     self.edge = ti.Vector.field(2, dtype=ti.i32, shape=self.NE)
+    #     self.tri = ti.field(ti.i32, shape=3 * self.NT)
+    #     self.rest_len = ti.field(dtype=ti.f32, shape=self.NE)
 
-    def to_numpy(self):
-        self.pos = self.pos.to_numpy()
-        self.inv_mass = self.inv_mass.to_numpy()
-        self.edge = self.edge.to_numpy()
-        self.tri = self.tri.to_numpy().reshape(-1, 3)
-        self.rest_len = self.rest_len.to_numpy()
+    # def to_numpy(self):
+    #     self.pos = self.pos.to_numpy()
+    #     self.inv_mass = self.inv_mass.to_numpy()
+    #     self.edge = self.edge.to_numpy()
+    #     self.tri = self.tri.to_numpy().reshape(-1, 3)
+    #     self.rest_len = self.rest_len.to_numpy()
 
-    @staticmethod
-    @ti.kernel
-    def init_rest_len(
-        edge:ti.template(),
-        rest_len:ti.template(),
-        pos:ti.template(),
-    ):
-        for i in range(edge.shape[0]):
-            idx1, idx2 = edge[i]
-            p1, p2 = pos[idx1], pos[idx2]
-            rest_len[i] = (p1 - p2).norm()
+    # @staticmethod
+    # @ti.kernel
+    # def init_rest_len(
+    #     edge:ti.template(),
+    #     rest_len:ti.template(),
+    #     pos:ti.template(),
+    # ):
+    #     for i in range(edge.shape[0]):
+    #         idx1, idx2 = edge[i]
+    #         p1, p2 = pos[idx1], pos[idx2]
+    #         rest_len[i] = (p1 - p2).norm()
 
     @staticmethod
     @ti.kernel
     def init_pos(
-        pos:ti.template(),
+        pos:ti.types.ndarray(dtype=tm.vec3),
         N:ti.i32,
     ):
         for i, j in ti.ndrange(N + 1, N + 1):
@@ -146,24 +154,24 @@ class QuadMeshCloth():
             pos[idx] = ti.Vector([i / N, 0.5, j / N]) # horizontal hang
 
 
-    @staticmethod
-    @ti.kernel
-    def init_mass(
-        inv_mass:ti.template(),
-        N:ti.i32,
-        NV:ti.i32,
-        setup_num:ti.i32,
-    ):
-        for i, j in ti.ndrange(N + 1, N + 1):
-            idx = i * (N + 1) + j
-            inv_mass[idx] = 1.0
-        # if setup_num == 0: # fix point
-        #     inv_mass[N] = 0.0
-        #     inv_mass[NV-1] = 0.0
+    # @staticmethod
+    # @ti.kernel
+    # def init_mass(
+    #     inv_mass:ti.template(),
+    #     N:ti.i32,
+    #     NV:ti.i32,
+    #     setup_num:ti.i32,
+    # ):
+    #     for i, j in ti.ndrange(N + 1, N + 1):
+    #         idx = i * (N + 1) + j
+    #         inv_mass[idx] = 1.0
+    #     # if setup_num == 0: # fix point
+    #     #     inv_mass[N] = 0.0
+    #     #     inv_mass[NV-1] = 0.0
 
     @staticmethod
     @ti.kernel
-    def init_tri(tri:ti.template(), N:ti.i32):
+    def init_tri(tri:ti.types.ndarray(), N:ti.i32):
         for i, j in ti.ndrange(N, N):
             tri_idx = 6 * (i * N + j)
             pos_idx = i * (N + 1) + j
@@ -185,7 +193,7 @@ class QuadMeshCloth():
     @staticmethod
     @ti.kernel
     def init_edge(
-        edge:ti.template(),
+        edge:ti.types.ndarray(dtype=tm.ivec2),
         N:ti.i32,
     ):
         for i, j in ti.ndrange(N + 1, N):
@@ -278,12 +286,12 @@ class TriMeshClothTxt(TriMeshCloth):
         self.NV = len(self.pos)
         self.NT = len(self.tri)
         self.NE = len(self.edge)
-        self.rest_len = np.zeros(self.NE, dtype=np.float32)
-        self.inv_mass = np.ones(self.NV, dtype=np.float32)
-        self.init_rest_len(self.edge, self.rest_len, self.pos)
-        self.fixed_points = [0, self.NV-1]
-        self.init_mass(self.inv_mass, self.fixed_points)
-        return self.pos, self.edge, self.tri, self.inv_mass, self.rest_len
+        # self.rest_len = np.zeros(self.NE, dtype=np.float32)
+        # self.inv_mass = np.ones(self.NV, dtype=np.float32)
+        # self.init_rest_len(self.edge, self.rest_len, self.pos)
+        # self.fixed_points = [0, self.NV-1]
+        # self.init_mass(self.inv_mass, self.fixed_points)
+        return self.pos, self.edge, self.tri
     
     @staticmethod
     def read_from_txt(pos_file, edge_file, tri_file):

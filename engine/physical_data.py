@@ -34,9 +34,9 @@ class PhysicalData:
         self.mass = mass
         self.delta_t = delta_t
         self.force = force
-        self.NV = self.mass.shape[0]
-        self.NCONS = self.stiffness.shape[0]
-        self.NVERTS_ONE_CONS = self.vert.shape[1]
+        self.NV = self.mass.shape[0] if self.mass is not None else None
+        self.NCONS = self.stiffness.shape[0] if self.stiffness is not None else None
+        self.NVERTS_ONE_CONS = self.vert.shape[1] if self.vert is not None else None
 
         self.fixed_points_idx = fixed_points_idx
 

@@ -74,7 +74,7 @@ class SoftBody:
         self.r_iter = ResidualDataOneIter(args,
                                             calc_dual   =calc_dual,
                                             calc_primal =calc_primal,
-                                            calc_total_energy=self.calc_total_energy,
+                                            calc_energy=self.calc_energy,
                                             calc_strain =calc_strain)
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])

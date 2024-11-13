@@ -40,8 +40,8 @@ class LineSearch:
             lhs = self.evaluateObjectiveFunction(x_plus_tdx)
             rhs = currentObjectiveValue + self.ls_alpha * t * np.dot(gradient_dir, descent_dir)
             ls_times += 1
-        self.total_energy = lhs
-        print(f'    energy: {self.total_energy}')
+        self.energy = lhs
+        print(f'    energy: {self.energy}')
         print(f'    ls_times: {ls_times}')
 
         if t < self.EPSILON:

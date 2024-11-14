@@ -6,7 +6,7 @@
             "type": "debugpy",
             "request": "launch",
             "module": "cProfile",
-            "justMyCode": true,
+            "justMyCode": false,
             "args":["-o",
                     "${fileBasenameNoExtension}.prof",
                     "${file}"]
@@ -29,12 +29,13 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
+            "justMyCode": false,
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-              "-solver_type=NEWTON",
-              "-cloth_mesh_type=txt",
-              "-delta_t=0.0333"
+              "-maxiter=10",
+              "-end_frame=100",
+              "-delta_t=3e-3"
             ]
           }
     ]

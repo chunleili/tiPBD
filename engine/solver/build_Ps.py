@@ -3,6 +3,7 @@ import pyamg
 import logging
 from time import perf_counter
 import ctypes
+from pyamg import smoothed_aggregation_solver
 
 def build_Ps(A,args,extlib=None):
     """Build a list of prolongation matrices Ps from A """
@@ -10,7 +11,7 @@ def build_Ps(A,args,extlib=None):
     print("build P by method:", method)
     tic = perf_counter()
     if method == 'UA':
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
+        ml = smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
     elif method == 'SA' :
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400,symmetry='symmetric')
     elif method == 'CAMG':

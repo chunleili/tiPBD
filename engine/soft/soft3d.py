@@ -90,6 +90,7 @@ class SoftBody(PhysicalBase):
         self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
 
         self.build_mesh(mesh_file)
+        self.NCONS = self.NT
         self.allocate_fields(self.NV, self.NT)
 
         self.state = [self.pos,]
@@ -111,7 +112,6 @@ class SoftBody(PhysicalBase):
 
         info(f"Creating instance done")
 
-
     def build_mesh(self,mesh_file):
         tic = time.perf_counter()
         self.model_pos, self.model_tet, self.model_tri = read_tet(mesh_file, build_face_flag=True)
@@ -122,7 +122,6 @@ class SoftBody(PhysicalBase):
         self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.display_indices.from_numpy(self.model_tri.flatten())
         self.tri = self.model_tri.copy()
-
 
     def allocate_fields(self, NV, NT):
         self.pos = ti.Vector.field(3, float, NV)
@@ -150,7 +149,6 @@ class SoftBody(PhysicalBase):
         self.potential_energy = ti.field(ti.f32, shape=())
         self.inertial_energy = ti.field(ti.f32, shape=())
         self.ele = self.tet_indices
-
 
     def initialize(self):
         info(f"Initializing mesh")
@@ -192,7 +190,6 @@ class SoftBody(PhysicalBase):
 
         self.alpha_tilde_np = self.alpha_tilde.to_numpy()
 
-
     def solve_constraints(self):
         solve_constraints_kernel(
             self.pos_mid,
@@ -214,7 +211,7 @@ class SoftBody(PhysicalBase):
 
     def compute_C_and_gradC(self):
         compute_C_and_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.constraints, self.gradC)
-    
+
     def dlam2dpos(self,x):
         tic = time.perf_counter()
         transfer_back_to_pos_mfree(x, self)
@@ -222,11 +219,11 @@ class SoftBody(PhysicalBase):
 
     def update_vel(self):
         update_vel_kernel(args.delta_t, self.pos, self.old_pos, self.vel)
-    
+
     def compute_b(self):
         b = -self.constraints.to_numpy() - self.alpha_tilde_np * self.lagrangian.to_numpy()
         return b
-    
+
     def solve_constraints_xpbd(self):
         solve_constraints_kernel(
             self.pos_mid,
@@ -243,15 +240,81 @@ class SoftBody(PhysicalBase):
             self.dpos,
             args.omega
         )
-    
 
-    def solve_constraints_mgxpbd(self):
+    def solve_constraints_mgxpbd_python(self):
         self.pos_mid.from_numpy(self.pos.to_numpy())
         self.compute_C_and_gradC()
         self.b = self.compute_b()
-        # dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
-        # self.dlam2dpos(dlam)
+        dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
+        self.dlam2dpos(dlam)
 
+    def solve_constraints_mgxpbd_cpp(self):
+        arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
+        arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+        arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
+        arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
+        arr3d_float = ctl.ndpointer(dtype=np.float32, ndim=3, flags='aligned, c_contiguous')
+        arr2i_float = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
+        c_size_t = ctypes.c_size_t
+        c_float = ctypes.c_float
+        c_int = ctypes.c_int
+
+
+
+        extlib.fastmg_solve_constraints_mgxpbd_run.argtypes = [
+            c_size_t,
+            c_size_t,
+            arr2d_float, #pos
+            arr_float, #alpha_tilde
+            arr_float, #rest_len
+            arr2i_float, #vert
+            arr_float, #mass
+            c_float, #delta_t
+            arr3d_float, #restmatrix
+            arr_float, #lambda
+            arr_float, #dlambda
+            arr2d_float, #dpos
+            arr_float, #constraints
+            arr3d_float, #gradC
+            arr_float, #b_out
+        ]
+        extlib.fastmg_solve_constraints_mgxpbd_run.restype = c_float
+
+        self.dlambda_out = np.zeros(self.NCONS, dtype=np.float32)
+        self.dpos_out = np.zeros((self.NV, 3), dtype=np.float32)
+        self.constraints_out = np.zeros(self.NCONS, dtype=np.float32)
+        self.gradC_out = np.zeros((self.NCONS, 4, 3), dtype=np.float32)
+        self.b_out = np.zeros(self.NV*3, dtype=np.float32)
+
+
+
+        r = extlib.fastmg_solve_constraints_mgxpbd_run(
+            self.NV,
+            self.NCONS,
+            self.pos.to_numpy(),
+            self.alpha_tilde.to_numpy(),
+            self.rest_volume.to_numpy(),
+            self.tet_indices.to_numpy(),
+            self.inv_mass.to_numpy(),
+            args.delta_t,
+            self.B.to_numpy(),
+            self.lagrangian.to_numpy(),
+
+            self.dlambda_out, 
+            self.dpos_out,
+            self.constraints_out,
+            self.gradC_out,
+            self.b_out,
+        )
+
+        # self.dlambda.from_numpy(self.dlambda_out)
+        # self.dpos.from_numpy(self.dpos_out)
+        self.constraints.from_numpy(self.constraints_out)
+        self.gradC.from_numpy(self.gradC_out.copy())
+        self.b = self.b_out.copy()
+
+        dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
+        self.dlam2dpos(dlam)
 
     def substep_all_solver(self):
         self.semi_euler()
@@ -259,11 +322,12 @@ class SoftBody(PhysicalBase):
         self.r_iter.calc_r0()
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
-            self.pos_mid.from_numpy(self.pos.to_numpy())
-            self.compute_C_and_gradC()
-            self.b = self.compute_b()
-            x, self.r_iter.r_Axb = ist.linsol.run(self.b)
-            self.dlam2dpos(x)
+            # self.pos_mid.from_numpy(self.pos.to_numpy())
+            # self.compute_C_and_gradC()
+            # self.b = self.compute_b()
+            # x, self.r_iter.r_Axb = ist.linsol.run(self.b)
+            # self.dlam2dpos(x)
+            self.solve_constraints_mgxpbd_cpp()
             do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():
                 break
@@ -271,7 +335,6 @@ class SoftBody(PhysicalBase):
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
 
-        
     def substep_xpbd(self):
         gravity = ti.Vector(args.gravity)
         semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, gravity)
@@ -296,9 +359,6 @@ class SoftBody(PhysicalBase):
                 break
         self.n_outer_all.append(self.ite+1)
         update_vel_kernel(args.delta_t, self.pos, self.old_pos, self.vel)
-
-
-
 
 
 @DeprecationWarning
@@ -835,7 +895,6 @@ def calc_dual():
     return dual
 
 
-
 def AMG_b(ist):
     b = -ist.constraints.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
     return b
@@ -884,10 +943,6 @@ def AMG_calc_r(r,dual0, tic_iter, r_Axb):
 
     ist.t_export += perf_counter()-tic
     return dual0
-
-
-
-
 
 
 def fill_A_csr_ti(ist):
@@ -990,13 +1045,12 @@ def calc_strain_kernel(
 ):
 # TODO: implement calc_strain_kernel
     pass 
-        
+
 
 def calc_strain()->float:
     calc_strain_kernel()
     ist.max_strain = np.max(ist.strain.to_numpy())
     return ist.max_strain
-
 
 
 def calc_primary_residual(G,M_inv):
@@ -1013,7 +1067,6 @@ def calc_primal():
     primal_r = np.linalg.norm(primary_residual).astype(float)
     Newton_r = np.linalg.norm(np.concatenate((ist.dual_residual.to_numpy(), primary_residual))).astype(float)
     return primal_r, Newton_r
-
 
 
 # ---------------------------------------------------------------------------- #
@@ -1049,7 +1102,6 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
     return A
 
 
-
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
@@ -1082,7 +1134,6 @@ def init_linear_solver():
     return linsol
 
 
-
 def init():
     tic = perf_counter()
     process_dirs(args)
@@ -1092,7 +1143,6 @@ def init():
     global ist
     ist = SoftBody(args.model_path)
     print(f"initialize time:", perf_counter()-tic)
-
 
 
 def main():

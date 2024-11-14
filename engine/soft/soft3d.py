@@ -244,6 +244,15 @@ class SoftBody(PhysicalBase):
             args.omega
         )
     
+
+    def solve_constraints_mgxpbd(self):
+        self.pos_mid.from_numpy(self.pos.to_numpy())
+        self.compute_C_and_gradC()
+        self.b = self.compute_b()
+        # dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
+        # self.dlam2dpos(dlam)
+
+
     def substep_all_solver(self):
         self.semi_euler()
         self.lagrangian.fill(0)

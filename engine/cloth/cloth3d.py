@@ -319,6 +319,12 @@ class Cloth(PhysicalBase):
         calc_dual_residual(self.dual_residual, self.edge, self.rest_len, self.lagrangian, self.pos, self.alpha_tilde)
         dual = calc_norm(self.dual_residual)
         return dual
+    
+    def calc_strain(self)->float:
+        calc_strain_cloth_kernel(self.edge, self.rest_len, self.pos, self.NE, self.current_len, self.strain)
+        self.max_strain = np.max(self.strain.to_numpy())
+        return self.max_strain
+
 
     def fill_G(self):
         tic = time.perf_counter()
@@ -620,10 +626,7 @@ def calc_strain_cloth_kernel(
         strain[i] = (current_len[i] - rest_len[i])/current_len[i]
 
 
-def calc_strain()->float:
-    calc_strain_cloth_kernel(ist.edge, ist.rest_len, ist.pos, ist.NE, ist.current_len, ist.strain)
-    ist.max_strain = np.max(ist.strain.to_numpy())
-    return ist.max_strain
+
 
 
 

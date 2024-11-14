@@ -1,6 +1,7 @@
 """Base class for all physical solver"""
 
 import taichi as ti
+import datetime, logging
 
 from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter
 from engine.physical_data import PhysicalData
@@ -13,7 +14,8 @@ class PhysicalBase:
         self.all_stalled = [] 
         self.r_frame = ResidualDataOneFrame([])
         self.r_all = ResidualDataAllFrame([],[])
-
+        self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        logging.info(f"start date:{self.start_date}")
 
     def to_physdata(self, physdata):
         physdata.pos = self.pos.to_numpy()

@@ -26,6 +26,7 @@ from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.util import calc_norm, ResidualDataOneFrame, ResidualDataAllFrame, ResidualDataOneIter, do_post_iter, init_logger
+from engine.physical_base import PhysicalBase
 
 parser = argparse.ArgumentParser()
 
@@ -66,24 +67,24 @@ arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous
 c_int = ctypes.c_int
 
 
-class SoftBody:
+class SoftBody(PhysicalBase):
     def __init__(self, mesh_file):
+        super().__init__()
         self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         logging.info(self.start_date)
 
-        self.r_iter = ResidualDataOneIter(args,
-                                            calc_dual   =calc_dual,
-                                            calc_primal =calc_primal,
-                                            calc_energy=self.calc_energy,
-                                            calc_strain =calc_strain)
-        self.r_frame = ResidualDataOneFrame([])
-        self.r_all = ResidualDataAllFrame([],[])
-        self.mesh_file = mesh_file
-        self.args = args
-        self.delta_t = args.delta_t
+        self.r_iter = ResidualDataOneIter(
+                        calc_dual   = calc_dual,
+                        calc_primal = calc_primal,
+                        calc_energy =self.calc_energy,
+                        calc_strain = calc_strain,
+                        tol=args.tol,
+                        rtol=args.rtol,
+                        converge_condition=args.converge_condition,
+                        args = args,
+                                    )
 
-        self.frame = 0
-        self.ite = 0
+        self.args = args
 
         dir = str(Path(mesh_file).parent.stem)
         self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
@@ -284,9 +285,6 @@ class SoftBody:
             if dualr / dualr0 < args.rtol:
                 logging.info("Converge: rtol")
                 break
-            # if is_stall(r):
-            #     logging.warning("Stall detected, break")
-            #     break
         self.n_outer_all.append(self.ite+1)
         update_vel_kernel(args.delta_t, self.pos, self.old_pos, self.vel)
 
@@ -528,7 +526,7 @@ def semi_euler_kernel(
 ):
     for i in pos:
         vel[i] += delta_t * gravity
-        vel[i] *= damping_coeff
+        # vel[i] *= damping_coeff
         old_pos[i] = pos[i]
         pos[i] += delta_t * vel[i]
         predict_pos[i] = pos[i]

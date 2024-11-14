@@ -1,7 +1,7 @@
 import numpy as np
 
 class PhysicalData:
-    def __init__(self, pos=None, vel=None, stiffness=None, rest_len=None, vert=None, mass=None, delta_t=None, force=None, fixed_points_idx=None, *pargs, **kwargs):
+    def __init__(self, pos=None, vel=None, stiffness=None, rest_len=None, vert=None, mass=None, delta_t=None, force=None, pin=None, pinpos=None, restmatrix=None, *pargs, **kwargs):
         """
         Parameters
         ----------
@@ -23,8 +23,12 @@ class PhysicalData:
             time step size
         force : np.ndarray(dtype=np.float32, shape=(NV, 3))
             external force applied to the vertices
-        fixed_points_idx : list of int
-            indices of the fixed points
+        pin : np.ndarray(dtype=np.int32, shape=(NV,))
+            0: free, 1: pinned
+        pinpos: np.ndarray(dtype=np.float32, shape=(NV, 3))
+            key frame positions, only pinned vertices will be used
+        restmatrix: np.ndarray(dtype=np.float32, shape=(NCONS, 3, 3))
+            rest matrix of the vertices
         """
         self.pos = pos
         self.vel = vel
@@ -38,7 +42,7 @@ class PhysicalData:
         self.NCONS = self.stiffness.shape[0] if self.stiffness is not None else None
         self.NVERTS_ONE_CONS = self.vert.shape[1] if self.vert is not None else None
 
-        self.fixed_points_idx = fixed_points_idx
+        self.pin = pin
 
 
     def read_json(self, json_path):
@@ -48,7 +52,7 @@ class PhysicalData:
         json_path : str
             path to the json file
 
-            Must contain the following keys:
+            Contains the following keys:
             - pos
             - vel
             - stiffness
@@ -57,7 +61,11 @@ class PhysicalData:
             - mass
             - delta_t
             - force
-            - fixed_points_idx
+            - pin
+            - pinpos
+            - restmatrix
+            - type (optional)
+            - predict_pos (optional)
         """
         import json
         with open(json_path, "rt") as f:
@@ -70,7 +78,7 @@ class PhysicalData:
         self.mass = np.array(data["mass"], dtype=np.float32)
         self.delta_t = data["delta_t"]
         self.force = np.array(data["force"], dtype=np.float32)
-        self.fixed_points_idx = data["fixed_points_idx"]
+        self.pin = data["pin"]
         self.NV = self.mass.shape[0]
         self.NCONS = self.stiffness.shape[0]
         self.NVERTS_ONE_CONS = self.vert.shape[1]
@@ -98,7 +106,7 @@ class PhysicalData:
             "mass": self.mass.tolist(),
             "delta_t": self.delta_t,
             "force": self.force.tolist(),
-            "fixed_points_idx": self.fixed_points_idx
+            "pin": self.pin.tolist()
         }
         # optional keys
         if hasattr(self, "predict_pos"):

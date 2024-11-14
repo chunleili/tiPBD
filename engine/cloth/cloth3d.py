@@ -67,7 +67,7 @@ class Cloth(PhysicalBase):
     def __init__(self,args) -> None:
         super().__init__()
         self.args = args
-        
+
         self.r_iter = ResidualDataOneIter(
                         calc_dual=self.calc_dual,
                         calc_primal =self.calc_primal,
@@ -81,22 +81,20 @@ class Cloth(PhysicalBase):
         
         self.sim_type = "cloth"
 
-
+        # ---------------------------------------------------------------------------- #
+        #                               mesh and topology                              #
+        # ---------------------------------------------------------------------------- #
         self.build_mesh()
-        self.NCONS = self.NE
-
-        if args.use_bending:
-            self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
-
-        self.init_physdata_uniform(args.N, args.setup_num, args.delta_t, self.NV, self.NCONS, self.pos.to_numpy(), self.edge.to_numpy(), args.compliance, args.gravity)
-
-
         if args.export_strain:
             from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
             self.v2e, self.v2t, self.e2t = write_and_rebuild_topology(self.edge.to_numpy(),self.tri,args.out_dir)
+        if args.use_bending:
+            self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
+        self.NCONS = self.NE
 
-        self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        logging.info(f"start date:{self.start_date}")
+
+        self.physdata = self.init_physdata_uniform(args.N, args.setup_num, args.delta_t, self.NV, self.NCONS, self.pos.to_numpy(), self.edge.to_numpy(), args.compliance, args.gravity)
+
 
         self.linsol = init_linear_solver(args)
         if args.setup_num == 1:
@@ -112,18 +110,11 @@ class Cloth(PhysicalBase):
 
         # self.ls = LineSearch(self.calc_objective_function, use_line_search=True, ls_alpha=0.25, ls_beta=0.1, ls_step_size=1.0, ΕPSILON=1e-15)
 
-        # self.stiffness = (1.0/self.compliance) * np.ones(self.NCONS, dtype=np.float32)
-        # self.mass = 1.0/self.inv_mass.to_numpy()
-        # self.force = set_gravity_as_force(self.mass, args.gravity)
-        self.physdata = PhysicalData(pos=self.pos.to_numpy(),
-                                     vel= self.vel.to_numpy(),
-                                     stiffness=self.stiffness,
-                                     rest_len=self.rest_len.to_numpy(),
-                                     vert=self.edge.to_numpy(),
-                                     mass=1.0/self.inv_mass.to_numpy(),
-                                     delta_t=self.delta_t,
-                                     force=self.force,
-                                            )
+        
+        self.physdata.pos = self.pos.to_numpy()
+        self.physdata.vel = self.vel.to_numpy()
+        self.physdata.write_json(args.out_dir + "/physdata.json")
+        ...
 
 
 
@@ -133,10 +124,10 @@ class Cloth(PhysicalBase):
 
     def init_physdata_uniform(self, N, setup_num, delta_t, NV, NCONS, pos, edge, compliance, gravity_constant):
         physdata = PhysicalData()
+        physdata.vert = edge
         # ---------------------------------------------------------------------------- #
         #                                    delta t                                   #
         # ---------------------------------------------------------------------------- #
-
         physdata.delta_t = delta_t
         # ---------------------------------------------------------------------------- #
         #                                      pin                                     #
@@ -201,7 +192,12 @@ class Cloth(PhysicalBase):
 
         physdata.rest_len = rest_len
 
+        physdata.NV = NV
+        physdata.NCONS = NCONS
+        physdata.NVERTS_ONE_CONS = edge.shape[1]
+
         self.delta_t = delta_t
+        self.mass = mass
         self.inv_mass.from_numpy(inv_mass)
         self.alpha_tilde.from_numpy(alpha_tilde_np)
         self.rest_len.from_numpy(rest_len)
@@ -209,25 +205,11 @@ class Cloth(PhysicalBase):
         self.alpha_bending_constant = alpha_bending_constant
         self.M_inv = M_inv
         self.ALPHA_TILDE = ALPHA_TILDE
-
         self.stiffness = stiffness
         self.force = force
         return physdata
 
-    # @staticmethod
-    # @ti.kernel
-    # def init_mass(
-    #     inv_mass:ti.template(),
-    #     N:ti.i32,
-    #     NV:ti.i32,
-    #     setup_num:ti.i32,
-    # ):
-    #     for i, j in ti.ndrange(N + 1, N + 1):
-    #         idx = i * (N + 1) + j
-    #         inv_mass[idx] = 1.0
-    #     # if setup_num == 0: # fix point
-    #     #     inv_mass[N] = 0.0
-    #     #     inv_mass[NV-1] = 0.0
+
     
 
 
@@ -269,12 +251,7 @@ class Cloth(PhysicalBase):
         self.tri = tri
 
 
-        if args.use_bending:
-            self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
 
-        if args.export_strain:
-            from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
-            self.v2e, self.v2t, self.e2t = write_and_rebuild_topology(self.edge.to_numpy(),self.tri,args.out_dir)
         
 
 

@@ -317,13 +317,11 @@ class SoftBody(PhysicalBase):
             self.b_out,
         )
 
-        # self.constraints.from_numpy(self.constraints_out)
-        # self.gradC.from_numpy(self.gradC_out.copy())
-        # self.b = self.b_out
+        self.constraints.from_numpy(self.constraints_out)
+        self.gradC.from_numpy(self.gradC_out.copy())
+        self.b = self.b_out
 
-        # self.pos_mid.from_numpy(self.pos.to_numpy())
-        # self.compute_C_and_gradC()
-        # self.b = self.compute_b()
+
 
         dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
         self.dlam2dpos(dlam)

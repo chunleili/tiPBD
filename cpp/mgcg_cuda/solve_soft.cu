@@ -17,15 +17,19 @@
 #include "Eigen/Sparse"
 #include "unsupported/Eigen/SparseExtra"
 
+// namespace Eigen{ 
+//     typedef Eigen::Matrix<float, 3, 3, Eigen::RowMajor> Matrix3fRow;
+// }
 
 using std::vector;
 using std::array;
 using Eigen::Map;
 using Eigen::Vector3f;
 using Eigen::VectorXf;
-using Eigen::Matrix3f;
+using Matrix3f = Eigen::Matrix3f;
 using SpMat = Eigen::SparseMatrix<float>;
 using Triplet = Eigen::Triplet<float>;
+
 
 // typedefs
 using Vec3f = Eigen::Vector3f;
@@ -43,6 +47,7 @@ using Field43f = vector<Vec43f>;
 using FieldXi = vector<vector<int>>;
 using FieldMat3f = vector<Eigen::Matrix3f>;
 using Field43f = vector<Vec43f>;
+
 
 
 
@@ -244,7 +249,12 @@ extern "C" DLLEXPORT void solveSoft_set_data(
     std::copy(rest_len_in, rest_len_in + NCONS_in, solveSoft->rest_len.data());
     std::copy(vert_in, vert_in + NCONS_in*4, solveSoft->vert[0].data());
     std::copy(inv_mass_in, inv_mass_in + NV_in, solveSoft->inv_mass.data());
-    std::copy(B, B + NCONS_in*9, solveSoft->B[0].data());
+    std::copy(B, B + NCONS_in*9, solveSoft->B[0].data()); //Eigen is col major
+    for (int i=0; i<NCONS_in; i++) {
+        // copy from col major to row major
+        solveSoft->B[i].transposeInPlace();
+    }
+
     std::copy(lambda_in, lambda_in + NCONS_in, solveSoft->lambda.data());
 }
 

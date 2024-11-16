@@ -248,7 +248,7 @@ class SoftBody(PhysicalBase):
         dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
         self.dlam2dpos(dlam)
 
-    def solve_constraints_mgxpbd_cpp(self):
+    def solveSoft(self):
         arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
         arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
         arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
@@ -260,8 +260,7 @@ class SoftBody(PhysicalBase):
         c_int = ctypes.c_int
 
 
-
-        extlib.fastmg_solve_constraints_mgxpbd_run.argtypes = [
+        extlib.solveSoft_set_data.argtypes = [
             c_size_t,
             c_size_t,
             arr2d_float, #pos
@@ -272,23 +271,23 @@ class SoftBody(PhysicalBase):
             c_float, #delta_t
             arr3d_float, #restmatrix
             arr_float, #lambda
+        ]
+        extlib.solveSoft_get_data.argtypes = [
             arr_float, #dlambda
             arr2d_float, #dpos
             arr_float, #constraints
             arr3d_float, #gradC
             arr_float, #b_out
         ]
-        extlib.fastmg_solve_constraints_mgxpbd_run.restype = c_float
-
-        self.dlambda_out = np.zeros(self.NCONS, dtype=np.float32)
-        self.dpos_out = np.zeros((self.NV, 3), dtype=np.float32)
-        self.constraints_out = np.zeros(self.NCONS, dtype=np.float32)
-        self.gradC_out = np.zeros((self.NCONS, 4, 3), dtype=np.float32)
-        self.b_out = np.zeros(self.NV*3, dtype=np.float32)
+        extlib.solveSoft_get_data.restype = c_float
+        extlib.solveSoft_run.argtypes = [
+            arr2d_float, #pos
+        ]
+        extlib.solveSoft_run.restype = c_float
 
 
 
-        r = extlib.fastmg_solve_constraints_mgxpbd_run(
+        extlib.solveSoft_set_data(
             self.NV,
             self.NCONS,
             self.pos.to_numpy(),
@@ -299,7 +298,18 @@ class SoftBody(PhysicalBase):
             args.delta_t,
             self.B.to_numpy(),
             self.lagrangian.to_numpy(),
+        )
 
+        pos_out = self.pos.to_numpy()
+        extlib.solveSoft_run(pos_out)
+
+
+        self.dlambda_out = np.zeros(self.NCONS, dtype=np.float32)
+        self.dpos_out = np.zeros((self.NV, 3), dtype=np.float32)
+        self.constraints_out = np.zeros(self.NCONS, dtype=np.float32)
+        self.gradC_out = np.zeros((self.NCONS, 4, 3), dtype=np.float32)
+        self.b_out = np.zeros(self.NCONS, dtype=np.float32)
+        extlib.solveSoft_get_data(
             self.dlambda_out, 
             self.dpos_out,
             self.constraints_out,
@@ -307,14 +317,18 @@ class SoftBody(PhysicalBase):
             self.b_out,
         )
 
-        # self.dlambda.from_numpy(self.dlambda_out)
-        # self.dpos.from_numpy(self.dpos_out)
-        self.constraints.from_numpy(self.constraints_out)
-        self.gradC.from_numpy(self.gradC_out.copy())
-        self.b = self.b_out.copy()
+        # self.constraints.from_numpy(self.constraints_out)
+        # self.gradC.from_numpy(self.gradC_out.copy())
+        # self.b = self.b_out
+
+        # self.pos_mid.from_numpy(self.pos.to_numpy())
+        # self.compute_C_and_gradC()
+        # self.b = self.compute_b()
 
         dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
         self.dlam2dpos(dlam)
+
+
 
     def substep_all_solver(self):
         self.semi_euler()
@@ -327,7 +341,7 @@ class SoftBody(PhysicalBase):
             # self.b = self.compute_b()
             # x, self.r_iter.r_Axb = ist.linsol.run(self.b)
             # self.dlam2dpos(x)
-            self.solve_constraints_mgxpbd_cpp()
+            self.solveSoft()
             do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():
                 break

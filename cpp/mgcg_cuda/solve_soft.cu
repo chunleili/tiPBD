@@ -54,9 +54,9 @@ void compute_C_and_gradC_imply(Field3f &pos_mid, Field4i &vert, FieldMat3f &B, F
 
 
 
-class SolveConstraintsMgxpbd {
+class SolveSoft {
 public:
-    SolveConstraintsMgxpbd() {}
+    SolveSoft() {}
     
     size_t NV=0;
     size_t NCONS=0;
@@ -195,7 +195,7 @@ public:
         }
     }
 
-}; // end of SolveConstraintsMgxpbd class
+}; // end of SolveSoft class
 
 
 
@@ -204,7 +204,7 @@ public:
 /* -------------------------------------------------------------------------- */
 /*                         For interaction with python                        */
 /* -------------------------------------------------------------------------- */
-static SolveConstraintsMgxpbd *SolveConstraintsMgxpbd_instance = nullptr;
+static SolveSoft *solveSoft = nullptr;
 
 #if _WIN32
 #define DLLEXPORT __declspec(dllexport)
@@ -212,12 +212,13 @@ static SolveConstraintsMgxpbd *SolveConstraintsMgxpbd_instance = nullptr;
 #define DLLEXPORT
 #endif
 
-extern "C" DLLEXPORT void fastmg_solve_constraints_mgxpbd_new() {
-        if (!SolveConstraintsMgxpbd_instance)
-        SolveConstraintsMgxpbd_instance = new SolveConstraintsMgxpbd{};
+extern "C" DLLEXPORT void solveSoft_new() {
+        if (!solveSoft)
+        solveSoft = new SolveSoft{};
 }
 
-extern "C" DLLEXPORT float fastmg_solve_constraints_mgxpbd_run(
+
+extern "C" DLLEXPORT void solveSoft_set_data(
     size_t NV_in,
     size_t NCONS_in,
     const float* pos_in, 
@@ -227,42 +228,58 @@ extern "C" DLLEXPORT float fastmg_solve_constraints_mgxpbd_run(
     const float* inv_mass_in,        //NOT USED NOW
     const float  delta_t_in,     //only for alpha_tilde
     const float* B, //NOT USED NOW
-    const float* lambda_in,
+    const float* lambda_in
+) {
+    // SolveSoft* p = solveSoft; // alias
+
+    if (NV_in != solveSoft->NV || NCONS_in != solveSoft->NCONS) {
+        solveSoft->NV = NV_in;
+        solveSoft->NCONS = NCONS_in;
+        solveSoft->resize_fields(NV_in, NCONS_in);
+    }
+    
+    // copy input data FIXME: a better is to pass the pointer directly
+    std::copy(pos_in, pos_in + NV_in*3, solveSoft->pos[0].data());
+    std::copy(alphat_tilde_in, alphat_tilde_in + NCONS_in, solveSoft->alpha_tilde.data());
+    std::copy(rest_len_in, rest_len_in + NCONS_in, solveSoft->rest_len.data());
+    std::copy(vert_in, vert_in + NCONS_in*4, solveSoft->vert[0].data());
+    std::copy(inv_mass_in, inv_mass_in + NV_in, solveSoft->inv_mass.data());
+    std::copy(B, B + NCONS_in*9, solveSoft->B[0].data());
+    std::copy(lambda_in, lambda_in + NCONS_in, solveSoft->lambda.data());
+}
+
+
+extern "C" DLLEXPORT float solveSoft_get_data(
     float* dlambda_out,
     float* dpos_out,
     float* constraints_out, //TODO:internal, for now
     float* gradC_out,       //TODO:internal, for now
     float* b_out           //TODO:internal, for now
 ) {
-    SolveConstraintsMgxpbd* p = SolveConstraintsMgxpbd_instance; // alias
-
-    if (NV_in != p->NV || NCONS_in != p->NCONS) {
-        p->NV = NV_in;
-        p->NCONS = NCONS_in;
-        p->resize_fields(NV_in, NCONS_in);
-    }
-    
-    // copy input data FIXME: a better is to pass the pointer directly
-    std::copy(pos_in, pos_in + NV_in*3, p->pos[0].data());
-    std::copy(alphat_tilde_in, alphat_tilde_in + NCONS_in, p->alpha_tilde.data());
-    std::copy(rest_len_in, rest_len_in + NCONS_in, p->rest_len.data());
-    std::copy(vert_in, vert_in + NCONS_in*4, p->vert[0].data());
-    std::copy(inv_mass_in, inv_mass_in + NV_in, p->inv_mass.data());
-    std::copy(B, B + NCONS_in*9, p->B[0].data());
-    std::copy(lambda_in, lambda_in + NCONS_in, p->lambda.data());
-    
-
-
-    p->solve_constraints_mgxpbd();
-
+    int NV_in = solveSoft->NV;
+    int NCONS_in = solveSoft->NCONS;
     // copy output data FIXME: a better is to pass the pointer
-    std::copy(p->dlambda.data(), p->dlambda.data() + NCONS_in, dlambda_out);
-    std::copy(p->dpos[0].data(), p->dpos[0].data() + NV_in*3, dpos_out);
-    std::copy(p->constraints.data(), p->constraints.data() + NCONS_in, constraints_out);
-    std::copy(p->gradC[0][0].data(), p->gradC[0][0].data() + NCONS_in*12, gradC_out);
-    std::copy(p->b.data(), p->b.data() + NCONS_in, b_out);
+    
+    std::copy(solveSoft->dlambda.data(), solveSoft->dlambda.data() + NCONS_in, dlambda_out);
+    std::copy(solveSoft->dpos[0].data(), solveSoft->dpos[0].data() + NV_in*3, dpos_out);
+    std::copy(solveSoft->constraints.data(), solveSoft->constraints.data() + NCONS_in, constraints_out);
+    std::copy(solveSoft->gradC[0][0].data(), solveSoft->gradC[0][0].data() + NCONS_in*12, gradC_out);
+    std::copy(solveSoft->b.data(), solveSoft->b.data() + NCONS_in, b_out);
 
-    // printf("residual: %f\n", p->residual);
-    float residual = p->residual;
+    // printf("residual: %f\n", solveSoft->residual);
+    float residual = solveSoft->residual;
+    return residual;
+}
+
+
+extern "C" DLLEXPORT float solveSoft_run(
+    const float* pos_in
+) {
+    int NV = solveSoft->NV;
+    std::copy(pos_in, pos_in + NV*3, solveSoft->pos[0].data());
+
+    solveSoft->solve_constraints_mgxpbd();
+
+    float residual = solveSoft->residual;
     return residual;
 }

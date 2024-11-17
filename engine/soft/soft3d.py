@@ -25,7 +25,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import calc_norm, ResidualDataOneFrame, ResidualDataAllFrame, ResidualDataOneIter, do_post_iter, init_logger
+from engine.util import calc_norm, ResidualDataOneFrame, ResidualDataAllFrame, ResidualDataOneIter, do_post_iter, init_logger, timeit
 from engine.physical_base import PhysicalBase
 
 parser = argparse.ArgumentParser()
@@ -248,6 +248,7 @@ class SoftBody(PhysicalBase):
         dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
         self.dlam2dpos(dlam)
 
+    @timeit
     def solveSoft(self):
         arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
         arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
@@ -326,7 +327,13 @@ class SoftBody(PhysicalBase):
         dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
         self.dlam2dpos(dlam)
 
-
+    @timeit
+    def solveSoft_python(self):
+        self.pos_mid.from_numpy(self.pos.to_numpy())
+        self.compute_C_and_gradC()
+        self.b = self.compute_b()
+        x, self.r_iter.r_Axb = ist.linsol.run(self.b)
+        self.dlam2dpos(x)
 
     def substep_all_solver(self):
         self.semi_euler()
@@ -334,11 +341,6 @@ class SoftBody(PhysicalBase):
         self.r_iter.calc_r0()
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
-            # self.pos_mid.from_numpy(self.pos.to_numpy())
-            # self.compute_C_and_gradC()
-            # self.b = self.compute_b()
-            # x, self.r_iter.r_Axb = ist.linsol.run(self.b)
-            # self.dlam2dpos(x)
             self.solveSoft()
             do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():

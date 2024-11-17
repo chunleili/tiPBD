@@ -46,7 +46,7 @@ class AmgCuda:
         if self.should_setup():
             A = self.AMG_setup_phase()
         self.fill_A_in_cuda()
-        self.AMG_RAP()
+        # self.AMG_RAP() # will call in solve
         x, r_Axb = self.AMG_solve(b, maxiter=self.args.maxiter_Axb, tol=self.args.tol_Axb)
         return x, r_Axb
 
@@ -100,6 +100,14 @@ class AmgCuda:
         self.num_levels = len(self.Ps)+1
         logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
 
+        if self.Ps == []:
+            logging.warning("No Ps generated, fallback to only smoother")
+            self.args.only_smoother = True
+            self.setup_smoothers()
+            if self.args.smoother_type=="gauss_seidel":
+                self.graph_coloring()    
+            return A
+
         tic = time.perf_counter()
         self.update_P(self.Ps)
         logging.info(f"    update_P time: {time.perf_counter()-tic:.2f}s")
@@ -109,13 +117,8 @@ class AmgCuda:
 
         self.AMG_RAP()
 
-        s = smoother_name2type(self.args.smoother_type)
-        c_int = ctypes.c_int
-        self.extlib.fastmg_setup_smoothers.argtypes = [c_int]
-        print(s)
-        self.extlib.fastmg_setup_smoothers(s) # 1 means chebyshev, 2 means w-jacobi, 3 gauss_seidel
-        self.extlib.fastmg_set_smoother_niter(self.args.smoother_niter)
-        self.extlib.fastmg_set_coarse_solver_type.argtypes = [c_int]
+        self.setup_smoothers()
+        self.extlib.fastmg_set_coarse_solver_type.argtypes = [ctypes.c_int]
         self.extlib.fastmg_set_coarse_solver_type(self.args.coarse_solver_type)
 
         logging.info(f"    setup smoothers time:{time.perf_counter()-tic}")
@@ -123,6 +126,14 @@ class AmgCuda:
         if self.args.smoother_type=="gauss_seidel":
             self.graph_coloring()    
         return A
+    
+    def setup_smoothers(self):
+        s = smoother_name2type(self.args.smoother_type)
+        c_int = ctypes.c_int
+        self.extlib.fastmg_setup_smoothers.argtypes = [c_int]
+        print(s)
+        self.extlib.fastmg_setup_smoothers(s) # 1 means chebyshev, 2 means w-jacobi, 3 gauss_seidel
+        self.extlib.fastmg_set_smoother_niter(self.args.smoother_niter)
 
 
 def smoother_name2type(name):

@@ -391,7 +391,7 @@ def timeit(method):
         ts = perf_counter()
         result = method(*args, **kw)
         te = perf_counter()
-        print(f"    {method.__name__} took: {(te-ts)*1000:.0f}ms")
+        logging.info(f"    {method.__name__} took: {(te-ts)*1000:.0f}ms")
         return result
     return timed
 

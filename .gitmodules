@@ -1,0 +1,7 @@
+[submodule "cpp/mgcg_cuda/extern/eigen"]
+	path = cpp/mgcg_cuda/extern/eigen
+	url = https://gitlab.com/libeigen/eigen.git
+[submodule "cpp/mgcg_cuda/extern/amgcl"]
+	path = cpp/mgcg_cuda/extern/amgcl
+	url = https://github.com/chunleili/amgcl.git
+	branch = my

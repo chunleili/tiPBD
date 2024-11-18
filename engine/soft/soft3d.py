@@ -165,6 +165,7 @@ class SoftBody:
             self.pos.from_numpy(self.model_pos * 0.01)
         elif args.reinit == "freefall":
             args.gravity = [0, -9.8, 0]
+            args.use_ground_collision = 1
  
         self.initial_pos = self.pos.to_numpy()
         #for ground collision response

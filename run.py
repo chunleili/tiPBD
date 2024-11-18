@@ -1518,6 +1518,43 @@ args = ["engine/soft/soft3d.py",
         ]
 allargs.append(args)
 
+# case143: 
+casenames[len(allargs)] = "XPBD-ball"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/ball22k/ball22k.node",
+        "-mu=1e9",
+        "-rtol=1e-2",
+        "-tol=1e-3",
+        "-delta_t=5e-3",
+        "-solver_type=XPBD",
+        "-maxiter=50",
+        # "-calc_energy=1",
+        "-reinit=freefall",
+        "-end_frame=330",
+        "-use_ground_collision=1"
+        ]
+allargs.append(args)
+
+# case144: 
+casenames[len(allargs)] = "AMG-ball"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/ball22k/ball22k.node",
+        "-mu=1e9",
+        "-rtol=1e-2",
+        "-tol=1e-3",
+        "-delta_t=5e-3",
+        "-solver_type=AMG",
+        "-maxiter=50",
+        # "-calc_energy=1",
+        "-reinit=freefall",
+        "-end_frame=330",
+        "-use_ground_collision=1"
+        ]
+allargs.append(args)
 
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):

@@ -35,5 +35,6 @@ def add_common_args(parser):
     parser.add_argument("-use_json", type=int, default=False, help="json configs will overwrite the command line args")
     parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
     parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
+    parser.add_argument("-calc_energy", type=int, default=1)
 
     return parser

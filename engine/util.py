@@ -1060,15 +1060,8 @@ def is_stall(r,ist,args):
 
 
 def is_diverge(r,r_Axb,ist):
-    if (ist.ite < 5):
-        return False
-
-    if r[-1].dual/r[-5].dual>5:
+    if np.isnan(r[-1].dual):
         return True
-    
-    if r_Axb[-1]>r_Axb[0]:
-        return True
-
     return False
 
 

@@ -88,18 +88,19 @@ allargs = [None]
 
 # naming convention: case{case_num}-{date:4 digits}-{object_type:cloth or soft}{resolution}-{solver_type:AMG or XPBD}
 
-# case1: cloth 1024 AMG 3ms
+# case1: cloth 64 AMG 5ms
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=AMG",
         f"-end_frame=100",
-        f"-out_dir=result/case{len(allargs)}-{day}-cloth1024-AMG",
+        f"-out_dir=result/case{len(allargs)}-{day}-AMG",
         f"-auto_another_outdir={auto_another_outdir}",
         "-arch=cpu",
-        "-N=1024",
+        "-N=64",
         "-maxiter=50",
-        "-delta_t=3e-3",
+        "-delta_t=10e-3",
+        "-rtol=1e-2",
         "-tol=1e-4",
-        "-end_frame=21",
+        "-end_frame=100",
         # "-export_matrix=1",
         # "-export_matrix_frame=20",
         # "-export_residual=1",
@@ -109,16 +110,17 @@ args = ["engine/cloth/cloth3d.py",
         ]
 allargs.append(args)
 
-# case2: cloth 1024 XPBD gpu 3ms
+# case2: cloth 64 XPBD gpu 5ms
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=XPBD",
         f"-end_frame=100",
-        f"-out_dir=result/case{len(allargs)}-{day}-cloth1024-XPBD",
+        f"-out_dir=result/case{len(allargs)}-{day}-XPBD",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-arch=cpu",
-        "-N=1024",
-        "-maxiter=10000",
-        "-delta_t=3e-3",
+        "-arch=gpu",
+        "-N=64",
+        "-maxiter=1000",
+        "-delta_t=10e-3",
+        "-rtol=1e-2",
         "-tol=1e-4",
         "-end_frame=100",
         # "-restart=1",
@@ -1456,6 +1458,45 @@ args = ["engine/cloth/cloth3d.py",
         ]
 allargs.append(args)
 
+
+casenames = {}
+# case140: 
+casenames[len(allargs)] = "AMG-energy-soft"
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-small",
+        "-rtol=1e-3",
+        "-delta_t=3e-3",
+        "-mu=1e8",
+        "-solver_type=AMG",
+        "-smoother_type=jacobi",
+        "-smoother_niter=3",
+        "-build_P_method=strength0.25",
+        "-maxiter_Axb=100",
+        "-maxiter=200",
+        "-tol_Axb=1e-6",
+        "-calc_energy=1",
+        ]
+allargs.append(args)
+
+
+# case141: 
+casenames[len(allargs)] = "XPBD-energy-soft"
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-small",
+        "-mu=1e8",
+        "-rtol=1e-3",
+        "-delta_t=3e-3",
+        "-solver_type=XPBD",
+        "-maxiter=10000",
+        "-calc_energy=1",
+        ]
+allargs.append(args)
 
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):

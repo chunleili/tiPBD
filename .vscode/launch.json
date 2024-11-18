@@ -34,7 +34,6 @@
             "args": [
               "-solver_type=AMG",
               "-use_cuda=1",
-              "-debug=1",
             ]
           }
     ]

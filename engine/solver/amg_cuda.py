@@ -79,7 +79,12 @@ class AmgCuda:
         self.Ps = build_Ps(A, self.args, self.extlib)
         self.num_levels = len(self.Ps)+1
         logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
-
+        if self.num_levels == 1:
+            # fallback to smoother only
+            self.cuda_set_A0(A)
+            self.setup_smoothers()
+            self.args.only_smoother = True
+            return A
 
         tic = time.perf_counter()
         self.update_P(self.Ps)
@@ -90,21 +95,22 @@ class AmgCuda:
         
         self.AMG_RAP()
 
-        s = smoother_name2type(self.args.smoother_type)
-        c_int = ctypes.c_int
-        self.extlib.fastmg_setup_smoothers.argtypes = [c_int]
-        print(s)
-        self.extlib.fastmg_setup_smoothers(s) # 1 means chebyshev, 2 means w-jacobi, 3 gauss_seidel
-        self.extlib.fastmg_set_smoother_niter(self.args.smoother_niter)
-        self.extlib.fastmg_set_coarse_solver_type.argtypes = [c_int]
+        self.setup_smoothers()
+
+        self.extlib.fastmg_set_coarse_solver_type.argtypes = [ctypes.c_int]
         self.extlib.fastmg_set_coarse_solver_type(self.args.coarse_solver_type)
 
         logging.info(f"    setup smoothers time:{time.perf_counter()-tic}")
-
-        if self.args.smoother_type=="gauss_seidel":
-            self.graph_coloring()    
         return A
 
+    def setup_smoothers(self):
+        s = smoother_name2type(self.args.smoother_type)
+        self.extlib.fastmg_setup_smoothers.argtypes = [ctypes.c_int]
+        print(s)
+        self.extlib.fastmg_setup_smoothers(s) # 1 means chebyshev, 2 means w-jacobi, 3 gauss_seidel
+        self.extlib.fastmg_set_smoother_niter(self.args.smoother_niter)
+        if self.args.smoother_type=="gauss_seidel":
+            self.graph_coloring()    
     
 def smoother_name2type(name):
     if name == "chebyshev":

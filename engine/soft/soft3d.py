@@ -44,10 +44,11 @@ parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coar
 # "data/model/bunny_small/bunny_small.node"
 # "data/model/bunnyBig/bunnyBig.node"
 # "data/model/bunny85w/bunny85w.node"
+# "data/model/ball/ball.node"
 parser.add_argument("-reinit", type=str, default="")
 parser.add_argument("-large", action="store_true")
 parser.add_argument("-small", action="store_true")
-
+parser.add_argument("-use_ground_collision", type=int, default=0)
 parser.add_argument("-omega", type=float, default=0.1)
 parser.add_argument("-smoother_type", type=str, default="jacobi")
 
@@ -163,12 +164,17 @@ class SoftBody:
         elif args.reinit == "squash":
             self.pos.from_numpy(self.model_pos * 0.01)
         elif args.reinit == "freefall":
-            self.args.gravity = [0, -9.8, 0]
+            args.gravity = [0, -9.8, 0]
  
         self.initial_pos = self.pos.to_numpy()
         #for ground collision response
-        min_pos = np.min(self.initial_pos, axis=0)
-        self.ground_pos = min_pos[1] - 0.3
+        min_pos_y = np.min(self.pos.to_numpy()[:,1])
+        max_pos_y = np.max(self.pos.to_numpy()[:,1])
+        if min_pos_y < 0.0:
+            # move the model above the ground
+            logging.warning(f"move the model above the ground")
+            self.pos.from_numpy(self.pos.to_numpy() + np.array([0, -min_pos_y+(max_pos_y-min_pos_y)*0.01, 0]))
+        self.ground_pos = 0.0
 
         self.alpha_tilde_np = self.alpha_tilde.to_numpy()
 
@@ -352,10 +358,12 @@ def semi_euler(
     gravity: ti.template(),
 ):
     for i in pos:
-        vel[i] += delta_t * gravity
-        vel[i] *= damping_coeff
         old_pos[i] = pos[i]
+        vel[i] += damping_coeff* delta_t * gravity
         pos[i] += delta_t * vel[i]
+        # if pos[i].y < 0.0:
+        #     pos[i] = old_pos[i]
+        #     pos[i].y = 0.0
         predict_pos[i] = pos[i]
 
 
@@ -444,6 +452,7 @@ def compute_dual_residual(
 
 @ti.kernel
 def project_constraints(
+    pos_mid: ti.template(),
     tet_indices: ti.template(),
     inv_mass: ti.template(),
     lagrangian: ti.template(),
@@ -455,54 +464,65 @@ def project_constraints(
     gradC: ti.template(),
     dlambda: ti.template(),
     dpos: ti.template(),
+    omega: ti.f32
 ):
 
     # ti.loop_config(serialize=meta.serialize)
+    for i in pos:
+        pos_mid[i] = pos[i]
+
     for t in range(tet_indices.shape[0]):
         p0 = tet_indices[t][0]
         p1 = tet_indices[t][1]
         p2 = tet_indices[t][2]
         p3 = tet_indices[t][3]
 
-        x0, x1, x2, x3 = pos[p0], pos[p1], pos[p2], pos[p3]
-        sumInvMass = inv_mass[p0] + inv_mass[p1] + inv_mass[p2] + inv_mass[p3]
-        if sumInvMass < 1.0e-6:
-            print("wrong invMass function")
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
 
         D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
         F = D_s @ B[t]
         U, S, V = ti.svd(F)
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
-        if constraint[t] > 1.0e-6:
+        if constraint[t] > 1e-6:
             g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
-
-            # print(f"g0: {g0.norm()}, g1: {g1.norm()}, g2: {g2.norm()}, g3: {g3.norm()}")
             gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
-            denorminator = (
+            denominator = (
                 inv_mass[p0] * g0.norm_sqr()
                 + inv_mass[p1] * g1.norm_sqr()
                 + inv_mass[p2] * g2.norm_sqr()
                 + inv_mass[p3] * g3.norm_sqr()
             )
-
             residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
-            dlambda[t] = residual[t] / (denorminator + alpha_tilde[t])
-
+            dlambda[t] = residual[t] / (denominator + alpha_tilde[t])
             lagrangian[t] += dlambda[t]
+    for t in range(tet_indices.shape[0]):
+        if constraint[t] > 1e-6:
+            p0 = tet_indices[t][0]
+            p1 = tet_indices[t][1]
+            p2 = tet_indices[t][2]
+            p3 = tet_indices[t][3]
+            pos[p0] += omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+            pos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+            pos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+            pos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+            dpos[p0] += omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+            dpos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+            dpos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+            dpos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
 
-            dpos[p0] += inv_mass[p0] * dlambda[t] * gradC[t, 0]
-            dpos[p1] += inv_mass[p1] * dlambda[t] * gradC[t, 1]
-            dpos[p2] += inv_mass[p2] * dlambda[t] * gradC[t, 2]
-            dpos[p3] += inv_mass[p3] * dlambda[t] * gradC[t, 3]
+
+
 
 
 
 # ground collision response
 @ti.kernel
-def collsion_response(pos: ti.template(), ground_pos: ti.f32):
+def collision_response(pos: ti.template(), old_pos:ti.template(), ground_pos: ti.f32):
     for i in pos:
-        if pos[i][1] < ground_pos:
-            pos[i][1] = ground_pos
+        if args.use_ground_collision:
+            if pos[i][1] < ground_pos:
+                pos[i] = old_pos[i]
+                pos[i][1] = ground_pos
 
 
 def reset_dpos(dpos):
@@ -541,7 +561,7 @@ def transfer_back_to_pos_mfree(x, ist):
     reset_dpos(ist.dpos)
     transfer_back_to_pos_mfree_kernel(ist.gradC, ist.tet_indices, ist.inv_mass, ist.dlambda, ist.lagrangian, ist.dpos)
     update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
-    collsion_response(ist.pos, ist.ground_pos)
+    # collision_response(ist.pos, ist.old_pos, ist.ground_pos)
 
 @ti.kernel
 def compute_potential_energy(potential_energy:ti.template(),
@@ -696,7 +716,7 @@ def substep_all_solver(ist):
     ist.n_outer_all.append(len(r))
     if args.export_residual:
         do_export_r(r)
-    collsion_response(ist.pos, ist.ground_pos)
+    collision_response(ist.pos, ist.old_pos, ist.ground_pos)
     update_vel(args.delta_t, ist.pos, ist.old_pos, ist.vel)
     logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
     ist.t_avg_iter.append((time.perf_counter()-tic1)/ist.n_outer_all[-1])
@@ -711,6 +731,7 @@ def substep_xpbd(ist):
     for ist.ite in range(args.maxiter):
         tic = time.perf_counter()
         project_constraints(
+            ist.pos_mid,
             ist.tet_indices,
             ist.inv_mass,
             ist.lagrangian,
@@ -722,9 +743,9 @@ def substep_xpbd(ist):
             ist.gradC,
             ist.dlambda,
             ist.dpos,
+            args.omega
         )
-        update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
-        collsion_response(ist.pos, ist.ground_pos)
+        # update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
         calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
         dualr = np.linalg.norm(ist.residual.to_numpy())
         if ist.ite == 0:
@@ -742,9 +763,9 @@ def substep_xpbd(ist):
         if dualr / dualr0 < args.rtol:
             logging.info("Converge: rtol")
             break
-        # if is_stall(r):
-        #     logging.warning("Stall detected, break")
-        #     break
+        if is_diverge(r, None, ist):
+            raise ValueError("Diverge detected")
+    collision_response(ist.pos, ist.old_pos, ist.ground_pos)
     ist.n_outer_all.append(ist.ite+1)
     update_vel(args.delta_t, ist.pos, ist.old_pos, ist.vel)
 

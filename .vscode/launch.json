@@ -32,8 +32,17 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
+              "-model_path=data/model/ball/ball.node",
+              "-mu=1e6",
+              "-rtol=1e-3",
+              "-tol=1e-4",
+              "-delta_t=3e-3",
               "-solver_type=AMG",
-              "-use_cuda=1",
+              "-maxiter=10000",
+              "-calc_energy=1",
+              "-reinit=freefall",
+              "-end_frame=330",
+              "-use_ground_collision=1"
             ]
           }
     ]

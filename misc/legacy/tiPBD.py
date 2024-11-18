@@ -97,7 +97,7 @@ def substep():
 window = ti.ui.Window("pbd", (1024, 1024), vsync=False)
 canvas = window.get_canvas()
 scene = ti.ui.Scene()
-camera = ti.ui.make_camera()
+camera = ti.ui.Camera()
 
 # initial camera position
 camera.position(0.5, 1.0, 1.95)

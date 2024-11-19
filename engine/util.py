@@ -2,1070 +2,195 @@ import taichi as ti
 import numpy as np    
 import logging
 import json
-import os
-
-
-def filedialog():
-    import tkinter as tk
-    from tkinter import filedialog
-
-    root = tk.Tk()
-    root.filename = filedialog.askopenfilename(initialdir="data/scene", title="Select a File")
-    filename = root.filename
-    root.destroy()  # close the window
-    print("Open scene file: ", filename)
-    return filename
-
-
-
-def singleton(cls):
-    _instance = {}
-
-    def inner():
-        if cls not in _instance:
-            _instance[cls] = cls()
-        return _instance[cls]
-
-    return inner
-
-
-class SimConfig:
-    def __init__(self, scene_file_path) -> None:
-        self.config = None
-        with open(scene_file_path, "r") as f:
-            self.config = json.load(f)
-        print(json.dumps(self.config, indent=2))
-
-    # def get_common(self, key, default=None):
-    #     if key in self.config['common']:
-    #         return self.config['common'][key]
-    #     else:
-    #         return default
-
-    # def get_materials(self, key, default=None):
-    #     if key in self.config["materials"]:
-    #         return self.config["materials"][key]
-    #     else:
-    #         return default
-
-
-
-############################################
-# parse cli
-
-def parse_cli(): # old version, use built-in argparse
-    '''
-    Read command line arguments
-    '''
-    import argparse
-    import taichi as ti
-    import os
-    parser = argparse.ArgumentParser(description='taichi PBD')
-    parser.add_argument('--scene_file', type=str, default="",
-                        help='manually specify scene file, if not specified, use gui to select')
-    parser.add_argument('--no_gui', action='store_true', default=False,
-                        help='no gui mode')
-    parser.add_argument("--arch", type=str, default="cuda",
-                        help="backend(arch) of taichi)")
-    parser.add_argument("--debug", action='store_true', default=False,
-                    help="debug mode")
-    parser.add_argument("--device_memory_fraction", type=float, default=0.5,
-                    help="device memory fraction")
-    parser.add_argument("--kernel_profiler", action='store_true', default=False,
-                        help="enable kernel profiler")
-    parser.add_argument("--use_dearpygui", action='store_true', default=False,
-                        help="use dearpygui as gui")
-    args = parser.parse_args()
-
-    # root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-    # args.scene_file =  root_path+"/data/scene/bunny_fluid.json"
-
-    if args.arch == "cuda":
-        args.arch = ti.cuda
-    elif args.arch == "cpu":
-        args.arch = ti.cpu
-    else:
-        args.arch = None
-
-    # 把init_args打包， ti.init(**args.init_args)
-    args.init_args = {"arch": args.arch, "device_memory_fraction": args.device_memory_fraction, "kernel_profiler": args.kernel_profiler, "debug": args.debug}
-    return args
-
-
-
-@singleton
-@ti.data_oriented
-class MetaData:
-    def __init__(self):
-        import os
-        # from engine.util import parse_cli
-
-        self.root_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-        self.result_path = os.path.join(self.root_path, "result")
-        print("root_path:", self.root_path)
-
-        self.args = parse_cli()
-        # print("args:", self.args)
-
-        self.common = {}
-        self.materials = [{}]
-
-        # if self.args.no_json == True:
-        #     return
-
-        if self.args.scene_file == "":
-
-            self.scene_path = filedialog()
-        else:
-            self.scene_path = self.args.scene_file
-        self.scene_name = self.scene_path.split("/")[-1].split(".")[0]
-
-
-        self.config_instance = SimConfig(scene_file_path=self.scene_path)
-        self.common = self.config_instance.config["common"]
-        self.materials = self.config_instance.config["materials"]
-        if "sdf_meshes" in self.config_instance.config:
-            self.sdf_meshes = self.config_instance.config["sdf_meshes"]
-
-        # #为缺失的参数设置默认值
-        # if "num_substeps" not in self.common:
-        #     self.num_substeps = 1
-
-    def get_common(self, key, default=None, no_warning=False):
-        if key in self.common:
-            return self.common[key]
-        else:
-            if not no_warning:
-                logging.warning("key {} not found in common, use default value {}".format(key, default))
-            return default
-
-    def get_materials(self, key, default=None, id_=0, no_warning=False):
-        if key in self.materials[id_]:
-            return self.materials[id_][key]
-        else:
-            if not no_warning:
-                logging.warning("key {} not found in materials, use default value {}".format(key, default))
-            return default
-
-    def get_sdf_meshes(self, key, default=None, id_=0, no_warning=False):
-        if not hasattr(self, "sdf_meshes"):
-            if not no_warning:
-                logging.warning("sdf_meshes not found in config file, return None".format(None))
-            return None
-        if key in self.sdf_meshes[id_]:
-            return self.sdf_meshes[id_][key]
-        else:
-            if not no_warning:
-                logging.warning("key {} not found in sdf_meshes, use default value {}".format(key, default))
-            return default
-
-
-# meta = MetaData()
-
-
-@ti.kernel
-def init_tet_indices(mesh: ti.template(), indices: ti.template()):
-    for c in mesh.cells:
-        ind = [[0, 2, 1], [0, 3, 2], [0, 1, 3], [1, 2, 3]]
-        for i in ti.static(range(4)):
-            for j in ti.static(range(3)):
-                indices[(c.id * 4 + i) * 3 + j] = c.verts[ind[i][j]].id
-
-
-def field_from_numpy(x_np):
-    import numpy as np
-    import taichi as ti
-
-    ti.init()
-    x = ti.Vector.field(3, dtype=ti.f32, shape=x_np.shape[0])
-    x.from_numpy(x_np)
-    return x
-
-
-def np_to_ti(input, dim=1):
-    import numpy as np
-
-    if isinstance(input, np.ndarray):
-        if dim == 1:
-            out = ti.field(dtype=ti.f32, shape=input.shape)
-            out.from_numpy(input)
-        else:
-            out = ti.Vector.field(dim, dtype=ti.f32, shape=input.shape)
-            out.from_numpy(input)
-    else:
-        out = input
-    return out
-
-
-@ti.kernel
-def random_fill_vec(x: ti.template(), dim: ti.template()):
-    shape = x.shape
-    for i in range(shape[0]):
-        for j in range(shape[1]):
-            for k in range(shape[2]):
-                for d in ti.static(range(dim)):
-                    x[i, j, k][d] = ti.random()
-
-
-@ti.kernel
-def random_fill_scalar(x: ti.template()):
-    shape = x.shape
-    for i in range(shape[0]):
-        for j in range(shape[1]):
-            for k in range(shape[2]):
-                x[i, j, k] = ti.random()
-
-
-def random_fill(x, dim):
-    if dim > 1:
-        random_fill_vec(x, dim)
-    else:
-        random_fill_scalar(x)
-
-
-def print_to_file(val, filename="field", dim=3):
-    import numpy as np
-
-    val = val.to_numpy()
-    if dim == 1:
-        np.savetxt("result/" + filename + ".csv", val, fmt="%.2e")
-    else:
-        np.savetxt("result/" + filename + ".csv", val.reshape(-1, dim), fmt="%.2e")
-
-
-@ti.func
-def pos_to_grid_idx(x, y, z, dx, dy, dz):
-    return ti.Vector([x / dx, y / dy, z / dz], ti.i32)
-
-
-
-
-
-############################################
-# gradient
-
-vec2 = ti.types.vector(2, dtype=ti.f32)
-vec3 = ti.types.vector(3, dtype=ti.f32)
-
-@ti.func
-def grad_at_xy(val, x, y, dx, dy) -> ti.math.vec2:
-    """
-    Compute the gradient of a 2d scalar field at a given position(x,y).
-
-    Args:
-        val (ti.template()): 2D scalar field
-        x (ti.f32): x position
-        y (ti.f32): y position
-        dx (ti.f32): grid spacing in x direction
-        dy (ti.f32): grid spacing in y direction
-
-    Returns:
-        vec2: gradient at (x,y)
-
-    """
-    i = int(x)
-    j = int(y)
-    u = x - i
-    v = y - j
-
-    grad00 = grad_at_ij(val, i, j, dx, dy)
-    grad01 = grad_at_ij(val, i, j + 1, dx, dy)
-    grad10 = grad_at_ij(val, i + 1, j, dx, dy)
-    grad11 = grad_at_ij(val, i + 1, j + 1, dx, dy)
-    res = (1 - u) * (1 - v) * grad00 + u * (1 - v) * grad10 + (1 - u) * v * grad01 + u * v * grad11
-    return res
-
-
-@ti.func
-def grad_at_xyz(val, x, y, z, dx, dy, dz) -> ti.math.vec3:
-    """
-    Compute the gradient of a 3d scalar field at a given position(x,y,z).
-
-    Args:
-        val (ti.template()): 3D scalar field
-        x (ti.f32): x position
-        y (ti.f32): y position
-        z (ti.f32): z position
-        dx (ti.f32): grid spacing in x direction
-        dy (ti.f32): grid spacing in y direction
-        dz (ti.f32): grid spacing in z direction
-
-    Returns:
-        vec3: gradient at (x,y,z)
-    """
-    i = int(x)
-    j = int(y)
-    k = int(z)
-    u = x - i
-    v = y - j
-    w = z - k
-
-    grad000 = grad_at_ijk(val, i, j, k, dx, dy, dz)
-    grad001 = grad_at_ijk(val, i, j, k + 1, dx, dy, dz)
-    grad010 = grad_at_ijk(val, i, j + 1, k, dx, dy, dz)
-    grad011 = grad_at_ijk(val, i, j + 1, k + 1, dx, dy, dz)
-    grad100 = grad_at_ijk(val, i + 1, j, k, dx, dy, dz)
-    grad101 = grad_at_ijk(val, i + 1, j, k + 1, dx, dy, dz)
-    grad110 = grad_at_ijk(val, i + 1, j + 1, k, dx, dy, dz)
-    grad111 = grad_at_ijk(val, i + 1, j + 1, k + 1, dx, dy, dz)
-    res = (
-        (1 - u) * (1 - v) * (1 - w) * grad000
-        + u * (1 - v) * (1 - w) * grad100
-        + (1 - u) * v * (1 - w) * grad010
-        + u * v * (1 - w) * grad110
-        + (1 - u) * (1 - v) * w * grad001
-        + u * (1 - v) * w * grad101
-        + (1 - u) * v * w * grad011
-        + u * v * w * grad111
-    )
-    return res
-
-
-def bilinear_weight(x, y):
-    """
-    Bilinear sample weights of a 2D scalar field at a given position.
-    """
-    i = int(x)
-    j = int(y)
-    u = x - i
-    v = y - j
-    return (1 - u) * (1 - v), u * (1 - v), (1 - u) * v, u * v
-
-
-def trilinear_weight(x, y, z):
-    """
-    Trilinear sample weights of a 3D scalar field at a given position.
-    """
-    i = int(x)
-    j = int(y)
-    k = int(z)
-    u = x - i
-    v = y - j
-    w = z - k
-    return (
-        (1 - u) * (1 - v) * (1 - w),
-        u * (1 - v) * (1 - w),
-        (1 - u) * v * (1 - w),
-        u * v * (1 - w),
-        (1 - u) * (1 - v) * w,
-        u * (1 - v) * w,
-        (1 - u) * v * w,
-        u * v * w,
-    )
-
-
-def compute_all_gradient(val, dx, dy, dz=None):
-    """
-    Compute all the gradient of the SDF field.
-
-    this will automatically determine the dimension of the field and call the corresponding function.
-    """
-    shape = val.shape
-    dim = len(shape)
-    if dim == 2:
-        res = compute_all_gradient_2d(val, dx, dy)
-    elif dim == 3:
-        res = compute_all_gradient_3d(val, dx, dy, dz)
-    else:
-        raise ValueError(f"Only support 2D and 3D, but got {dim}D")
-    return res
-
-
-@ti.kernel
-def compute_all_gradient_2d(val: ti.template(), dx: ti.f32, dy: ti.f32, grad: ti.template()):
-    """
-    Using central difference to compute all gradients of a 2D scalar field
-
-    Args:
-        val (ti.template()): 2D scalar field
-        dx (ti.f32): grid spacing in x direction
-        dy (ti.f32): grid spacing in y direction
-        grad (ti.template()): 2D vector field (result field)
-    """
-    shape = val.shape
-    dx_inv, dy_inv = 1.0 / dx, 1.0 / dy
-    for i, j in val:
-        if 0 < i < shape[0] - 1 and 0 < j < shape[1] - 1:
-            grad[i, j] = ti.Vector(
-                [(val[i + 1, j] - val[i - 1, j]) * dx_inv * 0.5, (val[i, j + 1] - val[i, j - 1]) * dy_inv * 0.5]
-            )
-
-
-@ti.kernel
-def compute_all_gradient_3d(val: ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f32, grad: ti.template()):
-    """
-    Using central difference to compute all gradients of a 3D scalar field
-
-    Args:
-        val (ti.template()): 3D scalar field
-        dx (ti.f32): grid spacing in x direction
-        dy (ti.f32): grid spacing in y direction
-        dz (ti.f32): grid spacing in z direction
-        grad (ti.template()): 3D vector field (result field)
-    """
-    shape = val.shape
-    dx_inv, dy_inv, dz_inv = 1.0 / dx, 1.0 / dy, 1.0 / dz
-    for i, j, k in val:
-        if 0 < i < shape[0] - 1 and 0 < j < shape[1] - 1 and 0 < k < shape[2] - 1:
-            grad[i, j, k] = ti.Vector(
-                [
-                    (val[i + 1, j, k] - val[i - 1, j, k]) * dx_inv * 0.5,
-                    (val[i, j + 1, k] - val[i, j - 1, k]) * dy_inv * 0.5,
-                    (val[i, j, k + 1] - val[i, j, k - 1]) * dz_inv * 0.5,
-                ]
-            )
-
-
-@ti.func
-def grad_at_ij(val: ti.template(), dx: ti.f32, dy: ti.f32, i: ti.i32, j: ti.i32) -> vec2:
-    """
-    Using central difference to compute the gradient of a 2D scalar field at a given point
-
-    Args:
-        val (ti.template()): 2D scalar field
-        dx (ti.f32): grid spacing in x direction
-        dy (ti.f32): grid spacing in y direction
-        i (ti.i32): x index of the point
-        j (ti.i32): y index of the point
-
-    Returns:
-        vec2: gradient at the given point
-    """
-    shape = val.shape
-    res = ti.Vector([0.0, 0.0])
-    if i == 0:
-        res[0] = (val[1, j] - val[0, j]) / dx
-    elif i == shape[0] - 1:
-        res[0] = (val[shape[0] - 1, j] - val[shape[0] - 2, j]) / dx
-    else:
-        res[0] = (val[i + 1, j] - val[i - 1, j]) / dx * 0.5
-    if j == 0:
-        res[1] = (val[i, 1] - val[i, 0]) / dy
-    elif j == shape[1] - 1:
-        res[1] = (val[i, shape[1] - 1] - val[i, shape[1] - 2]) / dy
-    else:
-        res[1] = (val[i, j + 1] - val[i, j - 1]) / dy * 0.5
-    return res
-
-
-@ti.func
-def grad_at_ijk(val: ti.template(), dx: ti.f32, dy: ti.f32, dz: ti.f32, i: ti.i32, j: ti.i32, k: ti.i32) -> ti.math.vec3:
-    """
-    Using central difference to compute the gradient of a 3D scalar field at a given point
-
-    Args:
-        val (ti.template()): 3D scalar field
-        dx (ti.f32): grid spacing in x direction
-        dy (ti.f32): grid spacing in y direction
-        dz (ti.f32): grid spacing in z direction
-        i (ti.i32): x index of the point
-        j (ti.i32): y index of the point
-        k (ti.i32): z index of the point
-
-    Returns:
-        vec3: gradient at the given point
-    """
-    shape = val.shape
-    res = ti.Vector([0.0, 0.0, 0.0])
-    if i == 0:
-        res[0] = (val[1, j, k] - val[0, j, k]) / dx
-    elif i == shape[0] - 1:
-        res[0] = (val[shape[0] - 1, j, k] - val[shape[0] - 2, j, k]) / dx
-    else:
-        res[0] = (val[i + 1, j, k] - val[i - 1, j, k]) / dx * 0.5
-    if j == 0:
-        res[1] = (val[i, 1, k] - val[i, 0, k]) / dy
-    elif j == shape[1] - 1:
-        res[1] = (val[i, shape[1] - 1, k] - val[i, shape[1] - 2, k]) / dy
-    else:
-        res[1] = (val[i, j + 1, k] - val[i, j - 1, k]) / dy * 0.5
-    if k == 0:
-        res[2] = (val[i, j, 1] - val[i, j, 0]) / dz
-    elif k == shape[2] - 1:
-        res[2] = (val[i, j, shape[2] - 1] - val[i, j, shape[2] - 2]) / dz
-    else:
-        res[2] = (val[i, j, k + 1] - val[i, j, k - 1]) / dz * 0.5
-
-
-@ti.func
-def bilinear_interpolate(val: ti.template(), x: ti.f32, y: ti.f32) -> ti.f32:
-    """
-    Bilinear interpolation of a 2D scalar field
-
-    Args:
-        val (ti.template()): 2D scalar field
-        x (ti.f32): x coordinate of the point
-        y (ti.f32): y coordinate of the point
-
-    Returns:
-        ti.f32: interpolated value
-    """
-    shape = val.shape
-    i = int(x)
-    j = int(y)
-    if i < 0 or i >= shape[0] - 1 or j < 0 or j >= shape[1] - 1:
-        return 0.0
-    s = x - i
-    t = y - j
-    return (
-        (1 - s) * (1 - t) * val[i, j]
-        + s * (1 - t) * val[i + 1, j]
-        + (1 - s) * t * val[i, j + 1]
-        + s * t * val[i + 1, j + 1]
-    )
-
-
-@ti.func
-def trilinear_interpolate(val: ti.template(), x: ti.f32, y: ti.f32, z: ti.f32) -> ti.f32:
-    """
-    Trilinear interpolation of a 3D scalar field
-
-    Args:
-        val (ti.template()): 3D scalar field
-        x (ti.f32): x coordinate of the point
-        y (ti.f32): y coordinate of the point
-        z (ti.f32): z coordinate of the point
-
-    Returns:
-        ti.f32: interpolated value
-    """
-    shape = val.shape
-    i = int(x)
-    j = int(y)
-    k = int(z)
-    if i < 0 or i >= shape[0] - 1 or j < 0 or j >= shape[1] - 1 or k < 0 or k >= shape[2] - 1:
-        return 0.0
-    s = x - i
-    t = y - j
-    u = z - k
-    return (
-        (1 - s) * (1 - t) * (1 - u) * val[i, j, k]
-        + s * (1 - t) * (1 - u) * val[i + 1, j, k]
-        + (1 - s) * t * (1 - u) * val[i, j + 1, k]
-        + s * t * (1 - u) * val[i + 1, j + 1, k]
-        + (1 - s) * (1 - t) * u * val[i, j, k + 1]
-        + s * (1 - t) * u * val[i + 1, j, k + 1]
-        + (1 - s) * t * u * val[i, j + 1, k + 1]
-        + s * t * u * val[i + 1, j + 1, k + 1]
-    )
-
-
-
-
-
-############################################
-# sdf
-
-@ti.data_oriented
-class SDF:
-    """
-    Signed Distance Field (SDF) class.
-    """
-
-    def __init__(self, meta, mesh_path=None, resolution=64, dim=3, use_cache=True):
-        """
-        生成SDF体素场。其中有两个taichi field: val和grad，分别表示SDF体素场的值和梯度。
-
-        Args:
-            mesh_path (str): 网格文件路径，如果为None则需要手动填充SDF体素场。
-            resolution (int): SDF体素场分辨率。默认为64。
-            dim (int): SDF体素场维度。默认为3。
-            use_cache (bool): 是否使用缓存。默认为True。
-        """
-        self.resolution = resolution
-        self.dim = dim
-        if dim == 2:
-            self.shape = (resolution, resolution)
-        elif dim == 3:
-            self.shape = (resolution, resolution, resolution)
-        else:
-            raise Exception("SDF only supports 2D/3D for now")
-        print("SDF shape = ", self.shape)
-        print("SDF initilizing...")
-
-
-        meta.use_sparse = meta.get_sdf_meshes("use_sparse", False)
-        meta.narrow_band = meta.get_sdf_meshes("narrow_band", 0)
-
-        if meta.use_sparse:
-            print("Using sparse SDF...")
-            self.val = ti.field(dtype=ti.f32)
-            self.grad = ti.Vector.field(self.dim, dtype=ti.f32)
-            if dim == 2:
-                self.snode = ti.root.bitmasked(ti.ij, self.shape)
-            elif dim == 3:
-                self.snode = ti.root.bitmasked(ti.ijk, self.shape)
-            self.snode.place(self.val)
-            self.snode.place(self.grad)
-        else:
-            self.val = ti.field(dtype=ti.f32, shape=self.shape)
-            self.grad = ti.Vector.field(self.dim, dtype=ti.f32, shape=self.shape)
-
-        if mesh_path is not None:
-            print(f"sdf mesh path: {mesh_path}")
-            # 检查是否存在cache
-            val_cache_path = mesh_path + "_sdf_cache_val.npy"
-            grad_cache_path = mesh_path + "_sdf_cache_grad.npy"
-            if not os.path.exists(val_cache_path) or not os.path.exists(grad_cache_path) or not use_cache:
-                print("No sdf cache found. Generating sdf cache...")
-                val_np, grad_np = gen_sdf_voxels(mesh_path, resolution, True)
-                np.save(val_cache_path, val_np)
-                np.save(grad_cache_path, grad_np)
-            else:
-                print("Found sdf cache. Loading sdf cache...")
-                val_np = np.load(val_cache_path)
-                grad_np = np.load(grad_cache_path)
-
-        self.val.from_numpy(val_np)
-        self.grad.from_numpy(grad_np)
-
-        if meta.narrow_band > 0 and meta.use_sparse:
-            print("Using narrow band...(Only when use_sparse is True)")
-            make_narrow_band(self, meta.narrow_band, resolution)
-
-        print("SDF init done.")
-
-
-@ti.kernel
-def make_narrow_band(sdf: ti.template(), narrow_band: int, resolution: ti.i32):
-    dx = 1.0 / sdf.resolution
-    for I in ti.grouped(sdf.val):
-        if sdf.val[I] > narrow_band * dx:
-            ti.deactivate(sdf.snode, I)
-        elif sdf.val[I] < -narrow_band * dx:
-            ti.deactivate(sdf.snode, I)
-
-
-def gen_sdf_voxels(mesh_path, resolution=64, return_gradients=False):
-    """
-    从表面网格生成体素(靠近网格表面处的)SDF场。借助mesh_to_sdf库和trimesh。注意导入的模型会自动缩放到[-1,1]的立方体内。
-
-    Args:
-        mesh_path (str, optional): 网格文件路径。 Defaults to 'data/model/chair.obj'.
-        resolution (int, optional): 体素分辨率。 Defaults to 64.
-    """
-    import trimesh
-
-    mesh = trimesh.load(mesh_path)
-    vox = mesh_to_voxels(mesh, voxel_resolution=resolution, return_gradients=return_gradients)
-    return vox
-
-
-def mesh_to_voxels(
-    mesh,
-    meta,
-    voxel_resolution=64,
-    surface_point_method="scan",
-    sign_method="normal",
-    scan_count=100,
-    scan_resolution=400,
-    sample_point_count=10000000,
-    normal_sample_count=11,
-    pad=False,
-    check_result=False,
-    return_gradients=False,
-):
-    from mesh_to_sdf import get_surface_point_cloud
-    from engine.mesh_io import scale_to_unit_cube
-
-    mesh = scale_to_unit_cube(mesh)
-    s = meta.get_sdf_meshes("scale")
-    t = meta.get_sdf_meshes("translation")
-    if s is not None:
-        mesh.apply_scale(s)
-    if t is not None:
-        mesh.apply_translation(t)
-
-    surface_point_cloud = get_surface_point_cloud(
-        mesh, surface_point_method, 3**0.5, scan_count, scan_resolution, sample_point_count, sign_method == "normal"
-    )
-
-    return surface_point_cloud.get_voxels(
-        voxel_resolution, sign_method == "depth", normal_sample_count, pad, check_result, return_gradients
-    )
-
-
-@ti.func
-def collision_response(pos: ti.template(), sdf):
-    sdf_epsilon = 1e-4
-    grid_idx = ti.Vector([pos.x * sdf.resolution, pos.y * sdf.resolution, pos.z * sdf.resolution], ti.i32)
-    normal = sdf.grad[grid_idx]
-    sdf_val = sdf.val[grid_idx]
-    assert normal.norm() == 1.0
-    if sdf_val < sdf_epsilon:
-        pos -= sdf_val * normal
-        # if vel.dot(normal) < 0:
-        #     normal_component = normal.dot(vel)
-        #     vel -=  normal * min(normal_component, 0)
-
-
-
-############################################
-# p2g
-   
-@ti.kernel
-def p2g_2d(x: ti.template(), dx: ti.f32, grid_m: ti.template()):
-    """
-    将周围粒子的质量scatter到2D网格上。实际上，只要替换grid_m, 可以scatter任何标量场。
-
-    Args:
-        x (ti.template()): 粒子位置
-        dx (ti.f32): 网格间距
-        grid_m (ti.template()): 网格质量(输出)
-    """
-    inv_dx = 1.0 / dx
-    p_mass = 1.0
-    for p in x:
-        base = ti.cast(ti.floor(x[p] * inv_dx - 0.5), ti.i32)
-        fx = x[p] * inv_dx - ti.cast(base, float)
-        w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]
-        for i in ti.static(range(3)):
-            for j in ti.static(range(3)):
-                I = ti.Vector([i, j])
-                weight = w[i].x * w[j].y
-                if in_bound(base, I, grid_m.shape):
-                    grid_m[base + I] += weight * p_mass
-
-
-@ti.kernel
-def p2g_3d(x: ti.template(), dx: ti.f32, grid_m: ti.template()):
-    """
-    将周围粒子的质量scatter到3D网格上。实际上，只要替换grid_m, 可以scatter任何标量场。
-
-    Args:
-        x (ti.template()): 粒子位置
-        dx (ti.f32): 网格间距
-        grid_m (ti.template()): 网格质量(输出)
-    """
-    inv_dx = 1.0 / dx
-    p_mass = 1.0
-    shape = grid_m.shape
-    for p in x:
-        base = ti.cast(ti.floor(x[p] * inv_dx - 0.5), ti.i32)
-        fx = x[p] * inv_dx - ti.cast(base, float)
-        w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]
-        for i in ti.static(range(3)):
-            for j in ti.static(range(3)):
-                for k in ti.static(range(3)):
-                    I = ti.Vector([i, j, k])
-                    weight = w[i].x * w[j].y * w[k].z
-                    if in_bound(base, I, shape):
-                        grid_m[base + I] += weight * p_mass
-
-
-@ti.func
-def in_bound(index, offset, shape):
-    res = True
-    for i in ti.static(range(len(shape))):
-        if index[i] + offset[i] < 0 or index[i] + offset[i] >= shape[i]:
-            res = False
-    return res
-
-
-@ti.kernel
-def p2g(x: ti.template(), dx: ti.f32, grid_m: ti.template(), dim: ti.template()):
-    """
-    将周围粒子的质量scatter到网格上。实际上，只要替换grid_m, 可以scatter任何标量场。
-    (此函数相比p2g_2d与pg2_3d来说，增加了参数dim)
-    Args:
-        x (ti.template()): 粒子位置
-        dx (ti.f32): 网格间距
-        grid_m (ti.template()): 网格质量(输出)
-        dim (ti.template()): 网格维度
-    """
-    inv_dx = 1.0 / dx
-    p_mass = 1.0
-    for p in x:
-        base = ti.cast(ti.floor(x[p] * inv_dx - 0.5), ti.i32)
-        fx = x[p] * inv_dx - ti.cast(base, float)
-        w = [0.5 * (1.5 - fx) ** 2, 0.75 - (fx - 1) ** 2, 0.5 * (fx - 0.5) ** 2]
-        # Loop over 3x3 grid node neighborhood
-        for offset in ti.static(ti.grouped(ti.ndrange(*((3,) * dim)))):
-            weight = 1.0
-            for d in ti.static(range(dim)):
-                weight *= w[offset[d]][d]
-            if in_bound(base, offset, grid_m.shape):
-                grid_m[base + offset] += weight * p_mass
-
-
-
-############################################
-# debug info
-
-            
-
-def debug_info(field, name="", dont_print_cli=False):
-    field_np = field.to_numpy()
-    if name == "":
-        name = field._name
-    print("---------------------")
-    print("name: ", name)
-    print("shape: ", field_np.shape)
-    print("min, max: ", field_np.min(), field_np.max())
-    if not dont_print_cli:
-        print(field_np)
-    print("---------------------")
-    if field_np.ndim > 2:
-        np.savetxt(f"result/debug_{name}.csv", field_np.reshape(-1, field_np.shape[-1]), fmt="%.2f", delimiter="\t")
-    else:
-        np.savetxt(f"result/debug_{name}.csv", field_np, fmt="%.2f", delimiter="\t")
-    return field_np
-
-
-
-
-
-############################################
-# collider
-# from taichi.math import vec2, vec3, dot, clamp, length, sign, sqrt, min, max
-
-# ref: https://iquilezles.org/articles/distfunctions/
-@ti.func
-def sphere(pos, radius):
-    return pos.norm() - radius
-
-
-@ti.func
-def box(p, b):
-    q = abs(p) - b
-    return ti.math.length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0)
-
-
-@ti.func
-def torus(p, t: ti.math.vec2):
-    q = vec2(ti.math.length(p.xz) - t.x, p.y)
-    return ti.math.length(q) - t.y
-
-
-@ti.func
-def plane(pos, normal, height):
-    return pos.dot(normal) + height
-
-
-@ti.func
-def cone(p, c, h):
-    q = h * vec2(c.x / c.y, -1.0)
-    w = vec2(ti.math.length(p.xz), p.y)
-    a = w - q * ti.math.clamp(ti.math.dot(w, q) / ti.math.dot(q, q), 0.0, 1.0)
-    b = w - q * vec2(ti.math.clamp(w.x / q.x, 0.0, 1.0), 1.0)
-    k = ti.math.sign(q.y)
-    d = min(ti.math.dot(a, a), ti.math.dot(b, b))
-    s = max(k * (w.x * q.y - w.y * q.x), k * (w.y - q.y))
-    return ti.math.sqrt(d) * ti.math.sign(s)
-
-
-@ti.func
-def union(a, b):
-    return min(a, b)
-
-
-@ti.func
-def intersection(a, b):
-    return max(a, b)
-
-
-@ti.func
-def subtraction(a, b):
-    return max(-a, b)
-
-
-@ti.func
-def triangle(p: ti.math.vec3, a: ti.math.vec3, b: ti.math.vec3, c: ti.math.vec3):
-    ba = b - a
-    pa = p - a
-    cb = c - b
-    pb = p - b
-    ac = a - c
-    pc = p - c
-    nor = ba.cross(ac)
-
-    res = nor.dot(pa) * nor.dot(pa) / nor.norm_sqr()
-    if ti.math.sqrt(ti.math.sign(ba.cross(nor).dot(pa)) + ti.math.sign(cb.cross(nor).dot(pb)) + ti.math.sign(ac.cross(nor).dot(pc))) < 2.0:
-        res = min(
-            min(
-                (ba * ti.math.clamp(ba.dot(pa) / ba.dot(ba), 0.0, 1.0) - pa).norm(),
-                (cb * ti.math.clamp(cb.dot(pb) / cb.dot(cb), 0.0, 1.0) - pb).norm(),
-            ),
-            (ac * ti.math.clamp(ac.dot(pc) / ac.dot(ac), 0.0, 1.0) - pc).norm(),
-        )
-    return res
-
-
-@ti.func
-def collision_response_sdf(pos: ti.template(), sdf):
-    sdf_epsilon = 1e-4
-    grid_idx = ti.Vector([pos.x * sdf.resolution, pos.y * sdf.resolution, pos.z * sdf.resolution], ti.i32)
-    grid_idx = ti.math.clamp(grid_idx, 0, sdf.resolution - 1)
-    normal = sdf.grad[grid_idx]
-    sdf_val = sdf.val[grid_idx]
-    assert 1 - 1e-4 < normal.norm() < 1 + 1e-4, f"sdf normal norm is not one: {normal.norm()}"
-    if sdf_val < sdf_epsilon:
-        pos -= sdf_val * normal
-
-
-
-def csr_is_equal(A, B):
-    if A.shape != B.shape:
-        print("shape not equal")
+from time import perf_counter
+from dataclasses import dataclass, field
+from enum import Enum
+import scipy
+
+
+class ResidualType(Enum):
+    dual = 1
+    primal = 2
+    energy = 3
+    strain = 4
+    Newton = 5
+
+@dataclass
+class ResidualDataOneIter:
+    name = "residualOneIter"
+    ninner: int=0
+    t_iter: float=0
+    dual: float=0
+    primal: float=0
+    Newton: float=0
+    dual0: float=0
+    primal0: float=0
+    Newton0: float=0
+    r_Axb: list[float] = field(default_factory=list)
+    frame: int=0
+    ite: int=0
+    # r: float=0
+    # r0: float=0
+    t_export: float=0
+    energy: float=0
+    energy0: float=0
+    max_strain: float=0
+    max_strain0: float=0
+
+    def __init__(
+        self,
+        calc_dual=None,
+        calc_primal=None,
+        calc_energy=None,
+        calc_strain=None,
+        tol=1e-6,
+        rtol=1e-2,
+        converge_condition="dual",
+        args = None
+    ):
+        self.tol = tol
+        self.rtol = rtol
+        self.calc_dual = calc_dual
+        self.calc_primal = calc_primal
+        self.calc_energy = calc_energy
+        self.calc_strain = calc_strain
+        if args is not None:
+            self.use_calc_primal = args.calc_primal
+            self.use_calc_energy = args.calc_energy
+            self.use_calc_strain = args.calc_strain
+        self.choose_mode(converge_condition)
+
+    def check(self):
+        '''Check Convergence'''
+        self.set_r() # set r and r0 according to mode
+        if self.is_diverge():
+            raise Exception("diverge")
+        if self.is_converge():
+            return True
         return False
-    diff = A - B
-    if diff.nnz == 0:
-        return True
-    maxdiff = np.abs(diff.data).max()
-    print("maxdiff: ", maxdiff)
-    if maxdiff > 1e-6:
+
+    def is_diverge(self):
+        if np.isnan(self.r) or np.isinf(self.r):
+            return True
         return False
-    return True
+
+    def is_converge(self):
+        if self.r<self.tol:
+            logging.info(f"converge by atol {self.r:.2e} < {self.tol:.2e}")
+            return True
+        if self.r<self.rtol * self.r0:
+            logging.info(f"converge by rtol {self.r:.2e} < {self.rtol * self.r0:.2e}")
+            return True
+        return False
+
+    def calc_r(self, frame, ite, tic_iter, r_Axb=None):
+        self.tic_calcr = perf_counter()
+        self.t_iter = perf_counter()-tic_iter
+
+        self.frame = frame
+        self.ite = ite
+        s = f"{frame}-{ite} "
+
+        self.dual = self.calc_dual()
+        s += f"dual0:{self.dual0:.2e} dual:{self.dual:.2e} "
+
+        if r_Axb is not None:
+            self.r_Axb = r_Axb.tolist() if not isinstance(r_Axb, list) else r_Axb
+            self.ninner = len(r_Axb)-1
+            s += f" rsys:{self.r_Axb[0]:.2e} {self.r_Axb[-1]:.2e} "
+            s += f"ninner:{self.ninner} "
+            self.conv_factor = calc_conv(r_Axb)
+            s += f"conv:{self.conv_factor:.2f} "
+
+        if self.use_calc_primal and self.calc_primal is not None:
+            self.primal, self.Newton = self.calc_primal()
+            s += f"Newton:{self.Newton:.2e} primal:{self.primal:.2e} "
+
+        if self.use_calc_energy and self.calc_energy is not None:
+            self.energy = self.calc_energy()
+            s += f"energy:{self.energy:.5e} "
+
+        if self.use_calc_strain and self.calc_strain is not None:
+            self.max_strain = self.calc_strain()
+            s += f"strain:{self.max_strain:.2e} "
+
+        self.t_calcr = perf_counter()-self.tic_calcr
+        s += f"calcr:{self.t_calcr*1000:.2f}ms "
+
+        self.t_export += self.t_calcr
+
+        s+= f" t_iter:{self.t_iter:.2e}s"
+
+        logging.info(s)
+
+    def calc_r0(self):
+        tic = perf_counter()
+        self.dual0 = self.calc_dual()
+        if self.mode == ResidualType.Newton:
+            self.primal0, self.Newton0 = self.calc_primal()
+        if self.mode == ResidualType.energy:
+            self.energy0 = self.calc_energy()
+
+        self.t_export = perf_counter()-tic # reset t_export here
+
+    def choose_mode(self, converge_condition):
+        if converge_condition == "dual":
+            self.mode = ResidualType.dual
+        elif converge_condition == "primal":
+            self.mode = ResidualType.primal
+        elif converge_condition == "energy":
+            self.mode = ResidualType.energy
+        elif converge_condition == "strain":
+            self.mode = ResidualType.strain
+        elif converge_condition == "Newton":
+            self.mode = ResidualType.Newton
+
+    def set_r(self):
+        if self.mode == ResidualType.dual:
+            self.r = self.dual
+            self.r0 = self.dual0
+        elif self.mode == ResidualType.Newton:
+            self.r = self.Newton
+            self.r0 = self.Newton0
+        elif self.mode == ResidualType.primal:
+            self.r = self.primal
+            self.r0 = self.primal0
+        elif self.mode == ResidualType.energy:
+            self.r = self.energy
+            self.r0 = self.energy0
+        elif self.mode == ResidualType.strain:
+            self.r = self.max_strain
+            self.r0 = self.max_strain0
 
 
-
-def print_all_globals(global_vars,args):
-    logging.info("\n\n### Global Variables ###")
-    import sys
-    module_name = sys.modules[__name__].__name__
-    global_vars = global_vars.copy()
-    keys_to_delete = []
-    for var_name, var_value in global_vars.items():
-        if var_name != module_name and not var_name.startswith('__') and not callable(var_value) and not isinstance(var_value, type(sys)):
-            if var_name == 'parser':
-                continue
-            if args.export_log:
-                logging.info(f"{var_name} = {var_value}")
-            keys_to_delete.append(var_name)
-    logging.info("\n\n\n")
-
-
-
-
-def spy_A(A,b):
-    import scipy.io
-    import matplotlib.pyplot as plt
-    print("A:", A.shape, " b:", b.shape)
-    scipy.io.mmwrite("A.mtx", A)
-    plt.spy(A, markersize=1)
-    plt.show()
-    exit()
-
-
-
-def is_symmetric(A):
-    AT = A.transpose()
-    diff = A - AT
-    if diff.nnz == 0:
-        return True
-    maxdiff = np.max(np.abs(diff.data))
-    return maxdiff < 1e-6
-
-def csr_is_equal(A, B):
-    if A.shape != B.shape:
-        print("shape not equal")
-        assert False
-    diff = A - B
-    if diff.nnz == 0:
-        print("csr is equal! nnz=0")
-        return True
-    maxdiff = np.abs(diff.data).max()
-    print("maxdiff: ", maxdiff)
-    if maxdiff > 1e-6:
-        assert False
-    print("csr is equal!")
-    return True
-
-def dense_mat_is_equal(A, B):
-    diff = A - B
-    maxdiff = np.abs(diff).max()
-    print("maxdiff: ", maxdiff)
-    if maxdiff > 1e-6:
-        assert False
-    print("is equal!")
-    return True
-
-
-
-
-def amg_core_gauss_seidel(Ap, Aj, Ax, x, b, row_start: int, row_stop: int, row_step: int):
-    for i in range(row_start, row_stop, row_step):
-        start = Ap[i]
-        end = Ap[i + 1]
-        rsum = 0.0
-        diag = 0.0
-
-        for jj in range(start, end):
-            j = Aj[jj]
-            if i == j:
-                diag = Ax[jj]
-            else:
-                rsum += Ax[jj] * x[j]
-
-        if diag != 0.0:
-            x[i] = (b[i] - rsum) / diag
+def calc_conv(r):
+    return (r[-1]/r[0])**(1.0/(len(r)-1))
 
 @ti.kernel
-def amg_core_gauss_seidel_kernel(Ap: ti.types.ndarray(),
-                                 Aj: ti.types.ndarray(),
-                                 Ax: ti.types.ndarray(),
-                                 x: ti.types.ndarray(),
-                                 b: ti.types.ndarray(),
-                                 row_start: int,
-                                 row_stop: int,
-                                 row_step: int):
-    # if row_step < 0:
-    #     assert "row_step must be positive"
-    for i in range(row_start, row_stop):
-        if i%row_step != 0:
-            continue
+def calc_norm(a:ti.template())->ti.f32:
+    sum = 0.0
+    for i in range(a.shape[0]):
+        sum += a[i] * a[i]
+    sum = ti.sqrt(sum)
+    return sum
 
-        start = Ap[i]
-        end = Ap[i + 1]
-        rsum = 0.0
-        diag = 0.0
-
-        for jj in range(start, end):
-            j = Aj[jj]
-            if i == j:
-                diag = Ax[jj]
-            else:
-                rsum += Ax[jj] * x[j]
-
-        if diag != 0.0:
-            x[i] = (b[i] - rsum) / diag
+@dataclass
+class ResidualDataOneFrame:
+    name = "residualOneFrame"
+    r_iters: list # list of ResidualDataOneIter NOT USED
+    n_outer: int=0
+    frame: int=0
+    t: float=0
+    # t_export: float=0
 
 
-
-
-# if in last 5 iters, residuals not change 0.1%, then it is stalled
-def is_stall(r,ist,args):
-    if (ist.ite < 5):
-        return False
-    # a=np.array([r[-1].dual, r[-2].dual,r[-3].dual,r[-4].dual,r[-5].dual])
-    inc1 = r[-1].dual/r[-2].dual
-    inc2 = r[-2].dual/r[-3].dual
-    inc3 = r[-3].dual/r[-4].dual
-    inc4 = r[-4].dual/r[-5].dual
-    if args.use_PXPBD_v1:
-        inc1 = r[-1].Newton/r[-2].Newton
-        inc2 = r[-2].Newton/r[-3].Newton
-        inc3 = r[-3].Newton/r[-4].Newton
-        inc4 = r[-4].Newton/r[-5].Newton
-    
-    # if all incs is in [0.999,1.001]
-    if np.all((inc1>0.999) & (inc1<1.001) & (inc2>0.999) & (inc2<1.001) & (inc3>0.999) & (inc3<1.001) & (inc4>0.999) & (inc4<1.001)):
-        logging.info(f"Stall at {ist.frame}-{ist.ite}")
-        ist.all_stalled.append((ist.frame, ist.ite))
-        return True
-    return False
-
-
-
-
-
-def is_diverge(r,r_Axb,ist):
-    if np.isnan(r[-1].dual):
-        return True
-    return False
-
-
-
+@dataclass
+class ResidualDataAllFrame:
+    name = "residualAll"
+    r_frames: list # list of ResidualDataOneFrame NOT USED
+    stalled_frame: list
+    t: float=0
+    t_export: float=0
 
 
 def ending(args, ist):
@@ -1079,25 +204,26 @@ def ending(args, ist):
     len_n_outer_all = len(ist.n_outer_all) if len(ist.n_outer_all) > 0 else 1
     sum_n_outer = sum(ist.n_outer_all)
     avg_n_outer = sum_n_outer / len_n_outer_all
-    max_n_outer = max(ist.n_outer_all) if len_n_outer_all > 0 else 0
-    max_n_outer_index = ist.n_outer_all.index(max_n_outer)
+    max_n_outer = max(ist.n_outer_all) if ist.n_outer_all else 0
+    max_n_outer_index = ist.n_outer_all.index(max_n_outer) if ist.n_outer_all else 0
 
     n_outer_all_np = np.array(ist.n_outer_all, np.int32)    
     np.savetxt(args.out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
 
     sim_time_with_export = time.perf_counter() - ist.timer_loop
-    sim_time = sim_time_with_export - ist.t_export_total
-    avg_sim_time = sim_time / (args.end_frame - ist.initial_frame)
+    sim_time = sim_time_with_export - ist.r_all.t_export
+    nframes = (args.end_frame - ist.initial_frame) if args.end_frame > ist.initial_frame else 1
+    avg_sim_time = sim_time / nframes
 
     s = f"\n-------\n"+\
     f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
     f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
+    f"Time of exporting: {ist.r_all.t_export:.3f}s\n" + \
     f"Frame {ist.initial_frame}-{args.end_frame}({args.end_frame-ist.initial_frame} frames)."+\
-    f"\nAvg: {avg_sim_time}s/ist.frame."+\
+    f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{ist.start_date},\nEnd\t{end_date}."+\
-    f"\nTime of exporting: {ist.t_export_total:.3f}s" + \
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
-    f"\nMax n_outer: {max_n_outer} \nMax n_outer ist.frame: {max_n_outer_index + ist.initial_frame}." + \
+    f"\nMax n_outer: {max_n_outer} \nMax n_outer frame: {max_n_outer_index + ist.initial_frame}." + \
     f"\nstalled at {ist.all_stalled}"+\
     f"\n{ist.sim_name}" + \
     f"\ndt={args.delta_t}" + \
@@ -1117,4 +243,244 @@ def ending(args, ist):
         file.write(s)
 
     if args.solver_type == "AMGX":
-        ist.amgxsolver.finalize()
+        ist.linsol.finalize()
+    exit()
+
+
+def export_after_substep(ist, args, **kwargs):
+    import time
+    from engine.mesh_io import write_mesh, write_edge_data, write_ply_with_strain, edge_data_to_tri_data, write_vtk_with_strain
+    from engine.file_utils import save_state
+    tic_export = time.perf_counter()
+    if args.export_mesh:
+        pos_np = ist.pos.to_numpy() if type(ist.pos) != np.ndarray else ist.pos
+        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", pos_np, ist.tri)
+        if args.export_strain:
+            if ist.sim_type == "cloth":
+                # v1: simply write txt, need post process
+                # write_edge_data(args.out_dir + f"/mesh/{ist.frame:04d}_strain", ist.strain.to_numpy())
+                # v2: write mesh with strain directly in simulation
+                tri = ist.tri
+                ist.strain_cell = edge_data_to_tri_data(ist.e2t, ist.strain.to_numpy(), tri)
+                write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", pos_np, tri, strain=ist.strain_cell, binary=True)
+    if args.export_state:
+        save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
+    ist.r_all.t_export += time.perf_counter()-tic_export
+    t_frame = time.perf_counter()-ist.tic_frame
+    if args.export_log:
+        logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s")
+
+
+def init_logger(args):
+    import sys
+    log_level = logging.INFO
+    if not args.export_log:
+        log_level = logging.ERROR
+    logging.basicConfig(level=log_level, format="%(message)s",filename=args.out_dir + f'/latest.log',filemode='w')
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+    logging.info(args)
+
+
+def report_multilevel_details(Ps, num_levels):
+    logging.info(f"    num_levels:{num_levels}")
+    num_points_level = []
+    for i in range(len(Ps)):
+        num_points_level.append(Ps[i].shape[0])
+    num_points_level.append(Ps[-1].shape[1])
+    for i in range(num_levels):
+        logging.info(f"    num points of level {i}: {num_points_level[i]}")
+
+
+def do_export_r(r, out_dir, frame):
+    tic = perf_counter()
+    serialized_r = [r[i].__dict__ for i in range(len(r))]
+    r_json = json.dumps(serialized_r)
+    with open(out_dir+'/r/'+ f'{frame}.json', 'w') as file:
+        file.write(r_json)
+    r.t_export += perf_counter()-tic
+
+
+def export_mat(ist,get_A,b):
+    args = ist.args
+    tic = perf_counter()
+    if not args.export_matrix:
+        return
+    if ist.frame != args.export_matrix_frame:
+        return
+    if hasattr(args, "export_matrix_ite"):
+        if ist.ite != args.export_matrix_ite:
+            return
+    else:
+        if ist.ite != 0:
+            return
+    if args.export_matrix_dir is None:
+        dir = args.out_dir + "/A/"
+    else:
+        dir = args.export_matrix_dir
+    A = get_A()
+    postfix = f"F{ist.frame}" if ist.frame is not None else ""
+    export_A_b(A, b, dir=dir, postfix=postfix, binary=args.export_matrix_binary)
+    ist.r_iter.t_export += perf_counter()-tic
+
+
+def export_A_b(A, b, dir, postfix=f"", binary=True):
+    from time import perf_counter
+    import scipy
+
+    print(f"Exporting A and b to {dir} with postfix {postfix}")
+    tic = perf_counter()
+    if binary:
+        # https://stackoverflow.com/a/8980156/19253199
+        scipy.sparse.save_npz(dir + f"/A_{postfix}.npz", A)
+        if b is not None:
+            np.save(dir + f"/b_{postfix}.npy", b)
+        # A = scipy.sparse.load_npz("A.npz") # load
+        # b = np.load("b.npy")
+    else:
+        scipy.io.mmwrite(dir + f"/A_{postfix}.mtx", A, symmetry='symmetric')
+        if b is not None:
+            np.savetxt(dir + f"/b_{postfix}.txt", b)
+    print(f"    export_A_b time: {perf_counter()-tic:.3f}s")
+
+
+def do_post_iter(ist, get_A0_cuda):
+    ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
+    export_mat(ist, get_A0_cuda, ist.b)
+    ist.r_all.t_export += ist.r_iter.t_export
+    ist.r_iter.t_export = 0.0
+    logging.info(f"iter time(with export): {(perf_counter()-ist.r_iter.tic_iter)*1000:.0f}ms")
+
+
+def main_loop(ist,args):
+    import time
+    import tqdm
+
+    ist.timer_loop = time.perf_counter()
+    ist.initial_frame = ist.frame
+    step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
+    ist.r_all.t_export = 0.0
+
+    try:
+        for f in range(ist.initial_frame, args.end_frame):
+            ist.tic_frame = time.perf_counter()
+
+            if args.solver_type == "XPBD":
+                ist.substep_xpbd()
+            elif args.solver_type == "NEWTON":
+                ist.substep_newton()
+            else:
+                ist.substep_all_solver()
+
+            export_after_substep(ist,args)
+            ist.frame += 1
+
+            logging.info("\n")
+            step_pbar.update(1)
+            logging.info("")
+            
+        print("Normallly end.")
+        ending(args,ist)
+
+    except KeyboardInterrupt:
+        print("KeyboardInterrupt")
+        ending(args,ist)
+
+
+def timeit(method):
+    def timed(*args, **kw):
+        ts = perf_counter()
+        result = method(*args, **kw)
+        te = perf_counter()
+        print(f"    {method.__name__} took: {(te-ts)*1000:.0f}ms")
+        return result
+    return timed
+
+
+def norm_sqr(x):
+    return np.linalg.norm(x)**2
+
+def norm(x):
+    return np.linalg.norm(x)
+
+def normalize(x):
+    return x / np.linalg.norm(x)
+
+
+def spy_A(A,b):
+    import scipy.io
+    import matplotlib.pyplot as plt
+    print("A:", A.shape, " b:", b.shape)
+    scipy.io.mmwrite("A.mtx", A)
+    plt.spy(A, markersize=1)
+    plt.show()
+    exit()
+
+
+def is_symmetric(A):
+    AT = A.transpose()
+    diff = A - AT
+    if diff.nnz == 0:
+        return True
+    maxdiff = np.max(np.abs(diff.data))
+    return maxdiff < 1e-6
+
+def csr_is_equal(A, B, tol=1e-4):
+    if A.shape != B.shape:
+        print("shape not equal")
+        assert False
+    diff = A - B
+    if diff.nnz == 0:
+        print("csr is equal! nnz=0")
+        return True
+    maxdiff = np.abs(diff.data).max()
+    where = np.abs(diff.data).argmax()
+    coo = A.tocoo()
+    i,j = coo.row[where], coo.col[where]
+    print("maxdiff: ", maxdiff)
+    if maxdiff > tol:
+        assert False, f"maxdiff:{maxdiff}, where=({i},{j})"
+    print("csr is equal!")
+    return True
+
+def dense_mat_is_equal(A, B):
+    diff = A - B
+    maxdiff = np.abs(diff).max()
+    print("maxdiff: ", maxdiff)
+    if maxdiff > 1e-6:
+        assert False
+    print("is equal!")
+    return True
+
+
+def debug(x, name='vec'):  
+    print(f'{name}: {x.shape}')
+    norm = np.linalg.norm(x)
+    max_val = np.max(x)
+    amax = np.argmax(x)
+    min_val = np.min(x)
+    amin = np.argmin(x)
+    print(f'    norm: {norm} max_val: {max_val}, amax: {amax} min_val: {min_val}, amin: {amin}\n')
+    np.savetxt(f'{name}.txt', x)
+
+def debugmat(x, name='mat'):  
+    print(f'{name}: {x.shape}')
+    norm = np.linalg.norm(x.data)
+    max_val = np.max(x.data)
+    min_val = np.min(x.data)
+    print(f'    norm: {norm} max_val: {max_val}  min_val: {min_val}\n')
+    scipy.io.mmwrite(f"{name}.mtx", x)
+
+
+def set_mass_matrix(mass):
+    mass3 = np.repeat(mass, 3)
+    MASS = scipy.sparse.diags(mass3, 0)
+    return MASS
+
+def set_gravity_as_force(mass, gravity=[0,-9.8,0]):
+    assert len(gravity) == 3, "gravity should be a 3d vector"
+    NV = mass.shape[0]
+    mass3 = np.repeat(mass, 3)
+    gravity_constant = np.array(gravity)
+    external_acc = np.tile(gravity_constant, NV)
+    force = mass3 * external_acc
+    return force.reshape(-1,3)

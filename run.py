@@ -85,14 +85,17 @@ def parseNumList(string):
 day = datetime.datetime.now().strftime("%m%d")
 
 allargs = [None]
+casenames= {}
 
 # naming convention: case{case_num}-{date:4 digits}-{object_type:cloth or soft}{resolution}-{solver_type:AMG or XPBD}
 
-# case1: cloth 64 AMG 5ms
+# case1: cloth 1024 AMG 3ms
+case_num = len(allargs)
+casenames[case_num] = "cloth-1024-AMG-3ms"
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=AMG",
         f"-end_frame=100",
-        f"-out_dir=result/case{len(allargs)}-{day}-AMG",
+        f"-out_dir=result/case{case_num}-{day}-{casenames[case_num]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-arch=cpu",
         "-N=64",
@@ -101,12 +104,6 @@ args = ["engine/cloth/cloth3d.py",
         "-rtol=1e-2",
         "-tol=1e-4",
         "-end_frame=100",
-        # "-export_matrix=1",
-        # "-export_matrix_frame=20",
-        # "-export_residual=1",
-        # "-restart=1",
-        # "-restart_frame=20",
-        # "-restart_dir=result/meta/",
         ]
 allargs.append(args)
 
@@ -117,15 +114,11 @@ args = ["engine/cloth/cloth3d.py",
         f"-out_dir=result/case{len(allargs)}-{day}-XPBD",
         f"-auto_another_outdir={auto_another_outdir}",
         "-arch=gpu",
-        "-N=64",
-        "-maxiter=1000",
-        "-delta_t=10e-3",
-        "-rtol=1e-2",
+        "-N=1024",
+        "-maxiter=10000",
+        "-delta_t=3e-3",
         "-tol=1e-4",
         "-end_frame=100",
-        # "-restart=1",
-        # "-restart_frame=20",
-        # "-restart_dir=result/meta/",
         ]
 allargs.append(args)
 
@@ -1341,9 +1334,10 @@ allargs.append(args)
 
 
 # case135: soft85w 3ms  omega=1.0
+casenames[len(allargs)] = "soft85w-omega1.0"
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case{len(allargs)}-{day}-soft85w",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
         # "-rtol=1e-2",
@@ -1362,9 +1356,10 @@ allargs.append(args)
 
 
 # case136: soft85w 3ms omega=1.0
+casenames[len(allargs)] = "soft85w-XPBD-omega1.0"
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-XPBD",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
         # "-rtol=1e-2",
@@ -1381,24 +1376,21 @@ allargs.append(args)
 
 
 # case137: soft85w 3ms  large mu
+casenames[len(allargs)] = "soft85w-large-mu"
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case{len(allargs)}-{day}-soft85w",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
         "-rtol=1e-2",
-        "-end_frame=1",
-        "-export_matrix=1",
-        "-export_matrix_binary=0",
-        # "-omega=1.0",
         "-mu=1e9",
         "-tol=1e-4",
         "-delta_t=3e-3",
         "-solver_type=AMG",
         "-smoother_type=jacobi",
         "-smoother_niter=2",
-        "-build_P_method=strength0.25",
-        "-maxiter_Axb=300",
+        "-build_P_method=strength0.1",
+        "-maxiter_Axb=100",
         "-maxiter=100",
         "-tol_Axb=1e-6",
         ]
@@ -1406,16 +1398,16 @@ allargs.append(args)
 
 
 # case138: soft85w 3ms  large mu XPBD
+casenames[len(allargs)] = "soft85w-XPBD-large-mu"
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-33ms-XPBD",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-model_path=data/model/bunny85w/bunny85w.node",
         "-solver_type=XPBD",
         "-arch=gpu",
         "-maxiter=10000",
         "-rtol=1e-2",
-        # "-omega=1.0",
         "-mu=1e9",
         "-tol=1e-4",
         "-delta_t=3e-3",
@@ -1426,9 +1418,10 @@ allargs.append(args)
 
 
 # case139: cloth XPBD extreme
+casenames[len(allargs)] = "cloth-XPBD-extreme"
 args = ["engine/cloth/cloth3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case{len(allargs)}-{day}-cloth",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-solver_type=XPBD",
         "-arch=gpu",
@@ -1443,9 +1436,10 @@ allargs.append(args)
 
 
 # case140: cloth AMG extreme
+casenames[len(allargs)] = "cloth-AMG-extreme"
 args = ["engine/cloth/cloth3d.py",
         f"-end_frame={end_frame}",
-        f"-out_dir=result/case{len(allargs)}-{day}-cloth",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-solver_type=AMG",
         "-arch=gpu",
@@ -1459,30 +1453,209 @@ args = ["engine/cloth/cloth3d.py",
 allargs.append(args)
 
 
-casenames = {}
-# case140: 
-casenames[len(allargs)] = "AMG-energy-soft"
-args = ["engine/soft/soft3d.py",
+# case141: cloth global GS
+casenames[len(allargs)] = "cloth-global-GS"
+args = ["engine/cloth/cloth3d.py",
         f"-end_frame={end_frame}",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
-        "-small",
-        "-rtol=1e-3",
-        "-delta_t=3e-3",
-        "-mu=1e8",
-        "-solver_type=AMG",
-        "-smoother_type=jacobi",
-        "-smoother_niter=3",
-        "-build_P_method=strength0.25",
+        "-solver_type=GS",
+        "-arch=cpu",
+        "-maxiter=50",
         "-maxiter_Axb=100",
-        "-maxiter=200",
-        "-tol_Axb=1e-6",
-        "-calc_energy=1",
+        "-tol=1e-3",
+        "-delta_t=3e-3",
+        "-N=64",
+        "-end_frame=200",
+        ]
+allargs.append(args)
+
+# case142: cloth global AMG
+casenames[len(allargs)] = "cloth-global-AMG"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-tol=1e-3",
+        "-N=64",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=20",
+        "-smoother_niter=2",
+        "-build_P_method=strength0.1",
+        "-end_frame=100",
+        "-export_matrix=1",
+        "-export_matrix_frame=80"
+
         ]
 allargs.append(args)
 
 
-# case141: 
+
+# case143: cloth global GS ninner=100
+casenames[len(allargs)] = "cloth-global-GS"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=GS",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=100",
+        "-tol=1e-3",
+        "-delta_t=3e-3",
+        "-N=64",
+        "-end_frame=200",
+        ]
+allargs.append(args)
+
+
+
+
+# case144: cloth global GS ninner=1
+casenames[len(allargs)] = "cloth-global-GS-1"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=GS",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=1",
+        "-tol=1e-5",
+        "-tol_Axb=1e-6",
+        "-delta_t=3e-3",
+        "-N=256",
+        "-end_frame=100",
+        ]
+allargs.append(args)
+
+# case145: cloth global AMG
+casenames[len(allargs)] = "cloth-global-AMG"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-tol=1e-3",
+        "-N=256",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-tol=1e-5",
+        "-tol_Axb=1e-6",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=20",
+        "-smoother_niter=2",
+        "-build_P_method=strength0.1",
+        "-end_frame=100",
+        ]
+allargs.append(args)
+
+# case146: cloth global GS ninner=100
+casenames[len(allargs)] = "cloth-global-GS-100"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=GS",
+        "-arch=cpu",
+        "-maxiter=50",
+        "-maxiter_Axb=100",
+        "-tol=1e-5",
+        "-tol_Axb=1e-6",
+        "-delta_t=3e-3",
+        "-N=256",
+        "-end_frame=100",
+        ]
+allargs.append(args)
+
+
+# case147: AMG-strain
+casenames[len(allargs)] = "AMG-strain"
+args = ["engine/cloth/cloth3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-end_frame=75",
+        "-delta_t=3e-3",
+        "-calc_strain=1",
+        "-export_strain=1",
+        "-restart=1",
+        "-restart_file=result/meta/0074.npz",
+        ]
+allargs.append(args)
+
+
+# case148: XPBD-strain
+casenames[len(allargs)] = "XPBD-strain"
+args = ["engine/cloth/cloth3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-end_frame=75",
+        "-delta_t=3e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-restart=1",
+        "-restart_file=result/meta/0074.npz",
+        "-maxiter=10000",
+        "-calc_strain=1",
+        "-export_strain=1",
+        ]
+allargs.append(args)
+
+
+# case149: 
+casenames[len(allargs)] = "AMG-energy"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-end_frame=75",
+        "-delta_t=3e-3",
+        "-calc_energy=1",
+        "-restart=1",
+        "-restart_file=result/meta/0074.npz",
+        ]
+allargs.append(args)
+
+
+# case150: 
+casenames[len(allargs)] = "XPBD-energy"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-end_frame=75",
+        "-delta_t=3e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=10000",
+        "-calc_energy=1",
+        "-restart=1",
+        "-restart_file=result/meta/0074.npz",
+        ]
+allargs.append(args)
+
+# case151 NEWTON
+casenames[len(allargs)] = "XPBD-energy"
+args = ["engine/cloth/cloth3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-solver_type=NEWTON",
+        "-cloth_mesh_type=txt",
+        "-delta_t=0.0333",
+        "-use_cuda=1",
+        "-maxiter=10",
+        "-calc_energy=1",
+        "-compliance=0.00833333333333333", #1.0/120.0
+        "-N=20"
+        ]
+allargs.append(args)
+
+
+# case152: 
 casenames[len(allargs)] = "XPBD-energy-soft"
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
@@ -1500,7 +1673,7 @@ allargs.append(args)
 
 
 
-# case142: 
+# case153: 
 casenames[len(allargs)] = "XPBD-ball"
 args = ["engine/soft/soft3d.py",
         f"-end_frame={end_frame}",
@@ -1518,7 +1691,7 @@ args = ["engine/soft/soft3d.py",
         ]
 allargs.append(args)
 
-# case143: 
+# case154: 
 casenames[len(allargs)] = "XPBD-ball"
 args = ["engine/soft/soft3d.py",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
@@ -1537,7 +1710,7 @@ args = ["engine/soft/soft3d.py",
         ]
 allargs.append(args)
 
-# case144: 
+# case155: 
 casenames[len(allargs)] = "AMG-ball"
 args = ["engine/soft/soft3d.py",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
@@ -1556,6 +1729,7 @@ args = ["engine/soft/soft3d.py",
         ]
 allargs.append(args)
 
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')
@@ -1569,17 +1743,6 @@ def run_case(case_num:int):
         args = [pythonExe, *args]
     log_args(args)
 
-    # call(args)
-
-    # stderr_file = f"result/meta/stderr_{case_num}.txt"
-    # with open(stderr_file, "w") as f:
-    #     try:
-    #         subprocess.check_call(args, stderr=f)
-    #     except Exception as e:
-    #     # except subprocess.CalledProcessError as e:
-    #         date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
-    #         logging.exception(f"Case {case_num} failed with error\nDate={date}\nSee {stderr_file} for details\n")
-    #         # raise
     try:
         subprocess.check_call(args)
     except subprocess.CalledProcessError as e:
@@ -1675,4 +1838,6 @@ if __name__=='__main__':
     if cli_args.list:
         print("All cases:")
         for i in range(len(allargs)):
+            if i in casenames:
+                print(f"case {i}: {casenames[i]}")
             print(f"case {i}: {allargs[i]}\n")

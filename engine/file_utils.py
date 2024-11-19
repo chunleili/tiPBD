@@ -1,5 +1,5 @@
 import numpy as np
-
+from time import perf_counter
 
 
 def make_and_clean_dirs(dir):
@@ -14,6 +14,15 @@ def make_and_clean_dirs(dir):
     Path(dir + "/state/").mkdir(parents=True, exist_ok=True)
     Path(dir + "/mesh/").mkdir(parents=True, exist_ok=True)
 
+
+def make_dirs(dir):
+    from pathlib import Path
+
+    Path(dir).mkdir(parents=True, exist_ok=True)
+    Path(dir + "/r/").mkdir(parents=True, exist_ok=True)
+    Path(dir + "/A/").mkdir(parents=True, exist_ok=True)
+    Path(dir + "/state/").mkdir(parents=True, exist_ok=True)
+    Path(dir + "/mesh/").mkdir(parents=True, exist_ok=True)
 
 
 def use_another_outdir(dir):
@@ -43,13 +52,13 @@ def use_another_outdir(dir):
     return dir
 
 
-
 def process_dirs(args):
     if args.auto_another_outdir:
         args.out_dir = use_another_outdir(args.out_dir)
-    make_and_clean_dirs(args.out_dir)
-
-
+    if not args.restart:
+        make_and_clean_dirs(args.out_dir)
+    else:
+        make_dirs(args.out_dir)
 
 
 def parse_json_params(path, vars_to_overwrite):
@@ -82,14 +91,8 @@ def find_last_frame(dir):
     return last_frame
 
 def do_restart(args,ist):
-    if args.restart_from_last_frame :
-        args.restart_frame =  find_last_frame(args.out_dir)
-    if args.restart_frame == 0:
-        print("No restart file found.")
-    else:
-        load_state(args.restart_dir + f"{args.restart_frame:04d}.npz")
-        ist.frame = args.restart_frame
-        print(f"restart from last ist.frame: {args.restart_frame}")
+    load_state(args.restart_file,ist)
+    print(f"restart from frame {ist.frame}")
 
 
 def save_state(filename, ist):
@@ -97,7 +100,7 @@ def save_state(filename, ist):
     for i in range(1, len(state)):
         state[i] = state[i].to_numpy()
     np.savez(filename, *state)
-    print(f"Saved ist.frame-{ist.frame} states to '{filename}', {len(state)} variables")
+    print(f"Saved frame-{ist.frame} states to {filename}")
 
 def load_state(filename,ist):
     npzfile = np.load(filename)
@@ -105,26 +108,5 @@ def load_state(filename,ist):
     ist.frame = int(npzfile["arr_0"])
     for i in range(1, len(state)):
         state[i].from_numpy(npzfile["arr_" + str(i)])
-    print(f"Loaded ist.frame-{ist.frame} states to '{filename}', {len(state)} variables")
+    print(f"Loaded frame-{ist.frame} state from {filename}")
 
-
-
-def export_A_b(A, b, dir, postfix=f"", binary=True):
-    from time import perf_counter
-    import scipy
-
-    print(f"Exporting A and b to {dir} with postfix {postfix}")
-    tic = perf_counter()
-    if binary:
-        # https://stackoverflow.com/a/8980156/19253199
-        scipy.sparse.save_npz(dir + f"/A_{postfix}.npz", A)
-        if b is not None:
-            np.save(dir + f"/b_{postfix}.npy", b)
-        # A = scipy.sparse.load_npz("A.npz") # load
-        # b = np.load("b.npy")
-    else:
-        scipy.io.mmwrite(dir + f"/A_{postfix}.mtx", A, symmetry='symmetric')
-        if b is not None:
-            np.savetxt(dir + f"/b_{postfix}.txt", b)
-    print(f"    export_A_b time: {perf_counter()-tic:.3f}s")
-    

@@ -38,24 +38,18 @@ def run_and_draw(log_file, ax, legend):
     ax.plot(r)
     ax.set_ylabel(f"{r_type}")
     ax.set_yscale("log")
-    ax.set_xlabel("iteration")
     ax.legend([legend])
 
-frame = 1
+frame = 74
 r_type = "dual"
 with0 = False
-fig,axs = plt.subplots(2)
-log_file = "result/case140-1118-AMG-energy-soft/case140-1118-AMG-energy-soft.log"
-
+fig,axs = plt.subplots(4)
+log_file = "result/latest/latest.log"
 run_and_draw(log_file, axs[0], r_type)
-axs[0].xaxis.get_major_locator().set_params(integer=True)
-# r_type = "Newton"
-# run_and_draw(log_file, axs[1], r_type)
-r_type = "energy"
+r_type = "Newton"
 run_and_draw(log_file, axs[1], r_type)
-# r_type = "strain"
-# run_and_draw(log_file, axs[3], r_type)
-axs[1].xaxis.get_major_locator().set_params(integer=True)
-# tight layout
-plt.tight_layout()
+r_type = "energy"
+run_and_draw(log_file, axs[2], r_type)
+r_type = "strain"
+run_and_draw(log_file, axs[3], r_type)
 plt.show()

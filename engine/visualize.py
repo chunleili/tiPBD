@@ -335,3 +335,39 @@ def draw_bounds(x_min=0, y_min=0, z_min=0, x_max=1, y_max=1, z_max=1):
     for i, val in enumerate([0, 1, 0, 2, 1, 3, 2, 3, 4, 5, 4, 6, 5, 7, 6, 7, 0, 4, 1, 5, 2, 6, 3, 7]):
         box_lines_indices[i] = val
     return box_anchors, box_lines_indices
+
+
+class Viewer:
+    def __init__(self, args):
+        self.window = ti.ui.Window("Display Mesh", (1024, 1024))
+        self.canvas = self.window.get_canvas()
+        self.canvas.set_background_color((1, 1, 1))
+        self.scene = ti.ui.Scene()
+        self.camera = ti.ui.Camera()
+        self.camera.position(0.5, 0.0, 2.5)
+        self.camera.lookat(0.5, 0.5, 0.0)
+        self.camera.fov(90)
+        self.gui = self.window.get_gui()
+        self.args = args
+        self.save_image = args.save_image
+        self.out_dir = args.out_dir
+
+    def do_render_taichi(self,ist):
+        self.camera.track_user_inputs(self.window, movement_speed=0.003, hold_key=ti.ui.RMB)
+        self.scene.set_camera(self.camera)
+        self.scene.point_light(pos=(0.5, 1, 2), color=(1, 1, 1))
+        self.scene.mesh(ist.pos, ist.tri, color=(1.0,0,0), two_sided=True)
+        self.canvas.scene(self.scene)
+        # you must call this function, even if we just want to save the image, otherwise the GUI image will not update.
+        self.window.show()
+        if self.save_image:
+            file_path = self.out_dir + f"{ist.frame:04d}.png"
+            self.window.save_image(file_path)  # export and show in GUI
+        
+    def do_render_control(self):
+        for e in self.window.get_events(ti.ui.PRESS):
+            if e.key in [ti.ui.ESCAPE]:
+                exit()
+            if e.key == ti.ui.SPACE:
+                paused = not paused
+                print("paused:",paused)

@@ -330,6 +330,63 @@ def write_mesh(filename, pos, tri, format="ply"):
     return mesh
 
 
+def write_edge(filename, data):
+    np.savetxt(filename + ".txt", data, fmt="%d")
+
+def write_tri(filename, data):
+    np.savetxt(filename + ".txt", data, fmt="%d")
+
+
+# TODO: only vtk support for now
+def write_vtk_with_strain(filename, pos, tri, **kwargs):
+    binary = kwargs.get("binary", True)
+    strain = kwargs.get("strain", None)
+    if strain is None:
+        raise ValueError("strain data is required")
+    cells = [("triangle", tri.reshape(-1, 3)),]
+    cell_data = {"strain": [strain]}
+    mesh = meshio.Mesh(pos, cells, cell_data=cell_data)
+    mesh.write(filename + ".vtk", binary=binary)
+    return mesh
+
+
+def write_ply_with_strain(filename, pos, tri, strain, binary=False):
+    import plyfile
+    # meshio do not support writing user properties to ply, so we use plyfile
+    
+    # Create a structured array for faces
+    face_dtype = [('vertex_indices', 'int32', (3,)), ('strain', strain.dtype)]
+    faces = np.empty(len(tri), dtype=face_dtype)
+    faces['vertex_indices'] = tri
+    faces['strain'] = strain
+
+    # Convert pos to a structured array
+    vertex_dtype = [('x', pos.dtype), ('y', pos.dtype), ('z', pos.dtype)]
+    vertices_structured = np.array([tuple(v) for v in pos], dtype=vertex_dtype)
+
+    # Create a PLY file
+    ply = plyfile.PlyData([
+        plyfile.PlyElement.describe(vertices_structured, 'vertex'),
+        plyfile.PlyElement.describe(faces, 'face'),
+    ])
+
+    ply.text = not binary
+    filename = filename + ".ply"
+    ply.write(filename)
+    print(f'PLY file saved to {filename}')
+
+
+
+def write_edge_data(filename, data):
+    """ 
+    Write data stored in edges to file
+    e.g. write the strain of cloth
+    """
+    with open(filename+".txt", "w") as f:
+        f.write(f"edge shape={data.shape} dtype={data.dtype}\n")
+        np.savetxt(f, data)
+
+
 def read_tet(filename, build_face_flag=False):
     mesh = meshio.read(filename)
     pos = mesh.points
@@ -394,7 +451,7 @@ def generate_cube_mesh(len, grid_dx=0.1):
 
 
 
-def read_tri_cloth(filename):
+def read_tri_cloth_tetgen(filename):
     edge_file_name = filename + ".edge"
     node_file_name = filename + ".node"
     face_file_name = filename + ".face"
@@ -443,3 +500,84 @@ def read_tri_cloth_obj(path):
     edges = list(edges for edges,_ in itertools.groupby(edges))
 
     return pos, np.array(edges), tri.flatten()
+
+
+def set_to_list(s):
+    for k, v in s.items():
+        s[k] = list(v)
+    return s
+
+
+def build_vertex2edge(edges: np.ndarray)->dict:
+    v2e = {} #vertex to edge
+    for edge_index, (v1, v2) in enumerate(edges):
+        if v1 not in v2e:
+            v2e[v1] = set()
+        if v2 not in v2e:
+            v2e[v2] = set()
+        v2e[v1].add(edge_index)
+        v2e[v2].add(edge_index)
+    
+    for k, v in v2e.items():
+        v2e[k] = list(v)
+    return v2e
+
+
+def build_vertex2tri(tri: np.ndarray)->dict:
+    assert tri.shape[1] == 3
+    v2t = {} #vertex to triangle
+    for tri_index, (v0, v1, v2) in enumerate(tri):
+        if v0 not in v2t:
+            v2t[v0] = set()
+        if v1 not in v2t:
+            v2t[v1] = set()
+        if v2 not in v2t:
+            v2t[v2] = set()
+        v2t[v0].add(tri_index)
+        v2t[v1].add(tri_index)
+        v2t[v2].add(tri_index)
+    
+    for k, v in v2t.items():
+        v2t[k] = list(v)
+    return v2t
+
+
+def build_edge2tri(edge: np.ndarray, v2t: dict, tri:np.ndarray)->dict:
+    """
+        Args:
+            edge: shape=(NE, 2)
+            v2t: vertex to triangle mapping (dict of list)
+        Returns:
+            e2t: edge to triangle mapping
+        Note: First call build_vertex2tri to get v2t
+    """    
+    assert edge.shape[1] == 2
+    assert tri.shape[1] == 3
+    e2t = {} #edge to triangle
+    for e in range(edge.shape[0]):
+        v0, v1 = edge[e]
+        tris0 = v2t[v0]
+        tris1 = v2t[v1]
+        # If a triangle has both v0 and v1, then it is an edge
+        tris = tris0 + tris1
+        for t in tris:
+            if v0 in tri[t] and v1 in tri[t]:
+                if e not in e2t:
+                    e2t[e] = set()
+                e2t[e].add(t)
+        
+    for k, v in e2t.items():
+        e2t[k] = list(v)
+    return e2t
+
+
+
+def edge_data_to_tri_data(e2t, edge_data, tri):
+    tri_data = np.zeros((tri.shape[0]))
+    NE = edge_data.shape[0]
+    for e in range(NE):
+        tris = e2t[e]
+        for t in tris: # triangles that has edge e
+            # TODO: now we use sum square of edge data into one triangle data to get a scalar value, maybe we can use vec3
+            tri_data[t] += edge_data[e]**2
+    return tri_data

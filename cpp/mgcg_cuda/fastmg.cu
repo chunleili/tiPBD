@@ -1193,6 +1193,7 @@ struct VCycle : Kernels {
     std::vector<float> residuals;
     size_t niter; //final number of iterations to break the loop
     float max_eig;
+    bool use_radical_omega=true;
 
     void set_scale_RAP(float s, int lv)
     {
@@ -1376,8 +1377,7 @@ struct VCycle : Kernels {
 
 
     void setup_weighted_jacobi() {
-        auto use_radical = true;
-        if(use_radical)
+        if(use_radical_omega)
         {
             // old way:
             // use only the A0 omega for all, and set radical omega(estimate lambda_min as 0.1)
@@ -1844,18 +1844,18 @@ struct VCycle : Kernels {
             // cout<<"iter: "<<iter<<" residual: "<<residuals[iter]<<endl;
             niter = iter;
         }
-        timer1.stop();
-        elapsed1.push_back(timer1.elapsed());
-        cout<<elapsed1.size()<<" mgpcg time: "<<(elapsed1[0])<<" ms"<<endl;
-        cout<<elapsed2.size()<<" vcycle time: "<<sum(elapsed2)<<" ms"<<endl;
-        elapsed1.clear();
-        elapsed2.clear();
+        // timer1.stop();
+        // elapsed1.push_back(timer1.elapsed());
+        // cout<<elapsed1.size()<<" mgpcg time: "<<(elapsed1[0])<<" ms"<<endl;
+        // cout<<elapsed2.size()<<" vcycle time: "<<sum(elapsed2)<<" ms"<<endl;
+        // elapsed1.clear();
+        // elapsed2.clear();
 
-        cout<<elapsed_smoother.size()<<" smoother time: "<<avg(elapsed_smoother)<<" ms"<<" total time: "<<sum(elapsed_smoother)<<" ms"<<endl;
-        elapsed_smoother.clear();
+        // cout<<elapsed_smoother.size()<<" smoother time: "<<avg(elapsed_smoother)<<" ms"<<" total time: "<<sum(elapsed_smoother)<<" ms"<<endl;
+        // elapsed_smoother.clear();
 
-        cout<<elapsed3.size()<<" presolve time: "<<(elapsed3[0])<<" ms"<<endl;
-        elapsed3.clear();
+        // cout<<elapsed3.size()<<" presolve time: "<<(elapsed3[0])<<" ms"<<endl;
+        // elapsed3.clear();
 
         // cout<<"Ax=b residuals: "<<endl;
         // for(int i=0; i<niter;++i)
@@ -2010,6 +2010,13 @@ extern "C" DLLEXPORT void fastmg_solve_only_smoother() {
 extern "C" DLLEXPORT void fastmg_set_coarse_solver_type(int t) {
     fastmg->coarse_solver_type = t;
 }
+
+
+extern "C" DLLEXPORT void fastmg_use_radical_omega(int flag) {
+    fastmg->use_radical_omega = bool(flag);
+}
+
+
 
 // ------------------------------------------------------------------------------
 extern "C" DLLEXPORT void fastFillCloth_new() {

@@ -63,7 +63,7 @@ def build_Ps(A,args,extlib=None):
 
     num_levels = len(ml.levels)
 
-    if args.use_cuda:
+    if args.use_cuda or extlib is not None:
         extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
         extlib.fastmg_setup_nl(num_levels)
     
@@ -71,7 +71,7 @@ def build_Ps(A,args,extlib=None):
 
     Ps = []
     for i in range(len(ml.levels)-1):
-        P = ml.levels[i].P
+        P = ml.levels[i].P.tocsr()
         if args.filter_P=="fileter":
             P = do_filter_P(P,0.25)
         elif args.filter_P=="01":

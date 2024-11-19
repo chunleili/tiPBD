@@ -2,34 +2,31 @@ import taichi as ti
 from taichi.lang.ops import sqrt
 import numpy as np
 import logging
-from logging import info, warning
+from logging import info
 import scipy
-import scipy.sparse as sparse
 import sys, os, argparse
 import time
 from time import perf_counter
 from pathlib import Path
-import meshio
 from collections import namedtuple
 import json
 from functools import singledispatch
-import pyamg
 import ctypes
 import numpy.ctypeslib as ctl
 import datetime
-import tqdm
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(prj_path)
-from engine.solver.build_Ps import build_Ps
-from engine.file_utils import process_dirs,  do_restart, save_state, export_A_b
+from engine.file_utils import process_dirs
 from engine.mesh_io import write_mesh, read_tet
 from engine.common_args import add_common_args
 from engine.init_extlib import init_extlib
 from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
-from engine.util import is_diverge, is_stall, ending
+from engine.solver.direct_solver import DirectSolver
+from engine.util import calc_norm, ResidualDataOneFrame, ResidualDataAllFrame, ResidualDataOneIter, do_post_iter, init_logger
+from engine.physical_base import PhysicalBase
 
 parser = argparse.ArgumentParser()
 
@@ -71,59 +68,90 @@ arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous
 c_int = ctypes.c_int
 
 
-class SoftBody:
-    def __init__(self, path):
-        self.frame = 0
-        self.ite = 0
+class SoftBody(PhysicalBase):
+    def __init__(self, mesh_file):
+        super().__init__()
+        self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        logging.info(self.start_date)
 
-        parent_directory_name = str(Path(path).parent.stem)
-        self.sim_name = f"soft3d-{parent_directory_name}-{str(Path(path).stem)}"
+        self.r_iter = ResidualDataOneIter(
+                        calc_dual   = calc_dual,
+                        calc_primal = calc_primal,
+                        calc_energy =self.calc_energy,
+                        calc_strain = calc_strain,
+                        tol=args.tol,
+                        rtol=args.rtol,
+                        converge_condition=args.converge_condition,
+                        args = args,
+                                    )
 
+        self.args = args
+
+        dir = str(Path(mesh_file).parent.stem)
+        self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
+
+        self.build_mesh(mesh_file)
+        self.allocate_fields(self.NV, self.NT)
+
+        self.state = [self.pos,]
+
+        self.n_outer_all = []
+        self.t_avg_iter=[]
+        self.ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
+        self.all_stalled = []
+        self.initialize()
+
+        if args.export_mesh:
+            write_mesh(args.out_dir + f"/mesh/{self.frame:04d}", self.pos.to_numpy(), self.model_tri)
+
+        if args.solver_type != "XPBD" and args.solver_type != "NEWTON":
+            from engine.soft.fill_A import init_direct_fill_A
+            init_direct_fill_A(self,extlib)
+
+        self.linsol = init_linear_solver()
+
+        info(f"Creating instance done")
+
+
+    def build_mesh(self,mesh_file):
         tic = time.perf_counter()
-        self.model_pos, self.model_tet, self.model_tri = read_tet(path, build_face_flag=True)
+        self.model_pos, self.model_tet, self.model_tri = read_tet(mesh_file, build_face_flag=True)
         print(f"read_tet cost: {time.perf_counter() - tic:.4f}s")
         self.NV = len(self.model_pos)
         self.NT = len(self.model_tet)
         self.NF = len(self.model_tri)
         self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.display_indices.from_numpy(self.model_tri.flatten())
+        self.tri = self.model_tri.copy()
 
-        self.pos = ti.Vector.field(3, float, self.NV)
-        self.pos_mid = ti.Vector.field(3, float, self.NV)
-        self.predict_pos = ti.Vector.field(3, float, self.NV)
-        self.old_pos = ti.Vector.field(3, float, self.NV)
-        self.vel = ti.Vector.field(3, float, self.NV)  # velocity of particles
-        self.mass = ti.field(float, self.NV)  # mass of particles
-        self.inv_mass = ti.field(float, self.NV)  # inverse mass of particles
-        self.tet_indices = ti.Vector.field(4, int, self.NT)
-        self.B = ti.Matrix.field(3, 3, float, self.NT)  # D_m^{-1}
-        self.lagrangian = ti.field(float, self.NT)  # lagrangian multipliers
-        self.rest_volume = ti.field(float, self.NT)  # rest volume of each tet
-        self.inv_V = ti.field(float, self.NT)  # inverse volume of each tet
-        self.alpha_tilde = ti.field(float, self.NT)
 
-        self.par_2_tet = ti.field(int, self.NV)
-        self.gradC = ti.Vector.field(3, ti.f32, shape=(self.NT, 4))
-        self.constraint = ti.field(ti.f32, shape=(self.NT))
-        self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
-        self.residual = ti.field(ti.f32, shape=self.NT)
-        self.dual_residual = ti.field(ti.f32, shape=self.NT)
-        self.dlambda = ti.field(ti.f32, shape=self.NT)
-        self.tet_centroid = ti.Vector.field(3, ti.f32, shape=self.NT)
+    def allocate_fields(self, NV, NT):
+        self.pos = ti.Vector.field(3, float, NV)
+        self.pos_mid = ti.Vector.field(3, float, NV)
+        self.predict_pos = ti.Vector.field(3, float, NV)
+        self.old_pos = ti.Vector.field(3, float, NV)
+        self.vel = ti.Vector.field(3, float, NV)  # velocity of particles
+        self.mass = ti.field(float, NV)  # mass of particles
+        self.inv_mass = ti.field(float, NV)  # inverse mass of particles
+        self.tet_indices = ti.Vector.field(4, int, NT)
+        self.B = ti.Matrix.field(3, 3, float, NT)  # D_m^{-1}
+        self.lagrangian = ti.field(float, NT)  # lagrangian multipliers
+        self.rest_volume = ti.field(float, NT)  # rest volume of each tet
+        self.inv_V = ti.field(float, NT)  # inverse volume of each tet
+        self.alpha_tilde = ti.field(float, NT)
+
+        self.par_2_tet = ti.field(int, NV)
+        self.gradC = ti.Vector.field(3, ti.f32, shape=(NT, 4))
+        self.constraints = ti.field(ti.f32, shape=(NT))
+        self.dpos = ti.Vector.field(3, ti.f32, shape=(NV))
+        self.residual = ti.field(ti.f32, shape=NT)
+        self.dual_residual = ti.field(ti.f32, shape=NT)
+        self.dlambda = ti.field(ti.f32, shape=NT)
+        self.tet_centroid = ti.Vector.field(3, ti.f32, shape=NT)
         self.potential_energy = ti.field(ti.f32, shape=())
         self.inertial_energy = ti.field(ti.f32, shape=())
-
         self.ele = self.tet_indices
 
-        self.state = [
-            self.pos,
-        ]
-
-        self.n_outer_all = []
-        self.t_avg_iter=[]
-        self.ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
-        self.all_stalled = []
-        info(f"Creating instance done")
 
     def initialize(self):
         info(f"Initializing mesh")
@@ -180,20 +208,7 @@ class SoftBody:
         self.alpha_tilde_np = self.alpha_tilde.to_numpy()
 
 
-    def solve_constraints(self):
-        solve_constraints_kernel(
-            self.pos_mid,
-            self.tet_indices,
-            self.inv_mass,
-            self.lagrangian,
-            self.B,
-            self.pos,
-            self.alpha_tilde,
-            self.constraint,
-            self.residual,
-            self.gradC,
-            self.dlambda,
-        )
+
 
     def calc_energy(self):
         compute_C_and_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.constraint, self.gradC)
@@ -203,6 +218,89 @@ class SoftBody:
         self.energy = (self.potential_energy[None]+self.inertial_energy[None])
         # print(f"potential_energy: {self.potential_energy[None]:.8e}, inertial_energy: {self.inertial_energy[None]:.8e}")
         return self.energy
+    
+    def semi_euler(self):
+        gravity = ti.Vector(args.gravity)
+        semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, gravity)
+
+    def compute_C_and_gradC(self):
+        compute_C_and_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.constraints, self.gradC)
+    
+    def dlam2dpos(self,x):
+        tic = time.perf_counter()
+        transfer_back_to_pos_mfree(x, self)
+        logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
+
+    def update_vel(self):
+        update_vel_kernel(args.delta_t, self.pos, self.old_pos, self.vel)
+    
+    def compute_b(self):
+        b = -self.constraints.to_numpy() - self.alpha_tilde_np * self.lagrangian.to_numpy()
+        return b
+    
+    def project_arap_xpbd(self):
+        project_arap_xpbd_kernel(
+            self.pos_mid,
+            self.tet_indices,
+            self.inv_mass,
+            self.lagrangian,
+            self.B,
+            self.pos,
+            self.alpha_tilde,
+            self.constraints,
+            self.residual,
+            self.gradC,
+            self.dlambda,
+            self.dpos,
+            args.omega
+        )
+
+    def substep_all_solver(self):
+        self.semi_euler()
+        self.lagrangian.fill(0)
+        self.r_iter.calc_r0()
+        for self.ite in range(args.maxiter):
+            self.r_iter.tic_iter = perf_counter()
+            self.pos_mid.from_numpy(self.pos.to_numpy())
+            self.compute_C_and_gradC()
+            self.b = self.compute_b()
+            x, self.r_iter.r_Axb = ist.linsol.run(self.b)
+            self.dlam2dpos(x)
+            do_post_iter(self, get_A0_cuda)
+            if self.r_iter.check():
+                break
+        collision_response(self.pos, self.old_pos, self.ground_pos)
+        self.n_outer_all.append(self.ite+1)
+        self.update_vel()
+
+        
+    def substep_xpbd(self):
+        gravity = ti.Vector(args.gravity)
+        semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, gravity)
+        reset_lagrangian(self.lagrangian)
+        r=[]
+        for self.ite in range(args.maxiter):
+            tic = time.perf_counter()
+            self.project_arap_xpbd()
+            collision_response(self.pos, self.old_pos, self.ground_pos)
+            calc_dual_residual(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
+            dualr = np.linalg.norm(self.residual.to_numpy())
+            if self.ite == 0:
+                dualr0 = dualr.copy()
+            toc = time.perf_counter()
+            logging.info(f"{self.frame}-{self.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
+            r.append(self.ResidualData(dualr, 0, toc-tic))
+            if dualr < args.tol:
+                logging.info("Converge: tol")
+                break
+            if dualr / dualr0 < args.rtol:
+                logging.info("Converge: rtol")
+                break
+        self.n_outer_all.append(self.ite+1)
+        update_vel_kernel(args.delta_t, self.pos, self.old_pos, self.vel)
+
+
+
 
 # ---------------------------------------------------------------------------- #
 #                                    kernels                                   #
@@ -349,7 +447,7 @@ def compute_gradient(U, S, V, B):
 
 
 @ti.kernel
-def semi_euler(
+def semi_euler_kernel(
     delta_t: ti.f32,
     pos: ti.template(),
     predict_pos: ti.template(),
@@ -362,59 +460,14 @@ def semi_euler(
         old_pos[i] = pos[i]
         vel[i] += damping_coeff* delta_t * gravity
         pos[i] += delta_t * vel[i]
-        # if pos[i].y < 0.0:
-        #     pos[i] = old_pos[i]
-        #     pos[i].y = 0.0
         predict_pos[i] = pos[i]
 
 
 @ti.kernel
-def update_vel(delta_t: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
+def update_vel_kernel(delta_t: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
     for i in pos:
         vel[i] = (pos[i] - old_pos[i]) / delta_t
 
-
-@ti.kernel
-def solve_constraints_kernel(
-    pos_mid: ti.template(),
-    tet_indices: ti.template(),
-    inv_mass: ti.template(),
-    lagrangian: ti.template(),
-    B: ti.template(),
-    pos: ti.template(),
-    alpha_tilde: ti.template(),
-    constraint: ti.template(),
-    residual: ti.template(),
-    gradC: ti.template(),
-    dlambda: ti.template(),
-):
-    for i in pos:
-        pos_mid[i] = pos[i]
-
-    for t in range(tet_indices.shape[0]):
-        p0 = tet_indices[t][0]
-        p1 = tet_indices[t][1]
-        p2 = tet_indices[t][2]
-        p3 = tet_indices[t][3]
-
-        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
-
-        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
-        F = D_s @ B[t]
-        U, S, V = ti.svd(F)
-        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
-        if constraint[t] > 1e-6:
-            g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
-            gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
-            denominator = (
-                inv_mass[p0] * g0.norm_sqr()
-                + inv_mass[p1] * g1.norm_sqr()
-                + inv_mass[p2] * g2.norm_sqr()
-                + inv_mass[p3] * g3.norm_sqr()
-            )
-            residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
-            dlambda[t] = residual[t] / (denominator + alpha_tilde[t])
-            lagrangian[t] += dlambda[t]
 
 
 @ti.kernel
@@ -422,7 +475,7 @@ def compute_C_and_gradC_kernel(
     pos: ti.template(),
     tet_indices: ti.template(),
     B: ti.template(),
-    constraint: ti.template(),
+    constraints: ti.template(),
     gradC: ti.template(),
 ):
     for t in range(tet_indices.shape[0]):
@@ -435,24 +488,47 @@ def compute_C_and_gradC_kernel(
         F = D_s @ B[t]
         U, S, V = ti.svd(F)
         # U, S, V = np.linalg.svd(F.to_numpy())
-        constraint[t] = sqrt((S[0,0] - 1) ** 2 + (S[1,1] - 1) ** 2 + (S[2,2] - 1) ** 2)
-        if constraint[t]>1e-6: #CAUTION! When the constraint is too small, there is no deformation at all, the gradient will be in any direction! Sigma=(1,1,1) There will be singularity issue!
+        constraints[t] = sqrt((S[0,0] - 1) ** 2 + (S[1,1] - 1) ** 2 + (S[2,2] - 1) ** 2)
+        if constraints[t]>1e-6: #CAUTION! When the constraint is too small, there is no deformation at all, the gradient will be in any direction! Sigma=(1,1,1) There will be singularity issue!
             gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
+
+
+def update_constraints():
+    update_constraints_kernel(ist.pos, ist.tet_indices, ist.B, ist.constraints)
+
+
+@ti.kernel
+def update_constraints_kernel(
+    pos: ti.template(), #pos not pos_mid
+    tet_indices: ti.template(),
+    B: ti.template(),
+    constraints: ti.template(),
+):
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+        x0, x1, x2, x3 = pos[p0], pos[p1], pos[p2], pos[p3]
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraints[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
 
 
 @ti.kernel
 def compute_dual_residual(
-    constraint: ti.template(),
+    constraints: ti.template(),
     alpha_tilde: ti.template(),
     lagrangian: ti.template(),
     dual_residual:ti.template()
 ):
     for t in range(dual_residual.shape[0]):
-        dual_residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+        dual_residual[t] = -(constraints[t] + alpha_tilde[t] * lagrangian[t])
 
 
 @ti.kernel
-def project_constraints(
+def project_arap_xpbd_kernel(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
     inv_mass: ti.template(),
@@ -515,7 +591,6 @@ def project_constraints(
 
 
 
-
 # ground collision response
 @ti.kernel
 def collision_response(pos: ti.template(), old_pos:ti.template(), ground_pos: ti.f32):
@@ -562,7 +637,6 @@ def transfer_back_to_pos_mfree(x, ist):
     reset_dpos(ist.dpos)
     transfer_back_to_pos_mfree_kernel(ist.gradC, ist.tet_indices, ist.inv_mass, ist.dlambda, ist.lagrangian, ist.dpos)
     update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
-    # collision_response(ist.pos, ist.old_pos, ist.ground_pos)
 
 @ti.kernel
 def compute_potential_energy(potential_energy:ti.template(),
@@ -590,10 +664,10 @@ def compute_inertial_energy(inertial_energy:ti.template(),
 @ti.kernel
 def calc_dual_residual(alpha_tilde:ti.template(),
                        lagrangian:ti.template(),
-                       constraint:ti.template(),
+                       constraints:ti.template(),
                        dual_residual:ti.template()):
     for i in range(dual_residual.shape[0]):
-        dual_residual[i] = -(constraint[i] + alpha_tilde[i] * lagrangian[i])
+        dual_residual[i] = -(constraints[i] + alpha_tilde[i] * lagrangian[i])
 
 def calc_primary_residual(G,M_inv,predict_pos,pos,lagrangian):
     MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
@@ -616,9 +690,17 @@ def ts_float32(val):
     """Used if *val* is an instance of numpy.float32."""
     return np.float64(val)
 
+
+def fill_G(ist):
+    ii, jj, vv = np.zeros(ist.NT*ist.MAX_ADJ, dtype=np.int32), np.zeros(ist.NT*ist.MAX_ADJ, dtype=np.int32), np.zeros(ist.NT*ist.MAX_ADJ, dtype=np.float32)
+    fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
+    G = scipy.sparse.coo_array((vv, (ii, jj)))
+    return G
+
+
 # TODO: DEPRECATE
 def fill_A_by_spmm(ist,  M_inv, ALPHA):
-    ii, jj, vv = np.zeros(ist.NT*200, dtype=np.int32), np.zeros(ist.NT*200, dtype=np.int32), np.zeros(ist.NT*200, dtype=np.float32)
+    ii, jj, vv = np.zeros(ist.NT*ist.MAX_ADJ, dtype=np.int32), np.zeros(ist.NT*ist.MAX_ADJ, dtype=np.int32), np.zeros(ist.NT*ist.MAX_ADJ, dtype=np.float32)
     fill_gradC_triplets_kernel(ii,jj,vv, ist.gradC, ist.tet_indices)
     G = scipy.sparse.coo_array((vv, (ii, jj)))
 
@@ -629,14 +711,15 @@ def fill_A_by_spmm(ist,  M_inv, ALPHA):
     return A
 
 
-def calc_dual(ist):
-    calc_dual_residual(ist.dual_residual, ist.lagrangian, ist.constraint, ist.dual_residual)
-    return ist.dual_residual.to_numpy()
+def calc_dual():
+    calc_dual_residual(ist.dual_residual, ist.lagrangian, ist.constraints, ist.dual_residual)
+    dual = calc_norm(ist.dual_residual)
+    return dual
 
 
 
 def AMG_b(ist):
-    b = -ist.constraint.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
+    b = -ist.constraints.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
     return b
 
 
@@ -663,15 +746,15 @@ def calc_conv(r):
     return (r[-1]/r[0])**(1.0/(len(r)-1))
 
 
-def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
+def AMG_calc_r(r,dual0, tic_iter, r_Axb):
     tic = time.perf_counter()
 
     t_iter = perf_counter()-tic_iter
     tic_calcr = perf_counter()
-    calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
+    calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
     dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
-    r_Axb = r_Axb.tolist()
-    dual0 = np.linalg.norm(fulldual0)
+    r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
+
 
     logging.info(f"    convergence factor: {calc_conv(r_Axb):.2g}")
     logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
@@ -688,265 +771,6 @@ def AMG_calc_r(r,fulldual0, tic_iter, r_Axb):
     return dual0
 
 
-def substep_all_solver(ist):
-    tic1 = time.perf_counter()
-    gravity = ti.Vector(args.gravity)
-    semi_euler(args.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, args.damping_coeff, gravity)
-    reset_lagrangian(ist.lagrangian)
-    r = [] # residual list of one frame
-    logging.info(f"pre-loop time: {(perf_counter()-tic1)*1000:.0f}ms")
-    for ist.ite in range(args.maxiter):
-        tic_iter = perf_counter()
-        compute_C_and_gradC_kernel(ist.pos, ist.tet_indices, ist.B, ist.constraint, ist.gradC)
-        if ist.ite==0:
-            fulldual0 = calc_dual(ist)
-        b = AMG_b(ist)
-        x, r_Axb = amg.run(b)
-        AMG_dlam2dpos(x)
-        dual0 = AMG_calc_r(r, fulldual0, tic_iter, r_Axb)
-        logging.info(f"iter time(with export): {(perf_counter()-tic_iter)*1000:.0f}ms")
-        if r[-1].dual<args.tol:
-            break
-        if r[-1].dual / dual0 <args.rtol:
-            break
-        if is_diverge(r, r_Axb,ist):
-            raise ValueError("Diverge detected")
-    
-    tic = time.perf_counter()
-    logging.info(f"n_outer: {len(r)}")
-    ist.n_outer_all.append(len(r))
-    if args.export_residual:
-        do_export_r(r)
-    collision_response(ist.pos, ist.old_pos, ist.ground_pos)
-    update_vel(args.delta_t, ist.pos, ist.old_pos, ist.vel)
-    logging.info(f"post-loop time: {(time.perf_counter()-tic)*1000:.0f}ms")
-    ist.t_avg_iter.append((time.perf_counter()-tic1)/ist.n_outer_all[-1])
-    logging.info(f"avg iter frame {ist.frame}: {ist.t_avg_iter[-1]*1000:.0f}ms")
-
-
-def substep_xpbd(ist):
-    gravity = ti.Vector(args.gravity)
-    semi_euler(args.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, args.damping_coeff, gravity)
-    reset_lagrangian(ist.lagrangian)
-    r=[]
-    for ist.ite in range(args.maxiter):
-        tic = time.perf_counter()
-        project_constraints(
-            ist.pos_mid,
-            ist.tet_indices,
-            ist.inv_mass,
-            ist.lagrangian,
-            ist.B,
-            ist.pos,
-            ist.alpha_tilde,
-            ist.constraint,
-            ist.residual,
-            ist.gradC,
-            ist.dlambda,
-            ist.dpos,
-            args.omega
-        )
-        # update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
-        calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraint, ist.dual_residual)
-        dualr = np.linalg.norm(ist.residual.to_numpy())
-        if ist.ite == 0:
-            dualr0 = dualr.copy()
-        toc = time.perf_counter()
-        s = f"{ist.frame}-{ist.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s"
-        if args.calc_energy:
-            ist.calc_energy()
-            s+= f" energy: {ist.energy:.2e}"
-        logging.info(s)
-        r.append(ist.ResidualData(dualr, 0, toc-tic))
-        if dualr < args.tol:
-            logging.info("Converge: tol")
-            break
-        if dualr / dualr0 < args.rtol:
-            logging.info("Converge: rtol")
-            break
-        if is_diverge(r, None, ist):
-            raise ValueError("Diverge detected")
-    collision_response(ist.pos, ist.old_pos, ist.ground_pos)
-    ist.n_outer_all.append(ist.ite+1)
-    update_vel(args.delta_t, ist.pos, ist.old_pos, ist.vel)
-
-
-# ---------------------------------------------------------------------------- #
-#                               directly  fill A                               #
-# ---------------------------------------------------------------------------- #
-def init_adj_ele(eles):
-    vertex_to_eles = {}
-    for ele_index, (v1, v2, v3, v4) in enumerate(eles):
-        if v1 not in vertex_to_eles:
-            vertex_to_eles[v1] = set()
-        if v2 not in vertex_to_eles:
-            vertex_to_eles[v2] = set()
-        if v3 not in vertex_to_eles:
-            vertex_to_eles[v3] = set()
-        if v4 not in vertex_to_eles:
-            vertex_to_eles[v4] = set()
-        
-        vertex_to_eles[v1].add(ele_index)
-        vertex_to_eles[v2].add(ele_index)
-        vertex_to_eles[v3].add(ele_index)
-        vertex_to_eles[v4].add(ele_index)
-
-    all_adjacent_eles = {}
-
-    for ele_index in range(len(eles)):
-        v1, v2, v3, v4 = eles[ele_index]
-        adjacent_eles = vertex_to_eles[v1] | vertex_to_eles[v2] | vertex_to_eles[v3] | vertex_to_eles[v4]
-        adjacent_eles.remove(ele_index)  # 移除本身
-        all_adjacent_eles[ele_index] = list(adjacent_eles)
-    return all_adjacent_eles, vertex_to_eles
-
-
-def init_adj_ele_ti(eles):
-    eles = eles
-    nele = eles.shape[0]
-    v2e = ti.field(dtype=ti.i32, shape=(nele, 200))
-    nv2e = ti.field(dtype=ti.i32, shape=nele)
-
-    @ti.kernel
-    def calc_vertex_to_eles_kernel(eles: ti.template(), v2e: ti.template(), nv2e: ti.template()):
-        # v2e: vertex to element
-        # nv2e: number of elements sharing the vertex
-        for e in range(eles.shape[0]):
-            v1, v2, v3, v4 = eles[e]
-            for v in ti.static([v1, v2, v3, v4]):
-                k = nv2e[v]
-                v2e[v, k] = e
-                nv2e[v] += 1
-
-    calc_vertex_to_eles_kernel(eles, v2e, nv2e)
-    # v2e = v2e.to_numpy()
-    # nv2e = nv2e.to_numpy()
-
-# transfer one-to-multiple map dict to ndarray
-def dict_to_ndarr(d:dict)->np.ndarray:
-    lengths = np.array([len(v) for v in d.values()])
-    max_len = max(lengths)
-    arr = np.ones((len(d), max_len), dtype=np.int32) * (-1)
-    for i, (k, v) in enumerate(d.items()):
-        arr[i, :len(v)] = v
-    return arr, lengths
-
-
-def init_A_CSR_pattern(num_adj, adj):
-    nrows = len(num_adj)
-    nonz = np.sum(num_adj)+nrows
-    indptr = np.zeros(nrows+1, dtype=np.int32)
-    indices = np.zeros(nonz, dtype=np.int32)
-    data = np.zeros(nonz, dtype=np.float32)
-    indptr[0] = 0
-    for i in range(0,nrows):
-        num_adj_i = num_adj[i]
-        indptr[i+1]=indptr[i] + num_adj_i + 1
-        indices[indptr[i]:indptr[i+1]-1]= adj[i][:num_adj_i]
-        indices[indptr[i+1]-1]=i
-    assert indptr[-1] == nonz
-    return data, indices, indptr
-
-
-def csr_index_to_coo_index(indptr, indices):
-    ii, jj = np.zeros_like(indices), np.zeros_like(indices)
-    nrows = len(indptr)-1
-    for i in range(nrows):
-        ii[indptr[i]:indptr[i+1]]=i
-    jj[:]=indices[:]
-    return ii, jj
-
-
-def initFill_tocuda(ist):
-    extlib.fastFillSoft_init_from_python_cache_lessmem.argtypes = [c_int]*2  + [arr_float] + [arr_int]*3 + [c_int]
-
-    extlib.fastFillSoft_init_from_python_cache_lessmem(
-            ist.NT,
-            ist.MAX_ADJ,
-            ist.spmat_data,
-            ist.spmat_indices,
-            ist.spmat_indptr,
-            ist.ii,
-            ist.nnz)
-    extlib.fastFillSoft_set_data(ist.tet_indices.to_numpy(), ist.NT, ist.inv_mass.to_numpy(), ist.NV, ist.pos.to_numpy(), ist.alpha_tilde.to_numpy())
-
-
-def mem_usage():
-    # 内存占用
-    # 将字节转换为GB
-    def bytes_to_gb(bytes):
-        return bytes / (1024 ** 3)
-
-    data_memory_gb = bytes_to_gb(ist.spmat_data.nbytes)
-    indices_memory_gb = bytes_to_gb(ist.spmat_indices.nbytes)
-    indptr_memory_gb = bytes_to_gb(ist.spmat_indptr.nbytes)
-    ii_memory_gb = bytes_to_gb(ist.ii.nbytes)
-    total_memory_gb = (data_memory_gb + indices_memory_gb + indptr_memory_gb + ii_memory_gb)
-
-    # 打印每个数组的内存占用和总内存占用（GB）
-    print(f"data memory: {data_memory_gb:.2f} GB")
-    print(f"indices memory: {indices_memory_gb:.2f} GB")
-    print(f"indptr memory: {indptr_memory_gb:.2f} GB")
-    print(f"ii memory: {ii_memory_gb:.2f} GB")
-    print(f"Total memory: {total_memory_gb:.2f} GB")
-
-
-def init_direct_fill_A(ist):
-    cache_file_name = f'cache_initFill_{os.path.basename(args.model_path)}.npz'
-    if args.use_cache and os.path.exists(cache_file_name):
-        tic = perf_counter()
-        print(f"Found cache {cache_file_name}. Loading cached data...")
-        npzfile = np.load(cache_file_name)
-        ist.spmat_data = npzfile['data']
-        ist.spmat_indices = npzfile['indices']
-        ist.spmat_indptr = npzfile['indptr']
-        ist.ii = npzfile['ii']
-        ist.nnz = int(npzfile['nnz'])
-        ist.jj = ist.spmat_indices # No need to save jj,  indices is the same as jj
-        ist.MAX_ADJ = int(npzfile['MAX_ADJ'])
-        print(f"MAX_ADJ: {ist.MAX_ADJ}")
-        mem_usage()
-        if args.use_cuda:
-            initFill_tocuda(ist)
-        print(f"Loading cache time: {perf_counter()-tic:.3f}s")
-        return
-
-    print(f"No cached data found, initializing...")
-
-    tic1 = perf_counter()
-    print("Initializing adjacent elements and abc...")
-    adjacent, v2e = init_adj_ele(eles=ist.tet_indices.to_numpy())
-    # adjacent = init_adj_ele_ti(eles=ist.tet_indices)
-    num_adjacent = np.array([len(v) for v in adjacent.values()])
-    AVG_ADJ = np.mean(num_adjacent)
-    ist.MAX_ADJ = max(num_adjacent)
-    print(f"MAX_ADJ: {ist.MAX_ADJ}")
-    print(f"AVG_ADJ: {AVG_ADJ}")
-    print(f"init_adjacent time: {perf_counter()-tic1:.3f}s")
-
-    tic = perf_counter()
-    ist.spmat_data, ist.spmat_indices, ist.spmat_indptr = init_A_CSR_pattern(num_adjacent, adjacent)
-    ist.ii, ist.jj = csr_index_to_coo_index(ist.spmat_indptr, ist.spmat_indices)
-    ist.nnz = len(ist.spmat_data)
-    # nnz_each_row = num_adjacent[:] + 1
-    print(f"init_A_CSR_pattern time: {perf_counter()-tic:.3f}s")
-    
-    tic = perf_counter()
-    adjacent,_ = dict_to_ndarr(adjacent)
-    print(f"dict_to_ndarr time: {perf_counter()-tic:.3f}s")
-
-    tic = perf_counter()
-    print(f"init_adj_share_v time: {perf_counter()-tic:.3f}s")
-    print(f"initFill done")
-
-    mem_usage()
-
-    if args.use_cache:
-        print(f"Saving cache to {cache_file_name}...")
-        np.savez(cache_file_name, data=ist.spmat_data, indices=ist.spmat_indices, indptr=ist.spmat_indptr, ii=ist.ii, nnz=ist.nnz, MAX_ADJ=ist.MAX_ADJ)
-        print(f"{cache_file_name} saved")
-    if args.use_cuda:
-        initFill_tocuda(ist)
 
 
 def fill_A_csr_ti(ist):
@@ -1042,105 +866,38 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
 
 
 # ---------------------------------------------------------------------------- #
-#                             start graph coloring                             #
+#                          strain, energy, primal etc.                         #
 # ---------------------------------------------------------------------------- #
-# version 1, hand made. It is slow. By Wang Ruiqi.
-# Input: .ele file
-def graph_coloring_v1():
-    extlib.graph_coloring.argtypes = [ctypes.c_char_p, arr_int ]
-    extlib.restype = c_int
-    colors = np.zeros(ist.NT, dtype=np.int32)
-    abs_path = os.path.abspath(args.model_path)
-    abs_path = abs_path.replace(".node", ".ele")
-    model = abs_path.encode('ascii')
-    tic = perf_counter()
-    ncolor = extlib.graph_coloring(model, colors)
-    print(f"ncolor: {ncolor}")
-    print("colors of tets:",colors)
-    print(f"graph_coloring_v1 time: {perf_counter()-tic:.3f}s")
-    return ncolor, colors
+@ti.kernel
+def calc_strain_kernel(
+):
+# TODO: implement calc_strain_kernel
+    pass 
+        
+
+def calc_strain()->float:
+    calc_strain_kernel()
+    ist.max_strain = np.max(ist.strain.to_numpy())
+    return ist.max_strain
 
 
-# version 2, use pyamg.
-# Input: CSR matrix(symmetric)
-# This is called in AMG_setup_phase()
-def graph_coloring_v2():
-    has_colored_L = [False]*ist.num_levels
-    dir = str(Path(args.model_path).parent)
-    for lv in range(ist.num_levels):
-        path = dir+f'/coloring_L{lv}.txt'
-        has_colored_L[lv] =  os.path.exists(path)
-    has_colored = all(has_colored_L)
-    if not has_colored:
-        has_colored = True
-    else:
-        return
 
-    from pyamg.graph import vertex_coloring
-    tic = perf_counter()
-    for i in range(ist.num_levels):
-        print(f"level {i}")
-        Ai = fetch_A_from_cuda(i)
-        colors = vertex_coloring(Ai)
-        ncolor = np.max(colors)+1
-        print(f"ncolor: {ncolor}")
-        print("colors:",colors)
-        np.savetxt(dir + f"/color_L{i}.txt", colors, fmt="%d")
-        graph_coloring_to_cuda(ncolor, colors, i)
-    print(f"graph_coloring_v2 time: {perf_counter()-tic:.3f}s")
-    return ncolor, colors
+def calc_primary_residual(G,M_inv):
+    MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
+    primary_residual = MASS @ (ist.pos.to_numpy().flatten() - ist.predict_pos.to_numpy().flatten()) - G.transpose() @ ist.lagrangian.to_numpy()
+    where_zeros = np.where(M_inv.diagonal()==0)
+    primary_residual = np.delete(primary_residual, where_zeros)
+    return primary_residual
 
 
-# version 3, use newtworkx.
-# Input: CSR matrix(symmetric)
-# This is called in AMG_setup_phase()
-def graph_coloring_v3(A):
-    import networkx as nx
-    tic = perf_counter()
-    net = nx.from_scipy_sparse_array(A)
-    colors = nx.coloring.greedy_color(net)
-    # change colors from dict to numpy array
-    colors = np.array([colors[i] for i in range(len(colors))])
-    ncolor = np.max(colors)+1
-    print(f"ncolor: {ncolor}")
-    print("colors:",colors)
-    print(f"graph_coloring_v3 time: {perf_counter()-tic:.3f}s")
-    return ncolor, colors
+def calc_primal():
+    G = fill_G()
+    primary_residual = calc_primary_residual(G, ist.M_inv)
+    primal_r = np.linalg.norm(primary_residual).astype(float)
+    Newton_r = np.linalg.norm(np.concatenate((ist.dual_residual.to_numpy(), primary_residual))).astype(float)
+    return primal_r, Newton_r
 
 
-# read the color.txt
-# Input: color.txt file path
-def graph_coloring_read():
-    model_dir = Path(args.model_path).parent
-    path = model_dir / "color.txt"
-    tic = perf_counter()
-
-    require_process = True
-    if require_process: #ECL_GC, # color.txt is nx3, left is node index, right is color
-        colors_raw = np.loadtxt(path, dtype=np.int32, skiprows=1)
-        # colors = colors_raw[:,0:2] # get first and third column
-        # sort by node index
-        sorted_indices = np.argsort(colors_raw[:, 0])
-        sorted_colors = colors_raw[sorted_indices]
-        colors = sorted_colors[:, 2]
-    else: # ruiqi, no need to process
-        colors = np.loadtxt(path, dtype=np.int32)
-
-    ncolor = np.max(colors)+1
-    print(f"ncolor: {ncolor}")
-    print("colors:",colors)
-    print(f"graph_coloring_read time: {perf_counter()-tic:.3f}s")
-
-
-    graph_coloring_to_cuda(ncolor, colors,0)
-
-    return ncolor, colors
-
-
-def graph_coloring_to_cuda(ncolor, colors, lv):
-    colors = np.ascontiguousarray(colors)
-    extlib.fastmg_set_colors.argtypes = [arr_int, c_int, c_int, c_int]
-    extlib.fastmg_set_colors(colors, colors.shape[0], ncolor, lv)
 
 # ---------------------------------------------------------------------------- #
 #                              end graph coloring                              #
@@ -1174,101 +931,57 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
     A = fetch_A_from_cuda(0)
     return A
 
+
+
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
-def main():
-    tic = perf_counter()
-    process_dirs(args)
-
-    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=args.out_dir + f'/{str(Path(args.out_dir).name)}.log',filemode='a')
-    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-
-    # logger2 = logging.getLogger('logger2')
-    # logger2.addHandler(logging.FileHandler(args.out_dir + f'/build_P_time.log', 'a'))
-
-    logging.info(args)
-
-    if args.use_cuda:
-        global extlib
-        extlib = init_extlib(args,sim="soft")
-
-    global ist
-    ist = SoftBody(args.model_path)
-    ist.initialize()
-    args.frame = ist.frame
-    args.ite = ist.ite
-
-    ist.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    logging.info(ist.start_date)
-
-    if args.export_mesh:
-        write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
-
-    if args.solver_type != "XPBD":
-        init_direct_fill_A(ist)
-
-    global amg
+def init_linear_solver():
     if args.solver_type == "AMG":
+        from engine.soft.graph_coloring import graph_coloring_v2
+        def gc():
+            return graph_coloring_v2(fetch_A_from_cuda, ist.num_levels, extlib, ist.model_path)
+        
         if args.use_cuda:
-            amg = AmgCuda(
+            linsol = AmgCuda(
                 args=args,
                 extlib=extlib,
                 get_A0=get_A0_cuda,
                 should_setup=should_setup,
-                AMG_A=AMG_A,
-                graph_coloring=graph_coloring_v2,
+                fill_A_in_cuda=AMG_A,
+                graph_coloring=gc,
                 copy_A=True,
             )
         else:
-            amg = AmgPython(args, get_A0_python, should_setup)
-    if args.solver_type == "AMGX":
-        amg = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
-        amg.init()
-        ist.amgxsolver = amg
+            linsol = AmgPython(args, get_A0_python, should_setup)
+    elif args.solver_type == "AMGX":
+        linsol = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
+    elif args.solver_type == "DIRECT":
+        linsol = DirectSolver(get_A0_python)
+    elif args.solver_type == "XPBD":
+        linsol=None
+    else:
+        linsol=None
+    return linsol
 
 
+
+def init():
+    tic = perf_counter()
+    process_dirs(args)
+    init_logger(args)
+    global extlib
+    extlib = init_extlib(args,sim="soft")
+    global ist
+    ist = SoftBody(args.model_path)
     print(f"initialize time:", perf_counter()-tic)
-    ist.initial_frame = ist.frame
-    ist.t_export_total = 0.0
 
-    ist.timer_loop = perf_counter()
-    step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.initial_frame)
-    try:
-        while True:
-            info("\n\n----------------------")
-            info(f"frame {ist.frame}")
-            t = perf_counter()
-            ist.t_export = 0.0
 
-            if args.solver_type == "XPBD":
-                substep_xpbd(ist)
-            else:
-                substep_all_solver(ist)
-            ist.frame += 1
 
-            if args.export_mesh:
-                tic = perf_counter()
-                write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", ist.pos.to_numpy(), ist.model_tri)
-                ist.t_export += perf_counter() - tic
-
-            ist.t_export_total += ist.t_export
-
-            info(f"step time: {perf_counter() - t:.2f} s")
-            step_pbar.update(1)
-
-            if ist.frame >= args.end_frame:
-                print("Normallly end.")
-                ending(args,ist)
-                exit()
-    except KeyboardInterrupt:
-        ending(args,ist)
-        exit()
-    except Exception as e:
-        if args.solver_type == "AMGX":
-            amgxsolver.finalize()
-        logging.exception(f"Exception occurred:\n{e} ")
-        raise e
+def main():
+    init()
+    from engine.util import main_loop
+    main_loop(ist,args)
 
 if __name__ == "__main__":
     main()

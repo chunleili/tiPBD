@@ -2,32 +2,53 @@ import logging
 import numpy as np
 import time
 import ctypes
+import scipy
 
 class AmgCuda:
-    def __init__(self, args,  extlib, get_A0, AMG_A, should_setup, graph_coloring=None, copy_A=True):
+    """
+    AmgCuda 类用于在 CUDA 上运行 AMG 算法。
+
+    Examples
+    --------
+    see test_amg_cuda()
+    """
+    def __init__(self, args, extlib, get_A0, fill_A_in_cuda, should_setup, graph_coloring=None, copy_A=True):
+        """
+        Initialize an instance of the AmgCuda class.
+
+        Parameters
+        ----------
+        args : Command line arguments or configuration object.
+
+        extlib : External library object for calling CUDA functions.
+
+        get_A0 : Function pointer for obtaining the matrix A0.
+
+        fill_A_in_cuda : Function pointer for filling the matrix on the CUDA side.
+
+        should_setup : Function pointer to determine if setup is needed.
+
+        graph_coloring : Graph coloring object (optional).
+
+        copy_A : Boolean indicating whether to copy the matrix A (default is True).
+        """
         self.args = args
         self.extlib = extlib
         self.copy_A = copy_A
-        
+
         # TODO: for now, we pass func ptr to distinguish between soft and cloth
         self.get_A0 = get_A0
-        self.AMG_A = AMG_A
+        self.fill_A_in_cuda = fill_A_in_cuda
         self.graph_coloring = graph_coloring
         self.should_setup = should_setup
-        self.frame = args.frame
-    
 
     def run(self, b):
         if self.should_setup():
             A = self.AMG_setup_phase()
-            if self.args.export_matrix:
-                from engine.file_utils import  export_A_b
-                export_A_b(A, b, dir=self.args.out_dir + "/A/", postfix=f"F{self.frame}",binary=self.args.export_matrix_binary)
-        self.AMG_A()
+        self.fill_A_in_cuda()
         self.AMG_RAP()
         x, r_Axb = self.AMG_solve(b, maxiter=self.args.maxiter_Axb, tol=self.args.tol_Axb)
         return x, r_Axb
-    
 
     def AMG_solve(self, b, x0=None, tol=1e-5, maxiter=100):
         if x0 is None:
@@ -55,7 +76,6 @@ class AmgCuda:
         logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
         return (x),  residuals  
 
-
     def AMG_RAP(self):
         tic3 = time.perf_counter()
         for lv in range(self.num_levels-1):
@@ -64,7 +84,7 @@ class AmgCuda:
 
     def update_P(self,Ps):
         for lv in range(len(Ps)):
-            P_ = Ps[lv]
+            P_ = (Ps[lv]).tocsr()
             self.extlib.fastmg_set_P(lv, P_.data.astype(np.float32), P_.indices, P_.indptr, P_.shape[0], P_.shape[1], P_.nnz)
 
     def cuda_set_A0(self,A0):
@@ -92,7 +112,7 @@ class AmgCuda:
 
         tic = time.perf_counter()
         self.cuda_set_A0(A)
-        
+
         self.AMG_RAP()
 
         self.setup_smoothers()
@@ -121,4 +141,3 @@ def smoother_name2type(name):
         return 3
     else:
         raise ValueError(f"smoother name {name} not supported")
-    

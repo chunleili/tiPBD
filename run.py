@@ -1763,30 +1763,6 @@ def get_date():
     return datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
 
 
-def get_gpu_mem_usage():
-    import pynvml
-    pynvml.nvmlInit()
-    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-    meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
-    used_memory = meminfo.used
-    total_memory = meminfo.total
-    usage = (used_memory / total_memory)
-    pynvml.nvmlShutdown()
-
-    with open("result/meta/gpu_mem_usage.txt", "a") as f:
-        f.write(f"{get_date()} usage:{usage*100:.1f}% mem:{used_memory/1024**3:.2f}\n")
-    if usage > 0.70:
-        logging.exception(f"GPU memory usage is too high: {usage*100:.1f}%")
-        raise Exception(f"GPU memory usage is too high: {usage*100:.1f}%")
-    return usage
-
-
-def monitor_gpu_usage(interval=60):
-    while True:
-        get_gpu_mem_usage()
-        time.sleep(interval)
-
-
 # python run.py -end_frame=10 -cases  63 64 65 66 67 68 | Tee-Object -FilePath "output.log"
 if __name__=='__main__':
     Path("result/meta/").mkdir(parents=True, exist_ok=True)
@@ -1795,12 +1771,6 @@ if __name__=='__main__':
     logging.basicConfig(level=logging.INFO, format="%(message)s",filename=f'result/meta/batch_run.log',filemode='a')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
-    # pid = os.getpid()
-    # logging.info(f"process PPID: {pid}")
-    # # 启动 GPU 使用监控线程
-    # monitor_thread = multiprocessing.Process(target=monitor_gpu_usage)
-    # monitor_thread.daemon = True
-    # monitor_thread.start()
 
     date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
     last_run = " ".join(sys.argv)

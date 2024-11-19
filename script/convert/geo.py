@@ -6,11 +6,12 @@ import os
 import sys
 import numpy as np
 import argparse
+from pathlib import Path
 
 sys.path.append(os.getcwd())
 
 parser = argparse.ArgumentParser(description='Convert VTK to PLY')
-parser.add_argument('-input', type=str, help='Input VTK file')
+parser.add_argument('-input', type=str, default="", help='Input VTK file')
 args = parser.parse_args()
 
 from dataclasses import dataclass
@@ -123,6 +124,12 @@ class Geo:
         self.pointref = self._pairListToDict(self.topology['pointref'])
 
         self.attributes = self._pairListToDict(self.attributes)
+
+
+        self.parse_vert()
+        self.parse_pointattributes()
+
+
         print("Finish reading geo file: ", filePath)
     
     @staticmethod
@@ -137,7 +144,7 @@ class Geo:
             self.output = str(Path(self.input).parent) + "/" + str(Path(self.input).stem) + ".geo"
 
         with open(self.output, "w") as f:
-            json.dump(self.rawgeo, f)
+            json.dump(self.raw, f)
         print("Finish writing geo file: ", self.output)
 
 
@@ -158,6 +165,47 @@ class Geo:
         self.primitivecount = len(tri)
         self.indices = tri.flatten()
 
+    def parse_gluetoaniamtion(self):
+        # TODO: hard code
+        self.gluetoanimation=self.raw[15][1][8][1][7][5][0]
+        return self.gluetoanimation
+    
+    def parse_vert(self):
+        self.indices = self.pointref['indices']
+        self.NVERT_ONE_CONS = len(self.indices)//self.primitivecount
+        self.NCONS = self.primitivecount
+        self.vert = np.array(self.indices).reshape(self.NCONS, self.NVERT_ONE_CONS).tolist()
+        return self.vert
+    
+    def get_vert(self):
+        return self.vert
+
+    def parse_pointattributes(self):
+        self.pointattributes = self.attributes['pointattributes']
+        class AttributeValue:
+            None
+        class PointAttr:
+            None
+        # parse point attributes
+        allPointAttr = []
+        for i in range(len(self.pointattributes)):
+            attrRaw0 = self.pointattributes[i][0] #metadata
+            a = PointAttr()
+            for name,item in zip(attrRaw0[0::2],attrRaw0[1::2]):
+                a.__setattr__(name,item)
+
+            attrRaw1 = self.pointattributes[i][1] #data
+            for name,item in zip(attrRaw1[0::2],attrRaw1[1::2]):
+                a.__setattr__(name,item)
+
+            if a.name == "P":
+                self.positions = a.values[5]
+            allPointAttr.append(a)
+        return self.positions
+
+    def get_pos(self):
+        return self.positions
+
     
 class Polygon(object):
     def __init__(self,indices,closed=False):
@@ -168,10 +216,25 @@ def read_geo(input):
     geo = Geo(input)
     return geo
 
-
-if __name__ == '__main__':
-    from pathlib import Path
+def test_geo_vtk():
     dir = str(Path(__file__).parent) + "/"
     geo = read_geo(dir+"sample_in.geo")
     geo.read_vtk(dir+"sample.vtk")
     geo.write("sample_out.geo")
+
+
+def test_animation():
+    dir = str(Path(__file__).parent.parent.parent) + "/" + "data/model/pintoanimation/"
+    geo = read_geo(dir+"physdata_78.geo")
+    pin = geo.parse_gluetoaniamtion()
+    vert = geo.get_vert()
+    pos = geo.get_pos()
+    pos[0] = [0,0,0]
+    pos[1] = [0,0,0]
+    pos[2] = [0,0,0]
+    geo.set_positions(pos)
+    geo.write(dir+"physdata_78_out.geo")
+    
+
+if __name__ == '__main__':
+    test_animation()

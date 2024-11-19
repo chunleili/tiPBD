@@ -25,7 +25,7 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import calc_norm, ResidualDataOneFrame, ResidualDataAllFrame, ResidualDataOneIter, do_post_iter, init_logger, timeit
+from engine.util import calc_norm,  ResidualDataOneIter, do_post_iter, init_logger, timeit
 from engine.physical_base import PhysicalBase
 
 parser = argparse.ArgumentParser()
@@ -71,8 +71,6 @@ c_int = ctypes.c_int
 class SoftBody(PhysicalBase):
     def __init__(self, mesh_file):
         super().__init__()
-        self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        logging.info(self.start_date)
 
         self.r_iter = ResidualDataOneIter(
                         calc_dual   = self.calc_dual,
@@ -86,6 +84,11 @@ class SoftBody(PhysicalBase):
                                     )
 
         self.args = args
+        self.delta_t = args.delta_t
+        self.omega = args.omega
+        self.gravity = ti.Vector(args.gravity)
+        self.damping_coeff = args.damping_coeff
+
 
         dir = str(Path(mesh_file).parent.stem)
         self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
@@ -94,12 +97,12 @@ class SoftBody(PhysicalBase):
         self.NCONS = self.NT
         self.allocate_fields(self.NV, self.NT)
 
+        self.force = np.zeros((self.NV, 3), dtype=np.float32)
+
+
         self.state = [self.pos,]
 
-        self.n_outer_all = []
-        self.t_avg_iter=[]
-        self.ResidualData = namedtuple('residual', ['dual', 'ninner','t']) #residual for one outer iter
-        self.all_stalled = []
+
         self.initialize()
 
         if args.export_mesh:
@@ -205,20 +208,15 @@ class SoftBody(PhysicalBase):
 
         self.alpha_tilde_np = self.alpha_tilde.to_numpy()
 
-
-    def calc_dual(self):
-        calc_dual_kernel(self.dual_residual, self.lagrangian, self.constraints, self.dual_residual)
-        dual = calc_norm(self.dual_residual)
-        return dual
-
-    def calc_primal_imply(self,G,M_inv):
-        MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()), format="csr")
-        primary_residual = MASS @ (self.pos.to_numpy().flatten() - self.predict_pos.to_numpy().flatten()) - G.transpose() @ self.lagrangian.to_numpy()
-        where_zeros = np.where(M_inv.diagonal()==0)
-        primary_residual = np.delete(primary_residual, where_zeros)
-        return primary_residual
+    # calc_dual use the base class's
 
     def calc_primal(self):
+        def calc_primal_imply(self,G,M_inv):
+            MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()), format="csr")
+            primary_residual = MASS @ (self.pos.to_numpy().flatten() - self.predict_pos.to_numpy().flatten()) - G.transpose() @ self.lagrangian.to_numpy()
+            where_zeros = np.where(M_inv.diagonal()==0)
+            primary_residual = np.delete(primary_residual, where_zeros)
+            return primary_residual
         G = fill_G()
         primary_residual = self.calc_primal_imply(G, self.M_inv)
         primal_r = np.linalg.norm(primary_residual).astype(float)
@@ -237,32 +235,19 @@ class SoftBody(PhysicalBase):
         return self.max_strain
     
     def update_constraints(self):
-        update_constraints_kernel(ist.pos, ist.tet_indices, ist.B, ist.constraints)
+        update_constraints_kernel(self.pos, self.tet_indices, self.B, self.constraints)
 
-    def calc_energy(self):
-        # print(f"constraint: {np.linalg.norm(self.constraint.to_numpy()):.8e}")
-        compute_potential_energy(self.potential_energy,self.alpha_tilde, self.constraints, args.delta_t)
-        compute_inertial_energy(self.inertial_energy, self.inv_mass, self.pos_mid, self.predict_pos, args.delta_t)
-        self.energy = (self.potential_energy[None]+self.inertial_energy[None])
-        # print(f"potential_energy: {self.potential_energy[None]:.8e}, inertial_energy: {self.inertial_energy[None]:.8e}")
-        return self.energy
+    # calc_energy use the base class's 
     
-    def semi_euler(self):
-        gravity = ti.Vector(args.gravity)
-        semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, gravity)
-
     def compute_C_and_gradC(self):
         compute_C_and_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.constraints, self.gradC)
 
     @timeit
     def dlam2dpos(self,dlam):
-        ist.dlambda.from_numpy(dlam)
-        reset_dpos(ist.dpos)
-        dlam2dpos_kernel(ist.gradC, ist.tet_indices, ist.inv_mass, ist.dlambda, ist.lagrangian, ist.dpos)
-        update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
-
-    def update_vel(self):
-        update_vel_kernel(args.delta_t, self.pos, self.old_pos, self.vel)
+        self.dlambda.from_numpy(dlam)
+        self.dpos.fill(0.0)
+        dlam2dpos_kernel(self.gradC, self.tet_indices, self.inv_mass, self.dlambda, self.lagrangian, self.dpos)
+        self.update_pos()
 
     def compute_b(self):
         b = -self.constraints.to_numpy() - self.alpha_tilde_np * self.lagrangian.to_numpy()
@@ -289,7 +274,7 @@ class SoftBody(PhysicalBase):
         self.pos_mid.from_numpy(self.pos.to_numpy())
         self.compute_C_and_gradC()
         self.b = self.compute_b()
-        dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
+        dlam, self.r_iter.r_Axb = self.linsol.run(self.b)
         self.dlam2dpos(dlam)
 
     @timeit
@@ -368,7 +353,7 @@ class SoftBody(PhysicalBase):
 
 
 
-        dlam, self.r_iter.r_Axb = ist.linsol.run(self.b)
+        dlam, self.r_iter.r_Axb = self.linsol.run(self.b)
         self.dlam2dpos(dlam)
 
     @timeit
@@ -376,7 +361,7 @@ class SoftBody(PhysicalBase):
         self.pos_mid.from_numpy(self.pos.to_numpy())
         self.compute_C_and_gradC()
         self.b = self.compute_b()
-        x, self.r_iter.r_Axb = ist.linsol.run(self.b)
+        x, self.r_iter.r_Axb = self.linsol.run(self.b)
         self.dlam2dpos(x)
 
     def solveSoft(self):
@@ -396,37 +381,30 @@ class SoftBody(PhysicalBase):
             do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():
                 break
-        collision_response(self.pos, self.old_pos, self.ground_pos)
+        self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
 
     def substep_xpbd(self):
-        gravity = ti.Vector(args.gravity)
-        semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, gravity)
-        reset_lagrangian(self.lagrangian)
-        r=[]
+        self.semi_euler()
+        self.lagrangian.fill(0)
+        self.do_pre_iter0()
         for self.ite in range(args.maxiter):
-            tic = time.perf_counter()
+            self.r_iter.tic_iter = perf_counter()
             self.project_arap_xpbd()
-            collision_response(self.pos, self.old_pos, self.ground_pos)
-            calc_dual_kernel(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
-            dualr = np.linalg.norm(self.residual.to_numpy())
-            if self.ite == 0:
-                dualr0 = dualr.copy()
-            toc = time.perf_counter()
-            logging.info(f"{self.frame}-{self.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
-            r.append(self.ResidualData(dualr, 0, toc-tic))
-            if dualr < args.tol:
-                logging.info("Converge: tol")
+            self.do_post_iter_xpbd()
+            if self.r_iter.check():
                 break
-            if dualr / dualr0 < args.rtol:
-                logging.info("Converge: rtol")
-                break
+        self.collision_response()
         self.n_outer_all.append(self.ite+1)
-        update_vel_kernel(args.delta_t, self.pos, self.old_pos, self.vel)
+        self.update_vel()
 
-
-
+    def do_post_iter_xpbd(self):
+        # self.update_constraints()
+        self.r_iter.calc_r(self.frame,self.ite, self.r_iter.tic_iter)
+        self.r_all.t_export += self.r_iter.t_export
+        self.r_iter.t_export = 0.0
+        # logging.info(f"iter time(with export): {(perf_counter()-self.r_iter.tic_iter)*1000:.0f}ms")
 
 # ---------------------------------------------------------------------------- #
 #                                    kernels                                   #
@@ -507,10 +485,6 @@ def init_physics(
         par_2_tet[ia], par_2_tet[ib], par_2_tet[ic], par_2_tet[id] = i, i, i, i
 
 
-@ti.kernel
-def reset_lagrangian(lagrangian: ti.template()):
-    for i in lagrangian:
-        lagrangian[i] = 0.0
 
 
 @ti.func
@@ -570,29 +544,6 @@ def compute_gradient(U, S, V, B):
     g3 = dFdp3T @ dcdF
     g0 = -g1 - g2 - g3
     return g0, g1, g2, g3
-
-
-@ti.kernel
-def semi_euler_kernel(
-    delta_t: ti.f32,
-    pos: ti.template(),
-    predict_pos: ti.template(),
-    old_pos: ti.template(),
-    vel: ti.template(),
-    damping_coeff: ti.f32,
-    gravity: ti.template(),
-):
-    for i in pos:
-        old_pos[i] = pos[i]
-        vel[i] += damping_coeff* delta_t * gravity
-        pos[i] += delta_t * vel[i]
-        predict_pos[i] = pos[i]
-
-
-@ti.kernel
-def update_vel_kernel(delta_t: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
-    for i in pos:
-        vel[i] = (pos[i] - old_pos[i]) / delta_t
 
 
 
@@ -706,26 +657,15 @@ def project_arap_xpbd_kernel(
 
 
 
-# ground collision response
-@ti.kernel
-def collision_response(pos: ti.template(), old_pos:ti.template(), ground_pos: ti.f32):
-    for i in pos:
-        if args.use_ground_collision:
-            if pos[i][1] < ground_pos:
-                pos[i] = old_pos[i]
-                pos[i][1] = ground_pos
 
-
-def reset_dpos(dpos):
-    dpos.fill(0.0)
 
 @ti.kernel
-def dlam2dpos_kernel(                   gradC:ti.template(),
-                                      tet_indices:ti.template(),
-                                        inv_mass:ti.template(),
-                                        dlambda:ti.template(),
-                                        lagrangian:ti.template(),
-                                        dpos:ti.template()
+def dlam2dpos_kernel(gradC:ti.template(),
+                     tet_indices:ti.template(),
+                     inv_mass:ti.template(),
+                     dlambda:ti.template(),
+                     lagrangian:ti.template(),
+                     dpos:ti.template()
 
 ):
     for i in range(tet_indices.shape[0]):
@@ -735,51 +675,6 @@ def dlam2dpos_kernel(                   gradC:ti.template(),
         dpos[idx1] += inv_mass[idx1] * dlambda[i] * gradC[i, 1]
         dpos[idx2] += inv_mass[idx2] * dlambda[i] * gradC[i, 2]
         dpos[idx3] += inv_mass[idx3] * dlambda[i] * gradC[i, 3]
-
-@ti.kernel
-def update_pos(
-    inv_mass:ti.template(),
-    dpos:ti.template(),
-    pos:ti.template(),
-    omega:ti.f32
-):
-    for i in range(inv_mass.shape[0]):
-        if inv_mass[i] != 0.0:
-            pos[i] += omega * dpos[i]
-
-
-
-@ti.kernel
-def compute_potential_energy(potential_energy:ti.template(),
-                             alpha_tilde:ti.template(),
-                             constraints:ti.template(),
-                             delta_t:ti.f32):
-    potential_energy[None] = 0.0
-    for i in range(constraints.shape[0]):
-        inv_alpha = 1.0/(alpha_tilde[i]*delta_t*delta_t) #CAUTION! not alpha tilde!
-        potential_energy[None] += 0.5 * inv_alpha * constraints[i]**2
-
-@ti.kernel
-def compute_inertial_energy(inertial_energy:ti.template(),
-                            inv_mass:ti.template(),
-                            pos:ti.template(),
-                            predict_pos:ti.template(),
-                            delta_t:ti.f32):
-    inertial_energy[None] = 0.0
-    inv_h2 = 1.0 / delta_t**2
-    for i in range(pos.shape[0]):
-        if inv_mass[i] != 0.0:
-            inertial_energy[None] += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
-
-
-@ti.kernel
-def calc_dual_kernel(alpha_tilde:ti.template(),
-                       lagrangian:ti.template(),
-                       constraints:ti.template(),
-                       dual_residual:ti.template()):
-    for i in range(dual_residual.shape[0]):
-        dual_residual[i] = -(constraints[i] + alpha_tilde[i] * lagrangian[i])
-
 
 # ---------------------------------------------------------------------------- #
 #                                    fill A                                    #

@@ -2,9 +2,11 @@
 
 import taichi as ti
 import datetime, logging
+import numpy as np
 
 from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter
 from engine.physical_data import PhysicalData
+from engine.ti_kernels import *
 @ti.data_oriented
 class PhysicalBase:
     def __init__(self) -> None:
@@ -16,6 +18,21 @@ class PhysicalBase:
         self.r_all = ResidualDataAllFrame([],[])
         self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         logging.info(f"start date:{self.start_date}")
+
+    
+    
+    def update_pos(self):
+        update_pos_kernel(self.inv_mass, self.dpos, self.pos, self.omega)
+
+    def collision_response(self):
+        ground_collision_kernel(self.pos, self.old_pos, self.ground_pos, self.inv_mass)
+
+    def semi_euler(self):
+        semi_euler_kernel(self.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, self.damping_coeff, self.gravity, self.inv_mass, self.force)
+
+    def update_vel(self):
+        update_vel_kernel(self.delta_t, self.pos, self.old_pos, self.vel, self.inv_mass)
+
 
     def to_physdata(self, physdata):
         physdata.pos = self.pos.to_numpy()
@@ -29,9 +46,10 @@ class PhysicalBase:
             self.args.physdata_json_file = "physdata.json"
         physdata.write_json(self.args.physdata_json_file)
 
-    
+
     def calc_dual(self):
-        raise NotImplementedError
+        dual = calc_dual_kernel(self.dual_residual, self.lagrangian, self.constraints, self.dual_residual)
+        return dual
     
     def calc_primal(self):
         raise NotImplementedError
@@ -53,30 +71,3 @@ class PhysicalBase:
     def compute_inertial_energy(self)->float:
         res = compute_inertial_energy_kernel(self.pos, self.predict_pos, self.inv_mass, self.delta_t)
         return res
-
-@ti.kernel
-def compute_potential_energy_kernel(
-    constraints: ti.template(),
-    alpha_tilde: ti.template(),
-    delta_t: ti.f32,
-)->ti.f32:
-    potential_energy = 0.0
-    for i in range(constraints.shape[0]):
-        inv_alpha =  1.0 / (alpha_tilde[i]*delta_t**2)
-        potential_energy += 0.5 * inv_alpha * constraints[i]**2
-    return potential_energy
-
-@ti.kernel
-def compute_inertial_energy_kernel(
-    pos: ti.template(),
-    predict_pos: ti.template(),
-    inv_mass: ti.template(),
-    delta_t: ti.f32,
-)->ti.f32:
-    inertial_energy = 0.0
-    inv_h2 = 1.0 / delta_t**2
-    for i in range(pos.shape[0]):
-        if inv_mass[i] == 0.0:
-            continue
-        inertial_energy += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
-    return inertial_energy

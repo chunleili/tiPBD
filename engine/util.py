@@ -92,7 +92,8 @@ class ResidualDataOneIter:
         s = f"{frame}-{ite} "
 
         self.dual = self.calc_dual()
-        s += f"dual0:{self.dual0:.2e} dual:{self.dual:.2e} "
+        s += f"dual0:{self.dual0:.2e} "
+        s += f"dual:{self.dual:.2e} "
 
         if r_Axb is not None:
             self.r_Axb = r_Axb.tolist() if not isinstance(r_Axb, list) else r_Axb
@@ -119,7 +120,7 @@ class ResidualDataOneIter:
 
         self.t_export += self.t_calcr
 
-        s+= f" t_iter:{self.t_iter:.2e}s"
+        s+= f" t_iter:{self.t_iter*1000:.2f}ms"
 
         logging.info(s)
 
@@ -303,7 +304,7 @@ def do_export_r(r, out_dir, frame):
 def export_mat(ist,get_A,b):
     args = ist.args
     tic = perf_counter()
-    if not args.export_matrix:
+    if not args.export_matrix or get_A is None:
         return
     if ist.frame != args.export_matrix_frame:
         return
@@ -343,13 +344,16 @@ def export_A_b(A, b, dir, postfix=f"", binary=True):
     print(f"    export_A_b time: {perf_counter()-tic:.3f}s")
 
 
-def do_post_iter(ist, get_A0_cuda):
+def do_post_iter(ist, get_A0_cuda=None):
     ist.update_constraints() #CAUTION that this should be called before calc_r
     ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
     export_mat(ist, get_A0_cuda, ist.b)
     ist.r_all.t_export += ist.r_iter.t_export
     ist.r_iter.t_export = 0.0
     logging.info(f"iter time(with export): {(perf_counter()-ist.r_iter.tic_iter)*1000:.0f}ms")
+
+
+
 
 
 def main_loop(ist,args):

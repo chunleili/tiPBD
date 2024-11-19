@@ -45,6 +45,20 @@ class PhysicalData:
         self.pin = pin
 
 
+    def default_init(self, NV, NCONS, NVERTS_ONE_CONS):
+        # self.pos = np.zeros((NV, 3), dtype=np.float32)
+        # self.vel = np.zeros((NV, 3), dtype=np.float32)
+        # self.stiffness = np.zeros((NCONS,), dtype=np.float32)
+        # self.rest_len = np.zeros((NCONS,), dtype=np.float32)
+        # self.vert = np.zeros((NCONS, NVERTS_ONE_CONS), dtype=np.int32)
+        # self.mass = np.ones((NV,), dtype=np.float32)
+        # self.delta_t = 0.01
+        self.force = np.zeros((NV, 3), dtype=np.float32)
+        # self.pin = np.zeros((NV,), dtype=np.int32)
+        # self.pinpos = np.zeros((NV, 3), dtype=np.float32)
+        # self.restmatrix = np.zeros((NCONS, 3, 3), dtype=np.float32)
+
+
     def read_json(self, json_path):
         """
         Parameters

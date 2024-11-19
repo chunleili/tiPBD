@@ -32,7 +32,10 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-              "-end_frame=100"
+              "-end_frame=100",
+              "-calc_energy=1",
+              "-calc_strain=1",
+              "-solver_type=XPBD"
             ]
           },     
           {

@@ -18,9 +18,9 @@ SET( CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_LIST_DIR}/lib")
 
 project(fastmg LANGUAGES CXX CUDA)
 
-add_library(fastmg SHARED fastmg.cu kernels.cuh)
+add_library(fastmg SHARED fastmg.cu kernels.cuh solve_soft.cu)
 target_link_libraries(fastmg PUBLIC cusparse cublas cusolver)
-# target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen)
+target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen)
 # set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 

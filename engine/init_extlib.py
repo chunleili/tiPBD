@@ -77,6 +77,8 @@ def init_extlib(args, sim=""):
         extlib.fastFillSoft_fetch_A_data.argtypes = [arr_float]
         extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
         extlib.fastFillSoft_new()
+        extlib.solveSoft_new()
+
     
     return extlib
 

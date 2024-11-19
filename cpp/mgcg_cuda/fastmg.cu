@@ -1805,24 +1805,32 @@ struct VCycle : Kernels {
 
     void presolve()
     {
-        // TODO: move fillA and RAP from python-end to here as well in the future refactoring
+        // TODO: move fillA from python-end to here as well in the future refactoring
         for(int lv=0; lv<nlvs; lv++)
         {
             // for jacobi_v2 (use cusparse etc.)
+            if(smoother_type == 2)
+            {
+                get_Aoff_and_Dinv(levels.at(lv).A, levels.at(lv).Dinv, levels.at(lv).Aoff);
+            }
 
-            get_Aoff_and_Dinv(levels.at(lv).A, levels.at(lv).Dinv, levels.at(lv).Aoff);
         }
+        for (size_t lv = 0; lv < nlvs-1; lv++)
+        {
+            compute_RAP(lv);
+        }
+        
     }
 
     GpuTimer timer1,timer2,timer3;
     std::vector<float> elapsed1, elapsed2, elapsed3;
     void solve()
     {
-        timer1.start();
-        timer3.start();
+        // timer1.start();
+        // timer3.start();
         presolve();
-        timer3.stop();
-        elapsed3.push_back(timer3.elapsed());
+        // timer3.stop();
+        // elapsed3.push_back(timer3.elapsed());
 
         float bnrm2 = init_cg_iter0(residuals.data());
         float atol = bnrm2 * rtol;
@@ -1835,10 +1843,10 @@ struct VCycle : Kernels {
             }
             copy(z, outer_x);
             
-            timer2.start();
+            // timer2.start();
             vcycle();
-            timer2.stop();
-            elapsed2.push_back(timer2.elapsed());
+            // timer2.stop();
+            // elapsed2.push_back(timer2.elapsed());
 
             do_cg_itern(residuals.data(), iter); 
             // cout<<"iter: "<<iter<<" residual: "<<residuals[iter]<<endl;

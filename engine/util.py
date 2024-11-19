@@ -344,6 +344,7 @@ def export_A_b(A, b, dir, postfix=f"", binary=True):
 
 
 def do_post_iter(ist, get_A0_cuda):
+    ist.update_constraints() #CAUTION that this should be called before calc_r
     ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
     export_mat(ist, get_A0_cuda, ist.b)
     ist.r_all.t_export += ist.r_iter.t_export

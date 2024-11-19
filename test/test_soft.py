@@ -25,3 +25,15 @@ def test_soft_direct():
     run_args = ["python", "engine/soft/soft3d.py", "-solver_type=DIRECT", "-end_frame=1", "-maxiter=2"]
     ret = subprocess.check_call(run_args)
     assert ret == 0
+
+
+def test_soft_energy():
+    run_args = ["python", "engine/soft/soft3d.py", "-use_cuda=1", "-solver_type=AMG", "-end_frame=1", "-calc_energy=1"]
+    ret = subprocess.check_call(run_args)
+    assert ret == 0
+
+
+def test_soft_strain():
+    run_args = ["python", "engine/soft/soft3d.py", "-use_cuda=1", "-solver_type=AMG", "-end_frame=1", "-calc_strain=1"]
+    ret = subprocess.check_call(run_args)
+    assert ret == 0

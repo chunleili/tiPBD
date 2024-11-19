@@ -42,7 +42,7 @@ parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coar
 # "data/model/bunnyBig/bunnyBig.node"
 # "data/model/bunny85w/bunny85w.node"
 # "data/model/ball/ball.node"
-parser.add_argument("-reinit", type=str, default="")
+parser.add_argument("-reinit", type=str, default="enlarge")
 parser.add_argument("-large", action="store_true")
 parser.add_argument("-small", action="store_true")
 parser.add_argument("-use_ground_collision", type=int, default=0)
@@ -75,10 +75,10 @@ class SoftBody(PhysicalBase):
         logging.info(self.start_date)
 
         self.r_iter = ResidualDataOneIter(
-                        calc_dual   = calc_dual,
-                        calc_primal = calc_primal,
-                        calc_energy =self.calc_energy,
-                        calc_strain = calc_strain,
+                        calc_dual   = self.calc_dual,
+                        calc_primal = self.calc_primal,
+                        calc_energy = self.calc_energy,
+                        calc_strain = self.calc_strain,
                         tol=args.tol,
                         rtol=args.rtol,
                         converge_condition=args.converge_condition,
@@ -206,12 +206,43 @@ class SoftBody(PhysicalBase):
         self.alpha_tilde_np = self.alpha_tilde.to_numpy()
 
 
+    def calc_dual(self):
+        calc_dual_kernel(self.dual_residual, self.lagrangian, self.constraints, self.dual_residual)
+        dual = calc_norm(self.dual_residual)
+        return dual
+
+    def calc_primal_imply(self,G,M_inv):
+        MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()), format="csr")
+        primary_residual = MASS @ (self.pos.to_numpy().flatten() - self.predict_pos.to_numpy().flatten()) - G.transpose() @ self.lagrangian.to_numpy()
+        where_zeros = np.where(M_inv.diagonal()==0)
+        primary_residual = np.delete(primary_residual, where_zeros)
+        return primary_residual
+
+    def calc_primal(self):
+        G = fill_G()
+        primary_residual = self.calc_primal_imply(G, self.M_inv)
+        primal_r = np.linalg.norm(primary_residual).astype(float)
+        Newton_r = np.linalg.norm(np.concatenate((self.dual_residual.to_numpy(), primary_residual))).astype(float)
+        return primal_r, Newton_r
+
+
+    def calc_strain(self)->float:
+        """ 
+         The strain of a tet is exactly the ARAP constraint of the tet
+         S = diag(sigma1, sigma2, sigma3)
+         constraint = sqrt((sigma1-1)^2 + (sigma2-1)^2 + (sigma3-1)^2)
+        """
+        self.strain = self.constraints.to_numpy()
+        self.max_strain = np.max(self.strain)
+        return self.max_strain
+    
+    def update_constraints(self):
+        update_constraints_kernel(ist.pos, ist.tet_indices, ist.B, ist.constraints)
 
     def calc_energy(self):
-        compute_C_and_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.constraint, self.gradC)
         # print(f"constraint: {np.linalg.norm(self.constraint.to_numpy()):.8e}")
-        compute_potential_energy(ist.potential_energy,ist.alpha_tilde, ist.constraint, args.delta_t)
-        compute_inertial_energy(ist.inertial_energy, ist.inv_mass, ist.pos, ist.predict_pos, args.delta_t)
+        compute_potential_energy(self.potential_energy,self.alpha_tilde, self.constraints, args.delta_t)
+        compute_inertial_energy(self.inertial_energy, self.inv_mass, self.pos_mid, self.predict_pos, args.delta_t)
         self.energy = (self.potential_energy[None]+self.inertial_energy[None])
         # print(f"potential_energy: {self.potential_energy[None]:.8e}, inertial_energy: {self.inertial_energy[None]:.8e}")
         return self.energy
@@ -223,10 +254,12 @@ class SoftBody(PhysicalBase):
     def compute_C_and_gradC(self):
         compute_C_and_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.constraints, self.gradC)
 
-    def dlam2dpos(self,x):
-        tic = time.perf_counter()
-        transfer_back_to_pos_mfree(x, self)
-        logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
+    @timeit
+    def dlam2dpos(self,dlam):
+        ist.dlambda.from_numpy(dlam)
+        reset_dpos(ist.dpos)
+        dlam2dpos_kernel(ist.gradC, ist.tet_indices, ist.inv_mass, ist.dlambda, ist.lagrangian, ist.dpos)
+        update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
 
     def update_vel(self):
         update_vel_kernel(args.delta_t, self.pos, self.old_pos, self.vel)
@@ -349,10 +382,14 @@ class SoftBody(PhysicalBase):
     def solveSoft(self):
         self.solveSoft_python()
 
+    def do_pre_iter0(self):
+        self.update_constraints() # for calculation of r0
+        self.r_iter.calc_r0()
+
     def substep_all_solver(self):
         self.semi_euler()
         self.lagrangian.fill(0)
-        self.r_iter.calc_r0()
+        self.do_pre_iter0()
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
             self.solveSoft()
@@ -372,7 +409,7 @@ class SoftBody(PhysicalBase):
             tic = time.perf_counter()
             self.project_arap_xpbd()
             collision_response(self.pos, self.old_pos, self.ground_pos)
-            calc_dual_residual(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
+            calc_dual_kernel(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
             dualr = np.linalg.norm(self.residual.to_numpy())
             if self.ite == 0:
                 dualr0 = dualr.copy()
@@ -582,8 +619,6 @@ def compute_C_and_gradC_kernel(
             gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = compute_gradient(U, S, V, B[t])
 
 
-def update_constraints():
-    update_constraints_kernel(ist.pos, ist.tet_indices, ist.B, ist.constraints)
 
 
 @ti.kernel
@@ -605,15 +640,6 @@ def update_constraints_kernel(
         constraints[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
 
 
-@ti.kernel
-def compute_dual_residual(
-    constraints: ti.template(),
-    alpha_tilde: ti.template(),
-    lagrangian: ti.template(),
-    dual_residual:ti.template()
-):
-    for t in range(dual_residual.shape[0]):
-        dual_residual[t] = -(constraints[t] + alpha_tilde[t] * lagrangian[t])
 
 
 @ti.kernel
@@ -694,7 +720,7 @@ def reset_dpos(dpos):
     dpos.fill(0.0)
 
 @ti.kernel
-def transfer_back_to_pos_mfree_kernel(gradC:ti.template(),
+def dlam2dpos_kernel(                   gradC:ti.template(),
                                       tet_indices:ti.template(),
                                         inv_mass:ti.template(),
                                         dlambda:ti.template(),
@@ -721,11 +747,7 @@ def update_pos(
         if inv_mass[i] != 0.0:
             pos[i] += omega * dpos[i]
 
-def transfer_back_to_pos_mfree(x, ist):
-    ist.dlambda.from_numpy(x)
-    reset_dpos(ist.dpos)
-    transfer_back_to_pos_mfree_kernel(ist.gradC, ist.tet_indices, ist.inv_mass, ist.dlambda, ist.lagrangian, ist.dpos)
-    update_pos(ist.inv_mass, ist.dpos, ist.pos, args.omega)
+
 
 @ti.kernel
 def compute_potential_energy(potential_energy:ti.template(),
@@ -751,34 +773,17 @@ def compute_inertial_energy(inertial_energy:ti.template(),
 
 
 @ti.kernel
-def calc_dual_residual(alpha_tilde:ti.template(),
+def calc_dual_kernel(alpha_tilde:ti.template(),
                        lagrangian:ti.template(),
                        constraints:ti.template(),
                        dual_residual:ti.template()):
     for i in range(dual_residual.shape[0]):
         dual_residual[i] = -(constraints[i] + alpha_tilde[i] * lagrangian[i])
 
-def calc_primary_residual(G,M_inv,predict_pos,pos,lagrangian):
-    MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
-    primary_residual = MASS @ (predict_pos.to_numpy().flatten() - pos.to_numpy().flatten()) - G.transpose() @ lagrangian.to_numpy()
-    where_zeros = np.where(M_inv.diagonal()==0)
-    primary_residual = np.delete(primary_residual, where_zeros)
-    return primary_residual
 
-
-# To deal with the json dump error for np.float32
-# https://ellisvalentiner.com/post/serializing-numpyfloat32-json/
-@singledispatch
-def to_serializable(val):
-    """Used by default."""
-    return str(val)
-
-
-@to_serializable.register(np.float32)
-def ts_float32(val):
-    """Used if *val* is an instance of numpy.float32."""
-    return np.float64(val)
-
+# ---------------------------------------------------------------------------- #
+#                                    fill A                                    #
+# ---------------------------------------------------------------------------- #
 
 def fill_G(ist):
     ii, jj, vv = np.zeros(ist.NT*ist.MAX_ADJ, dtype=np.int32), np.zeros(ist.NT*ist.MAX_ADJ, dtype=np.int32), np.zeros(ist.NT*ist.MAX_ADJ, dtype=np.float32)
@@ -800,63 +805,10 @@ def fill_A_by_spmm(ist,  M_inv, ALPHA):
     return A
 
 
-def calc_dual():
-    calc_dual_residual(ist.dual_residual, ist.lagrangian, ist.constraints, ist.dual_residual)
-    dual = calc_norm(ist.dual_residual)
-    return dual
-
-
-def AMG_b(ist):
-    b = -ist.constraints.to_numpy() - ist.alpha_tilde_np * ist.lagrangian.to_numpy()
-    return b
-
 
 def should_setup():
     return ((ist.frame%args.setup_interval==0 or (args.restart==True and ist.frame==args.restart_frame)) and (ist.ite==0))
 
-
-def AMG_dlam2dpos(x):
-    tic = time.perf_counter()
-    transfer_back_to_pos_mfree(x, ist)
-    logging.info(f"    dlam2dpos time: {(perf_counter()-tic)*1000:.0f}ms")
-
-
-def do_export_r(r):
-    tic = time.perf_counter()
-    serialized_r = [r[i]._asdict() for i in range(len(r))]
-    r_json = json.dumps(serialized_r)
-    with open(args.out_dir+'/r/'+ f'{ist.frame}.json', 'w') as file:
-        file.write(r_json)
-    ist.t_export += time.perf_counter()-tic
-
-
-def calc_conv(r):
-    return (r[-1]/r[0])**(1.0/(len(r)-1))
-
-
-def AMG_calc_r(r,dual0, tic_iter, r_Axb):
-    tic = time.perf_counter()
-
-    t_iter = perf_counter()-tic_iter
-    tic_calcr = perf_counter()
-    calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
-    dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
-    r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
-
-
-    logging.info(f"    convergence factor: {calc_conv(r_Axb):.2g}")
-    logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
-
-    logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
-    s = f"{ist.frame}-{ist.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}"
-    if args.calc_energy:
-        ist.calc_energy()
-        s+= f" energy: {ist.energy:.9e}"
-    logging.info(s)
-    r.append(ist.ResidualData(dual_r, len(r_Axb), t_iter))
-
-    ist.t_export += perf_counter()-tic
-    return dual0
 
 
 def fill_A_csr_ti(ist):
@@ -951,40 +903,11 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
         data[n] = offdiag
 
 
-# ---------------------------------------------------------------------------- #
-#                          strain, energy, primal etc.                         #
-# ---------------------------------------------------------------------------- #
-@ti.kernel
-def calc_strain_kernel(
-):
-# TODO: implement calc_strain_kernel
-    pass 
 
-
-def calc_strain()->float:
-    calc_strain_kernel()
-    ist.max_strain = np.max(ist.strain.to_numpy())
-    return ist.max_strain
-
-
-def calc_primary_residual(G,M_inv):
-    MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()+1e-12), format="csr")
-    primary_residual = MASS @ (ist.pos.to_numpy().flatten() - ist.predict_pos.to_numpy().flatten()) - G.transpose() @ ist.lagrangian.to_numpy()
-    where_zeros = np.where(M_inv.diagonal()==0)
-    primary_residual = np.delete(primary_residual, where_zeros)
-    return primary_residual
-
-
-def calc_primal():
-    G = fill_G()
-    primary_residual = calc_primary_residual(G, ist.M_inv)
-    primal_r = np.linalg.norm(primary_residual).astype(float)
-    Newton_r = np.linalg.norm(np.concatenate((ist.dual_residual.to_numpy(), primary_residual))).astype(float)
-    return primal_r, Newton_r
 
 
 # ---------------------------------------------------------------------------- #
-#                              end graph coloring                              #
+#                              end fill A                                      #
 # ---------------------------------------------------------------------------- #
 def AMG_A():
     tic2 = perf_counter()

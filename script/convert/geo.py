@@ -10,9 +10,11 @@ from pathlib import Path
 
 sys.path.append(os.getcwd())
 
-parser = argparse.ArgumentParser(description='Convert VTK to PLY')
-parser.add_argument('-input', type=str, default="", help='Input VTK file')
-args = parser.parse_args()
+def get_args():
+    parser = argparse.ArgumentParser(description='Convert VTK to PLY')
+    parser.add_argument('-input', type=str, default="", help='Input VTK file')
+    args = parser.parse_args()
+    return args
 
 from dataclasses import dataclass
 
@@ -165,9 +167,7 @@ class Geo:
         self.primitivecount = len(tri)
         self.indices = tri.flatten()
 
-    def parse_gluetoaniamtion(self):
-        # TODO: hard code
-        self.gluetoanimation=self.raw[15][1][8][1][7][5][0]
+    def get_gluetoaniamtion(self):
         return self.gluetoanimation
     
     def parse_vert(self):
@@ -200,6 +200,8 @@ class Geo:
 
             if a.name == "P":
                 self.positions = a.values[5]
+            if a.name == "gluetoanimation":
+                self.gluetoanimation = a.values[5][0]
             allPointAttr.append(a)
         return self.positions
 

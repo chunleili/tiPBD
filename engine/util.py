@@ -253,7 +253,7 @@ def export_after_substep(ist, args, **kwargs):
     from engine.mesh_io import write_mesh, write_edge_data, write_ply_with_strain, edge_data_to_tri_data, write_vtk_with_strain
     from engine.file_utils import save_state
     tic_export = time.perf_counter()
-    if args.export_mesh:
+    if args.export_mesh and not args.use_pintoanimation:
         pos_np = ist.pos.to_numpy() if type(ist.pos) != np.ndarray else ist.pos
         write_mesh(args.out_dir + f"/mesh/{ist.frame:04d}", pos_np, ist.tri)
         if args.export_strain:
@@ -264,6 +264,9 @@ def export_after_substep(ist, args, **kwargs):
                 tri = ist.tri
                 ist.strain_cell = edge_data_to_tri_data(ist.e2t, ist.strain.to_numpy(), tri)
                 write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", pos_np, tri, strain=ist.strain_cell, binary=True)
+    if args.export_mesh and args.use_pintoanimation:
+        ist.write_geo()
+    
     if args.export_state:
         save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
     ist.r_all.t_export += time.perf_counter()-tic_export

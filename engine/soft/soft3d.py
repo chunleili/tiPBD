@@ -27,6 +27,7 @@ from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.util import calc_norm,  ResidualDataOneIter, do_post_iter, init_logger, timeit
 from engine.physical_base import PhysicalBase
+from script.convert.geo import Geo
 
 parser = argparse.ArgumentParser()
 
@@ -35,14 +36,14 @@ parser = add_common_args(parser)
 parser.add_argument("-mu", type=float, default=1e6)
 parser.add_argument("-damping_coeff", type=float, default=1.0)
 parser.add_argument("-total_mass", type=float, default=16000.0)
-parser.add_argument("-model_path", type=str, default=f"data/model/bunny1k2k/coarse.node")
+parser.add_argument("-model_path", type=str, default=f"data/model/ball/ball.node")
 # "data/model/cube/minicube.node"
 # "data/model/bunny1k2k/coarse.node"
 # "data/model/bunny_small/bunny_small.node"
 # "data/model/bunnyBig/bunnyBig.node"
 # "data/model/bunny85w/bunny85w.node"
 # "data/model/ball/ball.node"
-parser.add_argument("-reinit", type=str, default="enlarge")
+parser.add_argument("-reinit", type=str, default="freefall")
 parser.add_argument("-large", action="store_true")
 parser.add_argument("-small", action="store_true")
 parser.add_argument("-use_ground_collision", type=int, default=0)
@@ -62,12 +63,7 @@ if args.arch == "gpu":
 else:
     ti.init(arch=ti.cpu)
 
-
-arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
-arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
-c_int = ctypes.c_int
-
-
+@ti.data_oriented
 class SoftBody(PhysicalBase):
     def __init__(self, mesh_file):
         super().__init__()
@@ -93,20 +89,22 @@ class SoftBody(PhysicalBase):
         dir = str(Path(mesh_file).parent.stem)
         self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
 
-        self.build_mesh(mesh_file)
-        self.NCONS = self.NT
-        self.allocate_fields(self.NV, self.NT)
+        args.use_pintoanimation = True
+
+        if args.use_pintoanimation:
+            self.read_geo()
+            self.reinit()
+        else:
+            self.build_mesh(mesh_file)
+            self.NCONS = self.NT
+            self.allocate_fields(self.NV, self.NT)
+            self.initialize()
+            self.reinit()
+            if args.export_mesh:
+                write_mesh(args.out_dir + f"/mesh/{self.frame:04d}", self.pos.to_numpy(), self.model_tri)
 
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
-
-
         self.state = [self.pos,]
-
-
-        self.initialize()
-
-        if args.export_mesh:
-            write_mesh(args.out_dir + f"/mesh/{self.frame:04d}", self.pos.to_numpy(), self.model_tri)
 
         if args.solver_type != "XPBD" and args.solver_type != "NEWTON":
             from engine.soft.fill_A import init_direct_fill_A
@@ -115,6 +113,51 @@ class SoftBody(PhysicalBase):
         self.linsol = init_linear_solver()
 
         info(f"Creating instance done")
+
+
+    def read_geo_pinpos(self):
+        dir = prj_path + "/" + "data/model/pintoanimation/"
+        geo = Geo(dir+f"physdata_{ist.frame}.geo")
+        pinpos = np.array(geo.get_pos())
+        assert pinpos.shape[0] == self.pos.shape[0]
+        # set_pinpos_kernel(self.pin, self.pos, pinpos)
+        pos_ = self.pos.to_numpy()
+        pos_[self.pin] = pinpos[self.pin]
+        self.pos.from_numpy(pos_)
+
+    def read_geo(self, input=None):
+        dir = prj_path + "/" + "data/model/pintoanimation/"
+        geo = Geo(dir+"physdata_78.geo") #TODO:should be every frame
+        pin = np.array(geo.get_gluetoaniamtion(),dtype=np.bool_)
+        vert = np.array(geo.get_vert(),dtype=np.int32)
+        pinpos = np.array(geo.get_pos())
+
+        self.NV = pinpos.shape[0]
+        self.NT = vert.shape[0]
+        self.NCONS = self.NT
+        self.allocate_fields(self.NV, self.NT)
+
+        self.pin = pin
+        self.vert = vert
+        self.pinpos = pinpos
+        self.pos.from_numpy(pinpos)
+        self.pos_mid.from_numpy(pinpos)
+        self.old_pos.from_numpy(pinpos)
+        self.tet_indices.from_numpy(vert)
+        self.geodir = dir
+        self.geo = geo
+        
+        # init physics
+        inv_mass_np = np.ones(self.NV, dtype=np.float32)
+        inv_mass_np[pin] = 0.0
+        self.inv_mass.from_numpy(inv_mass_np)
+        init_B(self.pos, self.tet_indices, self.B)
+        init_alpha_tilde(self.pos, self.tet_indices, self.rest_volume, self.alpha_tilde, 1.0 / args.mu, 1.0 / args.delta_t / args.delta_t)
+        self.alpha_tilde_np = self.alpha_tilde.to_numpy()
+
+    def write_geo(self, output=None):
+        self.geo.set_positions(self.pos.to_numpy())
+        self.geo.write(self.geodir+f"physdata_{self.frame}_out.geo")
 
     def build_mesh(self,mesh_file):
         tic = time.perf_counter()
@@ -181,10 +224,14 @@ class SoftBody(PhysicalBase):
             inv_mu,
             inv_h2,
         )
+        self.alpha_tilde_np = self.alpha_tilde.to_numpy()
 
+
+    def reinit(self):
         # args.reinit = "squash"
         # FIXME: no reinit will cause bug, why? FIXED: because when there is no deformation, the gradient will be in any direction! Sigma=(1,1,1) There will be singularity issue! We need to jump the constraint=0 case.
         # reinit pos
+        self.initial_pos = self.pos.to_numpy()
         if args.reinit == "random":
             random_val = np.random.rand(self.pos.shape[0], 3)
             self.pos.from_numpy(random_val)
@@ -196,17 +243,15 @@ class SoftBody(PhysicalBase):
             args.gravity = [0, -9.8, 0]
             args.use_ground_collision = 1
  
-        self.initial_pos = self.pos.to_numpy()
-        #for ground collision response
-        min_pos_y = np.min(self.pos.to_numpy()[:,1])
-        max_pos_y = np.max(self.pos.to_numpy()[:,1])
-        if min_pos_y < 0.0:
-            # move the model above the ground
-            logging.warning(f"move the model above the ground")
-            self.pos.from_numpy(self.pos.to_numpy() + np.array([0, -min_pos_y+(max_pos_y-min_pos_y)*0.01, 0]))
-        self.ground_pos = 0.0
+            #for ground collision response
+            min_pos_y = np.min(self.pos.to_numpy()[:,1])
+            max_pos_y = np.max(self.pos.to_numpy()[:,1])
+            if min_pos_y < 0.0:
+                # move the model above the ground
+                logging.warning(f"move the model above the ground")
+                self.pos.from_numpy(self.pos.to_numpy() + np.array([0, -min_pos_y+(max_pos_y-min_pos_y)*0.01, 0]))
+            self.ground_pos = 0.0
 
-        self.alpha_tilde_np = self.alpha_tilde.to_numpy()
 
     # calc_dual use the base class's
 
@@ -270,12 +315,6 @@ class SoftBody(PhysicalBase):
             args.omega
         )
 
-    def solve_constraints_mgxpbd_python(self):
-        self.pos_mid.from_numpy(self.pos.to_numpy())
-        self.compute_C_and_gradC()
-        self.b = self.compute_b()
-        dlam, self.r_iter.r_Axb = self.linsol.run(self.b)
-        self.dlam2dpos(dlam)
 
     @timeit
     def solveSoft_cuda(self):
@@ -384,6 +423,7 @@ class SoftBody(PhysicalBase):
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
+        self.read_geo_pinpos()
 
     def substep_xpbd(self):
         self.semi_euler()
@@ -428,6 +468,44 @@ def fill_gradC_triplets_kernel(
                 pid = ind[p]
                 ii[cnt],jj[cnt],vv[cnt] = j, 3 * pid + d, gradC[j, p][d]
                 cnt+=1
+
+
+@ti.kernel
+def set_pinpos_kernel(pin:ti.types.ndarray(), pos:ti.template(), pinpos:ti.types.ndarray()):
+    for i in range(pos.shape[0]):
+        if pin[i]:
+            pos[i] = pinpos[i]
+            
+
+@ti.kernel
+def init_B(
+    pos: ti.template(),
+    tet_indices: ti.template(),
+    B: ti.template(),
+):
+    for i in range(tet_indices.shape[0]):
+        ia, ib, ic, id = tet_indices[i]
+        p0, p1, p2, p3 = pos[ia], pos[ib], pos[ic], pos[id]
+        D_m = ti.Matrix.cols([p1 - p0, p2 - p0, p3 - p0])
+        B[i] = D_m.inverse()
+
+
+
+@ti.kernel
+def init_alpha_tilde(
+    pos: ti.template(),
+    tet_indices: ti.template(),
+    rest_volume: ti.template(),
+    alpha_tilde: ti.template(),
+    inv_mu: ti.f32,
+    inv_h2: ti.f32,
+):
+    for i in range(tet_indices.shape[0]):
+        ia, ib, ic, id = tet_indices[i]
+        p0, p1, p2, p3 = pos[ia], pos[ib], pos[ic], pos[id]
+        D_m = ti.Matrix.cols([p1 - p0, p2 - p0, p3 - p0])
+        rest_volume[i] = 1.0 / 6.0 * ti.abs(D_m.determinant())
+        alpha_tilde[i] = inv_h2 * inv_mu  / rest_volume[i]
 
 
 @ti.kernel

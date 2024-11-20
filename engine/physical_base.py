@@ -25,7 +25,8 @@ class PhysicalBase:
         update_pos_kernel(self.inv_mass, self.dpos, self.pos, self.omega)
 
     def collision_response(self):
-        ground_collision_kernel(self.pos, self.old_pos, self.ground_pos, self.inv_mass)
+        if self.args.use_ground_collision:
+            ground_collision_kernel(self.pos, self.old_pos, self.ground_pos, self.inv_mass)
 
     def semi_euler(self):
         semi_euler_kernel(self.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, self.damping_coeff, self.gravity, self.inv_mass, self.force)

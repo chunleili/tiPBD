@@ -32,51 +32,8 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-              "-end_frame=100",
-              "-calc_energy=1",
-              "-calc_strain=1",
-              "-solver_type=XPBD"
+              "-end_frame=100"
             ]
           },     
-          {
-            "name": "debug ball",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "args": [
-              "-model_path=data/model/ball/ball.node",
-              "-mu=1e6",
-              "-rtol=1e-3",
-              "-tol=1e-4",
-              "-delta_t=3e-3",
-              "-solver_type=AMG",
-              "-maxiter=10000",
-              "-calc_energy=1",
-              "-reinit=freefall",
-              "-end_frame=330",
-              "-use_ground_collision=1"
-            ]
-          },
-          {
-            "name": "debug Newton",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "engine/cloth/cloth3d.py",
-            // "program": "${file}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "args": [
-              "-solver_type=NEWTON",
-              "-cloth_mesh_type=txt",
-              "-delta_t=0.0333",
-              "-use_cuda=1",
-              "-maxiter=10",
-              "-calc_energy=1",
-              "-compliance=0.00833333333333333", 
-              "-N=20"
-            ]
-          }
     ]
 }

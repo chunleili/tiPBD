@@ -2,6 +2,7 @@ import numpy as np
 import taichi as ti
 from time import perf_counter
 import os
+import logging
 
 def dict_to_ndarr(d:dict)->np.ndarray:
     lengths = np.array([len(v) for v in d.values()])
@@ -55,17 +56,17 @@ class FillACloth():
         else:
             self.use_cpp_initFill = False
 
-        NE = self.NE
-        NV = self.NV
-        MAX_ADJ = 20
-        MAX_V2E = MAX_ADJ
-        adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
-        adjacent_edge_abc.fill(-1)
-        self.adjacent_edge = np.zeros((NE, MAX_ADJ), dtype=np.int32)
-        self.num_adjacent_edge = np.zeros(NE, dtype=np.int32)
-        self.adjacent_edge_abc = np.zeros((NE, MAX_ADJ*3), dtype=np.int32)
-        self.v2e = np.zeros((NV, MAX_V2E), dtype=np.int32)
-        self.num_v2e = np.zeros(NV, dtype=np.int32)
+        # NE = self.NE
+        # NV = self.NV
+        # MAX_ADJ = 20
+        # MAX_V2E = MAX_ADJ
+        # adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
+        # adjacent_edge_abc.fill(-1)
+        # self.adjacent_edge = np.zeros((NE, MAX_ADJ), dtype=np.int32)
+        # self.num_adjacent_edge = np.zeros(NE, dtype=np.int32)
+        # self.adjacent_edge_abc = np.zeros((NE, MAX_ADJ*3), dtype=np.int32)
+        # self.v2e = np.zeros((NV, MAX_V2E), dtype=np.int32)
+        # self.num_v2e = np.zeros(NV, dtype=np.int32)
         self.spmat = SpMat()
 
     def init(self):
@@ -85,7 +86,11 @@ class FillACloth():
         print("Initializing adjacent edge and abc...")
         self.adjacent_edge, v2e_dict = self.init_adj_edge(edges=edge.to_numpy())
         self.adjacent_edge,self.num_adjacent_edge = dict_to_ndarr(self.adjacent_edge)
-        self.v2e_np, self.num_v2e = dict_to_ndarr(v2e_dict)
+        MAX_ADJ = self.adjacent_edge.shape[1]
+        self.MAX_ADJ =MAX_ADJ
+        logging.info("MAX_ADJ:",self.MAX_ADJ)
+        self.v2e, self.num_v2e = dict_to_ndarr(v2e_dict)
+        self.adjacent_edge_abc = np.zeros((NE, MAX_ADJ*3), dtype=np.int32)
         self.init_adjacent_edge_abc_kernel(NE,edge,self.adjacent_edge,self.num_adjacent_edge,self.adjacent_edge_abc)
         self.num_nonz = self.calc_num_nonz(self.num_adjacent_edge).astype(np.int32)
         data, indices, indptr = self.init_A_CSR_pattern(self.num_adjacent_edge, self.adjacent_edge, NE)

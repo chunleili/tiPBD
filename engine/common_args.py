@@ -42,5 +42,5 @@ def add_common_args(parser):
     parser.add_argument("-calc_strain", type=int, default=False)
     parser.add_argument("-calc_energy", type=int, default=False)
     parser.add_argument("-calc_primal", type=int, default=False)
-
+    parser.add_argument("-use_pintoanimation", type=int, default=False)
     return parser

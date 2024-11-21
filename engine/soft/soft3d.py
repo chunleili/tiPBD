@@ -89,7 +89,6 @@ class SoftBody(PhysicalBase):
         dir = str(Path(mesh_file).parent.stem)
         self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
 
-        args.use_pintoanimation = True
 
         if args.use_pintoanimation:
             self.read_geo()
@@ -423,7 +422,8 @@ class SoftBody(PhysicalBase):
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
-        self.read_geo_pinpos()
+        if args.use_pintoanimation:
+            self.read_geo_pinpos()
 
     def substep_xpbd(self):
         self.semi_euler()

@@ -88,7 +88,7 @@ class FillACloth():
         self.adjacent_edge,self.num_adjacent_edge = dict_to_ndarr(self.adjacent_edge)
         MAX_ADJ = self.adjacent_edge.shape[1]
         self.MAX_ADJ =MAX_ADJ
-        logging.info("MAX_ADJ:",self.MAX_ADJ)
+        logging.info(f"MAX_ADJ:{MAX_ADJ}")
         self.v2e, self.num_v2e = dict_to_ndarr(v2e_dict)
         self.adjacent_edge_abc = np.zeros((NE, MAX_ADJ*3), dtype=np.int32)
         self.init_adjacent_edge_abc_kernel(NE,edge,self.adjacent_edge,self.num_adjacent_edge,self.adjacent_edge_abc)

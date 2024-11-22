@@ -20,13 +20,11 @@ class NewtonMethod(Cloth):
     def __init__(self,args):
         super().__init__(args)
 
-        self.pos = self.pos.to_numpy()
-        self.predict_pos = self.predict_pos.to_numpy()
-        self.vel = self.vel.to_numpy()
-
         self.EPSILON = 1e-15
 
-        self.setupConstraints = SetupConstraints(self.pos, self.edge.to_numpy())
+        self.inertial_y = self.predict_pos.to_numpy()
+
+        self.setupConstraints = SetupConstraints(self.pos.to_numpy(), self.edge.to_numpy())
         self.constraintsNew = self.setupConstraints.constraints
         self.adapter = self.setupConstraints.adapter #from AOS to SOA
 
@@ -41,11 +39,11 @@ class NewtonMethod(Cloth):
         self.calc_hessian_imply_ti = CalculateHessianTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t).run
         # self.calc_hessian_imply_py = CalculateHessianPython(self.constraintsNew, self.MASS, self.delta_t).run
 
-        self.calc_gradient_imply_ti = CalculateGradientTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
-        # self.calc_gradient_imply_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
+        self.calc_gradient_imply_ti = CalculateGradientTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t, self.inertial_y).run
+        # self.calc_gradient_imply_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.inertial_y).run
 
-        self.calc_obj_func_imply_ti = CalculateObjectiveFunctionTaichi(self.adapter.vert, self.adapter.rest_len, self.adapter.stiffness, self.NCONS, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
-        self.calc_obj_func_imply_py = CalculateObjectiveFunctionPython(self.constraintsNew, self.MASS, self.delta_t, self.external_force, self.predict_pos).run
+        self.calc_obj_func_imply_ti = CalculateObjectiveFunctionTaichi(self.adapter.vert, self.adapter.rest_len, self.adapter.stiffness, self.NCONS, self.MASS, self.delta_t, self.inertial_y).run
+        # self.calc_obj_func_imply_py = CalculateObjectiveFunctionPython(self.constraintsNew, self.MASS, self.delta_t, self.inertial_y).run
 
         ls = LineSearch(self.calc_obj_func_imply_ti)
         self.line_search = ls.line_search
@@ -58,25 +56,18 @@ class NewtonMethod(Cloth):
     def evaluateHessian(self, x):
         return self.calc_hessian_imply_ti(x)
 
-    def calc_predict_pos(self):
-        self.predict_pos = (self.pos + self.delta_t * self.vel)
-
-    def update_pos_and_vel(self,new_pos):
-        self.vel = (new_pos - self.pos) / self.delta_t
-        self.pos = new_pos.copy()
-
     @timeit
     def substep_newton(self):
-        self.calc_predict_pos()
-        self.calc_external_force(self.args.gravity)
-        pos_next = self.predict_pos.copy()
-
+        self.semi_euler()
+        self.inertial_y = self.predict_pos.to_numpy()
+        pos_next = self.pos.to_numpy().copy()
         for self.ite in range(self.args.maxiter):
             converge = self.step_one_iter(pos_next)
             if converge:
                 break
         self.n_outer_all.append(self.ite+1)
-        self.update_pos_and_vel(pos_next)
+        self.pos.from_numpy(pos_next)
+        self.update_vel()
 
     # https://github.com/chunleili/fast_mass_spring/blob/a203b39ae8f5ec295c242789fe8488dfb7c42951/fast_mass_spring/source/simulation.cpp#L510
     # integrateNewtonDescentOneIteration
@@ -121,15 +112,14 @@ class NewtonMethod(Cloth):
 
 
 class CalculateObjectiveFunctionTaichi():
-    def __init__(self, vert, rest_len, stiffness, NCONS, MASS, delta_t, external_force, predict_pos):
+    def __init__(self, vert, rest_len, stiffness, NCONS, MASS, delta_t, inertial_y):
         self.vert = vert
         self.rest_len = rest_len
         self.stiffness = stiffness
         self.NCONS = NCONS
         self.MASS = MASS
         self.delta_t = delta_t
-        self.external_force = external_force
-        self.predict_pos = predict_pos
+        self.inertial_y = inertial_y
 
     def run(self, x):
         return self.calc_obj_func_imply_ti(x)
@@ -153,9 +143,7 @@ class CalculateObjectiveFunctionTaichi():
         
         potential_term = kernel(x,self.vert,self.rest_len, self.NCONS, self.stiffness)
 
-        potential_term -= x.flatten()@ self.external_force
-
-        x_diff = x.flatten() - self.predict_pos.flatten()
+        x_diff = x.flatten() - self.inertial_y.flatten()
         inertia_term = 0.5 * x_diff.transpose() @ self.MASS @ x_diff
 
         h_square = self.delta_t * self.delta_t
@@ -165,12 +153,11 @@ class CalculateObjectiveFunctionTaichi():
 
 
 class CalculateObjectiveFunctionPython():
-    def __init__(self, constraintsNew, MASS, delta_t, external_force, predict_pos):
+    def __init__(self, constraintsNew, MASS, delta_t, inertial_y):
         self.constraintsNew = constraintsNew
         self.MASS = MASS
         self.delta_t = delta_t
-        self.external_force = external_force
-        self.predict_pos = predict_pos
+        self.inertial_y = inertial_y
 
     def run(self, x):
         return self.calc_obj_func_imply_py(x)
@@ -183,9 +170,7 @@ class CalculateObjectiveFunctionPython():
             elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
                 potential_term += self.EvaluatePotentialEnergyDistance(c, x.reshape(-1,3))
 
-        potential_term -= x.flatten()@ self.external_force
-
-        x_diff = x.flatten() - self.predict_pos.flatten()
+        x_diff = x.flatten() - self.inertial_y.flatten()
         inertia_term = 0.5 * x_diff.transpose() @ self.MASS @ x_diff
 
         h_square = self.delta_t * self.delta_t
@@ -332,16 +317,15 @@ class CalculateHessianPython():
 
 
 class CalculateGradientTaichi():
-    def __init__(self, stiffness, rest_len, vert, MASS, delta_t, external_force, predict_pos):
+    def __init__(self, stiffness, rest_len, vert, MASS, delta_t, inertial_y):
         self.stiffness = stiffness
         self.rest_len = rest_len
         self.vert = vert
         self.MASS = MASS
         self.delta_t = delta_t
-        self.external_force = external_force
-        self.predict_pos = predict_pos
+        self.inertial_y = inertial_y
         self.NCONS = stiffness.shape[0]
-        self.NV = predict_pos.shape[0]
+        self.NV = inertial_y.shape[0]
 
 
     def run(self, x):
@@ -377,18 +361,16 @@ class CalculateGradientTaichi():
                 
         kernel(x,vert,rest_len, NCONS, gradient, stiffness)
         gradient = gradient.flatten()
-        gradient -= self.external_force
         h_square = self.delta_t * self.delta_t
-        x_tilde = self.predict_pos
+        x_tilde = self.inertial_y
         gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
         return gradient
 
 
 class CalculateGradientPython():
-    def __init__(self, constraintsNew, MASS, delta_t, external_force, predict_pos):
+    def __init__(self, constraintsNew, MASS, delta_t, inertial_y):
         self.constraintsNew = constraintsNew
-        self.external_force = external_force
-        self.predict_pos = predict_pos
+        self.inertial_y = inertial_y
         self.MASS = MASS
         self.delta_t = delta_t
 
@@ -404,9 +386,8 @@ class CalculateGradientPython():
                 self.EvaluateGradientOneConstraintAttachment(c, x, gradient.reshape(-1,3))
             elif c.type == ConstraintType.STRETCH or c.type == ConstraintType.ΒENDING:
                 self.EvaluateGradientOneConstraintDistance(c, x, gradient.reshape(-1,3))
-        gradient -= self.external_force
         h_square = self.delta_t * self.delta_t
-        x_tilde = self.predict_pos
+        x_tilde = self.inertial_y
         gradient = self.MASS @ (x.flatten() - x_tilde.flatten()) + h_square * gradient
         return gradient
 
@@ -430,36 +411,3 @@ class CalculateGradientPython():
         gradient[i0] += g_ij
         gradient[i1] -= g_ij
 
-
-from engine.physical_data import PhysicalData
-class NewNewtonMethod(PhysicalBase):
-    def __init__(self,args):
-        super().__init__(args)
-        
-        self.pos = self.pos.to_numpy()
-        self.predict_pos = self.predict_pos.to_numpy()
-        self.vel = self.vel.to_numpy()
-
-        self.EPSILON = 1e-15
-
-        def get_A():
-            return self.hessian
-        self.linear_solver = DirectSolver(get_A)
-
-        physdata = PhysicalData()
-        physdata.read_json(args.physical_data_file)
-        stiffness = physdata.stiffness
-        rest_len = physdata.rest_len
-        vert = physdata.vert
-        self.NV = physdata.NV
-        self.NCONS = physdata.NCONS
-        self.NVERTS_ONE_CONS = physdata.NVERTS_ONE_CONS
-        delta_t = physdata.delta_t
-        external_force = physdata.external_force
-        predict_pos = physdata.predict_pos
-
-        MASS = physdata.set_mass_matrix()
-
-        self.calc_hessian_imply_ti = CalculateHessianTaichi(stiffness, rest_len, vert, MASS, delta_t).run
-        self.calc_gradient_imply_ti = CalculateGradientTaichi(stiffness, rest_len, vert, MASS, delta_t,  external_force, predict_pos).run
-        self.calc_obj_func_imply_ti = CalculateObjectiveFunctionTaichi(vert, rest_len, stiffness, self.NCONS, MASS, delta_t, external_force, predict_pos).run

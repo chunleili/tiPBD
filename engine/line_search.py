@@ -27,17 +27,17 @@ class LineSearch:
         self.EPSILON = ΕPSILON
         self.evaluateObjectiveFunction = evaluateObjectiveFunction
 
-    def line_search(self, x, gradient_dir, descent_dir):
+    def line_search(self, x, predict_pos, gradient_dir, descent_dir):
         if not self.use_line_search:
             return self.ls_step_size
 
         t = 1.0/self.ls_beta
-        currentObjectiveValue = self.evaluateObjectiveFunction(x)
+        currentObjectiveValue = self.evaluateObjectiveFunction(x, predict_pos)
         ls_times = 0
         while ls_times==0 or (lhs >= rhs and t > self.EPSILON):
             t *= self.ls_beta
             x_plus_tdx = (x.flatten() + t*descent_dir).reshape(-1,3)
-            lhs = self.evaluateObjectiveFunction(x_plus_tdx)
+            lhs = self.evaluateObjectiveFunction(x_plus_tdx, predict_pos)
             rhs = currentObjectiveValue + self.ls_alpha * t * np.dot(gradient_dir, descent_dir)
             ls_times += 1
         self.energy = lhs

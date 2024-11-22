@@ -127,9 +127,9 @@ class ResidualDataOneIter:
     def calc_r0(self):
         tic = perf_counter()
         self.dual0 = self.calc_dual()
-        if self.mode == ResidualType.Newton:
+        if self.use_calc_primal:
             self.primal0, self.Newton0 = self.calc_primal()
-        if self.mode == ResidualType.energy:
+        if self.use_calc_energy:
             self.energy0 = self.calc_energy()
 
         self.t_export = perf_counter()-tic # reset t_export here

@@ -43,7 +43,7 @@ class NewtonMethod(Cloth):
         self.calc_gradient_imply_ti = CalculateGradientTaichi(self.adapter.stiffness, self.adapter.rest_len, self.adapter.vert, self.MASS, self.delta_t, self.inertial_y).run
         # self.calc_gradient_imply_py = CalculateGradientPython(self.constraintsNew, self.MASS, self.delta_t, self.inertial_y).run
 
-        self.calc_obj_func_imply_ti = CalculateObjectiveFunctionTaichiNew(self.adapter.vert, self.adapter.rest_len, self.adapter.stiffness, self.NCONS, self.inv_mass, self.delta_t, self.inertial_y).run
+        self.calc_obj_func_imply_ti = self.calc_energy
         # self.calc_obj_func_imply_py = CalculateObjectiveFunctionPython(self.constraintsNew, self.MASS, self.delta_t, self.inertial_y).run
 
         ls = LineSearch(self.calc_obj_func_imply_ti)
@@ -110,34 +110,20 @@ class NewtonMethod(Cloth):
         self.external_force = self.MASS @ ext
 
 
-class CalculateObjectiveFunctionTaichiNew():
-    def __init__(self, vert, rest_len, stiffness, NCONS, inv_mass, delta_t, inertial_y):
-        self.vert = vert
-        self.rest_len = rest_len
-        self.stiffness = stiffness
-        self.NCONS = NCONS
-        self.inv_mass = inv_mass
-        self.delta_t = delta_t
-        self.predict_pos = inertial_y
-        self.constraints = ti.field(dtype=ti.f32, shape=NCONS)
-
-    def run(self, x, predict_pos):
-        return self.calc_energy(x, predict_pos)
-    
     def update_constraints(self,x):
-        update_constraints_kernel(x, self.vert, self.rest_len, self.constraints)
+        update_constraints_kernel(x, self.edge, self.rest_len, self.constraints)
 
-    
     def calc_energy(self,x, predict_pos):
+        x = x.astype(np.float32)
+        predict_pos = predict_pos.astype(np.float32)
         self.update_constraints(x)
         self.potential_energy = self.compute_potential_energy()
         self.inertial_energy = self.compute_inertial_energy(x, predict_pos)
         self.energy = self.potential_energy + self.inertial_energy
+        print(f"potential_energy: {self.potential_energy}")
+        print(f"inertial_energy: {self.inertial_energy}")
+        print(f"energy: {self.energy}")
         return self.energy
-
-    def compute_potential_energy(self)->float:
-        res = compute_potential_energy_kernel(self.constraints, self.stiffness)
-        return res
 
     def compute_inertial_energy(self,x, predict_pos)->float:
         res = compute_inertial_energy_kernel(x, predict_pos, self.inv_mass, self.delta_t)
@@ -155,16 +141,6 @@ def update_constraints_kernel(
         idx0, idx1 = edge[i]
         dis = pos[idx0] - pos[idx1]
         constraints[i] = dis.norm() - rest_len[i]
-
-@ti.kernel
-def compute_potential_energy_kernel(
-    constraints: ti.template(),
-    stiffness: ti.template(),
-)->ti.f32:
-    potential_energy = 0.0
-    for i in range(constraints.shape[0]):
-        potential_energy += 0.5 * stiffness[i] * constraints[i]**2
-    return potential_energy
 
 @ti.kernel
 def compute_inertial_energy_kernel(

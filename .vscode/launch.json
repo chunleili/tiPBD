@@ -51,7 +51,10 @@
               "-maxiter=10",
               "-calc_energy=1",
               "-compliance=0.00833333333333333", 
-              "-N=20"
+              "-N=20",
+              "-restart=1",
+              "-restart_file=result/meta/0005.npz",
+              "-end_frame=6"
             ]
           }   
     ]

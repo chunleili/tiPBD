@@ -384,7 +384,7 @@ def main_loop(ist,args):
 
             logging.info("\n")
             step_pbar.update(1)
-            logging.info("")
+            logging.info("\n")
             
         print("Normallly end.")
         ending(args,ist)

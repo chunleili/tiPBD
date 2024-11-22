@@ -8,7 +8,6 @@ potentialEnergy.txt
 inertialEnergy.txt
 kineticEnergy.txt
 totalEnergy.txt
-.vscode
 log.txt
 result/*.txt
 result/*

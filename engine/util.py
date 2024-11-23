@@ -55,6 +55,7 @@ class ResidualDataOneIter:
         self.calc_energy = calc_energy
         self.calc_strain = calc_strain
         if args is not None:
+            self.use_calc_dual   = args.calc_dual
             self.use_calc_primal = args.calc_primal
             self.use_calc_energy = args.calc_energy
             self.use_calc_strain = args.calc_strain
@@ -90,10 +91,11 @@ class ResidualDataOneIter:
         self.frame = frame
         self.ite = ite
         s = f"{frame}-{ite} "
-
-        self.dual = self.calc_dual()
-        s += f"dual0:{self.dual0:.2e} "
-        s += f"dual:{self.dual:.2e} "
+        
+        if self.use_calc_dual:
+            self.dual = self.calc_dual()
+            s += f"dual0:{self.dual0:.2e} "
+            s += f"dual:{self.dual:.2e} "
 
         if r_Axb is not None:
             self.r_Axb = r_Axb.tolist() if not isinstance(r_Axb, list) else r_Axb
@@ -109,7 +111,7 @@ class ResidualDataOneIter:
 
         if self.use_calc_energy and self.calc_energy is not None:
             self.energy = self.calc_energy()
-            s += f"energy:{self.energy:.5e} "
+            s += f"energy:{self.energy:.8e} "
 
         if self.use_calc_strain and self.calc_strain is not None:
             self.max_strain = self.calc_strain()
@@ -479,10 +481,29 @@ def debugmat(x, name='mat'):
     scipy.io.mmwrite(f"{name}.mtx", x)
 
 
-def set_mass_matrix(mass):
+def set_mass_matrix(mass:np.ndarray):
     mass3 = np.repeat(mass, 3)
     MASS = scipy.sparse.diags(mass3, 0)
     return MASS
+
+def set_mass_matrix_from_invmass(inv_mass:np.ndarray):
+    MASS = scipy.sparse.diags(1.0/inv_mass)
+    where_zeros = np.where(inv_mass==0)
+    MASS[where_zeros, where_zeros] = 0
+    return MASS
+
+def eliminate_zero_inv_mass(self, A, b, inv_mass):
+    inv_mass_np = inv_mass.to_numpy()
+    where = np.where(inv_mass_np==0)
+    b = np.delete(b,where)
+    A = 
+    return A,b
+
+def elinimate_zero_invmass(A,b,inv_mass):
+    MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()), format="csr")
+    primary_residual = MASS @ (ist.pos.to_numpy().flatten() - ist.predict_pos.to_numpy().flatten()) - G.transpose() @ ist.lagrangian.to_numpy()
+    where_zeros = np.where(M_inv.diagonal()==0)
+    primary_residual = np.delete(primary_residual, where_zeros)
 
 def set_gravity_as_force(mass, gravity=[0,-9.8,0]):
     assert len(gravity) == 3, "gravity should be a 3d vector"

@@ -19,7 +19,15 @@ class PhysicalBase:
         self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         logging.info(f"start date:{self.start_date}")
 
-    
+    def do_pre_iter0(self):
+        self.update_constraints() # for calculation of r0
+        self.r_iter.calc_r0()
+        
+    def do_post_iter_xpbd(self):
+        # self.update_constraints()
+        self.r_iter.calc_r(self.frame,self.ite, self.r_iter.tic_iter)
+        self.r_all.t_export += self.r_iter.t_export
+        self.r_iter.t_export = 0.0
     
     def update_pos(self):
         update_pos_kernel(self.inv_mass, self.dpos, self.pos, self.omega)

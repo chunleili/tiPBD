@@ -354,27 +354,25 @@ class Cloth(PhysicalBase):
         self.update_vel()
 
 
-
-
+    def project_constraints_xpbd(self):
+        if args.use_bending:
+            # TODO: should use seperate dual_residual_bending and lagrangian_bending
+            solve_bending_constraints_xpbd(self.dual_residual, self.inv_mass, self.lagrangian, self.dpos, self.pos, self.bending_length, self.tri_pairs, self.alpha_bending)
+        solve_distance_constraints_xpbd(self.dual_residual, self.inv_mass, self.edge, self.rest_len, self.lagrangian, self.dpos, self.pos, self.alpha_tilde)
 
     def substep_xpbd(self):
         self.semi_euler()
-        self.lagrangian.fill(0.0)
-        self.r_iter.calc_r0()
+        self.lagrangian.fill(0)
+        self.do_pre_iter0()
         for self.ite in range(args.maxiter):
-            tic_iter = perf_counter()
-            self.dpos.fill(0.0)
-            if args.use_bending:
-                # TODO: should use seperate dual_residual_bending and lagrangian_bending
-                solve_bending_constraints_xpbd(self.dual_residual, self.inv_mass, self.lagrangian, self.dpos, self.pos, self.bending_length, self.tri_pairs, self.alpha_bending)
-            solve_distance_constraints_xpbd(self.dual_residual, self.inv_mass, self.edge, self.rest_len, self.lagrangian, self.dpos, self.pos, self.alpha_tilde)
-            update_pos_kernel(self.inv_mass, self.dpos, self.pos,args.omega)
-            self.r_iter.calc_r(self.frame, self.ite, tic_iter)
-            if self.r_iter.dual<args.tol:
+            self.r_iter.tic_iter = perf_counter()
+            self.project_constraints_xpbd()
+            self.do_post_iter_xpbd()
+            if self.r_iter.check():
                 break
+        self.collision_response()
         self.n_outer_all.append(self.ite+1)
-        update_vel_kernel(self.old_pos, self.inv_mass, self.vel, self.pos)
-    
+        self.update_vel()
 
 
 @ti.kernel

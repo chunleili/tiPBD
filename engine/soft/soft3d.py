@@ -439,12 +439,7 @@ class SoftBody(PhysicalBase):
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
 
-    def do_post_iter_xpbd(self):
-        # self.update_constraints()
-        self.r_iter.calc_r(self.frame,self.ite, self.r_iter.tic_iter)
-        self.r_all.t_export += self.r_iter.t_export
-        self.r_iter.t_export = 0.0
-        # logging.info(f"iter time(with export): {(perf_counter()-self.r_iter.tic_iter)*1000:.0f}ms")
+
 
 # ---------------------------------------------------------------------------- #
 #                                    kernels                                   #

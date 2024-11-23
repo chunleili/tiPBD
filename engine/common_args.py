@@ -39,8 +39,10 @@ def add_common_args(parser):
     parser.add_argument("-converge_condition", type=str, default="dual", choices=["dual", "Newton", "strain"], help="dual: dual residual, Newton: sqrt(dual^2+primal^2), strain: strain limiting")
     parser.add_argument("-use_withK", type=int, default=False)
     parser.add_argument("-export_strain", type=int, default=False)
+    parser.add_argument("-calc_dual", type=int, default=True)
     parser.add_argument("-calc_strain", type=int, default=False)
     parser.add_argument("-calc_energy", type=int, default=False)
     parser.add_argument("-calc_primal", type=int, default=False)
     parser.add_argument("-use_pintoanimation", type=int, default=False)
+    parser.add_argument("-use_ground_collision", type=int, default=False)
     return parser

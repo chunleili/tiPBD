@@ -32,7 +32,8 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-              "-end_frame=100"
+              "-end_frame=100",
+              
             ]
           },  
           {
@@ -55,6 +56,26 @@
               "-restart=1",
               "-restart_file=result/meta/0005.npz",
               "-end_frame=6"
+            ]
+          }   ,  
+          {
+            "name": "debug Newton2",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/cloth/cloth3d.py",
+            // "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+              "-solver_type=NEWTON",
+              "-calc_energy=1",
+              "-use_cuda=0",
+              "-export_state=1",
+              "-N=64",
+              "-end_frame=100",
+              "-restart=1",
+              "-restart_file=result/meta/0099.npz",
+
             ]
           }   
     ]

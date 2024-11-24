@@ -20,14 +20,11 @@ from engine.line_search import LineSearch
 class NewtonMethod(Cloth):
     def __init__(self,args,extlib):
         super().__init__(args)
-        self.EPSILON = 1e-15
+        self.EPSILON = 1e-9
         self.inertial_y = self.predict_pos.to_numpy()
-        # self.set_mass()
+        self.set_mass()
         self.stiffness = self.set_stiffness(self.alpha_tilde, self.delta_t)
         self.vert =self.edge
-
-        # from engine.util import find_zero_inv_mass
-        # self.where = find_zero_inv_mass(self.inv_mass)
 
         self.linsol = AmgCuda(
                 args=args,
@@ -49,6 +46,10 @@ class NewtonMethod(Cloth):
         kernel(stiffness, alpha_tilde)
         return stiffness
     
+    def set_mass(self):
+        from engine.util import set_mass_matrix_from_invmass
+        self.MASS = set_mass_matrix_from_invmass(self.inv_mass)
+        ...
 
     @timeit
     def evaluateGradient(self, x):
@@ -228,7 +229,7 @@ class NewtonMethod(Cloth):
         kernel(x,vert,rest_len, stiffness, NCONS, ii, jj, vv)
         hessian = scipy.sparse.coo_matrix((vv,(ii,jj)),shape=(NV*3, NV*3),dtype=np.float32)
         hessian = delta_t * delta_t * hessian
-        hessian = M + hessian
+        hessian = self.MASS + hessian
         hessian = hessian.tocsr()
         return hessian
 

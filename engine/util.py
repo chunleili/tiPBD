@@ -487,9 +487,15 @@ def set_mass_matrix(mass:np.ndarray):
     return MASS
 
 def set_mass_matrix_from_invmass(inv_mass:np.ndarray):
-    MASS = scipy.sparse.diags(1.0/inv_mass)
-    where_zeros = np.where(inv_mass==0)
-    MASS[where_zeros, where_zeros] = 0
+    if type(inv_mass) != np.ndarray:
+        inv_mass_np = inv_mass.to_numpy()
+    else:
+        inv_mass_np = inv_mass
+    where_zeros = np.where(inv_mass_np==0)
+    mass = 1.0/inv_mass_np
+    mass[where_zeros] = 0
+    mass3 = np.repeat(mass, 3)
+    MASS = scipy.sparse.diags(mass3)
     return MASS
 
 def eliminate_zero_inv_mass(A, b, inv_mass):

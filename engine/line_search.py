@@ -1,5 +1,8 @@
 import numpy as np
+import taichi as ti
+import taichi.math as tm
 
+@ti.data_oriented
 class LineSearch:
     def __init__(
         self,
@@ -30,6 +33,8 @@ class LineSearch:
     def line_search(self, x, predict_pos, gradient_dir, descent_dir):
         if not self.use_line_search:
             return self.ls_step_size
+        
+        # x_plus_tdx = self.copy_field(x)
 
         t = 1.0/self.ls_beta
         currentObjectiveValue = self.evaluateObjectiveFunction(x, predict_pos)
@@ -37,11 +42,12 @@ class LineSearch:
         while ls_times==0 or (lhs >= rhs and t > self.EPSILON):
             t *= self.ls_beta
             x_plus_tdx = (x.flatten() + t*descent_dir).reshape(-1,3)
+            # self.calc_x_plus_tdx(x_plus_tdx, x, t, descent_dir)
             lhs = self.evaluateObjectiveFunction(x_plus_tdx, predict_pos)
             rhs = currentObjectiveValue + self.ls_alpha * t * np.dot(gradient_dir, descent_dir)
             ls_times += 1
         self.energy = lhs
-        print(f'    energy: {self.energy}')
+        print(f'    energy: {self.energy:.8e}')
         print(f'    ls_times: {ls_times}')
 
         if t < self.EPSILON:
@@ -50,6 +56,28 @@ class LineSearch:
             self.ls_step_size = t
         return t
     
+    @staticmethod
+    def calc_x_plus_tdx(x_plus_tdx, x, t, descent_dir):
+        x_plus_tdx[:] = x[:] + t * descent_dir[:]
+
+        @ti.kernel
+        def kernel( x_plus_tdx:ti.template(),
+                            x:ti.template(),
+                            t:ti.f32,
+                            descent_dir:ti.template()):
+            for i in range(x_plus_tdx.shape[0]):
+                x_plus_tdx[i] = x[i] + t * descent_dir[i]
+    
+
+    @staticmethod
+    def copy_field(f1):
+        f2 = ti.Matrix.field(n=f1.n, m=f1.m,ndim=f1.ndim, dtype=f1.dtype, shape=f1.shape)
+        @ti.kernel
+        def copy_kernel(f1:ti.template(), f2:ti.template()):
+            for i in f1:
+                f2[i] = f1[i]
+        copy_kernel(f1, f2)
+        return f2
 
 
 
@@ -98,7 +126,7 @@ class LineSearchNaive:
             rhs = currentObjectiveValue 
             ls_times += 1
         self.energy = lhs
-        print(f'    energy: {self.energy}')
+        print(f'    energy: {self.energy:.8e}')
         print(f'    ls_times: {ls_times}')
 
         if t < self.EPSILON:

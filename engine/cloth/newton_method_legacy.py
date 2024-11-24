@@ -21,7 +21,6 @@ class NewtonMethod(Cloth):
     def __init__(self,args,extlib):
         super().__init__(args)
         self.EPSILON = 1e-9
-        self.inertial_y = self.predict_pos.to_numpy()
         self.set_mass()
         self.stiffness = self.set_stiffness(self.alpha_tilde, self.delta_t)
         self.vert =self.edge
@@ -33,8 +32,11 @@ class NewtonMethod(Cloth):
                 copy_A=False,
                 should_setup=self.should_setup,
             )
-        ls = LineSearch(self.calc_energy)
-        self.line_search = ls.line_search
+        
+        self.use_line_search=True
+        self.ls_alpha=0.25
+        self.ls_beta=0.1
+        self.ls_step_size=1.0
 
     def set_stiffness(self, alpha_tilde, delta_t):
         stiffness = ti.field(dtype=ti.f32, shape=alpha_tilde.shape[0])
@@ -53,7 +55,7 @@ class NewtonMethod(Cloth):
 
     @timeit
     def evaluateGradient(self, x):
-        return self.calc_gradient_imply_ti(x)  
+        return self.calc_gradient_cloth_imply_ti(x)  
 
     @timeit
     def evaluateHessian(self, x):
@@ -62,14 +64,11 @@ class NewtonMethod(Cloth):
     @timeit
     def substep_newton(self):
         self.semi_euler()
-        self.inertial_y = self.predict_pos.to_numpy()
-        pos_next = self.pos.to_numpy().copy()
         for self.ite in range(self.args.maxiter):
-            converge = self.step_one_iter(pos_next)
+            converge = self.step_one_iter(self.pos)
             if converge:
                 break
         self.n_outer_all.append(self.ite+1)
-        self.pos.from_numpy(pos_next)
         self.update_vel()
 
     # https://github.com/chunleili/fast_mass_spring/blob/a203b39ae8f5ec295c242789fe8488dfb7c42951/fast_mass_spring/source/simulation.cpp#L510
@@ -84,12 +83,15 @@ class NewtonMethod(Cloth):
 
         self.hessian = self.evaluateHessian(x)
 
-        descent_dir,_ = self.linsol.run(-gradient)
+        descent_dir,r_Axb = self.linsol.run(gradient.flatten())
+        descent_dir = -descent_dir.reshape(-1,3)
+        logging.info(f"    r_Axb: {r_Axb[0]:.2e} {r_Axb[-1]:.2e}")
 
-        step_size = self.line_search(x, self.inertial_y , gradient, descent_dir)
-        logging.info (f"    step_size: {step_size}")
+        step_size = self.line_search(x, self.predict_pos, gradient, descent_dir)
+        logging.info (f"    step_size: {step_size:.2e}")
 
-        x += descent_dir.reshape(-1,3) * step_size
+        # x += descent_dir.reshape(-1,3) * step_size
+        x.from_numpy(x.to_numpy() + descent_dir.reshape(-1,3) * step_size)
 
         if step_size < self.EPSILON:
             print(f'step_size {step_size} <EPSILON')
@@ -97,41 +99,70 @@ class NewtonMethod(Cloth):
         else:
             return False
 
-    def update_constraints(self,x):
-        update_constraints_kernel(x, self.edge, self.rest_len, self.constraints)
 
     def calc_energy(self,x, predict_pos):
-        x = x.astype(np.float32)
-        predict_pos = predict_pos.astype(np.float32)
-        self.update_constraints(x)
+
+        def update_constraints(x):
+            @ti.kernel
+            def update_constraints_kernel(
+                pos:ti.template(),
+                edge:ti.template(),
+                rest_len:ti.template(),
+                constraints:ti.template(),
+            ):
+                for i in range(edge.shape[0]):
+                    idx0, idx1 = edge[i]
+                    dis = pos[idx0] - pos[idx1]
+                    constraints[i] = dis.norm() - rest_len[i]
+            update_constraints_kernel(x, self.edge, self.rest_len, self.constraints)
+
+
+        def compute_inertial_energy(x, predict_pos)->float:
+            @ti.kernel
+            def compute_inertial_energy_kernel(
+                pos: ti.template(),
+                predict_pos: ti.template(),
+                inv_mass: ti.template(),
+                delta_t: ti.f32,
+            )->ti.f32:
+                inertial_energy = 0.0
+                inv_h2 = 1.0 / delta_t**2
+                for i in range(pos.shape[0]):
+                    if inv_mass[i] == 0.0:
+                        continue
+                    inertial_energy += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
+                return inertial_energy
+        
+            res = compute_inertial_energy_kernel(x, predict_pos, self.inv_mass, self.delta_t)
+            return res
+
+        update_constraints(x)
         self.potential_energy = self.compute_potential_energy()
-        self.inertial_energy = self.compute_inertial_energy(x, predict_pos)
+        self.inertial_energy = compute_inertial_energy(x, predict_pos)
         self.energy = self.potential_energy + self.inertial_energy
         # print(f"potential_energy: {self.potential_energy}")
         # print(f"inertial_energy: {self.inertial_energy}")
         logging.info(f"    energy: {self.energy:.8e}")
         return self.energy
 
-    def compute_inertial_energy(self,x, predict_pos)->float:
-        res = compute_inertial_energy_kernel(x, predict_pos, self.inv_mass, self.delta_t)
-        return res
+
     
 
-    def calc_gradient_imply_ti(self, x):
-        assert x.shape[1]==3
+    def calc_gradient_cloth_imply_ti(self, x):
+        # assert x.shape[1]==3
         stiffness = self.stiffness
         rest_len = self.rest_len
         vert = self.vert
         NCONS = self.NCONS
         NV = x.shape[0]
-        x_tilde = self.inertial_y
+        x_tilde = self.predict_pos
         inv_mass = self.inv_mass
         delta_t = self.delta_t
         
         gradient = np.zeros((NV, 3), dtype=np.float32)
 
         @ti.kernel
-        def kernel(x:ti.types.ndarray(dtype=tm.vec3),
+        def kernel(x:ti.template(),
                    vert:ti.template(),
                    rest_len:ti.template(),
                    NCONS:ti.i32,
@@ -149,8 +180,8 @@ class NewtonMethod(Cloth):
                     gradient[i1] -= g_ij
 
         @ti.kernel
-        def kernel2(x:ti.types.ndarray(dtype=tm.vec3),
-                   x_tilde:ti.types.ndarray(dtype = tm.vec3),
+        def kernel2(x:ti.template(),
+                   x_tilde:ti.template(),
                    inv_mass: ti.template(),
                    delta_t:ti.f32,
                    gradient:ti.types.ndarray(dtype=tm.vec3),
@@ -165,11 +196,11 @@ class NewtonMethod(Cloth):
         g2 = gradient.copy()
         kernel2(x,x_tilde,inv_mass,delta_t,g2)
         
-        return g2.flatten()
+        return g2
     
 
     def calc_hessian_imply_ti(self, x) -> scipy.sparse.csr_matrix:
-        assert x.shape[1]==3
+        # assert x.shape[1]==3
         stiffness = self.stiffness
         rest_len = self.rest_len
         vert = self.vert
@@ -186,7 +217,7 @@ class NewtonMethod(Cloth):
 
 
         @ti.kernel
-        def kernel(x:ti.types.ndarray(dtype=tm.vec3),
+        def kernel(x:ti.template(),
                    vert:ti.template(),
                    rest_len:ti.template(),
                    stiffness:ti.template(),
@@ -229,34 +260,57 @@ class NewtonMethod(Cloth):
         kernel(x,vert,rest_len, stiffness, NCONS, ii, jj, vv)
         hessian = scipy.sparse.coo_matrix((vv,(ii,jj)),shape=(NV*3, NV*3),dtype=np.float32)
         hessian = delta_t * delta_t * hessian
-        hessian = self.MASS + hessian
+        hessian =  hessian
         hessian = hessian.tocsr()
         return hessian
 
 
-@ti.kernel
-def update_constraints_kernel(
-    pos:ti.types.ndarray(dtype=tm.vec3),
-    edge:ti.template(),
-    rest_len:ti.template(),
-    constraints:ti.template(),
-):
-    for i in range(edge.shape[0]):
-        idx0, idx1 = edge[i]
-        dis = pos[idx0] - pos[idx1]
-        constraints[i] = dis.norm() - rest_len[i]
+    def line_search(self, x, predict_pos, gradient_dir, descent_dir):
+        if not self.use_line_search:
+            return self.ls_step_size
+        
+        x_plus_tdx = self.copy_field(x)
+        descent_dir = descent_dir.reshape(-1,3)
 
-@ti.kernel
-def compute_inertial_energy_kernel(
-    pos: ti.types.ndarray(dtype=tm.vec3),
-    predict_pos: ti.types.ndarray(dtype=tm.vec3),
-    inv_mass: ti.template(),
-    delta_t: ti.f32,
-)->ti.f32:
-    inertial_energy = 0.0
-    inv_h2 = 1.0 / delta_t**2
-    for i in range(pos.shape[0]):
-        if inv_mass[i] == 0.0:
-            continue
-        inertial_energy += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
-    return inertial_energy
+        t = 1.0/self.ls_beta
+        currentObjectiveValue = self.calc_energy(x, predict_pos)
+        ls_times = 0
+        while ls_times==0 or (lhs >= rhs and t > self.EPSILON):
+            t *= self.ls_beta
+            # x_plus_tdx = (x.flatten() + t*descent_dir).reshape(-1,3)
+            self.calc_x_plus_tdx(x_plus_tdx, x, t, descent_dir)
+            lhs = self.calc_energy(x_plus_tdx, predict_pos)
+            rhs = currentObjectiveValue + self.ls_alpha * t * np.dot(gradient_dir.flatten(), descent_dir.flatten())
+            ls_times += 1
+        self.energy = lhs
+        print(f'    energy: {self.energy:.8e}')
+        print(f'    ls_times: {ls_times}')
+
+        if t < self.EPSILON:
+            t = 0.0
+        else:
+            self.ls_step_size = t
+        return t
+    
+    @staticmethod
+    def calc_x_plus_tdx(x_plus_tdx, x, t, descent_dir):
+        @ti.kernel
+        def kernel( x_plus_tdx:ti.template(),
+                    x:ti.template(),
+                    t:ti.f32,
+                    descent_dir:ti.types.ndarray(dtype=tm.vec3)):
+            for i in range(x_plus_tdx.shape[0]):
+                x_plus_tdx[i] = x[i] + t * descent_dir[i]
+        kernel(x_plus_tdx, x, t, descent_dir)
+    
+
+    @staticmethod
+    def copy_field(f1):
+        f2 = ti.Matrix.field(n=f1.n, m=f1.m,ndim=f1.ndim, dtype=f1.dtype, shape=f1.shape)
+        @ti.kernel
+        def copy_kernel(f1:ti.template(), f2:ti.template()):
+            for i in f1:
+                f2[i] = f1[i]
+        copy_kernel(f1, f2)
+        return f2
+

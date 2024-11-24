@@ -62,6 +62,9 @@ def init_extlib(args, sim=""):
 
     extlib.fastmg_use_radical_omega(0)
 
+    extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
+    extlib.fastmg_setup_nl(1) # at least 1 level to prevent crash
+
     if sim=="cloth":
         extlib.fastFillCloth_set_data.argtypes = [arr2d_int, c_int, arr_float, c_int, arr2d_float, c_float]
         extlib.fastFillCloth_run.argtypes = [arr2d_float]
@@ -78,6 +81,7 @@ def init_extlib(args, sim=""):
         extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
         extlib.fastFillSoft_new()
         extlib.solveSoft_new()
+
 
     
     return extlib

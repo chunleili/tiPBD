@@ -25,13 +25,19 @@ class NewtonMethod(Cloth):
         self.stiffness = self.set_stiffness(self.alpha_tilde, self.delta_t)
         self.vert =self.edge
 
+        # self.linsol = AmgCuda(
+        #         args=args,
+        #         extlib=extlib,
+        #         get_A0= lambda: self.hessian,
+        #         copy_A=False,
+        #         should_setup=self.should_setup,
+        #     )
         self.linsol = AmgCuda(
-                args=args,
-                extlib=extlib,
-                get_A0= lambda: self.hessian,
-                copy_A=False,
-                should_setup=self.should_setup,
-            )
+            args=args,
+            extlib=extlib,
+            get_A0= lambda: self.hessian,
+            only_jacobi=True,
+        )
         
         self.use_line_search=True
         self.ls_alpha=0.25
@@ -140,8 +146,6 @@ class NewtonMethod(Cloth):
         self.potential_energy = self.compute_potential_energy()
         self.inertial_energy = compute_inertial_energy(x, predict_pos)
         self.energy = self.potential_energy + self.inertial_energy
-        # print(f"potential_energy: {self.potential_energy}")
-        # print(f"inertial_energy: {self.inertial_energy}")
         logging.info(f"    energy: {self.energy:.8e}")
         return self.energy
 
@@ -188,8 +192,8 @@ class NewtonMethod(Cloth):
                    ):
             for i in range(inv_mass.shape[0]):
                 if inv_mass[i] !=0.0:
-                    gradient[i] *= delta_t*delta_t
-                    gradient[i] += 1.0/self.inv_mass[i] * (x[i]-x_tilde[i])
+                    # gradient[i] = delta_t*delta_t
+                    gradient[i] += (1.0/self.inv_mass[i] * (x[i]-x_tilde[i]) )/delta_t**2
                 
         kernel(x,vert,rest_len, NCONS, gradient, stiffness)
 
@@ -207,7 +211,7 @@ class NewtonMethod(Cloth):
         NCONS = self.NCONS
         NV = x.shape[0]
         delta_t = self.delta_t
-        inv_mass = self.inv_mass
+        MASS = self.MASS
         
         MAX_NNZ = NCONS* 50     # estimate the nnz: 3*3*4*NCONS
 
@@ -259,8 +263,7 @@ class NewtonMethod(Cloth):
 
         kernel(x,vert,rest_len, stiffness, NCONS, ii, jj, vv)
         hessian = scipy.sparse.coo_matrix((vv,(ii,jj)),shape=(NV*3, NV*3),dtype=np.float32)
-        hessian = delta_t * delta_t * hessian
-        hessian =  hessian
+        hessian =  MASS/(delta_t * delta_t) +hessian
         hessian = hessian.tocsr()
         return hessian
 

@@ -1194,6 +1194,7 @@ struct VCycle : Kernels {
     size_t niter; //final number of iterations to break the loop
     float max_eig;
     bool use_radical_omega=true;
+    bool verbose = false;
 
     void set_scale_RAP(float s, int lv)
     {
@@ -1872,6 +1873,35 @@ struct VCycle : Kernels {
         // }
     }
 
+    void solve_only_jacobi()
+    {
+        timer1.start();
+        get_Aoff_and_Dinv(levels.at(0).A, levels.at(0).Dinv, levels.at(0).Aoff);
+        for (size_t iter=0; iter<maxiter; iter++)
+            jacobi_v2(0, outer_x, outer_b);
+        copy(x_new, outer_x);
+        
+        timer1.stop();
+        elapsed1.push_back(timer1.elapsed());
+        // if (verbose)
+            cout<<" only iterative time: "<<(elapsed1[0])<<" ms"<<endl;
+        elapsed1.clear();
+    }
+
+    void solve_only_directsolver()
+    {
+        timer1.start();
+
+        spsolve(outer_x, levels.at(0).A, outer_b);
+        copy(x_new, outer_x);
+        
+        timer1.stop();
+        elapsed1.push_back(timer1.elapsed());
+        // if (verbose)
+            cout<<" only direct time: "<<(elapsed1[0])<<" ms"<<endl;
+        elapsed1.clear();
+    }
+
     void solve_only_smoother()
     {
         timer1.start();
@@ -2014,6 +2044,14 @@ extern "C" DLLEXPORT void fastmg_solve_only_smoother() {
     fastmg->solve_only_smoother();
 }
 
+
+extern "C" DLLEXPORT void fastmg_solve_only_jacobi() {
+    fastmg->solve_only_jacobi();
+}
+
+extern "C" DLLEXPORT void fastmg_solve_only_directsolver() {
+    fastmg->solve_only_directsolver();
+}
 
 extern "C" DLLEXPORT void fastmg_set_coarse_solver_type(int t) {
     fastmg->coarse_solver_type = t;

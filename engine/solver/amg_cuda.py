@@ -12,7 +12,19 @@ class AmgCuda:
     --------
     see test_amg_cuda()
     """
-    def __init__(self, args, extlib, get_A0, fill_A_in_cuda=None, should_setup=None, graph_coloring=None, copy_A=True):
+    def __init__(
+        self,
+        args,
+        extlib,
+        get_A0,
+        fill_A_in_cuda=None,
+        should_setup=None,
+        graph_coloring=None,
+        copy_A=True,
+        only_smoother=None,
+        only_jacobi=None,
+        only_direct=None,
+    ):
         """
         Initialize an instance of the AmgCuda class.
 
@@ -41,11 +53,20 @@ class AmgCuda:
         self.fill_A_in_cuda = fill_A_in_cuda
         self.graph_coloring = graph_coloring
         self.should_setup = should_setup
+        self.only_smoother = only_smoother
+        self.only_jacobi = only_jacobi
+        self.only_direct = only_direct
 
         if self.should_setup is None:
             self.should_setup = lambda: True #always setup
         if self.fill_A_in_cuda is None:
-            self.fill_A_in_cuda = lambda: None #do nothing
+            self.fill_A_in_cuda = get_A0 #default to get_A0
+        if self.only_smoother is None:
+            self.only_smoother = self.args.only_smoother
+        if self.only_jacobi is None:
+            self.only_jacobi = False
+        if self.only_direct is None:
+            self.only_direct = False
 
     def run(self, b):
         if self.should_setup():
@@ -66,8 +87,12 @@ class AmgCuda:
         self.extlib.fastmg_set_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
 
         # solve
-        if self.args.only_smoother:
+        if self.only_smoother:
             self.extlib.fastmg_solve_only_smoother()
+        elif self.only_jacobi:
+            self.extlib.fastmg_solve_only_jacobi()
+        elif self.only_direct:
+            self.extlib.fastmg_solve_only_directsolver()
         else:
             self.extlib.fastmg_solve()
 
@@ -96,20 +121,35 @@ class AmgCuda:
         self.extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
 
     def AMG_setup_phase(self):
+        if self.only_direct:
+            return None
+        
         tic = time.perf_counter()
         A = self.get_A0()
         if self.copy_A:
             A = A.copy() #FIXME: no copy will cause bug, why?
+        A = A.tocsr().astype(np.float32)
+        if self.only_smoother:
+            self.cuda_set_A0(A)
+            self.setup_smoothers()
+            return A
+        if self.only_jacobi:
+            self.cuda_set_A0(A)
+            self.args.smoother_type = "jacobi"
+            self.args.smoother_niter = 1
+            self.setup_smoothers()
+            return A
+        
         from engine.solver.build_Ps import build_Ps
         self.Ps = build_Ps(A, self.args, self.extlib)
         self.num_levels = len(self.Ps)+1
         logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+
         if self.num_levels == 1:
             # fallback to smoother only
             self.cuda_set_A0(A)
             self.setup_smoothers()
-            self.args.only_smoother = True
-            return A
+            self.only_smoother = True
 
 
         tic = time.perf_counter()
@@ -126,11 +166,8 @@ class AmgCuda:
         self.extlib.fastmg_set_coarse_solver_type(self.args.coarse_solver_type)
 
         logging.info(f"    setup smoothers time:{time.perf_counter()-tic}")
-
-        if self.args.smoother_type=="gauss_seidel":
-            self.graph_coloring()    
         return A
-    
+
     def setup_smoothers(self):
         s = smoother_name2type(self.args.smoother_type)
         c_int = ctypes.c_int

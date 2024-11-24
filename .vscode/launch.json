@@ -6,7 +6,6 @@
             "type": "debugpy",
             "request": "launch",
             "module": "cProfile",
-            "justMyCode": true,
             "args":["-o",
                     "${fileBasenameNoExtension}.prof",
                     "${file}"]
@@ -58,6 +57,13 @@
               "-end_frame=6"
             ]
           }   ,  
+          {
+            "name": "debug Newton2 Cuda",
+            "type": "pythoncpp",
+            "request": "launch",
+            "pythonLaunchName": "debug Newton2",
+            "cppAttachName": "(Windows) Attach",
+          },
           {
             "name": "debug Newton2",
             "type": "debugpy",

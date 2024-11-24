@@ -64,9 +64,11 @@ else:
 
 @ti.data_oriented
 class Cloth(PhysicalBase):
-    def __init__(self,args) -> None:
+    def __init__(self,args, extlib=None) -> None:
         super().__init__()
         self.args = args
+        if extlib is not None:
+            self.extlib = extlib
 
         self.r_iter = ResidualDataOneIter(
                         calc_dual=self.calc_dual,
@@ -98,7 +100,8 @@ class Cloth(PhysicalBase):
 
         self.linsol = init_linear_solver(args)
         if args.setup_num == 1:
-            init_scale()
+            from engine.ti_kernels import init_scale
+            init_scale(self.NV, self.pos, 1.5)
             
         init_fill(self)
 
@@ -690,16 +693,6 @@ def dlam2dpos_kernel(
 
 
 
-
-
-@ti.kernel
-def init_scale():
-    scale = 1.5
-    for i in range(ist.NV):
-        ist.pos[i] *= scale
-
-
-
 # ---------------------------------------------------------------------------- #
 #                                 start fill A                                 #
 # ---------------------------------------------------------------------------- #
@@ -934,9 +927,9 @@ def init():
     global ist
     if args.solver_type == "NEWTON":
         from engine.cloth.newton_method_legacy import NewtonMethod
-        ist = NewtonMethod(args)
+        ist = NewtonMethod(args, extlib)
     else:
-        ist = Cloth(args)
+        ist = Cloth(args, extlib)
 
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_init:.3f}s") 
 

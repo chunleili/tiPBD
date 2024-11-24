@@ -80,3 +80,14 @@ class PhysicalBase:
     def compute_inertial_energy(self)->float:
         res = compute_inertial_energy_kernel(self.pos, self.predict_pos, self.inv_mass, self.delta_t)
         return res
+    
+    def should_setup(self):
+        if self.ite != 0:
+            return False
+        if self.frame==self.initial_frame:
+            return True
+        if self.frame%self.args.setup_interval==0:
+            return True
+        if self.args.restart and self.frame==self.initial_frame:
+            return True
+        return False

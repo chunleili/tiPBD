@@ -12,7 +12,7 @@ class AmgCuda:
     --------
     see test_amg_cuda()
     """
-    def __init__(self, args, extlib, get_A0, fill_A_in_cuda, should_setup, graph_coloring=None, copy_A=True):
+    def __init__(self, args, extlib, get_A0, fill_A_in_cuda=None, should_setup=None, graph_coloring=None, copy_A=True):
         """
         Initialize an instance of the AmgCuda class.
 
@@ -41,6 +41,11 @@ class AmgCuda:
         self.fill_A_in_cuda = fill_A_in_cuda
         self.graph_coloring = graph_coloring
         self.should_setup = should_setup
+
+        if self.should_setup is None:
+            self.should_setup = lambda: True #always setup
+        if self.fill_A_in_cuda is None:
+            self.fill_A_in_cuda = lambda: None #do nothing
 
     def run(self, b):
         if self.should_setup():

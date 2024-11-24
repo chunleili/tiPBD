@@ -492,18 +492,65 @@ def set_mass_matrix_from_invmass(inv_mass:np.ndarray):
     MASS[where_zeros, where_zeros] = 0
     return MASS
 
-def eliminate_zero_inv_mass(self, A, b, inv_mass):
-    inv_mass_np = inv_mass.to_numpy()
+def eliminate_zero_inv_mass(A, b, inv_mass):
+    if type(inv_mass) != np.ndarray:
+        inv_mass_np = inv_mass.to_numpy()
+    else:
+        inv_mass_np = inv_mass
     where = np.where(inv_mass_np==0)
+    logging.info(f"Original shape of A:{A.shape}")
+    logging.info(f"Deleting the row and col {where[0]} from A and b")
     b = np.delete(b,where)
-    A = 
+    wherel = where[0].tolist()
+    A = delete_from_csr(A,wherel, wherel)
+    logging.info(f"Current shape of A:{A.shape}")
     return A,b
 
-def elinimate_zero_invmass(A,b,inv_mass):
-    MASS = scipy.sparse.diags(1.0/(M_inv.diagonal()), format="csr")
-    primary_residual = MASS @ (ist.pos.to_numpy().flatten() - ist.predict_pos.to_numpy().flatten()) - G.transpose() @ ist.lagrangian.to_numpy()
-    where_zeros = np.where(M_inv.diagonal()==0)
-    primary_residual = np.delete(primary_residual, where_zeros)
+def find_zero_inv_mass(inv_mass):
+    if type(inv_mass) != np.ndarray:
+        inv_mass_np = inv_mass.to_numpy()
+    else:
+        inv_mass_np = inv_mass
+    where = np.where(inv_mass_np==0)
+    return  where
+
+
+
+# https://stackoverflow.com/a/45486349/19253199
+def delete_from_csr(mat, row_indices=[], col_indices=[]):
+    from scipy.sparse import csr_matrix
+    """
+    Remove the rows (denoted by ``row_indices``) and columns (denoted by ``col_indices``) from the CSR sparse matrix ``mat``.
+    WARNING: Indices of altered axes are reset in the returned matrix
+    """
+    if not isinstance(mat, csr_matrix):
+        raise ValueError("works only for CSR format -- use .tocsr() first")
+
+    rows = []
+    cols = []
+    if row_indices:
+        rows = list(row_indices)
+    if col_indices:
+        cols = list(col_indices)
+
+    if len(rows) > 0 and len(cols) > 0:
+        row_mask = np.ones(mat.shape[0], dtype=bool)
+        row_mask[rows] = False
+        col_mask = np.ones(mat.shape[1], dtype=bool)
+        col_mask[cols] = False
+        return mat[row_mask][:,col_mask]
+    elif len(rows) > 0:
+        mask = np.ones(mat.shape[0], dtype=bool)
+        mask[rows] = False
+        return mat[mask]
+    elif len(cols) > 0:
+        mask = np.ones(mat.shape[1], dtype=bool)
+        mask[cols] = False
+        return mat[:,mask]
+    else:
+        return mat
+
+
 
 def set_gravity_as_force(mass, gravity=[0,-9.8,0]):
     assert len(gravity) == 3, "gravity should be a 3d vector"

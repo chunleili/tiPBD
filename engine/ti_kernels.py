@@ -107,6 +107,11 @@ def calc_norm_kernel(a:ti.template())->ti.f32:
         sum += a[i] * a[i]
     sum = ti.sqrt(sum)
     return sum
+
+@ti.kernel
+def init_scale(NV:ti.f32, pos:ti.template(), scale:ti.f32):
+    for i in range(NV):
+        pos[i] *= scale
 # ---------------------------------------------------------------------------- #
 #                                  end kernels                                 #
 # ---------------------------------------------------------------------------- #

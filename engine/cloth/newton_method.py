@@ -20,7 +20,7 @@ from engine.util import timeit, norm_sqr
 class NewtonMethod(Cloth):
     def __init__(self, args, extlib):
         super().__init__(args)
-        self.EPSILON = 1e-9
+        self.EPSILON = 1e-6
         # self.set_mass()
         # self.stiffness = self.set_stiffness(self.alpha_tilde, self.delta_t)
         # self.vert =self.edge
@@ -106,6 +106,7 @@ class NewtonMethod(Cloth):
         os.chdir(self.prj_path)
 
         g2 = self.calc_gradient_cloth_imply_ti(x)
+        print((g1-g2).max())
         assert np.allclose(g1, g2)
         print("gradient ok")
         return g2
@@ -152,15 +153,34 @@ class NewtonMethod(Cloth):
         self.n_outer_all.append(self.ite + 1)
         self.update_vel()
 
-    def debug_solve(self):
+    def debug_solve(self,gradient):
         os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
-        h1 = mmread("h1.mtx")
-        g1 = mmread("g1.mtx")
-        d1 = mmread("d1.mtx").toarray()
+        # h1 = mmread("h1.mtx")
+        # g1 = mmread("g1.mtx")
+        d1 = mmread("d1.mtx").toarray().flatten()
         os.chdir(self.prj_path)
-        descent_dir = scipy.sparse.linalg.spsolve(h1, g1)
+        descent_dir = scipy.sparse.linalg.spsolve(self.hessian, gradient.flatten())
         d2 = -descent_dir
-        assert np.allclose(d1, d2), (d1-d2).max()
+        assert np.allclose(d1, d2, atol=1e-6), (d1-d2).max()
+        print("solve ok")
+        ...
+
+    def debug_x(self, x):
+        os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
+        x1 = mmread("x.mtx").toarray().reshape(-1, 3)
+        os.chdir(self.prj_path)
+        assert np.allclose(x1, x.to_numpy())
+        print(f"{(x1- x.to_numpy()).max()}")
+        print("x ok")
+        ...
+    
+    def debug_predict_pos(self):
+        os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
+        y1 = mmread("y.mtx").toarray().reshape(-1, 3)
+        os.chdir(self.prj_path)
+        print((y1-self.predict_pos.to_numpy()).max())
+        assert np.allclose(y1, self.predict_pos.to_numpy())
+        print("predict_pos ok")
         ...
 
 
@@ -168,13 +188,6 @@ class NewtonMethod(Cloth):
     # integrateNewtonDescentOneIteration
     def step_one_iter(self, x):
         print(f"ite: {self.ite}")
-
-        os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
-        x1 = mmread("x.mtx").toarray().reshape(-1, 3)
-        x.from_numpy(x1)
-        self.predict_pos.from_numpy(mmread("y.mtx").toarray().reshape(-1, 3))
-        os.chdir(self.prj_path)
-
         gradient = self.evaluateGradient(x)
         nrmsqr = norm_sqr(gradient)
         if nrmsqr < self.EPSILON:
@@ -182,7 +195,7 @@ class NewtonMethod(Cloth):
             return True
 
         self.hessian = self.evaluateHessian(x)
-        
+
         descent_dir, r_Axb = self.linsol.run(gradient.flatten())
         descent_dir = -descent_dir.reshape(-1, 3).astype(np.float32)
         logging.info(f"    r_Axb: {r_Axb[0]:.2e} {r_Axb[-1]:.2e}")
@@ -201,7 +214,7 @@ class NewtonMethod(Cloth):
     def debug_energy(self, x, predict_pos):
         os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
         x1 = mmread("x.mtx").toarray().reshape(-1, 3)
-        self.pos.from_numpy(x1)
+        x.from_numpy(x1)
         self.MASS = mmread("MASS.mtx")
         self.predict_pos.from_numpy(mmread("y.mtx").toarray().reshape(-1, 3))
         self.force = mmread("f.mtx").toarray().reshape(-1, 3)
@@ -209,9 +222,66 @@ class NewtonMethod(Cloth):
         os.chdir(self.prj_path)
         e2 = self.calc_energy(x,predict_pos)
         print("e1-e2",e1-e2)
-        assert e1-e2<=1e-6, e1-e2
+        assert abs(e1-e2)<1e-6, e1-e2
         print("energy ok")
-        
+
+
+    def debug_inertial(self, x, i2):
+        os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
+        i1 = np.loadtxt("inertia_term.txt")
+        os.chdir(self.prj_path)
+
+        print("i1-p2",i1-i2)
+        assert abs(i1-i2)<1e-6, i1-i2
+        ...
+
+    def debug_potential(self,x):
+        os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
+        x.from_numpy(mmread("x.mtx").toarray().reshape(-1, 3))
+        p1 = np.loadtxt("potential_term.txt")
+        os.chdir(self.prj_path)
+
+        p2 = self.calc_potential(x)
+        print("p1-p2",p1-p2)
+        assert abs(p1-p2)<1e-6, p1-p2
+        print("potential ok")
+        ...
+
+    # w/o external force
+    def calc_potential(self, x):
+        vert = self.vert
+        stiffness = self.stiffness
+        rest_len = self.rest_len
+        cType = self.cType
+        fixed_point = self.fixed_point
+        p0 = self.p0
+
+        @ti.kernel
+        def kernel(
+            x: ti.template(),
+            vert: ti.template(),
+            rest_len: ti.template(),
+            stiffness: ti.template(),
+            cType:ti.types.ndarray(),
+            p0:ti.types.ndarray(),
+            fixed_point:ti.types.ndarray(dtype=tm.vec3),
+        ) -> ti.f32:
+            potential = 0.0
+            # ti.loop_config(serialize=True)
+            for i in range(stiffness.shape[0]):
+                if cType[i] == 1:
+                    e = 0.5*stiffness[i] * (x[p0[i]] - fixed_point[i]).norm_sqr()
+                    potential += e
+                    continue
+                x_ij = x[vert[i][0]] - x[vert[i][1]]
+                l_ij = (x_ij).norm()
+                l0 = rest_len[i]
+                potential += 0.5 * stiffness[i] * (l_ij - l0) ** 2
+            return potential
+
+        potential_term = kernel(x, vert, rest_len, stiffness, cType, p0, fixed_point)
+        return potential_term
+    
 
     def calc_energy(self, x, predict_pos):
         vert = self.vert
@@ -221,24 +291,8 @@ class NewtonMethod(Cloth):
         NCONS = self.NCONS
         delta_t = self.delta_t
         MASS = self.MASS
-
-        @ti.kernel
-        def kernel(
-            x: ti.template(),
-            vert: ti.template(),
-            rest_len: ti.template(),
-            NCONS: ti.i32,
-            stiffness: ti.template(),
-        ) -> ti.f32:
-            potential = 0.0
-            for i in range(NCONS):
-                x_ij = x[vert[i][0]] - x[vert[i][1]]
-                l_ij = (x_ij).norm()
-                l0 = rest_len[i]
-                potential += 0.5 * stiffness[i] * (l_ij - l0) ** 2
-            return potential
-
-        potential_term = kernel(x, vert, rest_len, NCONS, stiffness)
+        
+        potential_term = self.calc_potential(x)
 
         potential_term -= x.to_numpy().flatten() @ force.flatten()
 

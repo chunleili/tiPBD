@@ -80,7 +80,8 @@ class SetupConstraints:
         self.use_bending = use_bending
         self.fixed_points_num = [0, self.mesh.dim[1] * (self.mesh.dim[0] - 1)]
         self.constraints = []
-        self.setup_constraints()
+        # self.setup_constraints()
+        self.read_constraints("constraints.txt")
         self.adapter = constraintsAdapter(self.constraints) #FIXME: no attachment now
         
 
@@ -157,6 +158,7 @@ class SetupConstraints:
                         
                     c = AttachmentConstraint(stiffness, p0, fixed_point)
                     constraints.append(c)
+        self.constraints = constraints
         return constraints    
     
 
@@ -173,6 +175,11 @@ class constraintsAdapter:
         self.rest_len_np = np.zeros(dtype=np.float32, shape=NCONS)
         self.vert_np = np.zeros(dtype=np.int32, shape=(NCONS, NVERTS_ONE_CONS)) 
         self.stiffness_np = np.zeros(dtype=np.float32, shape=NCONS)
+        self.cType = np.zeros(dtype=np.int32, shape=NCONS) # 0: stretch, 1: attachment, 2: bending
+        self.p0 = np.zeros(dtype=np.int32, shape=NCONS)
+        self.fixed_point = np.zeros(dtype=np.float32, shape=(NCONS, 3))
+        self.pinlist = []
+        self.pinposlist = []
         self.list_to_ndarray()
 
 
@@ -185,6 +192,14 @@ class constraintsAdapter:
 
     def list_to_ndarray(self):
         for i in range(self.NCONS):
+            if isinstance(self.constraintsNew[i], AttachmentConstraint):
+                self.stiffness_np[i] = self.constraintsNew[i].stiffness
+                self.pinposlist.append(self.constraintsNew[i].fixed_point)
+                self.pinlist.append(self.constraintsNew[i].p0)
+                self.cType[i] = 1
+                self.p0[i] = self.constraintsNew[i].p0
+                self.fixed_point[i] = self.constraintsNew[i].fixed_point
+                continue
             self.rest_len_np[i] = self.constraintsNew[i].rest_len
             self.vert_np[i, 0] = self.constraintsNew[i].p1
             self.vert_np[i, 1] = self.constraintsNew[i].p2
@@ -195,3 +210,4 @@ class constraintsAdapter:
         self.rest_len.from_numpy(self.rest_len_np)
         self.vert.from_numpy(self.vert_np)
         self.stiffness.from_numpy(self.stiffness_np)
+

@@ -461,6 +461,22 @@ def dense_mat_is_equal(A, B):
     print("is equal!")
     return True
 
+def vec_is_equal(a, b, maxdiff=1e-6):
+    if a.shape[-1]==1:
+        a = a.reshape(-1)
+    if b.shape[-1]==1:
+        b = b.reshape(-1)
+    if a.shape != b.shape:
+        assert False, f"shape not equal: {a.shape} != {b.shape}"
+    diff = a - b
+    maxdiff = np.abs(diff).max()
+    where = np.abs(diff.data).argmax()
+    print("maxdiff: ", maxdiff)
+    if maxdiff > 1e-6:
+        assert False, f"maxdiff:{maxdiff}, where={where}"
+    print("is equal!")
+    return True
+
 
 def debug(x, name='vec'):  
     print(f'{name}: {x.shape}')
@@ -497,6 +513,13 @@ def set_mass_matrix_from_invmass(inv_mass:np.ndarray):
     mass3 = np.repeat(mass, 3)
     MASS = scipy.sparse.diags(mass3)
     return MASS
+
+def set_inv_mass_from_mass_matrix(inv_mass, MASS):
+    mass3 = MASS.diagonal()
+    mass = mass3[::3]
+    inv_mass_np = 1.0/mass
+    inv_mass.from_numpy(inv_mass_np)
+    return inv_mass
 
 def eliminate_zero_inv_mass(A, b, inv_mass):
     if type(inv_mass) != np.ndarray:
@@ -566,3 +589,25 @@ def set_gravity_as_force(mass, gravity=[0,-9.8,0]):
     external_acc = np.tile(gravity_constant, NV)
     force = mass3 * external_acc
     return force.reshape(-1,3)
+
+def pinlist_to_field(pinlist, pinposlist,NV):
+    pin = ti.field(dtype=ti.i8, shape=NV)
+    pinpos = ti.Vector.field(3, dtype=ti.f32, shape=NV)
+
+    for i, v in enumerate(pinlist):
+        pin[pinlist[i]] = 1
+        pinpos[pinlist[i]] = pinposlist[i]
+
+    return pin, pinpos
+
+def pinlist_to_np(pinlist, pinposlist,NV):
+    # pin = ti.field(dtype=ti.i8, shape=NV)
+    # pinpos = ti.Vector.field(3, dtype=ti.f32, shape=NV)
+    pin = np.zeros(NV, np.int8)
+    pinpos = np.zeros((NV,3), np.float32)
+
+    for i, v in enumerate(pinlist):
+        pin[pinlist[i]] = 1
+        pinpos[pinlist[i]] = pinposlist[i]
+
+    return pin, pinpos

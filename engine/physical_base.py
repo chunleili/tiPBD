@@ -3,6 +3,7 @@
 import taichi as ti
 import datetime, logging
 import numpy as np
+import os
 
 from engine.util import ResidualDataAllFrame, ResidualDataOneFrame, ResidualDataOneIter
 from engine.physical_data import PhysicalData
@@ -18,6 +19,8 @@ class PhysicalBase:
         self.r_all = ResidualDataAllFrame([],[])
         self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         logging.info(f"start date:{self.start_date}")
+        self.prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        logging.info(f"prj_path:{self.prj_path}")
 
     def do_pre_iter0(self):
         self.update_constraints() # for calculation of r0

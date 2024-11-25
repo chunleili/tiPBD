@@ -47,13 +47,11 @@
               "-solver_type=NEWTON",
               "-cloth_mesh_type=txt",
               "-delta_t=0.0333",
-              "-use_cuda=0",
+              "-use_cuda=1",
               "-maxiter=10",
               "-calc_energy=1",
               "-compliance=0.00833333333333333", 
               "-N=20",
-              "-restart=1",
-              "-restart_file=result/meta/0005.npz",
               "-end_frame=6"
             ]
           }   ,  

@@ -37,13 +37,13 @@ class LineSearch:
         # x_plus_tdx = self.copy_field(x)
 
         t = 1.0/self.ls_beta
-        currentObjectiveValue = self.evaluateObjectiveFunction(x, predict_pos)
+        currentObjectiveValue = self.evaluateObjectiveFunction(x)
         ls_times = 0
         while ls_times==0 or (lhs >= rhs and t > self.EPSILON):
             t *= self.ls_beta
             x_plus_tdx = (x.flatten() + t*descent_dir).reshape(-1,3)
             # self.calc_x_plus_tdx(x_plus_tdx, x, t, descent_dir)
-            lhs = self.evaluateObjectiveFunction(x_plus_tdx, predict_pos)
+            lhs = self.evaluateObjectiveFunction(x_plus_tdx)
             rhs = currentObjectiveValue + self.ls_alpha * t * np.dot(gradient_dir, descent_dir)
             ls_times += 1
         self.energy = lhs

@@ -11,6 +11,7 @@ import datetime
 from time import perf_counter
 from pathlib import Path
 import taichi.math as tm
+from scipy.io import mmwrite, mmread
 
 
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,11 +65,11 @@ else:
 
 @ti.data_oriented
 class Cloth(PhysicalBase):
-    def __init__(self,args, extlib=None) -> None:
+    def __init__(self,args, extlib) -> None:
         super().__init__()
         self.args = args
-        if extlib is not None:
-            self.extlib = extlib
+        self.extlib = extlib
+        self.sim_type = "cloth"
 
         self.r_iter = ResidualDataOneIter(
                         calc_dual=self.calc_dual,
@@ -80,8 +81,6 @@ class Cloth(PhysicalBase):
                         converge_condition=args.converge_condition,
                         args = args,
                                     )
-        
-        self.sim_type = "cloth"
 
         # ---------------------------------------------------------------------------- #
         #                               mesh and topology                              #
@@ -97,13 +96,13 @@ class Cloth(PhysicalBase):
 
         self.physdata = self.init_physdata_uniform(args.N, args.setup_num, args.delta_t, self.NV, self.NCONS, self.pos.to_numpy(), self.edge.to_numpy(), args.compliance, args.gravity)
 
+        self.linsol = self.init_linear_solver(args, extlib)
 
-        self.linsol = init_linear_solver(args)
         if args.setup_num == 1:
             from engine.ti_kernels import init_scale
             init_scale(self.NV, self.pos, 1.5)
             
-        init_fill(self)
+        self.init_fill()
 
         if args.restart:
             do_restart(args,self) #will change frame number
@@ -118,7 +117,8 @@ class Cloth(PhysicalBase):
         self.physdata.vel = self.vel.to_numpy()
         self.physdata.write_json(args.out_dir + "/physdata.json")
         ...
-
+        
+        # self.data_for_fastmassspring()
 
 
     def calc_objective_function(self, x):
@@ -376,6 +376,58 @@ class Cloth(PhysicalBase):
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
+
+
+    def step_one_iter_mgpbd(self):
+        """
+        One iter of mgpbd
+        """
+        self.compute_C_and_gradC()
+        self.b = self.compute_b()
+        dlambda, self.r_iter.r_Axb = self.linsol.run(self.b)
+        self.dlam2dpos(dlambda)
+        self.update_pos()
+
+
+
+    def init_linear_solver(self, args, extlib):
+        if args.linsol_type == "AMG":
+            if args.use_cuda:
+                linsol = AmgCuda(
+                    args=args,
+                    extlib=extlib,
+                    get_A0=get_A0_cuda,
+                    should_setup=self.should_setup,
+                    fill_A_in_cuda=fill_A_in_cuda,
+                    graph_coloring=None,
+                    copy_A=True,
+                )
+            else:
+                linsol = AmgPython(args, get_A0_python, self.should_setup, copy_A=True)
+        elif args.linsol_type == "AMGX":
+            linsol = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
+        elif args.linsol_type == "DIRECT":
+            linsol = DirectSolver(get_A0_python)
+        elif args.linsol_type == "GS":
+            linsol = GaussSeidelSolver(get_A0_python, args)
+        else:
+            linsol = None
+        return linsol
+
+
+    def init_fill(self):
+        if args.solver_type == "XPBD" or args.solver_type == "NEWTON":
+            return
+        tic = time.perf_counter()
+        from engine.cloth.fill_A import FillACloth
+        fill_A = FillACloth(self.pos, self.inv_mass, self.edge,
+         self.alpha_tilde_constant,  args.use_cache, args.use_cuda, self.extlib)
+        fill_A.init()
+        self.spmat = fill_A.spmat
+        self.adjacent_edge_abc = fill_A.adjacent_edge_abc
+        self.num_adjacent_edge = fill_A.num_adjacent_edge
+        self.num_nonz = fill_A.num_nonz
+        logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
 
 
 @ti.kernel
@@ -758,10 +810,7 @@ def fill_A_by_spmm(M_inv, ALPHA_TILDE):
 
 
 
-def fastFill_fetch():
-    extlib.fastFillCloth_fetch_A_data(ist.spmat.data)
-    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NE, ist.NE))
-    return A
+
 
 
 # @ti.kernel
@@ -817,6 +866,11 @@ def fill_G():
 # ---------------------------------------------------------------------------- #
 #                                  end fill A                                  #
 # ---------------------------------------------------------------------------- #
+def fastFill_fetch():
+    extlib.fastFillCloth_fetch_A_data(ist.spmat.data)
+    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NE, ist.NE))
+    return A
+
 def fetch_A_from_cuda(lv=0):
     nnz = extlib.fastmg_get_nnz(lv)
     matsize = extlib.fastmg_get_matsize(lv)
@@ -830,7 +884,7 @@ def fetch_A_data_from_cuda():
     A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NT, ist.NT))
     return A
 
-def fill_A_in_cuda():
+def fill_A_in_cuda(extlib):
     """Assemble A in cuda end"""
     tic2 = perf_counter()
     if args.use_withK:
@@ -861,60 +915,6 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #
 # ---------------------------------------------------------------------------- #
-def should_setup():
-    if ist.ite != 0:
-        return False
-    if ist.frame==1:
-        return True
-    if ist.frame%args.setup_interval==0:
-        return True
-    if args.restart and ist.frame==ist.initial_frame:
-        return True
-    return False
-
-
-def init_linear_solver(args):
-    if args.solver_type == "AMG":
-        if args.use_cuda:
-            linsol = AmgCuda(
-                args=args,
-                extlib=extlib,
-                get_A0=get_A0_cuda,
-                should_setup=should_setup,
-                fill_A_in_cuda=fill_A_in_cuda,
-                graph_coloring=None,
-                copy_A=True,
-            )
-        else:
-            linsol = AmgPython(args, get_A0_python, should_setup, copy_A=True)
-    elif args.solver_type == "AMGX":
-        linsol = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
-    elif args.solver_type == "DIRECT":
-        linsol = DirectSolver(get_A0_python)
-    elif args.solver_type == "GS":
-        linsol = GaussSeidelSolver(get_A0_python, args)
-    elif args.solver_type == "XPBD":
-        linsol = None
-    else:
-        linsol = None
-    return linsol
-
-
-
-def init_fill(ist):
-    if args.solver_type == "XPBD" or args.solver_type == "NEWTON":
-        return
-    tic = time.perf_counter()
-    from engine.cloth.fill_A import FillACloth
-    fill_A = FillACloth(ist.pos, ist.inv_mass, ist.edge, ist.alpha_tilde_constant,  args.use_cache, args.use_cuda, extlib)
-    fill_A.init()
-    ist.spmat = fill_A.spmat
-    ist.adjacent_edge_abc = fill_A.adjacent_edge_abc
-    ist.num_adjacent_edge = fill_A.num_adjacent_edge
-    ist.num_nonz = fill_A.num_nonz
-    logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
-
-
 def init():
     tic_init = time.perf_counter()
 
@@ -927,12 +927,11 @@ def init():
     global ist
     if args.solver_type == "NEWTON":
         from engine.cloth.newton_method import NewtonMethod
-        ist = NewtonMethod(args,extlib)
+        ist = NewtonMethod(args, extlib)
     else:
         ist = Cloth(args, extlib)
 
     logging.info(f"Initialization done. Cost time:  {time.perf_counter() - tic_init:.3f}s") 
-
 
 
 

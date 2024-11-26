@@ -18,17 +18,16 @@ from engine.util import timeit, norm_sqr
 
 @ti.data_oriented
 class NewtonMethod(Cloth):
-    def __init__(self, args, extlib):
-        super().__init__(args)
+    def __init__(self, args, extlib=None):
+        super().__init__(args, extlib)
         self.EPSILON = 1e-6
-        # self.set_mass()
-        # self.stiffness = self.set_stiffness(self.alpha_tilde, self.delta_t)
-        # self.vert =self.edge
 
         self.set_constraints_from_read()
         self.read_data_from_fms()
 
-        self.linsol = DirectSolver(lambda: self.hessian)
+        self.hessian = None
+
+        self.linsolnewton = DirectSolver(lambda: self.hessian)
 
         self.use_line_search = True
         self.ls_alpha = 0.25
@@ -147,7 +146,8 @@ class NewtonMethod(Cloth):
         self.calc_force()
         self.pos.from_numpy(self.predict_pos.to_numpy())
         for self.ite in range(self.args.maxiter):
-            converge = self.step_one_iter(self.pos)
+            converge = self.compare_oneiter_newton_mgpbd(self.pos, self.predict_pos)
+            # converge = self.step_one_iter_newton(self.pos)
             if converge:
                 break
         self.n_outer_all.append(self.ite + 1)
@@ -186,7 +186,7 @@ class NewtonMethod(Cloth):
 
     # https://github.com/chunleili/fast_mass_spring/blob/a203b39ae8f5ec295c242789fe8488dfb7c42951/fast_mass_spring/source/simulation.cpp#L510
     # integrateNewtonDescentOneIteration
-    def step_one_iter(self, x):
+    def step_one_iter_newton(self, x):
         print(f"ite: {self.ite}")
         gradient = self.evaluateGradient(x)
         nrmsqr = norm_sqr(gradient)
@@ -196,7 +196,7 @@ class NewtonMethod(Cloth):
 
         self.hessian = self.evaluateHessian(x)
 
-        descent_dir, r_Axb = self.linsol.run(gradient.flatten())
+        descent_dir, r_Axb = self.linsolnewton.run(gradient.flatten())
         descent_dir = -descent_dir.reshape(-1, 3).astype(np.float32)
         logging.info(f"    r_Axb: {r_Axb[0]:.2e} {r_Axb[-1]:.2e}")
 
@@ -488,3 +488,49 @@ class NewtonMethod(Cloth):
 
         copy_kernel(f1, f2)
         return f2
+
+    def set_alpha_tilde_from_stiffness(self):
+        # alpha_tilde = self.alpha_tilde
+        stiffness = self.stiffness
+        delta_t = self.delta_t
+
+        alpha_tilde = ti.field(dtype=ti.f32, shape=stiffness.shape[0])
+
+        @ti.kernel
+        def kernel(stiffness: ti.template(), alpha_tilde: ti.template()):
+            for i in alpha_tilde:
+                alpha_tilde[i] = 1.0 / stiffness[i] / delta_t**2
+
+        kernel(stiffness, alpha_tilde)
+
+        self.alpha_tilde = alpha_tilde
+        return alpha_tilde
+
+    
+
+    def compare_oneiter_newton_mgpbd(self,x, predict_pos):
+        os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
+        x1 = mmread("x.mtx").toarray().reshape(-1, 3)
+        self.pos.from_numpy(x1)
+        os.chdir(self.prj_path)
+
+        self.set_alpha_tilde_from_stiffness()
+        self.lagrangian = ti.field(dtype=ti.f32, shape=self.NCONS)
+
+        # newton
+        self.pos.from_numpy(x1)
+        self.step_one_iter_newton(self.pos)
+        energy1 = self.calc_energy(self.pos, self.predict_pos)
+
+        # mgpbd
+        Cloth.step_one_iter_mgpbd(self)
+        # self.step_one_iter_mgpbd()
+        energy2 = self.calc_energy(self.pos, self.predict_pos)
+
+
+        print(f"energy1-energy2: {energy1-energy2}")
+        assert abs(energy1-energy2)<1e-6, energy1-energy2
+        print("compare ok")
+        ...
+
+    

@@ -167,8 +167,8 @@ class NewtonMethod(Cloth):
         self.calc_force()
         self.pos.from_numpy(self.predict_pos.to_numpy())
         for self.ite in range(self.args.maxiter):
-            converge = self.compare_oneiter_newton_mgpbd()
-            # converge = self.step_one_iter_newton(self.pos)
+            # converge = self.compare_oneiter_newton_mgpbd()
+            converge = self.step_one_iter_newton(self.pos)
             if converge:
                 break
         self.n_outer_all.append(self.ite + 1)
@@ -522,6 +522,22 @@ class NewtonMethod(Cloth):
 
 
 
+class CompareNewtonMethod(NewtonMethod):
+    def __init__(self, args, extlib=None):
+        super().__init__(args, extlib)
+
+    @timeit
+    def substep_newton(self):
+        self.calc_predict_pos()
+        self.calc_force()
+        self.pos.from_numpy(self.predict_pos.to_numpy())
+        for self.ite in range(self.args.maxiter):
+            converge = self.compare_oneiter_newton_mgpbd()
+            # converge = self.step_one_iter_newton(self.pos)
+            if converge:
+                break
+        self.n_outer_all.append(self.ite + 1)
+        self.update_vel()
 
     @staticmethod
     @ti.kernel
@@ -737,6 +753,7 @@ class NewtonMethod(Cloth):
         
         self.pos = pos
         self.lagrangian = lagrangian
+        return pos, lagrangian
     
 
     def update_constraints(self, pos):

@@ -956,8 +956,8 @@ def init():
 
     global ist
     if args.solver_type == "NEWTON":
-        from engine.cloth.newton_method import NewtonMethod
-        ist = NewtonMethod(args, extlib)
+        from engine.cloth.newton_method import CompareNewtonMethod
+        ist = CompareNewtonMethod(args, extlib)
     else:
         ist = Cloth(args, extlib)
 

@@ -51,7 +51,7 @@
               "-edge_file=E:/Dev/fast_mass_spring/fast_mass_spring/edge.txt",
               "-tri_file=E:/Dev/fast_mass_spring/fast_mass_spring/tri.txt",
               "-delta_t=0.0333",
-              "-use_cuda=0",
+              "-use_cuda=1",
               "-maxiter=10",
               "-calc_energy=1",
               "-compliance=0.00833333333333333", 

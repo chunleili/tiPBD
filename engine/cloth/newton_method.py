@@ -56,9 +56,10 @@ class NewtonMethod(Cloth):
 
         s = SetupConstraints(
             self.pos.to_numpy(), self.edge.to_numpy()
-        ).read_constraints("constraints.txt")
+        ).read_constraints("E:/Dev/fast_mass_spring/fast_mass_spring/constraints.txt")
         ad = constraintsAdapter(s)
         self.NCONS = ad.NCONS
+        logging.info(f"    read constraints NCONS: {self.NCONS}")
         self.constraints = ad.val
         self.rest_len = ad.rest_len
         # CAUTION: vert may not be the same with edge! And NCONS != NE
@@ -216,7 +217,12 @@ class NewtonMethod(Cloth):
 
         self.hessian = self.evaluateHessian(x)
 
-        descent_dir, r_Axb = self.linsolnewton.run(gradient.flatten())
+        # descent_dir, r_Axb = self.linsolnewton.run(gradient.flatten())
+        self.args.smoother_type = "jacobi"
+        self.linsol = AmgCuda(self.args, self.extlib)
+        descent_dir,r_Axb = self.linsol.run_v2(self.hessian, gradient.flatten())
+
+
         descent_dir = -descent_dir.reshape(-1, 3).astype(np.float32)
         logging.info(f"    r_Axb: {r_Axb[0]:.2e} {r_Axb[-1]:.2e}")
 
@@ -717,8 +723,14 @@ class NewtonMethod(Cloth):
             return True
         
         A = self.assemble_A(gradC)
-        dlambda = scipy.sparse.linalg.spsolve(A, b)
+
+        self.args.smoother_type = "jacobi"
+        self.args.smoother_niter = 3
+        self.args.maxiter_Axb = 300
+        self.linsol = AmgCuda(self.args, self.extlib)
+        dlambda,r_Axb = self.linsol.run_v2(A, b)
         dlambda = dlambda.astype(np.float32)
+
         dpos = self.dlam2dpos(dlambda, gradC)
         self.update_lambda(dlambda, lagrangian)
         self.update_pos(dpos, pos)
@@ -792,57 +804,42 @@ class NewtonMethod(Cloth):
         energy0 = self.calc_energy(self.pos, self.predict_pos)
         logging.info(f"    initial energy0: {energy0:.8e}")
 
+
+        def calc_res(strains, Cs, energies, pos, predict_pos):
+            s = self.calc_strain(pos)
+            strains.append(s)
+            logging.info(f"    strain: {s:.8e}")
+
+            c = self.calc_C_norm(pos)
+            Cs.append(c)
+            logging.info(f" constraints: {c}")
+
+            e = self.calc_energy(pos, predict_pos)
+            energies.append(e)
+            logging.info(f"    energy: {e:.8e}")
+            
+
         # mgpbd
         self.pos.from_numpy(self.predict_pos.to_numpy())
-        self.ppos1 = self.predict_pos.to_numpy().copy()
         self.linsol  = DirectSolver(self.assemble_A)
         mgpbd_energies = [energy0]
-        pos1_bak = self.pos.to_numpy().copy()
         mgpbd_strains = [self.calc_strain(self.pos)]
         mgpbd_C = [self.calc_C_norm(self.pos)]
         self.lagrangian.fill(0)
         for i in range(maxiter):
             self.step_one_iter_mgpbd(self.pos, self.lagrangian)
-
-
-            s = self.calc_strain(self.pos)
-            mgpbd_strains.append(s)
-
-            c = self.calc_C_norm(self.pos)
-            mgpbd_C.append(c)
-            logging.info(f" constraints: {c}")
-
-            e = self.calc_energy(self.pos, self.predict_pos)
-            mgpbd_energies.append(e)
-            logging.info(f"    mgpbd energy: {e:.8e}")
-
+            calc_res(mgpbd_strains, mgpbd_C, mgpbd_energies, self.pos, self.predict_pos)
 
 
         self.pos.from_numpy(self.predict_pos.to_numpy())
         self.lagrangian.fill(0)
         xpbd_energies = [energy0]
-        pos2_bak = self.pos.to_numpy().copy()
-        assert np.allclose(pos1_bak, pos2_bak)
         xpbd_strains = [self.calc_strain(self.pos)]
         xpbd_C = [self.calc_C_norm(self.pos)]
         for i in range(maxiter):
             self.project_constraints_xpbd()
             self.update_pos(self.dpos, self.pos)
-
-
-            s = self.calc_strain(self.pos)
-            xpbd_strains.append(s)
-
-
-            c = self.calc_C_norm(self.pos)
-            xpbd_C.append(c)
-            logging.info(f" constraints: {c}")
-
-
-            # print(f"    pos norm: {np.linalg.norm(self.pos.to_numpy()):.8e}")
-            expbd = self.calc_energy(self.pos, self.predict_pos)
-            xpbd_energies.append(expbd)
-            logging.info(f"    xpbd energy: {expbd:.8e}")
+            calc_res(xpbd_strains, xpbd_C, xpbd_energies, self.pos, self.predict_pos)
 
 
         # newton
@@ -852,18 +849,8 @@ class NewtonMethod(Cloth):
         newton_C = [self.calc_C_norm(self.pos)]
         for i in range(maxiter):
             self.step_one_iter_newton(self.pos)
-
-            s = self.calc_strain(self.pos)
-            newton_strains.append(s)
-
-            c = self.calc_C_norm(self.pos)
-            newton_C.append(c)
-            logging.info(f"     constraints: {c}")
-
-            e = self.calc_energy(self.pos, self.predict_pos)
-            newton_energies.append(e)
-            logging.info(f"    newton energy: {e:.8e}")
-
+            calc_res(newton_strains, newton_C, newton_energies, self.pos, self.predict_pos)
+            
 
         print("compare ok")
         for i in range(maxiter):

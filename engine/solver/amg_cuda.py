@@ -16,7 +16,7 @@ class AmgCuda:
         self,
         args,
         extlib,
-        get_A0,
+        get_A0=None,
         fill_A_in_cuda=None,
         should_setup=None,
         graph_coloring=None,
@@ -68,6 +68,7 @@ class AmgCuda:
         if self.only_direct is None:
             self.only_direct = False
 
+
     def run(self, b):
         if self.should_setup():
             A = self.AMG_setup_phase()
@@ -104,6 +105,7 @@ class AmgCuda:
         residuals = residuals[:niter]
         logging.info(f"    inner iter: {niter}")
         logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
+        logging.info(f"    residual: {residuals[0]:.6e} -> {residuals[-1]:.6e}")
         return (x),  residuals  
 
     def AMG_RAP(self):
@@ -120,15 +122,17 @@ class AmgCuda:
     def cuda_set_A0(self,A0):
         self.extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
 
-    def AMG_setup_phase(self):
+    def AMG_setup_phase(self, A=None):
         if self.only_direct:
             return None
         
         tic = time.perf_counter()
-        A = self.get_A0()
-        if self.copy_A:
-            A = A.copy() #FIXME: no copy will cause bug, why?
-        A = A.tocsr().astype(np.float32)
+        if A is None:
+            A = self.get_A0()
+            if self.copy_A:
+                A = A.copy() #FIXME: no copy will cause bug, why?
+            A = A.tocsr().astype(np.float32)
+
         if self.only_smoother:
             self.cuda_set_A0(A)
             self.setup_smoothers()
@@ -176,6 +180,93 @@ class AmgCuda:
         self.extlib.fastmg_set_smoother_niter(self.args.smoother_niter)
         if self.args.smoother_type=="gauss_seidel":
             self.graph_coloring()    
+
+
+
+    def run_v2(self, A, b):
+        def AMG_setup_phase_v2(self, A=None):
+            if self.only_direct:
+                return None
+            
+            tic = time.perf_counter()
+
+            if self.only_smoother:
+                self.cuda_set_A0(A)
+                self.setup_smoothers()
+                return A
+            if self.only_jacobi:
+                self.cuda_set_A0(A)
+                self.args.smoother_type = "jacobi"
+                self.args.smoother_niter = 1
+                self.setup_smoothers()
+                return A
+            
+            from engine.solver.build_Ps import build_Ps
+            self.Ps = build_Ps(A, self.args, self.extlib)
+            self.num_levels = len(self.Ps)+1
+            logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+
+            if self.num_levels == 1:
+                # fallback to smoother only
+                self.cuda_set_A0(A)
+                self.setup_smoothers()
+                self.only_smoother = True
+
+            tic = time.perf_counter()
+            self.update_P(self.Ps)
+            logging.info(f"    update_P time: {time.perf_counter()-tic:.2f}s")
+
+            tic = time.perf_counter()
+            self.cuda_set_A0(A)
+
+            self.AMG_RAP()
+
+            self.setup_smoothers()
+            self.extlib.fastmg_set_coarse_solver_type.argtypes = [ctypes.c_int]
+            self.extlib.fastmg_set_coarse_solver_type(self.args.coarse_solver_type)
+
+            logging.info(f"    setup smoothers time:{time.perf_counter()-tic}")
+            return A
+        
+
+        def AMG_solve_v2(self,A, b, x0=None, tol=1e-5, maxiter=100):
+            if x0 is None:
+                x0 = np.zeros(b.shape[0], dtype=np.float32)
+
+            tic4 = time.perf_counter()
+            # set data
+            x0 = x0.astype(np.float32)
+            b = b.astype(np.float32)
+            self.extlib.fastmg_set_data(x0, x0.shape[0], b, b.shape[0], tol, maxiter)
+
+            self.cuda_set_A0(A)
+
+            # solve
+            if self.only_smoother:
+                self.extlib.fastmg_solve_only_smoother()
+            elif self.only_jacobi:
+                self.extlib.fastmg_solve_only_jacobi()
+            elif self.only_direct:
+                self.extlib.fastmg_solve_only_directsolver()
+            else:
+                self.extlib.fastmg_solve()
+
+            # get result
+            x = np.empty_like(x0, dtype=np.float32)
+            residuals = np.zeros(shape=(maxiter,), dtype=np.float32)
+            niter = self.extlib.fastmg_get_data(x, residuals)
+            niter += 1
+            residuals = residuals[:niter]
+            logging.info(f"    inner iter: {niter}")
+            logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
+            logging.info(f"    residual: {residuals[0]:.6e} -> {residuals[-1]:.6e}")
+            return (x),  residuals  
+            
+        if self.should_setup():
+            AMG_setup_phase_v2(self, A)
+        x, r_Axb = AMG_solve_v2(self, A, b, maxiter=self.args.maxiter_Axb, tol=self.args.tol_Axb)
+        return x, r_Axb
+
 
 
 def smoother_name2type(name):

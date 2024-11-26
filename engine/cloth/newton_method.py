@@ -524,7 +524,50 @@ class NewtonMethod(Cloth):
 
 class CompareNewtonMethod(NewtonMethod):
     def __init__(self, args, extlib=None):
-        super().__init__(args, extlib)
+        Cloth.__init__(self, args, extlib)
+        self.set_mass()
+        self.vert=self.edge
+        self.NCONS = self.NE
+        self.EPSILON = 1e-6
+        self.use_line_search = True
+        self.ls_alpha = 0.25
+        self.ls_beta = 0.1
+        self.ls_step_size = 1.0
+
+    def calc_energy(self, pos, predict_pos):
+        constraints = self.update_constraints(pos)
+
+        @ti.kernel
+        def compute_potential_energy_kernel(
+            constraints: ti.template(),
+            alpha_tilde: ti.template(),
+            delta_t: ti.f32,
+        )->ti.f32:
+            potential_energy = 0.0
+            for i in range(constraints.shape[0]):
+                inv_alpha =  1.0 / (alpha_tilde[i]*delta_t**2)
+                potential_energy += 0.5 * inv_alpha * constraints[i]**2
+            return potential_energy
+
+        @ti.kernel
+        def compute_inertial_energy_kernel(
+            pos: ti.template(),
+            predict_pos: ti.template(),
+            inv_mass: ti.template(),
+            delta_t: ti.f32,
+        )->ti.f32:
+            inertial_energy = 0.0
+            inv_h2 = 1.0 / delta_t**2
+            for i in range(pos.shape[0]):
+                if inv_mass[i] == 0.0:
+                    continue
+                inertial_energy += 0.5 / inv_mass[i] * (pos[i] - predict_pos[i]).norm_sqr() * inv_h2
+            return inertial_energy
+
+        self.potential_energy = compute_potential_energy_kernel(constraints, self.alpha_tilde, self.delta_t)
+        self.inertial_energy = compute_inertial_energy_kernel(pos, predict_pos, self.inv_mass, self.delta_t)
+        self.energy = self.potential_energy + self.inertial_energy
+        return self.energy
 
     @timeit
     def substep_newton(self):
@@ -605,40 +648,46 @@ class CompareNewtonMethod(NewtonMethod):
         return A
     
 
-    def set_Minv_and_ALPHA_TILDE(self):
-        MASS = self.MASS
-        stiffness = self.stiffness
-        delta_t = self.delta_t
+    # def set_Minv_and_ALPHA_TILDE(self):
+    #     MASS = self.MASS
+    #     stiffness = self.stiffness
+    #     delta_t = self.delta_t
         
-        def set_Minv_from_MASS(MASS):
-            invmass = 1.0 / MASS.diagonal()
-            np.where(np.isinf(invmass), 0.0, invmass)
-            M_inv = scipy.sparse.diags(invmass)
-            return M_inv
+    #     def set_Minv_from_MASS(MASS):
+    #         invmass = 1.0 / MASS.diagonal()
+    #         np.where(np.isinf(invmass), 0.0, invmass)
+    #         M_inv = scipy.sparse.diags(invmass)
+    #         return M_inv
         
-        def set_ALPHA_TILDE_from_stiffness(stiffness, delta_t):
-            alpha_tilde = ti.field(dtype=ti.f32, shape=stiffness.shape[0])
-            @ti.kernel
-            def kernel(stiffness: ti.template(), alpha_tilde: ti.template()):
-                for i in alpha_tilde:
-                    alpha_tilde[i] = 1.0 / stiffness[i] / delta_t**2
-            kernel(stiffness, alpha_tilde)
+    #     def set_ALPHA_TILDE_from_stiffness(stiffness, delta_t):
+    #         alpha_tilde = ti.field(dtype=ti.f32, shape=stiffness.shape[0])
+    #         if isinstance(stiffness, np.ndarray):
+    #             s = ti.field(dtype=ti.f32, shape=stiffness.shape)
+    #             s.from_numpy(stiffness)
+    #             stiffness = s
+
+    #         @ti.kernel
+    #         def kernel(stiffness: ti.template(), alpha_tilde: ti.template()):
+    #             for i in alpha_tilde:
+    #                 alpha_tilde[i] = 1.0 / stiffness[i] / delta_t**2
+    #         kernel(stiffness, alpha_tilde)
             
-            ALPHA_TILDE = scipy.sparse.diags(alpha_tilde.to_numpy())
-            return ALPHA_TILDE, alpha_tilde
+    #         ALPHA_TILDE = scipy.sparse.diags(alpha_tilde.to_numpy())
+    #         return ALPHA_TILDE, alpha_tilde
 
-        M_inv = set_Minv_from_MASS(MASS)
-        ALPHA_TILDE, alpha_tilde = set_ALPHA_TILDE_from_stiffness(stiffness, delta_t)
+    #     M_inv = set_Minv_from_MASS(MASS)
+    #     ALPHA_TILDE, alpha_tilde = set_ALPHA_TILDE_from_stiffness(stiffness, delta_t)
 
-        self.M_inv = M_inv
-        self.ALPHA_TILDE = ALPHA_TILDE
-        self.alpha_tilde = alpha_tilde
+    #     self.M_inv = M_inv
+    #     self.ALPHA_TILDE = ALPHA_TILDE
+    #     self.alpha_tilde = alpha_tilde
 
-        return M_inv, ALPHA_TILDE
+    #     return M_inv, ALPHA_TILDE
 
 
     def assemble_A(self, gradC):
         A = self.fill_A_by_spmm(self.M_inv, self.ALPHA_TILDE, gradC)
+        assert not np.any(np.isnan(A.data))
         return A
     
 
@@ -652,6 +701,7 @@ class CompareNewtonMethod(NewtonMethod):
     def compute_C_and_gradC(self, pos):
         vert = self.vert    
         rest_len = self.rest_len
+        self.NVERTS_ONE_CONS = 2
         constraints = ti.field(dtype=ti.f32, shape=vert.shape[0])
         gradC = ti.Vector.field(3, dtype=ti.f32, shape=(vert.shape[0],self.NVERTS_ONE_CONS))
         self.compute_C_and_gradC_kernel(pos,
@@ -659,6 +709,8 @@ class CompareNewtonMethod(NewtonMethod):
                                         vert,
                                         constraints,
                                         rest_len)
+        assert not np.any(np.isnan(constraints.to_numpy()))
+        assert not np.any(np.isnan(gradC.to_numpy()))
         return constraints, gradC
 
     def dlam2dpos(self, dlam, gradC):
@@ -728,7 +780,7 @@ class CompareNewtonMethod(NewtonMethod):
         """
         One iter of mgpbd
         """
-        self.set_Minv_and_ALPHA_TILDE()
+        # self.set_Minv_and_ALPHA_TILDE()
         constraints, gradC = self.compute_C_and_gradC(pos)
         b = self.compute_b(constraints)
 
@@ -801,7 +853,7 @@ class CompareNewtonMethod(NewtonMethod):
                     continue
                 strain[i] = (l - rest_len[i])/l
         calc_strain_cloth_kernel(vert, rest_len, pos, strain)
-        s = np.linalg.norm(strain.to_numpy())
+        s = np.max(strain.to_numpy())
         return s
     
         
@@ -869,17 +921,18 @@ class CompareNewtonMethod(NewtonMethod):
             calc_res(newton_strains, newton_C, newton_energies, self.pos, self.predict_pos)
             
 
-        print("compare ok")
+        logging.info(f"Newton vs mgpbd vs xpbd")
+        logging.info("energy-------------------")
         for i in range(maxiter):
-            print(f"{i}: {newton_energies[i]:.6e} vs {mgpbd_energies[i]:.6e} vs {xpbd_energies[i]:.6e}")
+            logging.info(f"{i}: {newton_energies[i]:.6e} vs {mgpbd_energies[i]:.6e} vs {xpbd_energies[i]:.6e}")
 
-        print("strain-------------------")
+        logging.info("strain-------------------")
         for i in range(maxiter):
-            print(f"{i}: {newton_strains[i]:.6e} vs {mgpbd_strains[i]:.6e} vs {xpbd_strains[i]:.6e}")
+            logging.info(f"{i}: {newton_strains[i]:.6e} vs {mgpbd_strains[i]:.6e} vs {xpbd_strains[i]:.6e}")
         
-        print("C-------------------")
+        logging.info("C-------------------")
         for i in range(maxiter):
-            print(f"{i}: {newton_C[i]:.6e} vs {mgpbd_C[i]:.6e} vs {xpbd_C[i]:.6e}")
+            logging.info(f"{i}: {newton_C[i]:.6e} vs {mgpbd_C[i]:.6e} vs {xpbd_C[i]:.6e}")
 
 
 

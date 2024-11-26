@@ -151,13 +151,13 @@ class Cloth(PhysicalBase):
         #                                     mass                                     #
         # ---------------------------------------------------------------------------- #
         mass = np.zeros(NV, dtype=np.float32)
-        inv_mass = np.zeros(NV, dtype=np.float32)
+        inv_mass_np = np.zeros(NV, dtype=np.float32)
         mass[:]=1.0
         mass[pin!=0] = 0.0     #FIXME:should be infinity?
-        inv_mass[:] = 1.0
-        inv_mass[pin!=0] = 0.0 
+        inv_mass_np[:] = 1.0
+        inv_mass_np[pin!=0] = 0.0 
         
-        inv_mass3 = np.repeat(inv_mass, 3, axis=0)
+        inv_mass3 = np.repeat(inv_mass_np, 3, axis=0)
         M_inv = scipy.sparse.diags(inv_mass3)
         mass3 = np.repeat(mass, 3, axis=0)
         MASS = scipy.sparse.diags(mass3, format="csr")
@@ -171,8 +171,8 @@ class Cloth(PhysicalBase):
         # timestep related compliance, see XPBD paper 
         # #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
         alpha_bending_constant = 1.0 * (1.0 / delta_t / delta_t) #TODO: need to be tuned
-        stiffness = np.zeros(NCONS, dtype=np.float32)
-        stiffness[:] = 1.0/compliance
+        stiffness = ti.field(dtype=float, shape=(NCONS))
+        stiffness.fill(1.0/compliance)
 
         alpha_tilde_np = np.array([alpha_tilde_constant] * NCONS)
         ALPHA_TILDE = scipy.sparse.diags(alpha_tilde_np)
@@ -201,13 +201,18 @@ class Cloth(PhysicalBase):
 
         physdata.rest_len = rest_len
 
+        # ---------------------------------------------------------------------------- #
+        self.cType = np.zeros(NCONS, dtype=np.int32) # 0: stretch, 1: attachment, 2: bending
+        self.p0 = np.zeros(NCONS, dtype=np.int32)
+        self.fixed_point = np.zeros((NCONS, 3), dtype=np.float32)
+
         physdata.NV = NV
         physdata.NCONS = NCONS
         physdata.NVERTS_ONE_CONS = edge.shape[1]
 
         self.delta_t = delta_t
         self.mass = mass
-        self.inv_mass.from_numpy(inv_mass)
+        self.inv_mass.from_numpy(inv_mass_np)
         self.alpha_tilde.from_numpy(alpha_tilde_np)
         self.rest_len.from_numpy(rest_len)
         self.alpha_tilde_constant = alpha_tilde_constant

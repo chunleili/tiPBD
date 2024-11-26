@@ -58,6 +58,25 @@
               "-N=20",
               "-end_frame=6"
             ]
+          }   ,
+          {
+            "name": "debug Newton2",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/cloth/cloth3d.py",
+            // "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+              "-solver_type=NEWTON",
+              "-calc_energy=1",
+              "-use_cuda=1",
+              "-export_state=1",
+              "-N=64",
+              "-end_frame=100",
+              "-setup_num=0"
+
+            ]
           }   
     ]
 }

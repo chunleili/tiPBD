@@ -63,7 +63,7 @@ def build_Ps(A,args,extlib=None):
 
     num_levels = len(ml.levels)
 
-    if args.use_cuda or extlib is not None:
+    if args.use_cuda and extlib is not None:
         extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
         extlib.fastmg_setup_nl(num_levels)
     

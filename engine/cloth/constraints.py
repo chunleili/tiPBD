@@ -68,8 +68,6 @@ class Mesh:
         self.dim = dim
         self.current_positions = pos
         self.edge_list = edge
-        
-
 class SetupConstraints:
     def __init__(self, pos:np.ndarray, edge:np.ndarray, N=20, stiffness_stretch=120.0, stiffness_bending=20.0, stiffness_attachment=120.0, fixed_points_num=[0,410], use_bending=True):
         # self.mesh = Mesh((21, 21), pos, edge)
@@ -167,6 +165,7 @@ class SetupConstraints:
 class constraintsAdapter:
     def __init__(self, constraintsNew):
         NVERTS_ONE_CONS = 2
+        self.NVERTS_ONE_CONS = NVERTS_ONE_CONS
 
         self.constraintsNew = constraintsNew
         NCONS = len(constraintsNew)

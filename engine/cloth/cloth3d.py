@@ -51,6 +51,8 @@ parser.add_argument("-cloth_mesh_type", type=str, default="quad", choices=["quad
 parser.add_argument("-pos_file", type=str, default="data/model/fast_mass_spring/pos.txt")
 parser.add_argument("-edge_file", type=str, default="data/model/fast_mass_spring/edge.txt")
 parser.add_argument("-tri_file", type=str, default="data/model/fast_mass_spring/tri.txt")
+parser.add_argument("-use_initFill", type=int, default=False)
+parser.add_argument("-write_physdata", type=int, default=False)
 
 args = parser.parse_args()
 
@@ -101,8 +103,11 @@ class Cloth(PhysicalBase):
         if args.setup_num == 1:
             from engine.ti_kernels import init_scale
             init_scale(self.NV, self.pos, 1.5)
-            
-        self.init_fill()
+
+        if args.solver_type == "AMG":
+            self.args.use_initFill = True
+        if self.args.use_initFill:
+            self.init_fill()
 
         if args.restart:
             do_restart(args,self) #will change frame number
@@ -115,7 +120,8 @@ class Cloth(PhysicalBase):
         
         self.physdata.pos = self.pos.to_numpy()
         self.physdata.vel = self.vel.to_numpy()
-        self.physdata.write_json(args.out_dir + "/physdata.json")
+        if args.write_physdata:
+            self.physdata.write_json(args.out_dir + "/physdata.json")
         ...
         
         # self.data_for_fastmassspring()
@@ -307,7 +313,7 @@ class Cloth(PhysicalBase):
         compute_C_and_gradC_kernel(self.pos, self.gradC, self.edge, self.constraints, self.rest_len)
 
     def compute_b(self):
-        update_constraints_kernel(self.pos, self.edge, self.rest_len, self.constraints)
+        self.update_constraints()
         self.b = -self.constraints.to_numpy() - self.alpha_tilde.to_numpy() * self.lagrangian.to_numpy()
         return self.b
     
@@ -350,7 +356,7 @@ class Cloth(PhysicalBase):
             dlambda, self.r_iter.r_Axb = self.linsol.run(self.b)
             self.dlam2dpos(dlambda)
             self.update_pos()
-            do_post_iter(self, get_A0_cuda)
+            do_post_iter(self, self.get_A0_cuda)
             if self.r_iter.check():
                 break
         self.n_outer_all.append(self.ite+1)
@@ -384,11 +390,68 @@ class Cloth(PhysicalBase):
         """
         self.compute_C_and_gradC()
         self.b = self.compute_b()
+        A = self.assemble_A()
         dlambda, self.r_iter.r_Axb = self.linsol.run(self.b)
         self.dlam2dpos(dlambda)
         self.update_pos()
 
 
+    def assemble_A(self):
+        # taichi csr version 
+        A = self.fill_A_csr_ti()
+        # spmm version
+        # A = self.fill_A_by_spmm(self.M_inv, self.ALPHA_TILDE)
+        # cuda fetch version
+        # A = self.get_A0_cuda()
+        # cuda no-fetch version
+        # self.fill_A_in_cuda()
+
+
+    def fastFill_fetch(self):
+        self.extlib.fastFillCloth_fetch_A_data(self.spmat.data)
+        A = scipy.sparse.csr_matrix((self.spmat.data, self.spmat.indices, self.spmat.indptr), shape=(self.NE, self.NE))
+        return A
+
+    def fetch_A_from_cuda(self,lv=0):
+        nnz = self.extlib.fastmg_get_nnz(lv)
+        matsize = self.extlib.fastmg_get_matsize(lv)
+
+        self.extlib.fastmg_fetch_A(lv, self.spmat.data, self.spmat.indices, self.spmat.indptr)
+        A = scipy.sparse.csr_matrix((self.spmat.data, self.spmat.indices, self.spmat.indptr), shape=(matsize, matsize))
+        return A
+
+    def fetch_A_data_from_cuda(self):
+        self.extlib.fastmg_fetch_A_data(self.spmat.data)
+        A = scipy.sparse.csr_matrix((self.spmat.data, self.spmat.indices, self.spmat.indptr), shape=(self.NT, self.NT))
+        return A
+
+    def fill_A_in_cuda(self):
+        """Assemble A in cuda end"""
+        tic2 = perf_counter()
+        if args.use_withK:
+            A,G = self.fill_A_by_spmm(self.M_inv, self.ALPHA_TILDE)
+            self.extlib.fastmg_set_A0(A.data.astype(np.float32), A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
+        else:
+            self.extlib.fastFillCloth_run(self.pos.to_numpy())
+            self.extlib.fastmg_set_A0_from_fastFillCloth()
+        logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
+
+    def get_A0_python(self)->scipy.sparse.csr_matrix:
+        """get A0 from python end for build_P"""
+        if args.use_withK:
+            A,G = self.fill_A_by_spmm(self.M_inv, self.ALPHA_TILDE)
+        else:
+            A = self.fill_A_csr_ti()
+        return A
+
+    def get_A0_cuda(self)->scipy.sparse.csr_matrix:
+        """get A0 from cuda end for build_P"""
+        if args.use_withK:
+            A,G = self.fill_A_by_spmm(self.M_inv, self.ALPHA_TILDE)
+        else:
+            self.fill_A_in_cuda()
+            A = self.fetch_A_from_cuda(0)
+        return A
 
     def init_linear_solver(self, args, extlib):
         if args.linsol_type == "AMG":
@@ -396,27 +459,27 @@ class Cloth(PhysicalBase):
                 linsol = AmgCuda(
                     args=args,
                     extlib=extlib,
-                    get_A0=get_A0_cuda,
+                    get_A0=self.get_A0_cuda,
                     should_setup=self.should_setup,
-                    fill_A_in_cuda=fill_A_in_cuda,
+                    fill_A_in_cuda=self.fill_A_in_cuda,
                     graph_coloring=None,
                     copy_A=True,
                 )
             else:
-                linsol = AmgPython(args, get_A0_python, self.should_setup, copy_A=True)
+                linsol = AmgPython(args, self.get_A0_python, self.should_setup, copy_A=True)
         elif args.linsol_type == "AMGX":
-            linsol = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
+            linsol = AmgxSolver(args.amgx_config, self.get_A0_python, args.cuda_dir, args.amgx_lib_dir)
         elif args.linsol_type == "DIRECT":
-            linsol = DirectSolver(get_A0_python)
+            linsol = DirectSolver(self.get_A0_python)
         elif args.linsol_type == "GS":
-            linsol = GaussSeidelSolver(get_A0_python, args)
+            linsol = GaussSeidelSolver(self.get_A0_python, args)
         else:
             linsol = None
         return linsol
 
 
     def init_fill(self):
-        if args.solver_type == "XPBD" or args.solver_type == "NEWTON":
+        if args.solver_type == "XPBD" :
             return
         tic = time.perf_counter()
         from engine.cloth.fill_A import FillACloth
@@ -428,6 +491,92 @@ class Cloth(PhysicalBase):
         self.num_adjacent_edge = fill_A.num_adjacent_edge
         self.num_nonz = fill_A.num_nonz
         logging.info(f"Init fill time: {time.perf_counter()-tic:.3f}s")
+
+
+    def fill_A_csr_ti(self):
+        self.fill_A_CSR_kernel(self.spmat.data, self.spmat.indptr,
+                               self.spmat.ii, self.spmat.jj,
+                               self.adjacent_edge_abc,
+                               self.num_nonz, self.alpha_tilde,
+                               self.pos, self.edge, self.inv_mass)
+                               
+        A = scipy.sparse.csr_matrix((self.spmat.data, self.spmat.indices,
+                                     self.spmat.indptr),
+                                     shape=(self.NE, self.NE))
+        return A
+    
+
+    # for cnt version, require init_A_CSR_pattern() to be called first
+    @staticmethod
+    @ti.kernel
+    def fill_A_CSR_kernel(self,
+                        data:ti.types.ndarray(dtype=ti.f32), 
+                        indptr:ti.types.ndarray(dtype=ti.i32), 
+                        ii:ti.types.ndarray(dtype=ti.i32), 
+                        jj:ti.types.ndarray(dtype=ti.i32),
+                        adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
+                        num_nonz:ti.i32,
+                        alpha_tilde:ti.template(),
+                        pos:ti.template(),
+                        edge:ti.template(),
+                        inv_mass:ti.template()
+                        ):
+        for cnt in range(num_nonz):
+            i = ii[cnt] # row index
+            j = jj[cnt] # col index
+            k = cnt - indptr[i] #k-th non-zero element of i-th row. 
+            # Because the diag is the final element of each row, 
+            # it is also the k-th adjacent edge of i-th edge.
+            if i == j: # diag
+                data[cnt] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha_tilde[i]
+                continue
+            a = adjacent_edge_abc[i, k * 3]
+            b = adjacent_edge_abc[i, k * 3 + 1]
+            c = adjacent_edge_abc[i, k * 3 + 2]
+            g_ab = (pos[a] - pos[b]).normalized()
+            g_ac = (pos[a] - pos[c]).normalized()
+            offdiag = inv_mass[a] * g_ab.dot(g_ac)
+            data[cnt] = offdiag
+
+
+    def fill_G(self):
+        tic = time.perf_counter()
+        compute_C_and_gradC_kernel(self.pos, self.gradC, self.edge, self.constraints, self.rest_len)
+        G_ii, G_jj, G_vv = np.zeros(self.NCONS*6, dtype=np.int32), np.zeros(self.NCONS*6, dtype=np.int32), np.zeros(self.NCONS*6, dtype=np.float32)
+        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, self.gradC, self.edge)
+        G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(self.NCONS, 3 * self.NV))
+        print(f"    fill_G: {time.perf_counter() - tic:.4f}s")
+        return G
+
+    # legacy
+    def fill_A_by_spmm(self, M_inv, ALPHA_TILDE):
+        tic = time.perf_counter()
+        G_ii, G_jj, G_vv = np.zeros(self.NCONS*6, dtype=np.int32), np.zeros(self.NCONS*6, dtype=np.int32), np.zeros(self.NCONS*6, dtype=np.float32)
+        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, self.gradC, self.edge)
+        G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(self.NCONS, 3 * self.NV))
+        # print(f"fill_G: {time.perf_counter() - tic:.4f}s")
+
+        tic = time.perf_counter()
+        if args.use_withK:
+            # Geometric Stiffness: gradG/gradX = M - K, we only use diagonal of K and then replace M_inv with K_inv
+            # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
+            # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
+            # https://blog.csdn.net/weixin_43940314/article/details/139448858
+            self.K_diag.fill(0.0)
+            compute_K_kernel(self.K_diag)
+            where_zeros = np.where(M_inv.diagonal()==0)
+            mass = 1.0/(M_inv.diagonal()+1e-12)
+            MK_inv = scipy.sparse.diags([1.0/(mass - self.K_diag)], [0], format="dia")
+            M_inv = MK_inv # replace old M_inv with MK_inv
+            logging.info(f"with K:  max M_inv diag: {np.max(M_inv.diagonal())}, min M_inv diag: {np.min(M_inv.diagonal())}")
+            
+            M_inv.data[0,where_zeros] = 0.0
+            ...
+
+        A = G @ M_inv @ G.transpose() + ALPHA_TILDE
+        A = scipy.sparse.csr_matrix(A)
+        print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
+        return A, G
 
 
 @ti.kernel
@@ -653,12 +802,12 @@ def compute_K_kernel(K_diag:ti.types.ndarray(),):
 @ti.kernel
 def update_constraints_kernel(
     pos:ti.template(),
-    edge:ti.template(),
+    vert:ti.template(),
     rest_len:ti.template(),
     constraints:ti.template(),
 ):
-    for i in range(edge.shape[0]):
-        idx0, idx1 = edge[i]
+    for i in range(rest_len.shape[0]):
+        idx0, idx1 = vert[i]
         dis = pos[idx0] - pos[idx1]
         constraints[i] = dis.norm() - rest_len[i]
 
@@ -749,82 +898,24 @@ def dlam2dpos_kernel(
 #                                 start fill A                                 #
 # ---------------------------------------------------------------------------- #
 
-
-# for cnt version, require init_A_CSR_pattern() to be called first
 @ti.kernel
-def fill_A_CSR_kernel(data:ti.types.ndarray(dtype=ti.f32), 
-                    indptr:ti.types.ndarray(dtype=ti.i32), 
-                    ii:ti.types.ndarray(dtype=ti.i32), 
+def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha_tilde:ti.f32, inv_mass:ti.template(), edge:ti.template()):
+    for i in range(edge.shape[0]):
+        diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha_tilde
+
+
+@ti.kernel
+def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32),
                     jj:ti.types.ndarray(dtype=ti.i32),
+                    vv:ti.types.ndarray(dtype=ti.f32),
+                    num_adjacent_edge:ti.types.ndarray(dtype=ti.i32),
+                    adjacent_edge:ti.types.ndarray(dtype=ti.i32),
                     adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),
-                    num_nonz:ti.i32,
+                    inv_mass:ti.template(),
                     alpha_tilde:ti.template()):
-    for cnt in range(num_nonz):
-        i = ii[cnt] # row index
-        j = jj[cnt] # col index
-        k = cnt - indptr[i] #k-th non-zero element of i-th row. 
-        # Because the diag is the final element of each row, 
-        # it is also the k-th adjacent edge of i-th edge.
-        if i == j: # diag
-            data[cnt] = ist.inv_mass[ist.edge[i][0]] + ist.inv_mass[ist.edge[i][1]] + alpha_tilde[i]
-            continue
-        a = adjacent_edge_abc[i, k * 3]
-        b = adjacent_edge_abc[i, k * 3 + 1]
-        c = adjacent_edge_abc[i, k * 3 + 2]
-        g_ab = (ist.pos[a] - ist.pos[b]).normalized()
-        g_ac = (ist.pos[a] - ist.pos[c]).normalized()
-        offdiag = ist.inv_mass[a] * g_ab.dot(g_ac)
-        data[cnt] = offdiag
-
-
-
-# legacy
-def fill_A_by_spmm(M_inv, ALPHA_TILDE):
-    tic = time.perf_counter()
-    G_ii, G_jj, G_vv = np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.float32)
-    fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, ist.gradC, ist.edge)
-    G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(ist.NCONS, 3 * ist.NV))
-    # print(f"fill_G: {time.perf_counter() - tic:.4f}s")
-
-    tic = time.perf_counter()
-    if args.use_withK:
-        # Geometric Stiffness: gradG/gradX = M - K, we only use diagonal of K and then replace M_inv with K_inv
-        # https://github.com/FantasyVR/magicMirror/blob/a1e56f79504afab8003c6dbccb7cd3c024062dd9/geometric_stiffness/meshComparison/meshgs_SchurComplement.py#L143
-        # https://team.inria.fr/imagine/files/2015/05/final.pdf eq.21
-        # https://blog.csdn.net/weixin_43940314/article/details/139448858
-        ist.K_diag.fill(0.0)
-        compute_K_kernel(ist.K_diag)
-        where_zeros = np.where(M_inv.diagonal()==0)
-        mass = 1.0/(M_inv.diagonal()+1e-12)
-        MK_inv = scipy.sparse.diags([1.0/(mass - ist.K_diag)], [0], format="dia")
-        M_inv = MK_inv # replace old M_inv with MK_inv
-        logging.info(f"with K:  max M_inv diag: {np.max(M_inv.diagonal())}, min M_inv diag: {np.min(M_inv.diagonal())}")
-        
-        M_inv.data[0,where_zeros] = 0.0
-        ...
-
-    A = G @ M_inv @ G.transpose() + ALPHA_TILDE
-    A = scipy.sparse.csr_matrix(A)
-    print("fill_A_by_spmm  time: ", time.perf_counter() - tic)
-    return A, G
-
-
-
-
-
-
-# @ti.kernel
-# def fill_A_diag_kernel(diags:ti.types.ndarray(dtype=ti.f32), alpha_tilde:ti.f32, inv_mass:ti.template(), edge:ti.template()):
-#     for i in range(edge.shape[0]):
-#         diags[i] = inv_mass[edge[i][0]] + inv_mass[edge[i][1]] + alpha_tilde
-
-
-@ti.kernel
-def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dtype=ti.i32), vv:ti.types.ndarray(dtype=ti.f32), num_adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge:ti.types.ndarray(dtype=ti.i32), adjacent_edge_abc:ti.types.ndarray(dtype=ti.i32),  inv_mass:ti.template(), alpha_tilde:ti.template()):
     n = 0
-    ist.NE = ist.adjacent_edge.shape[0]
     ti.loop_config(serialize=True)
-    for i in range(ist.edge.shape[0]): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
+    for i in range(adjacent_edge.shape[0]): #对每个edge，找到所有的adjacent edge，填充到offdiag，然后填充diag
         for k in range(num_adjacent_edge[i]):
             ia = adjacent_edge[i,k]
             a = adjacent_edge_abc[i, k * 3]
@@ -846,71 +937,10 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32), jj:ti.types.ndarray(dty
         n += 1 
 
 
-
-def fill_A_csr_ti(ist):
-    fill_A_CSR_kernel(ist.spmat.data, ist.spmat.indptr, ist.spmat.ii, ist.spmat.jj, ist.adjacent_edge_abc, ist.num_nonz, ist.alpha_tilde)
-    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NE, ist.NE))
-    return A
-
-def fill_G():
-    tic = time.perf_counter()
-    compute_C_and_gradC_kernel(ist.pos, ist.gradC, ist.edge, ist.constraints, ist.rest_len)
-    G_ii, G_jj, G_vv = np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.int32), np.zeros(ist.NCONS*6, dtype=np.float32)
-    fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, ist.gradC, ist.edge)
-    G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(ist.NCONS, 3 * ist.NV))
-    print(f"    fill_G: {time.perf_counter() - tic:.4f}s")
-    return G
-
-
-
 # ---------------------------------------------------------------------------- #
 #                                  end fill A                                  #
 # ---------------------------------------------------------------------------- #
-def fastFill_fetch():
-    extlib.fastFillCloth_fetch_A_data(ist.spmat.data)
-    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NE, ist.NE))
-    return A
 
-def fetch_A_from_cuda(lv=0):
-    nnz = extlib.fastmg_get_nnz(lv)
-    matsize = extlib.fastmg_get_matsize(lv)
-
-    extlib.fastmg_fetch_A(lv, ist.spmat.data, ist.spmat.indices, ist.spmat.indptr)
-    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(matsize, matsize))
-    return A
-
-def fetch_A_data_from_cuda():
-    extlib.fastmg_fetch_A_data(ist.spmat.data)
-    A = scipy.sparse.csr_matrix((ist.spmat.data, ist.spmat.indices, ist.spmat.indptr), shape=(ist.NT, ist.NT))
-    return A
-
-def fill_A_in_cuda(extlib):
-    """Assemble A in cuda end"""
-    tic2 = perf_counter()
-    if args.use_withK:
-        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA_TILDE)
-        extlib.fastmg_set_A0(A.data.astype(np.float32), A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
-    else:
-        extlib.fastFillCloth_run(ist.pos.to_numpy())
-        extlib.fastmg_set_A0_from_fastFillCloth()
-    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
-
-def get_A0_python()->scipy.sparse.csr_matrix:
-    """get A0 from python end for build_P"""
-    if args.use_withK:
-        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA_TILDE)
-    else:
-        A = fill_A_csr_ti(ist)
-    return A
-
-def get_A0_cuda()->scipy.sparse.csr_matrix:
-    """get A0 from cuda end for build_P"""
-    if args.use_withK:
-        A,G = fill_A_by_spmm(ist.M_inv, ist.ALPHA_TILDE)
-    else:
-        fill_A_in_cuda()
-        A = fetch_A_from_cuda(0)
-    return A
 
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #

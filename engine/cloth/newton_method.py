@@ -35,6 +35,23 @@ class NewtonMethod(Cloth):
         self.ls_step_size = 1.0
 
     def set_constraints_from_read(self):
+        """
+        Set constraints from constraints.txt
+        
+        Data to be set:
+        - NCONS : number of constraints
+        - vert: array of vertex indices of constraints
+        - stiffness: array of stiffness of constraints
+        - rest_len: array of rest length of constraints
+        - NVERTS_ONE_CONS: number of verts per constraints, e.g., 2 for distance
+        - pin(shape=NV): bool field indicating which is pin point
+        - pinpos(shape=NV): field of pin positions(points other than pin points will be omitted)
+        - pinlist: list to indicate the vertex indices of pin points
+        - pinposlist: list of positions of pined pos
+        - cType(shape=NCONS): constraint type
+        - p0(shape=NCONS): pin vertex index for attachment constraint
+        - fixed_points(shape=NCONS): fixed points positions for attachment constraints
+        """
         from engine.cloth.constraints import constraintsAdapter, SetupConstraints
 
         s = SetupConstraints(
@@ -44,8 +61,10 @@ class NewtonMethod(Cloth):
         self.NCONS = ad.NCONS
         self.constraints = ad.val
         self.rest_len = ad.rest_len
+        # CAUTION: vert may not be the same with edge! And NCONS != NE
         self.vert = ad.vert
         self.stiffness = ad.stiffness
+        self.NVERTS_ONE_CONS = ad.NVERTS_ONE_CONS
 
         self.pinlist = ad.pinlist
         self.pinposlist = ad.pinposlist
@@ -77,11 +96,12 @@ class NewtonMethod(Cloth):
 
     def read_data_from_fms(self):
         os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
-        x1 = mmread("x.mtx").toarray().reshape(-1, 3)
-        self.pos.from_numpy(x1)
+        # x1 = mmread("x.mtx").toarray().reshape(-1, 3)
+        # self.pos.from_numpy(x1)
         self.MASS = mmread("MASS.mtx")
-        self.predict_pos.from_numpy(mmread("y.mtx").toarray().reshape(-1, 3))
+        # self.predict_pos.from_numpy(mmread("y.mtx").toarray().reshape(-1, 3))
         self.force = mmread("f.mtx").toarray().reshape(-1, 3)
+        self.NV = self.MASS.shape[0]//3
         os.chdir(self.prj_path)
 
     @timeit
@@ -146,7 +166,7 @@ class NewtonMethod(Cloth):
         self.calc_force()
         self.pos.from_numpy(self.predict_pos.to_numpy())
         for self.ite in range(self.args.maxiter):
-            converge = self.compare_oneiter_newton_mgpbd(self.pos, self.predict_pos)
+            converge = self.compare_oneiter_newton_mgpbd()
             # converge = self.step_one_iter_newton(self.pos)
             if converge:
                 break
@@ -302,7 +322,7 @@ class NewtonMethod(Cloth):
         h_square = delta_t * delta_t
         res = inertia_term + potential_term * h_square #fast mass spring
         # res = inertia_term / h_square + potential_term
-        print(f"    energy:{res:.8e}")
+        # print(f"    energy:{res:.8e}")
         return res
 
     def calc_gradient_cloth_imply_ti(self, x):
@@ -489,48 +509,398 @@ class NewtonMethod(Cloth):
         copy_kernel(f1, f2)
         return f2
 
-    def set_alpha_tilde_from_stiffness(self):
-        # alpha_tilde = self.alpha_tilde
+
+
+
+
+
+
+
+
+    @staticmethod
+    @ti.kernel
+    def compute_C_and_gradC_kernel(self,
+        pos:ti.template(),
+        gradC: ti.template(),
+        vert:ti.template(),
+        constraints:ti.template(),
+        rest_len:ti.template(),
+    ):
+        for i in range(vert.shape[0]):
+            idx0, idx1 = vert[i]
+            dis = pos[idx0] - pos[idx1]
+            lij = dis.norm()
+            if lij == 0.0:
+                continue
+            constraints[i] = lij - rest_len[i]
+            if constraints[i] < 1e-6:
+                continue
+            g = dis.normalized()
+
+            gradC[i, 0] += g
+            gradC[i, 1] += -g
+
+
+
+    def fill_G(self, gradC):
+        vert = self.vert
+        NV = self.NV
+        NCONS = vert.shape[0]
+
+        MAX_NNZ =NCONS * 6
+
+        @staticmethod
+        @ti.kernel
+        def fill_gradC_triplets_kernel(
+            ii:ti.types.ndarray(dtype=ti.i32),
+            jj:ti.types.ndarray(dtype=ti.i32),
+            vv:ti.types.ndarray(dtype=ti.f32),
+            gradC: ti.template(),
+            vert: ti.template(),
+        ):
+            cnt=0
+            ti.loop_config(serialize=True)
+            for j in range(vert.shape[0]):
+                ind = vert[j]
+                for p in range(2):
+                    for d in range(3):
+                        i = ind[p]
+                        ii[cnt],jj[cnt],vv[cnt] = j, 3 * i + d, gradC[j, p][d]
+                        cnt+=1
+        
+        G_ii, G_jj, G_vv = np.zeros(MAX_NNZ, dtype=np.int32), np.zeros(MAX_NNZ, dtype=np.int32), np.zeros(MAX_NNZ, dtype=np.float32)
+        assert not np.any(np.isnan(gradC.to_numpy()))
+        assert not np.any(np.isnan(G_vv))
+        fill_gradC_triplets_kernel(G_ii, G_jj, G_vv, gradC, vert)
+        G = scipy.sparse.csr_matrix((G_vv, (G_ii, G_jj)), shape=(NCONS, 3*NV))
+        return G
+
+
+    def fill_A_by_spmm(self, M_inv, ALPHA_TILDE, gradC):
+        G = self.fill_G(gradC)
+        A = G @ M_inv @ G.transpose() + ALPHA_TILDE
+        A = scipy.sparse.csr_matrix(A)
+        return A
+    
+
+    def set_Minv_and_ALPHA_TILDE(self):
+        MASS = self.MASS
         stiffness = self.stiffness
         delta_t = self.delta_t
+        
+        def set_Minv_from_MASS(MASS):
+            invmass = 1.0 / MASS.diagonal()
+            np.where(np.isinf(invmass), 0.0, invmass)
+            M_inv = scipy.sparse.diags(invmass)
+            return M_inv
+        
+        def set_ALPHA_TILDE_from_stiffness(stiffness, delta_t):
+            alpha_tilde = ti.field(dtype=ti.f32, shape=stiffness.shape[0])
+            @ti.kernel
+            def kernel(stiffness: ti.template(), alpha_tilde: ti.template()):
+                for i in alpha_tilde:
+                    alpha_tilde[i] = 1.0 / stiffness[i] / delta_t**2
+            kernel(stiffness, alpha_tilde)
+            
+            ALPHA_TILDE = scipy.sparse.diags(alpha_tilde.to_numpy())
+            return ALPHA_TILDE, alpha_tilde
 
-        alpha_tilde = ti.field(dtype=ti.f32, shape=stiffness.shape[0])
+        M_inv = set_Minv_from_MASS(MASS)
+        ALPHA_TILDE, alpha_tilde = set_ALPHA_TILDE_from_stiffness(stiffness, delta_t)
+
+        self.M_inv = M_inv
+        self.ALPHA_TILDE = ALPHA_TILDE
+        self.alpha_tilde = alpha_tilde
+
+        return M_inv, ALPHA_TILDE
+
+
+    def assemble_A(self, gradC):
+        A = self.fill_A_by_spmm(self.M_inv, self.ALPHA_TILDE, gradC)
+        return A
+    
+
+    def compute_b(self, constraints):
+        alpha_tilde = self.alpha_tilde
+        lagrangian = self.lagrangian
+        assert alpha_tilde.shape == lagrangian.shape
+        b = -constraints.to_numpy()-alpha_tilde.to_numpy()*lagrangian.to_numpy()
+        return b
+    
+    def compute_C_and_gradC(self, pos):
+        vert = self.vert    
+        rest_len = self.rest_len
+        constraints = ti.field(dtype=ti.f32, shape=vert.shape[0])
+        gradC = ti.Vector.field(3, dtype=ti.f32, shape=(vert.shape[0],self.NVERTS_ONE_CONS))
+        self.compute_C_and_gradC_kernel(pos,
+                                        gradC,
+                                        vert,
+                                        constraints,
+                                        rest_len)
+        return constraints, gradC
+
+    def dlam2dpos(self, dlam, gradC):
+        vert = self.vert
+        inv_mass = self.inv_mass
+
+        dLambda = ti.field(dtype=ti.f32, shape=dlam.shape[0])
+        dLambda.from_numpy(dlam)
+        dpos = ti.Vector.field(3, dtype=ti.f32, shape=self.NV)
 
         @ti.kernel
-        def kernel(stiffness: ti.template(), alpha_tilde: ti.template()):
-            for i in alpha_tilde:
-                alpha_tilde[i] = 1.0 / stiffness[i] / delta_t**2
+        def dlam2dpos_kernel(
+            vert:ti.template(),
+            inv_mass:ti.template(),
+            dLambda:ti.template(),
+            gradC:ti.template(),
+            dpos:ti.template(),
+        ):
+            for i in range(dpos.shape[0]):
+                dpos[i] = ti.Vector([0.0, 0.0, 0.0])
+            
+            for i in range(vert.shape[0]):
+                idx0, idx1 = vert[i]
+                invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+                gradient = gradC[i, 0]
+                if invM0 != 0.0:
+                    dpos[idx0] += invM0 * dLambda[i] * gradient
+                if invM1 != 0.0:
+                    dpos[idx1] -= invM1 * dLambda[i] * gradient
 
-        kernel(stiffness, alpha_tilde)
+        dlam2dpos_kernel(vert, inv_mass,
+                         dLambda, gradC, dpos)
+        
+        return dpos
+    
+    def update_pos(self, dpos, pos):
+        omega = self.args.omega
+        inv_mass = self.inv_mass
 
-        self.alpha_tilde = alpha_tilde
-        return alpha_tilde
+        @ti.kernel
+        def update_pos_kernel(
+            inv_mass:ti.template(),
+            dpos:ti.template(),
+            pos:ti.template(),
+            omega:ti.f32,
+        ):
+            for i in range(inv_mass.shape[0]):
+                if inv_mass[i] != 0.0:
+                    pos[i] += omega * dpos[i]
+        update_pos_kernel(inv_mass, dpos, pos, omega)
+        return pos
 
+
+    @staticmethod
+    def update_lambda(dlambda, lagrangian):
+        @ti.kernel
+        def add_lam_kernel(dlambda:ti.types.ndarray(),
+                           lagrangian:ti.template()):
+            for i in range(lagrangian.shape[0]):
+                lagrangian[i] += dlambda[i]
+        
+        add_lam_kernel(dlambda, lagrangian)
+        return lagrangian
     
 
-    def compare_oneiter_newton_mgpbd(self,x, predict_pos):
-        os.chdir("E:/Dev/fast_mass_spring/fast_mass_spring/")
-        x1 = mmread("x.mtx").toarray().reshape(-1, 3)
-        self.pos.from_numpy(x1)
-        os.chdir(self.prj_path)
+    def step_one_iter_mgpbd(self, pos, lagrangian):
+        """
+        One iter of mgpbd
+        """
+        self.set_Minv_and_ALPHA_TILDE()
+        constraints, gradC = self.compute_C_and_gradC(pos)
+        b = self.compute_b(constraints)
 
-        self.set_alpha_tilde_from_stiffness()
+        nrm = np.linalg.norm(b)
+        logging.info(f"    b norm: {nrm:.8e}")
+        if nrm < self.EPSILON:
+            logging.info(f"converge because b norm < EPSILON")
+            return True
+        
+        A = self.assemble_A(gradC)
+        dlambda = scipy.sparse.linalg.spsolve(A, b)
+        dlambda = dlambda.astype(np.float32)
+        dpos = self.dlam2dpos(dlambda, gradC)
+        self.update_lambda(dlambda, lagrangian)
+        self.update_pos(dpos, pos)
+        
+        self.pos = pos
+        self.lagrangian = lagrangian
+    
+
+    def update_constraints(self, pos):
+        vert = self.vert
+        rest_len = self.rest_len
+        constraints = ti.field(dtype=ti.f32, shape=self.NCONS)
+
+        @ti.kernel
+        def update_constraints_kernel(
+            pos:ti.template(),
+            vert:ti.template(),
+            rest_len:ti.template(),
+            constraints:ti.template(),
+        ):
+            for i in range(vert.shape[0]):
+                idx0, idx1 = vert[i]
+                dis = pos[idx0] - pos[idx1]
+                constraints[i] = dis.norm() - rest_len[i]
+        update_constraints_kernel(pos, vert, rest_len, constraints)
+        return constraints
+    
+    def calc_C_norm(self, pos):
+        C = self.update_constraints(pos)
+        from engine.util import calc_norm
+        nrm = calc_norm(C)
+        return nrm
+
+
+    def calc_strain(self, pos)->float:
+        vert = self.vert
+        rest_len = self.rest_len
+        strain = ti.field(dtype=ti.f32, shape=self.vert.shape[0])
+        @ti.kernel
+        def calc_strain_cloth_kernel(
+            vert:ti.template(),
+            rest_len:ti.template(),
+            pos:ti.template(),
+            strain:ti.template(),
+        ):
+            for i in range(vert.shape[0]):
+                idx0, idx1 = vert[i]
+                dis = pos[idx0] - pos[idx1]
+                l = dis.norm()
+                if l< 1e-6:
+                    continue
+                strain[i] = (l - rest_len[i])/l
+        calc_strain_cloth_kernel(vert, rest_len, pos, strain)
+        s = np.linalg.norm(strain.to_numpy())
+        return s
+    
+        
+
+    def compare_oneiter_newton_mgpbd(self):
+        from engine.ti_kernels import init_scale
+        init_scale(self.predict_pos, 1.5)
+        self.pos.from_numpy(self.predict_pos.to_numpy())
+
+        self.force = np.zeros((self.NV, 3), dtype=np.float32)   
+
         self.lagrangian = ti.field(dtype=ti.f32, shape=self.NCONS)
 
-        # newton
-        self.pos.from_numpy(x1)
-        self.step_one_iter_newton(self.pos)
-        energy1 = self.calc_energy(self.pos, self.predict_pos)
+        maxiter = 10
+        self.args.omega = 1.0
+
+        energy0 = self.calc_energy(self.pos, self.predict_pos)
+        logging.info(f"    initial energy0: {energy0:.8e}")
 
         # mgpbd
-        Cloth.step_one_iter_mgpbd(self)
-        # self.step_one_iter_mgpbd()
-        energy2 = self.calc_energy(self.pos, self.predict_pos)
+        self.pos.from_numpy(self.predict_pos.to_numpy())
+        self.ppos1 = self.predict_pos.to_numpy().copy()
+        self.linsol  = DirectSolver(self.assemble_A)
+        mgpbd_energies = [energy0]
+        pos1_bak = self.pos.to_numpy().copy()
+        mgpbd_strains = [self.calc_strain(self.pos)]
+        mgpbd_C = [self.calc_C_norm(self.pos)]
+        self.lagrangian.fill(0)
+        for i in range(maxiter):
+            self.step_one_iter_mgpbd(self.pos, self.lagrangian)
 
 
-        print(f"energy1-energy2: {energy1-energy2}")
-        assert abs(energy1-energy2)<1e-6, energy1-energy2
+            s = self.calc_strain(self.pos)
+            mgpbd_strains.append(s)
+
+            c = self.calc_C_norm(self.pos)
+            mgpbd_C.append(c)
+            logging.info(f" constraints: {c}")
+
+            e = self.calc_energy(self.pos, self.predict_pos)
+            mgpbd_energies.append(e)
+            logging.info(f"    mgpbd energy: {e:.8e}")
+
+
+
+        self.pos.from_numpy(self.predict_pos.to_numpy())
+        self.lagrangian.fill(0)
+        xpbd_energies = [energy0]
+        pos2_bak = self.pos.to_numpy().copy()
+        assert np.allclose(pos1_bak, pos2_bak)
+        xpbd_strains = [self.calc_strain(self.pos)]
+        xpbd_C = [self.calc_C_norm(self.pos)]
+        for i in range(maxiter):
+            self.project_constraints_xpbd()
+            self.update_pos(self.dpos, self.pos)
+
+
+            s = self.calc_strain(self.pos)
+            xpbd_strains.append(s)
+
+
+            c = self.calc_C_norm(self.pos)
+            xpbd_C.append(c)
+            logging.info(f" constraints: {c}")
+
+
+            # print(f"    pos norm: {np.linalg.norm(self.pos.to_numpy()):.8e}")
+            expbd = self.calc_energy(self.pos, self.predict_pos)
+            xpbd_energies.append(expbd)
+            logging.info(f"    xpbd energy: {expbd:.8e}")
+
+
+        # newton
+        self.pos.from_numpy(self.predict_pos.to_numpy())
+        newton_energies = [energy0]
+        newton_strains = [self.calc_strain(self.pos)]
+        newton_C = [self.calc_C_norm(self.pos)]
+        for i in range(maxiter):
+            self.step_one_iter_newton(self.pos)
+
+            s = self.calc_strain(self.pos)
+            newton_strains.append(s)
+
+            c = self.calc_C_norm(self.pos)
+            newton_C.append(c)
+            logging.info(f"     constraints: {c}")
+
+            e = self.calc_energy(self.pos, self.predict_pos)
+            newton_energies.append(e)
+            logging.info(f"    newton energy: {e:.8e}")
+
+
         print("compare ok")
-        ...
+        for i in range(maxiter):
+            print(f"{i}: {newton_energies[i]:.6e} vs {mgpbd_energies[i]:.6e} vs {xpbd_energies[i]:.6e}")
 
-    
+        print("strain-------------------")
+        for i in range(maxiter):
+            print(f"{i}: {newton_strains[i]:.6e} vs {mgpbd_strains[i]:.6e} vs {xpbd_strains[i]:.6e}")
+        
+        print("C-------------------")
+        for i in range(maxiter):
+            print(f"{i}: {newton_C[i]:.6e} vs {mgpbd_C[i]:.6e} vs {xpbd_C[i]:.6e}")
+
+
+
+        import matplotlib.pyplot as plt
+        fig,axs = plt.subplots(1,1)
+        axs.plot(newton_strains, label="newton")
+        axs.plot(mgpbd_strains, label="mgpbd")
+        axs.plot(xpbd_strains, label="xpbd")
+        axs.legend()
+        axs.set_title("strain")
+        # plt.show()
+
+        fig,axs = plt.subplots(1,1)
+        axs.plot(newton_energies, label="newton")
+        axs.plot(mgpbd_energies, label="mgpbd")
+        axs.plot(xpbd_energies, label="xpbd")
+        axs.legend()
+        axs.set_title("energy")
+        # plt.show()
+
+
+        fig,axs = plt.subplots(1,1)
+        axs.plot(newton_C, label="newton")
+        axs.plot(mgpbd_C, label="mgpbd")
+        axs.plot(xpbd_C, label="xpbd")
+        axs.legend()
+        axs.set_title("constraint")
+        plt.show()

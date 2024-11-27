@@ -32,7 +32,7 @@ using std::cout;
 using std::endl;
 
 #define USE_LESSMEM 1
-
+#define VERBOSE 0
 
 namespace {
 
@@ -836,7 +836,10 @@ float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
 
     err = std::abs(max_eigenvalue - max_eigenvalue_prev);
     if (err < tol && itr >= 10) {
-      std::cout << ("[NOTE]: ") << "Converged at iterations: " << itr << std::endl;
+        if (VERBOSE)
+        {
+            std::cout << ("[NOTE]: ") << "Converged at iterations: " << itr << std::endl;
+        }
       return max_eigenvalue;
     }
 
@@ -851,7 +854,10 @@ float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
   CHECK_CUSPARSE( cusparseDestroy(handle) )
   CHECK_CUDA( cudaFree(dBuffer) )
 
-  std::cout << ("\n[NOTE]: ") << "Max_iter("<<max_iter<<") reached when calculating max eig, error=" <<err<< std::endl;  // no convergence
+    if (VERBOSE)
+    {
+        std::cout << ("\n[NOTE]: ") << "Max_iter("<<max_iter<<") reached when calculating max eig, error=" <<err<< std::endl;  // no convergence
+    }
   return max_eigenvalue;
 }
 };
@@ -1203,7 +1209,8 @@ struct VCycle : Kernels {
     }
 
     void setup_smoothers(int type) {
-        cout<<"\nSetting up smoothers..."<<endl;
+        if(VERBOSE)
+            cout<<"\nSetting up smoothers..."<<endl;
         smoother_type = type;
         if(smoother_type == 1)
         {
@@ -1230,7 +1237,10 @@ struct VCycle : Kernels {
         chebyshev_polynomial_coefficients(a, b);
         
         max_eig = rho;
-        cout<<"max eigenvalue: "<<max_eig<<endl;
+        if (VERBOSE)
+        {
+            cout<<"max eigenvalue: "<<max_eig<<endl;
+        }
     }
 
 
@@ -1280,12 +1290,15 @@ struct VCycle : Kernels {
             chebyshev_coeff[i] = -scaled_poly[i];
         }
 
-        cout<<"Chebyshev polynomial coefficients: ";
-        for(int i=0; i<degree; i++)
+        if(VERBOSE)
         {
-            cout<<chebyshev_coeff[i]<<" ";
+            cout<<"Chebyshev polynomial coefficients: ";
+            for(int i=0; i<degree; i++)
+            {
+                cout<<chebyshev_coeff[i]<<" ";
+            }
+            cout<<endl;
         }
-        cout<<endl;
     }
 
 
@@ -1492,7 +1505,8 @@ struct VCycle : Kernels {
         float jacobi_omega = 1.0 / (lambda_max+lambda_min);
  
         timer.stop();
-        cout<<"calc_weighted_jacobi_omega time: "<<timer.elapsed()<<" ms"<<endl;
+        if(VERBOSE)
+            cout<<"calc_weighted_jacobi_omega time: "<<timer.elapsed()<<" ms"<<endl;
         return jacobi_omega;
     }
 

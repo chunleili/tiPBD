@@ -4,10 +4,10 @@ import logging
 from time import perf_counter
 import ctypes
 
-def build_Ps(A,args,extlib=None):
+def build_Ps(A,args,extlib=None, verbose=False):
     """Build a list of prolongation matrices Ps from A """
     method = args.build_P_method
-    print("build P by method:", method)
+    logging.info(f"build P by method:{method}")
     tic = perf_counter()
     if method == 'UA':
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None, improve_candidates=None, symmetry='symmetric')
@@ -19,8 +19,8 @@ def build_Ps(A,args,extlib=None):
         ml = pyamg.aggregation.adaptive_sa_solver(A.astype(np.float64), max_coarse=400, smooth=None, num_candidates=6)[0]
     elif method == 'nullspace':
         B = calc_near_nullspace_GS(A)
-        print("B shape:", B.shape)
-        print(f"B: {B}")
+        logging.info(f"B shape: {B.shape}")
+        logging.info(f"B: {B}")
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B)
     elif method == 'algebraic3.0':
         ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('algebraic_distance', {'epsilon': 3.0}))
@@ -67,7 +67,8 @@ def build_Ps(A,args,extlib=None):
         extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
         extlib.fastmg_setup_nl(num_levels)
     
-    logging.info(ml)
+    if(verbose):
+        logging.info(ml)
 
     Ps = []
     for i in range(len(ml.levels)-1):

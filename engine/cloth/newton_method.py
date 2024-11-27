@@ -838,7 +838,7 @@ class CompareNewtonMethod(NewtonMethod):
                 l = dis.norm()
                 if l< 1e-6:
                     continue
-                strain[i] = (l - rest_len[i])/l
+                strain[i] = (l - rest_len[i])/rest_len[i]
         calc_strain_cloth_kernel(vert, rest_len, pos, strain)
         s = np.max(strain.to_numpy())
         return s

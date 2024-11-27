@@ -27,12 +27,15 @@ class NewtonMethod(Cloth):
 
         self.hessian = None
 
-        self.linsolnewton = DirectSolver(lambda: self.hessian)
-
         self.use_line_search = True
         self.ls_alpha = 0.25
         self.ls_beta = 0.1
         self.ls_step_size = 1.0
+
+        self.args.smoother_type = "jacobi"
+        self.args.smoother_niter = 3
+        self.args.maxiter_Axb = 300
+        self.linsol = AmgCuda(self.args, self.extlib)
 
     def set_constraints_from_read(self):
         """
@@ -164,6 +167,7 @@ class NewtonMethod(Cloth):
     @timeit
     def substep_newton(self):
         self.calc_predict_pos()
+        self.pos_old.from_numpy(self.pos.to_numpy())
         self.calc_force()
         self.pos.from_numpy(self.predict_pos.to_numpy())
         for self.ite in range(self.args.maxiter):
@@ -217,17 +221,10 @@ class NewtonMethod(Cloth):
 
         self.hessian = self.evaluateHessian(x)
 
-        # descent_dir, r_Axb = self.linsolnewton.run(gradient.flatten())
-        self.args.smoother_type = "jacobi"
-        self.linsol = AmgCuda(self.args, self.extlib)
         descent_dir,r_Axb = self.linsol.run_v2(self.hessian, gradient.flatten())
-
-
         descent_dir = -descent_dir.reshape(-1, 3).astype(np.float32)
-        logging.info(f"    r_Axb: {r_Axb[0]:.2e} {r_Axb[-1]:.2e}")
 
         step_size = self.line_search(x, self.predict_pos, gradient, descent_dir)
-        logging.info(f"    step_size: {step_size:.2e}")
 
         x.from_numpy(x.to_numpy() + descent_dir.reshape(-1, 3) * step_size)
 
@@ -361,7 +358,6 @@ class NewtonMethod(Cloth):
                 dis = l_ij - rest_len[i]
                 if dis < 1e-6:
                     continue
-                # print(i,"dis", dis)
                 g_ij = stiffness[i] * (dis) * x_ij.normalized()
                 gradient[i0] += g_ij
                 gradient[i1] -= g_ij
@@ -761,11 +757,11 @@ class CompareNewtonMethod(NewtonMethod):
                 if inv_mass[i] != 0.0:
                     pos[i] += omega * dpos[i]
         update_pos_kernel(inv_mass, dpos, pos, omega)
+        self.pos = pos
         return pos
 
 
-    @staticmethod
-    def update_lambda(dlambda, lagrangian):
+    def update_lambda(self, dlambda, lagrangian):
         @ti.kernel
         def add_lam_kernel(dlambda:ti.types.ndarray(),
                            lagrangian:ti.template()):
@@ -773,14 +769,11 @@ class CompareNewtonMethod(NewtonMethod):
                 lagrangian[i] += dlambda[i]
         
         add_lam_kernel(dlambda, lagrangian)
+        self.lagrangian = lagrangian 
         return lagrangian
     
 
     def step_one_iter_mgpbd(self, pos, lagrangian):
-        """
-        One iter of mgpbd
-        """
-        # self.set_Minv_and_ALPHA_TILDE()
         constraints, gradC = self.compute_C_and_gradC(pos)
         b = self.compute_b(constraints)
 
@@ -792,10 +785,6 @@ class CompareNewtonMethod(NewtonMethod):
         
         A = self.assemble_A(gradC)
 
-        self.args.smoother_type = "jacobi"
-        self.args.smoother_niter = 3
-        self.args.maxiter_Axb = 300
-        self.linsol = AmgCuda(self.args, self.extlib)
         dlambda,r_Axb = self.linsol.run_v2(A, b)
         dlambda = dlambda.astype(np.float32)
 
@@ -803,8 +792,6 @@ class CompareNewtonMethod(NewtonMethod):
         self.update_lambda(dlambda, lagrangian)
         self.update_pos(dpos, pos)
         
-        self.pos = pos
-        self.lagrangian = lagrangian
         return pos, lagrangian
     
 
@@ -890,7 +877,6 @@ class CompareNewtonMethod(NewtonMethod):
 
         # mgpbd
         self.pos.from_numpy(self.predict_pos.to_numpy())
-        self.linsol  = DirectSolver(self.assemble_A)
         mgpbd_energies = [energy0]
         mgpbd_strains = [self.calc_strain(self.pos)]
         mgpbd_C = [self.calc_C_norm(self.pos)]

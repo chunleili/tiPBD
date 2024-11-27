@@ -101,4 +101,7 @@
         "ranges": "cpp",
         "span": "cpp"
     },
+    "notebook.output.wordWrap": true,
+    "C_Cpp.vcFormat.newLine.closeBraceSameLine.emptyFunction": true,
+    "editor.wordWrap": "on",
 }

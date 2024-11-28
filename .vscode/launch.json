@@ -32,7 +32,7 @@
             "cwd": "${workspaceFolder}",
             "args": [
               "-end_frame=100",
-              
+              "-use_bending=1"
             ]
           },  
           {

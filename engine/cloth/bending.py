@@ -1,3 +1,13 @@
+"""
+use case:
+
+if args.use_bending:
+    self.tri_pairs, self.bending_length = init_bending(self.tri, self.pos)
+    self.vert, self.NCONS = add_distance_constraints_from_tri_pairs(self.vert, self.tri_pairs)
+
+"""
+
+
 import numpy as np
 from time import perf_counter
 import taichi as ti
@@ -146,3 +156,26 @@ def solve_bending_constraints_xpbd(
             dpos[idx0] += invM0 * delta_lagrangian * gradient
         if invM1 != 0.0:
             dpos[idx1] -= invM1 * delta_lagrangian * gradient
+
+
+
+
+def add_distance_constraints_from_tri_pairs(old_vert, tri_pairs):
+    old_NCONS = old_vert.shape[0]
+    added_NCONS = tri_pairs.shape[0]
+    new_NCONS = added_NCONS + old_NCONS
+    vert = ti.Vector.field(2, dtype=ti.i32, shape= new_NCONS)
+    @ti.kernel
+    def kernel(vert:ti.template(), 
+                old_vert:ti.template(), 
+                tri_pairs:ti.types.ndarray()):
+            for i in range(old_vert.shape[0]):
+                vert[i] = old_vert[i]
+
+            for i in range(old_vert.shape[0], tri_pairs.shape[0]):
+                v2 = tri_pairs[i, 2]
+                v3 = tri_pairs[i, 3]
+                vert[i][0] = v2
+                vert[i][1] = v3
+    kernel(vert,old_vert,tri_pairs)
+    return vert

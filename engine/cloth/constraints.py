@@ -1,6 +1,8 @@
 import numpy as np
 import taichi as ti
+import scipy
 from enum import Enum
+import taichi.math as tm
 class ConstraintType(Enum):
     STRETCH = 0
     ATTACHMENT = 1
@@ -210,3 +212,97 @@ class constraintsAdapter:
         self.vert.from_numpy(self.vert_np)
         self.stiffness.from_numpy(self.stiffness_np)
 
+
+
+@ti.dataclass
+class DistanceConstraintAOS:
+    idx: ti.i32
+    c: ti.f32
+    g1=ti.math.vec3([0,0,0])
+    g2=ti.math.vec3([0,0,0])
+    lam:ti.f32
+    dlam:ti.f32
+    p1:ti.i32
+    p2:ti.i32
+    typeid: ti.i32
+    stiffness: ti.f32
+    alpha_tilde:ti.f32
+    rest_len: ti.f32
+
+    @ti.func
+    def calc_rest_len(self,pos:ti.template()):
+        self.rest_len = (pos[self.p1] - pos[self.p2]).norm()
+
+
+
+
+class ClothConstraints():
+    def __init__(self, args, vert, pos, tri=None, ):
+        if args.use_bending:
+            from engine.cloth.bending import init_bending, add_distance_constraints_from_tri_pairs
+            self.tri_pairs, self.bending_length = init_bending(tri, pos)
+            self.vert = add_distance_constraints_from_tri_pairs(vert, self.tri_pairs)
+
+        NCONS = vert.shape[0]
+
+        self.rest_len = self.init_rest_len(vert, pos)
+        self.set_alpha(args.compliance, NCONS, args.delta_t)
+        self.disConsAos =  self.to_AOS_constraints(pos,vert,self.alpha_tilde)
+
+        self.lagrangian  = ti.field(dtype=float, shape=(NCONS))  
+        self.constraints = ti.field(dtype=float, shape=(NCONS))  
+        self.dLambda     = ti.field(dtype=float, shape=(NCONS))
+        self.gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NCONS,2)) 
+        self.dual_residual= ti.field(shape=(NCONS),    dtype = ti.float32) # -C-alpha_tilde * self.lagrangian
+ 
+        self.cType = np.zeros(NCONS, dtype=np.int32) # 0: stretch, 1: attachment, 2: bending
+        self.p0 = np.zeros(NCONS, dtype=np.int32)
+        self.fixed_point = np.zeros((NCONS, 3), dtype=np.float32)
+
+    
+    def set_alpha(self, compliance, NCONS, delta_t):
+        alpha_tilde_constant = compliance * (1.0 / delta_t / delta_t)  
+        # timestep related compliance, see XPBD paper 
+        # #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
+        alpha_bending_constant = 1.0 * (1.0 / delta_t / delta_t) #TODO: need to be tuned
+        stiffness = ti.field(dtype=float, shape=(NCONS))
+        stiffness.fill(1.0/compliance)
+        alpha_tilde_np = np.array([alpha_tilde_constant] * NCONS)
+
+        # self.ALPHA_TILDE = scipy.sparse.diags(alpha_tilde_np)
+        self.stiffness_matrix = scipy.sparse.dia_matrix((stiffness.to_numpy(), [0]), shape=(NCONS, NCONS), dtype=np.float32)
+        self.alpha_tilde = ti.field(dtype=ti.f32, shape=(NCONS))
+        self.alpha_tilde.from_numpy(alpha_tilde_np)
+
+
+    def init_rest_len(self, vert, pos):
+        @ti.kernel
+        def kernel(
+            vert:ti.template(),
+            pos:ti.template(),
+            rest_len:ti.template(),
+        ):
+            for i in range(vert.shape[0]):
+                idx1, idx2 = vert[i]
+                p1, p2 = pos[idx1], pos[idx2]
+                rest_len[i] = (p1 - p2).norm()
+        rest_len = ti.field(dtype=float, shape=(vert.shape[0]))
+        kernel(vert, pos, rest_len)
+        return rest_len
+
+    def to_AOS_constraints(self, pos, vert, alpha_tilde):
+        @ti.kernel
+        def kernel(
+            pos:ti.template(),
+            vert:ti.template(),
+            alpha_tilde:ti.template(),
+            aos: ti.template(),
+        ):
+            for i in range(vert.shape[0]):
+                aos[i].p1, aos[i].p2 = vert[i]
+                aos[i].calc_rest_len(pos)
+                aos[i].alpha_tilde = alpha_tilde[i]
+        
+        disConsAos = DistanceConstraintAOS.field(shape=vert.shape[0])
+        kernel(pos,vert,alpha_tilde,disConsAos)
+        return disConsAos

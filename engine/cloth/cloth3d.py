@@ -163,7 +163,7 @@ class Cloth(PhysicalBase):
         MASS = scipy.sparse.diags(mass3, format="csr")
 
         physdata.mass = mass
-        physdata.MASS = MASS
+        self.MASS = MASS
         # ---------------------------------------------------------------------------- #
         #                                   stiffnes                                   #
         # ---------------------------------------------------------------------------- #
@@ -177,7 +177,8 @@ class Cloth(PhysicalBase):
         alpha_tilde_np = np.array([alpha_tilde_constant] * NCONS)
         ALPHA_TILDE = scipy.sparse.diags(alpha_tilde_np)
 
-        physdata.stiffness = stiffness
+        physdata.stiffness = stiffness.to_numpy()
+        self.stiffness_matrix = scipy.sparse.dia_matrix((stiffness.to_numpy(), [0]), shape=(NCONS, NCONS), dtype=np.float32)
         # ---------------------------------------------------------------------------- #
         #                                     force                                    #
         # ---------------------------------------------------------------------------- #
@@ -961,8 +962,8 @@ def init():
 
     global ist
     if args.solver_type == "NEWTON":
-        from engine.cloth.newton_method import CompareNewtonMethod
-        ist = CompareNewtonMethod(args, extlib)
+        from engine.cloth.newton_method import TestNewtonMethod
+        ist = TestNewtonMethod(args, extlib)
     else:
         ist = Cloth(args, extlib)
 

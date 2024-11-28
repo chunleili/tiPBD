@@ -74,8 +74,9 @@
               "-export_state=1",
               "-N=64",
               "-end_frame=100",
-              "-setup_num=0"
-
+              "-setup_num=0",
+              "-restart_file=result/meta/0099.npz"
+              
             ]
           }   
     ]

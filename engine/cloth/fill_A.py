@@ -56,17 +56,7 @@ class FillACloth():
         else:
             self.use_cpp_initFill = False
 
-        # NE = self.NE
-        # NV = self.NV
-        # MAX_ADJ = 20
-        # MAX_V2E = MAX_ADJ
-        # adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
-        # adjacent_edge_abc.fill(-1)
-        # self.adjacent_edge = np.zeros((NE, MAX_ADJ), dtype=np.int32)
-        # self.num_adjacent_edge = np.zeros(NE, dtype=np.int32)
-        # self.adjacent_edge_abc = np.zeros((NE, MAX_ADJ*3), dtype=np.int32)
-        # self.v2e = np.zeros((NV, MAX_V2E), dtype=np.int32)
-        # self.num_v2e = np.zeros(NV, dtype=np.int32)
+
         self.spmat = SpMat()
 
     def init(self):
@@ -130,6 +120,17 @@ class FillACloth():
         edge = self.edge
         NE = edge.shape[0]
         extlib = self.extlib
+
+        NV = self.NV
+        MAX_ADJ = 20
+        MAX_V2E = MAX_ADJ
+        adjacent_edge_abc = np.empty((NE, 20*3), dtype=np.int32)
+        adjacent_edge_abc.fill(-1)
+        self.adjacent_edge = np.zeros((NE, MAX_ADJ), dtype=np.int32)
+        self.num_adjacent_edge = np.zeros(NE, dtype=np.int32)
+        self.adjacent_edge_abc = np.zeros((NE, MAX_ADJ*3), dtype=np.int32)
+        self.v2e = np.zeros((NV, MAX_V2E), dtype=np.int32)
+        self.num_v2e = np.zeros(NV, dtype=np.int32)
 
         tic1 = perf_counter()
         print("Initializing adjacent edge and abc...")

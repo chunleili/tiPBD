@@ -80,7 +80,9 @@ class NewtonMethod(Cloth):
         self.p0 = ad.p0
         self.fixed_point = ad.fixed_point
 
-    def set_stiffness(self, alpha_tilde, delta_t):
+
+    @staticmethod
+    def set_stiffness_field(alpha_tilde, delta_t):
         stiffness = ti.field(dtype=ti.f32, shape=alpha_tilde.shape[0])
 
         @ti.kernel
@@ -90,6 +92,15 @@ class NewtonMethod(Cloth):
 
         kernel(stiffness, alpha_tilde)
         return stiffness
+    
+
+    def set_stiffness_matrix(self):
+        NCONS = self.NCONS
+        stiffness = self.set_stiffness_field(self.alpha_tilde, self.delta_t)
+        self.stiffness_matrix = scipy.sparse.dia_matrix((stiffness.to_numpy(), [0]), shape=(NCONS, NCONS), dtype=np.float32)
+        assert self.stiffness_matrix.shape[0]==self.NCONS
+        assert self.stiffness_matrix.shape[1]==self.NCONS
+        
 
     def set_mass(self):
         from engine.util import set_mass_matrix_from_invmass
@@ -171,7 +182,6 @@ class NewtonMethod(Cloth):
         self.calc_force()
         self.pos.from_numpy(self.predict_pos.to_numpy())
         for self.ite in range(self.args.maxiter):
-            # converge = self.compare_oneiter_newton_mgpbd()
             converge = self.step_one_iter_newton(self.pos)
             if converge:
                 break
@@ -363,7 +373,7 @@ class NewtonMethod(Cloth):
                 gradient[i1] -= g_ij
 
         kernel(x, vert, rest_len, gradient, stiffness)
-        gradient -= force
+        # gradient -= force
         gradient = (
             MASS @ (x.to_numpy().flatten() - x_tilde.to_numpy().flatten())
             + delta_t * delta_t * gradient.flatten()
@@ -371,6 +381,56 @@ class NewtonMethod(Cloth):
         gradient = gradient.reshape(-1, 3)
 
         return gradient
+    
+
+    def calc_gradient_imply_constraint(self, pos, C=None, G=None):
+        """
+        Calculate the energy gradient by assembling the constraints
+        
+        # gradE = 1/(dt^2) M (x-x_tilde) + nabla C^T K C
+        gradE = M (x-x_tilde) + nabla C^T K C * dt^2
+
+        where 
+
+        - K is diagonal stiffness matrix,
+
+        - vector C is in R^m. For one constraint j:
+
+            C_j = l_ij - l_0
+
+        - sparse matrix nabla C is in R^(m x 3n). For one constraint j:
+
+            nabla C_j = [g, -g], where g = (p-q)/l is 3x1 vector.
+
+            One constraint j corresponds to one row of sparse matrix nabla C.
+
+            The first nonzero value g locates at j row, 3*i1/3*i1+1/3*i1+2 columns;
+
+            The second nonzero value -g locates at j row, 3*i2/3*i2+1/3*i2+2 columns
+
+        """
+        if C is None or G is None:
+            from engine.cloth.C_and_gradC_distance import compute_C_and_gradC_distance, fill_G_distance
+            vert = self.vert
+            rest_len = self.rest_len
+            NV = self.NV
+
+            C, gradC = compute_C_and_gradC_distance(pos,vert,rest_len)
+            C = C.to_numpy()
+            G = fill_G_distance(gradC, vert, NV)
+            
+        
+        MASS = self.MASS
+        ppos = self.predict_pos
+        delta_t = self.delta_t
+        stiffness_matrix = self.stiffness_matrix
+
+        inertia_term =  MASS @ (pos.to_numpy().flatten() - ppos.to_numpy().flatten())
+        potential_term = G.T @ stiffness_matrix @ C  * delta_t**2
+        gradE = inertia_term + potential_term
+        assert gradE.shape[0] == 3*NV
+        assert not np.isnan(gradE).any(), "gradE contains NaN values"
+        return gradE.reshape(-1,3)
     
 
     def calc_hessian_imply_ti(self, x) -> scipy.sparse.csr_matrix:
@@ -571,7 +631,8 @@ class CompareNewtonMethod(NewtonMethod):
         self.calc_force()
         self.pos.from_numpy(self.predict_pos.to_numpy())
         for self.ite in range(self.args.maxiter):
-            converge = self.compare_oneiter_newton_mgpbd()
+            # converge = self.compare_oneiter_newton_mgpbd()
+            converge = self.test_calc_gradient_imply_constraint()
             # converge = self.step_one_iter_newton(self.pos)
             if converge:
                 break
@@ -947,3 +1008,27 @@ class CompareNewtonMethod(NewtonMethod):
         axs.legend()
         axs.set_title("constraint")
         plt.show()
+
+
+
+
+class TestNewtonMethod(NewtonMethod):
+    def __init__(self, args, extlib=None):
+        Cloth.__init__(self,args, extlib)
+        self.args = args
+    
+    def substep_newton(self):
+        from engine.file_utils import do_restart 
+        do_restart(self.args, self)
+        self.test_calc_gradient_imply_constraint()
+
+
+    def test_calc_gradient_imply_constraint(self):
+        x = self.pos
+        self.vert = self.edge
+        self.set_mass()
+        gradE1 = self.calc_gradient_imply_constraint(x)
+        gradE2 = self.calc_gradient_cloth_imply_ti(x)
+        from engine.util import vec_is_equal
+        assert vec_is_equal(gradE1, gradE2, 1e-6)
+        ...

@@ -29,39 +29,40 @@ from engine.util import calc_norm,  ResidualDataOneIter, do_post_iter, init_logg
 from engine.physical_base import PhysicalBase
 from script.convert.geo import Geo
 
-parser = argparse.ArgumentParser()
 
-parser = add_common_args(parser)
+def init_args():
+    parser = argparse.ArgumentParser()
+    parser = add_common_args(parser)
+    parser.add_argument("-mu", type=float, default=1e6)
+    parser.add_argument("-damping_coeff", type=float, default=1.0)
+    parser.add_argument("-total_mass", type=float, default=16000.0)
+    parser.add_argument("-model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
+    # "data/model/cube/minicube.node"
+    # "data/model/bunny1k2k/coarse.node"
+    # "data/model/bunny_small/bunny_small.node"
+    # "data/model/bunnyBig/bunnyBig.node"
+    # "data/model/bunny85w/bunny85w.node"
+    # "data/model/ball/ball.node"
+    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall"])
+    parser.add_argument("-large", action="store_true")
+    parser.add_argument("-small", action="store_true")
+    parser.add_argument("-omega", type=float, default=0.1)
+    parser.add_argument("-smoother_type", type=str, default="jacobi")
 
-parser.add_argument("-mu", type=float, default=1e6)
-parser.add_argument("-damping_coeff", type=float, default=1.0)
-parser.add_argument("-total_mass", type=float, default=16000.0)
-parser.add_argument("-model_path", type=str, default=f"data/model/ball/ball.node")
-# "data/model/cube/minicube.node"
-# "data/model/bunny1k2k/coarse.node"
-# "data/model/bunny_small/bunny_small.node"
-# "data/model/bunnyBig/bunnyBig.node"
-# "data/model/bunny85w/bunny85w.node"
-# "data/model/ball/ball.node"
-parser.add_argument("-reinit", type=str, default="freefall")
-parser.add_argument("-large", action="store_true")
-parser.add_argument("-small", action="store_true")
-parser.add_argument("-use_ground_collision", type=int, default=0)
-parser.add_argument("-omega", type=float, default=0.1)
-parser.add_argument("-smoother_type", type=str, default="jacobi")
 
+    args = parser.parse_args()
 
-args = parser.parse_args()
+    if args.large:
+        args.model_path = f"data/model/bunny85w/bunny85w.node"
+    if args.small:
+        args.model_path = f"data/model/bunny1k2k/coarse.node"
 
-if args.large:
-    args.model_path = f"data/model/bunny85w/bunny85w.node"
-if args.small:
-    args.model_path = f"data/model/bunny1k2k/coarse.node"
+    if args.arch == "gpu":
+        ti.init(arch=ti.gpu)
+    else:
+        ti.init(arch=ti.cpu)
 
-if args.arch == "gpu":
-    ti.init(arch=ti.gpu)
-else:
-    ti.init(arch=ti.cpu)
+    return args
 
 @ti.data_oriented
 class SoftBody(PhysicalBase):
@@ -941,6 +942,8 @@ def init_linear_solver():
 
 def init():
     tic = perf_counter()
+    global args
+    args = init_args()
     process_dirs(args)
     init_logger(args)
     global extlib

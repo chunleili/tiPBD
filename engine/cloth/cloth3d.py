@@ -32,39 +32,36 @@ from engine.physical_data import PhysicalData
 
 
 
+def init_args():
+    #parse arguments to change default values
+    from engine.common_args import add_common_args
+    parser = argparse.ArgumentParser()
+    parser = add_common_args(parser)
 
-#parse arguments to change default values
-from engine.common_args import add_common_args
-parser = argparse.ArgumentParser()
-parser = add_common_args(parser)
+    parser.add_argument("-N", type=int, default=64)
+    parser.add_argument("-compliance", type=float, default=1.0e-8)
+    parser.add_argument("-compliance_bending", type=float, default=1.0e-8)
+    parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
+    parser.add_argument("-omega", type=float, default=0.25)
+    parser.add_argument("-smoother_type", type=str, default="chebyshev")
+    parser.add_argument("-use_bending", type=int, default=False)
+    parser.add_argument("-cloth_mesh_file", type=str, default="./data/model/tri_cloth/tri_cloth.obj")
+    parser.add_argument("-cloth_mesh_type", type=str, default="quad", choices=["quad", "tri", "txt"])
+    # ./data/model/tri_cloth/tri_cloth.obj
+    # ./data/model/tri_cloth/N64.ply
+    parser.add_argument("-pos_file", type=str, default="data/model/fast_mass_spring/pos.txt")
+    parser.add_argument("-edge_file", type=str, default="data/model/fast_mass_spring/edge.txt")
+    parser.add_argument("-tri_file", type=str, default="data/model/fast_mass_spring/tri.txt")
+    parser.add_argument("-use_initFill", type=int, default=False)
+    parser.add_argument("-write_physdata", type=int, default=False)
 
-parser.add_argument("-N", type=int, default=64)
-parser.add_argument("-compliance", type=float, default=1.0e-8)
-parser.add_argument("-compliance_bending", type=float, default=1.0e-8)
-parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
-parser.add_argument("-omega", type=float, default=0.25)
-parser.add_argument("-smoother_type", type=str, default="chebyshev")
-parser.add_argument("-use_bending", type=int, default=False)
-parser.add_argument("-cloth_mesh_file", type=str, default="./data/model/tri_cloth/tri_cloth.obj")
-parser.add_argument("-cloth_mesh_type", type=str, default="quad", choices=["quad", "tri", "txt"])
-# ./data/model/tri_cloth/tri_cloth.obj
-# ./data/model/tri_cloth/N64.ply
-parser.add_argument("-pos_file", type=str, default="data/model/fast_mass_spring/pos.txt")
-parser.add_argument("-edge_file", type=str, default="data/model/fast_mass_spring/edge.txt")
-parser.add_argument("-tri_file", type=str, default="data/model/fast_mass_spring/tri.txt")
-parser.add_argument("-use_initFill", type=int, default=False)
-parser.add_argument("-write_physdata", type=int, default=False)
+    args = parser.parse_args()
 
-args = parser.parse_args()
-
-if args.setup_num==1: args.gravity = (0.0, 0.0, 0.0)
-else : args.gravity = (0.0, -9.8, 0.0)
+    if args.setup_num==1: args.gravity = (0.0, 0.0, 0.0)
+    else : args.gravity = (0.0, -9.8, 0.0)
+    return args
 
 
-if args.arch == "gpu":
-    ti.init(arch=ti.gpu)
-else:
-    ti.init(arch=ti.cpu)
 
 @ti.data_oriented
 class Cloth(PhysicalBase):
@@ -836,6 +833,13 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32),
 # ---------------------------------------------------------------------------- #
 def init():
     tic_init = time.perf_counter()
+    global args
+    args = init_args()
+
+    if args.arch == "gpu":
+        ti.init(arch=ti.gpu)
+    else:
+        ti.init(arch=ti.cpu)
 
     process_dirs(args)
     init_logger(args)

@@ -224,56 +224,75 @@ class DistanceConstraintAOS:
     dlam:ti.f32
     p1:ti.i32
     p2:ti.i32
+    vert: ti.math.ivec2 
     typeid: ti.i32
     stiffness: ti.f32
     alpha_tilde:ti.f32
     rest_len: ti.f32
+    dualr: ti.f32
 
     @ti.func
     def calc_rest_len(self,pos:ti.template()):
         self.rest_len = (pos[self.p1] - pos[self.p2]).norm()
 
+    @ti.func
+    def calc_dualr(self):
+        self.dualr = -self.c - self.alpha_tilde * self.lam
+
+    @ti.func
+    def calc_c(self,pos):
+        self.c = (pos[self.p1] - pos[self.p2]).norm() - self.rest_len
+    
+    @ti.func
+    def calc_grad(self,pos):
+        l = (pos[self.p1] - pos[self.p2]).norm()
+        if l == 0.0:
+            g = ti.Vector([0.0, 0.0, 0.0])
+        else:
+            g = (pos[self.p1] - pos[self.p2]) / l
+        self.g1 = g
+        self.g2 = -g
+
 
 
 
 class ClothConstraints():
-    def __init__(self, args, vert, pos, tri=None, ):
+    def __init__(self, args, vert, pos, tri=None):
+        NCONS_strertch = vert.shape[0]
         if args.use_bending:
             from engine.cloth.bending import init_bending, add_distance_constraints_from_tri_pairs
             self.tri_pairs, self.bending_length = init_bending(tri, pos)
             self.vert = add_distance_constraints_from_tri_pairs(vert, self.tri_pairs)
-
+            NCONS_bending = self.tri_pairs.shape[0]
         NCONS = vert.shape[0]
 
-        self.rest_len = self.init_rest_len(vert, pos)
-        self.set_alpha(args.compliance, NCONS, args.delta_t)
-        self.disConsAos =  self.to_AOS_constraints(pos,vert,self.alpha_tilde)
+        #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
+        alpha = np.empty(NCONS, dtype=np.float32)
+        alpha[0:NCONS_strertch] = args.compliance
+        alpha[NCONS_strertch:] = args.compliance_bending
 
-        self.lagrangian  = ti.field(dtype=float, shape=(NCONS))  
-        self.constraints = ti.field(dtype=float, shape=(NCONS))  
-        self.dLambda     = ti.field(dtype=float, shape=(NCONS))
+        self.disConsAos =  self.init_aos(pos,vert,alpha,args.delta_t)
         self.gradC       = ti.Vector.field(3, dtype = ti.float32, shape=(NCONS,2)) 
-        self.dual_residual= ti.field(shape=(NCONS),    dtype = ti.float32) # -C-alpha_tilde * self.lagrangian
  
-        self.cType = np.zeros(NCONS, dtype=np.int32) # 0: stretch, 1: attachment, 2: bending
-        self.p0 = np.zeros(NCONS, dtype=np.int32)
-        self.fixed_point = np.zeros((NCONS, 3), dtype=np.float32)
 
+    def init_aos(self, pos, vert, alpha, delta_t):
+        @ti.kernel
+        def kernel(
+            pos:ti.template(),
+            vert:ti.template(),
+            alpha: ti.types.ndarray(),
+            delta_t: ti.f32,
+            aos: ti.template(),
+        ):
+            for i in range(vert.shape[0]):
+                aos[i].p1, aos[i].p2 = vert[i]
+                aos[i].calc_rest_len(pos)
+                aos[i].alpha_tilde = alpha[i]/delta_t/delta_t
+        
+        disConsAos = DistanceConstraintAOS.field(shape=vert.shape[0])
+        kernel(pos,vert,alpha,delta_t,disConsAos)
+        return disConsAos
     
-    def set_alpha(self, compliance, NCONS, delta_t):
-        alpha_tilde_constant = compliance * (1.0 / delta_t / delta_t)  
-        # timestep related compliance, see XPBD paper 
-        # #see: http://blog.mmacklin.com/2016/10/12/xpbd-slides-and-stiffness/
-        alpha_bending_constant = 1.0 * (1.0 / delta_t / delta_t) #TODO: need to be tuned
-        stiffness = ti.field(dtype=float, shape=(NCONS))
-        stiffness.fill(1.0/compliance)
-        alpha_tilde_np = np.array([alpha_tilde_constant] * NCONS)
-
-        # self.ALPHA_TILDE = scipy.sparse.diags(alpha_tilde_np)
-        self.stiffness_matrix = scipy.sparse.dia_matrix((stiffness.to_numpy(), [0]), shape=(NCONS, NCONS), dtype=np.float32)
-        self.alpha_tilde = ti.field(dtype=ti.f32, shape=(NCONS))
-        self.alpha_tilde.from_numpy(alpha_tilde_np)
-
 
     def init_rest_len(self, vert, pos):
         @ti.kernel
@@ -289,20 +308,3 @@ class ClothConstraints():
         rest_len = ti.field(dtype=float, shape=(vert.shape[0]))
         kernel(vert, pos, rest_len)
         return rest_len
-
-    def to_AOS_constraints(self, pos, vert, alpha_tilde):
-        @ti.kernel
-        def kernel(
-            pos:ti.template(),
-            vert:ti.template(),
-            alpha_tilde:ti.template(),
-            aos: ti.template(),
-        ):
-            for i in range(vert.shape[0]):
-                aos[i].p1, aos[i].p2 = vert[i]
-                aos[i].calc_rest_len(pos)
-                aos[i].alpha_tilde = alpha_tilde[i]
-        
-        disConsAos = DistanceConstraintAOS.field(shape=vert.shape[0])
-        kernel(pos,vert,alpha_tilde,disConsAos)
-        return disConsAos

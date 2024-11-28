@@ -40,6 +40,7 @@ parser = add_common_args(parser)
 
 parser.add_argument("-N", type=int, default=64)
 parser.add_argument("-compliance", type=float, default=1.0e-8)
+parser.add_argument("-compliance_bending", type=float, default=1.0e-8)
 parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
 parser.add_argument("-omega", type=float, default=0.25)
 parser.add_argument("-smoother_type", type=str, default="chebyshev")
@@ -174,13 +175,16 @@ class Cloth(PhysicalBase):
         from engine.cloth.constraints import ClothConstraints
         self.cons = ClothConstraints(self.args,vert,pos,tri)
 
-        self.rest_len = self.cons.rest_len
-        self.alpha_tilde = self.cons.alpha_tilde
-        self.lagrangian = self.cons.lagrangian
-        self.dLambda = self.cons.dLambda
+        self.dc = self.cons.disConsAos
+
         self.gradC = self.cons.gradC
-        self.dual_residual = self.cons.dual_residual
-        self.constraints = self.cons.constraints
+
+        self.rest_len = self.dc.rest_len
+        self.alpha_tilde = self.dc.alpha_tilde
+        self.lagrangian = self.dc.lam
+        self.dLambda = self.dc.dlam
+        self.dual_residual = self.dc.dualr
+        self.constraints = self.dc.c
 
 
 

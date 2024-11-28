@@ -1,7 +1,7 @@
 import numpy as np
 
 class PhysicalData:
-    def __init__(self, pos=None, vel=None, stiffness=None, rest_len=None, vert=None, mass=None, delta_t=None, force=None, pin=None, pinpos=None, restmatrix=None, *pargs, **kwargs):
+    def __init__(self, pos=None, vel=None, alpha=None, rest_len=None, vert=None, inv_mass=None, delta_t=None, force=None, pin=None, pinpos=None, restmatrix=None, *pargs, **kwargs):
         """
         Parameters
         ----------
@@ -11,14 +11,14 @@ class PhysicalData:
             velocity of the vertices
         pos_old : np.ndarray(dtype=np.float32, shape=(NV, 3))
             last substep position of the vertices
-        stiffness : np.ndarray(dtype=np.float32, shape=(NCONS,))
-            stiffness of the constraints
+        alpha : np.ndarray(dtype=np.float32, shape=(NCONS,))
+            compliance of the constraints
         rest_len : np.ndarray(dtype=np.float32, shape=(NCONS,))
             rest length of the constraints
         vert : np.ndarray(dtype=np.int32, shape=(NCONS, NVERTS_ONE_CONS))
             vertex index for each constraint
-        mass : np.ndarray(dtype=np.float32, shape=(NV,))
-            mass of the vertices
+        inv_mass : np.ndarray(dtype=np.float32, shape=(NV,))
+            inv_mass of the vertices
         delta_t : float
             time step size
         force : np.ndarray(dtype=np.float32, shape=(NV, 3))
@@ -32,14 +32,14 @@ class PhysicalData:
         """
         self.pos = pos
         self.vel = vel
-        self.stiffness = stiffness
+        self.alpha = alpha
         self.rest_len = rest_len
         self.vert = vert # vertex index for each constraint
-        self.mass = mass
+        self.inv_mass = inv_mass
         self.delta_t = delta_t
         self.force = force
-        self.NV = self.mass.shape[0] if self.mass is not None else None
-        self.NCONS = self.stiffness.shape[0] if self.stiffness is not None else None
+        self.NV = self.inv_mass.shape[0] if self.inv_mass is not None else None
+        self.NCONS = self.alpha.shape[0] if self.alpha is not None else None
         self.NVERTS_ONE_CONS = self.vert.shape[1] if self.vert is not None else None
 
         self.pin = pin
@@ -48,10 +48,10 @@ class PhysicalData:
     def default_init(self, NV, NCONS, NVERTS_ONE_CONS):
         # self.pos = np.zeros((NV, 3), dtype=np.float32)
         # self.vel = np.zeros((NV, 3), dtype=np.float32)
-        # self.stiffness = np.zeros((NCONS,), dtype=np.float32)
+        # self.alpha = np.zeros((NCONS,), dtype=np.float32)
         # self.rest_len = np.zeros((NCONS,), dtype=np.float32)
         # self.vert = np.zeros((NCONS, NVERTS_ONE_CONS), dtype=np.int32)
-        # self.mass = np.ones((NV,), dtype=np.float32)
+        # self.inv_mass = np.ones((NV,), dtype=np.float32)
         # self.delta_t = 0.01
         self.force = np.zeros((NV, 3), dtype=np.float32)
         # self.pin = np.zeros((NV,), dtype=np.int32)
@@ -69,10 +69,10 @@ class PhysicalData:
             Contains the following keys:
             - pos
             - vel
-            - stiffness
+            - alpha
             - rest_len
             - vert
-            - mass
+            - inv_mass
             - delta_t
             - force
             - pin
@@ -86,15 +86,15 @@ class PhysicalData:
             data = json.load(f)
         self.pos = np.array(data["pos"], dtype=np.float32)
         self.vel = np.array(data["vel"], dtype=np.float32)
-        self.stiffness = np.array(data["stiffness"], dtype=np.float32)
+        self.alpha = np.array(data["alpha"], dtype=np.float32)
         self.rest_len = np.array(data["rest_len"], dtype=np.float32)
         self.vert = np.array(data["vert"], dtype=np.int32)
-        self.mass = np.array(data["mass"], dtype=np.float32)
+        self.inv_mass = np.array(data["inv_mass"], dtype=np.float32)
         self.delta_t = data["delta_t"]
         self.force = np.array(data["force"], dtype=np.float32)
         self.pin = data["pin"]
-        self.NV = self.mass.shape[0]
-        self.NCONS = self.stiffness.shape[0]
+        self.NV = self.inv_mass.shape[0]
+        self.NCONS = self.alpha.shape[0]
         self.NVERTS_ONE_CONS = self.vert.shape[1]
 
         # optional keys
@@ -114,10 +114,10 @@ class PhysicalData:
         data = {
             "pos": self.pos.tolist(),
             "vel": self.vel.tolist(),
-            "stiffness": self.stiffness.tolist(),
+            "alpha": self.alpha.tolist(),
             "rest_len": self.rest_len.tolist(),
             "vert": self.vert.tolist(),
-            "mass": self.mass.tolist(),
+            "inv_mass": self.inv_mass.tolist(),
             "delta_t": self.delta_t,
             "force": self.force.tolist(),
             "pin": self.pin.tolist()
@@ -134,26 +134,26 @@ class PhysicalData:
         NVERTS_ONE_CONS = self.vert.shape[1]
 
         # back up the numpy arrays
-        self.stiffness_np = self.stiffness.copy()
+        self.alpha_np = self.alpha.copy()
         self.rest_len_np = self.rest_len.copy()
         self.vert_np = self.vert.copy()
-        self.mass_np = self.mass.copy()
+        self.inv_mass_np = self.inv_mass.copy()
         self.force_np = self.force.copy()
 
         # allocate fields
         self.pos = ti.Vector.field(3, dtype=float, shape=self.NV)
-        self.stiffness = ti.field(dtype=float, shape=self.NCONS)
+        self.alpha = ti.field(dtype=float, shape=self.NCONS)
         self.rest_len = ti.field(dtype=float, shape=self.NCONS)
         self.vert = ti.Vector.field(NVERTS_ONE_CONS, dtype=int, shape=self.NCONS)
-        self.mass = ti.field(dtype=float, shape=self.NV)
+        self.inv_mass = ti.field(dtype=float, shape=self.NV)
         self.force = ti.Vector.field(3, dtype=float, shape=self.NV)
 
         # copy the numpy arrays to the fields
         self.pos.from_numpy(self.pos_np)
-        self.stiffness.from_numpy(self.stiffness_np)
+        self.alpha.from_numpy(self.alpha_np)
         self.rest_len.from_numpy(self.rest_len_np)
         self.vert.from_numpy(self.vert_np)
-        self.mass.from_numpy(self.mass_np)
+        self.inv_mass.from_numpy(self.inv_mass_np)
         self.force.from_numpy(self.force_np)
 
         

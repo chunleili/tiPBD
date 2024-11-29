@@ -150,9 +150,11 @@ class Geo:
         print("Finish writing geo file: ", self.output)
 
 
-    def set_positions(self,positions):
-        self.positions = positions
-        self.pointcount = len(positions)
+    def set_positions(self,pos):
+        if isinstance(pos, np.ndarray):
+            pos = pos.tolist()
+        self.positions[:] = pos
+        self.pointcount = len(pos)
 
     # trianlge version
     # TODO: add other primitive types
@@ -169,6 +171,10 @@ class Geo:
 
     def get_gluetoaniamtion(self):
         return self.gluetoanimation
+    
+    def get_pin(self):
+        self.pin = self.gluetoanimation
+        return self.pin
     
     def parse_vert(self):
         self.indices = self.pointref['indices']
@@ -228,7 +234,7 @@ def test_geo_vtk():
 def test_animation():
     dir = str(Path(__file__).parent.parent.parent) + "/" + "data/model/pintoanimation/"
     geo = read_geo(dir+"physdata_78.geo")
-    pin = geo.parse_gluetoaniamtion()
+    pin = geo.get_gluetoaniamtion()
     vert = geo.get_vert()
     pos = geo.get_pos()
     pos[0] = [0,0,0]

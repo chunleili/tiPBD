@@ -92,8 +92,7 @@ class SoftBody(PhysicalBase):
 
 
         if args.use_pintoanimation:
-            self.read_geo()
-            self.reinit()
+            self.read_geo_rest()
         else:
             self.build_mesh(mesh_file)
             self.NCONS = self.NT
@@ -103,14 +102,10 @@ class SoftBody(PhysicalBase):
             if args.export_mesh:
                 write_mesh(args.out_dir + f"/mesh/{self.frame:04d}", self.pos.to_numpy(), self.model_tri)
 
+        self.frame=1
+        self.initial_frame=1
+
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
-        self.state = [self.pos,]
-
-        if args.solver_type != "XPBD" and args.solver_type != "NEWTON":
-            from engine.soft.fill_A import init_direct_fill_A
-            init_direct_fill_A(self,extlib)
-
-        self.linsol = init_linear_solver()
 
         info(f"Creating instance done")
 
@@ -121,13 +116,20 @@ class SoftBody(PhysicalBase):
         pinpos = np.array(geo.get_pos())
         assert pinpos.shape[0] == self.pos.shape[0]
         # set_pinpos_kernel(self.pin, self.pos, pinpos)
+        
+        
+        self.pinlist = np.where(self.pin)[0]
+        self.inv_mass_np = self.inv_mass.to_numpy()
+        self.inv_mass_np[self.pinlist] = 0.0
+        self.inv_mass.from_numpy(self.inv_mass_np)
+
         pos_ = self.pos.to_numpy()
         pos_[self.pin] = pinpos[self.pin]
         self.pos.from_numpy(pos_)
 
-    def read_geo(self, input=None):
+    def read_geo_rest(self, input=None):
         dir = prj_path + "/" + "data/model/pintoanimation/"
-        geo = Geo(dir+"physdata_78.geo") #TODO:should be every frame
+        geo = Geo(dir+"physdata_1.geo") #TODO:should be every frame
         pin = np.array(geo.get_gluetoaniamtion(),dtype=np.bool_)
         vert = np.array(geo.get_vert(),dtype=np.int32)
         pinpos = np.array(geo.get_pos())
@@ -157,7 +159,9 @@ class SoftBody(PhysicalBase):
 
     def write_geo(self, output=None):
         self.geo.set_positions(self.pos.to_numpy())
-        self.geo.write(self.geodir+f"physdata_{self.frame}_out.geo")
+        if output is None:
+            output = self.geodir+f"physdata_{self.frame}_out.geo"
+        self.geo.write(output)
 
     def build_mesh(self,mesh_file):
         tic = time.perf_counter()
@@ -232,6 +236,8 @@ class SoftBody(PhysicalBase):
         # FIXME: no reinit will cause bug, why? FIXED: because when there is no deformation, the gradient will be in any direction! Sigma=(1,1,1) There will be singularity issue! We need to jump the constraint=0 case.
         # reinit pos
         self.initial_pos = self.pos.to_numpy()
+        if args.use_pintoanimation:
+            return
         if args.reinit == "random":
             random_val = np.random.rand(self.pos.shape[0], 3)
             self.pos.from_numpy(random_val)
@@ -411,6 +417,8 @@ class SoftBody(PhysicalBase):
         self.r_iter.calc_r0()
 
     def substep_all_solver(self):
+        if args.use_pintoanimation:
+            self.read_geo_pinpos()
         self.semi_euler()
         self.lagrangian.fill(0)
         self.do_pre_iter0()
@@ -423,8 +431,6 @@ class SoftBody(PhysicalBase):
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
-        if args.use_pintoanimation:
-            self.read_geo_pinpos()
 
     def substep_xpbd(self):
         self.semi_euler()
@@ -775,11 +781,6 @@ def fill_A_by_spmm(ist,  M_inv, ALPHA):
 
 
 
-def should_setup():
-    return ((ist.frame%args.setup_interval==0 or (args.restart==True and ist.frame==args.restart_frame)) and (ist.ite==0))
-
-
-
 def fill_A_csr_ti(ist):
     fill_A_csr_lessmem_kernel(ist.spmat_data, ist.spmat_indptr, ist.ii, ist.jj, ist.nnz, ist.alpha_tilde, ist.inv_mass, ist.gradC, ist.tet_indices)
     A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NT, ist.NT))
@@ -922,13 +923,13 @@ def init_linear_solver():
                 args=args,
                 extlib=extlib,
                 get_A0=get_A0_cuda,
-                should_setup=should_setup,
+                should_setup=ist.should_setup,
                 fill_A_in_cuda=AMG_A,
                 graph_coloring=gc,
                 copy_A=True,
             )
         else:
-            linsol = AmgPython(args, get_A0_python, should_setup)
+            linsol = AmgPython(args, get_A0_python, ist.should_setup)
     elif args.solver_type == "AMGX":
         linsol = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
     elif args.solver_type == "DIRECT":
@@ -950,6 +951,10 @@ def init():
     extlib = init_extlib(args,sim="soft")
     global ist
     ist = SoftBody(args.model_path)
+    ist.linsol = init_linear_solver()
+    if args.solver_type != "XPBD" and args.solver_type != "NEWTON":
+        from engine.soft.fill_A import init_direct_fill_A
+        init_direct_fill_A(ist,extlib)
     print(f"initialize time:", perf_counter()-tic)
 
 

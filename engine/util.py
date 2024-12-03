@@ -267,7 +267,7 @@ def export_after_substep(ist, args, **kwargs):
                 ist.strain_cell = edge_data_to_tri_data(ist.e2t, ist.strain.to_numpy(), tri)
                 write_ply_with_strain(args.out_dir + f"/mesh/{ist.frame:04d}", pos_np, tri, strain=ist.strain_cell, binary=True)
     if args.export_mesh and args.use_pintoanimation:
-        ist.write_geo()
+        ist.write_geo(args.out_dir + f"/mesh/{ist.frame:04d}.geo")
     
     if args.export_state:
         save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)

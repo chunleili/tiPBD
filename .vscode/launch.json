@@ -36,6 +36,21 @@
             ]
           },  
           {
+            "name": "Debug extra_spring",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+              "-end_frame=100",
+              "-use_pintoanimation=1",
+              "-use_extra_spring=1",
+              "-mu=1e8",
+              "-geo_dir=data/model/extraSpring"
+            ]
+          }, 
+          {
             "name": "Debug pin",
             "type": "debugpy",
             "request": "launch",
@@ -45,7 +60,8 @@
             "args": [
               "-end_frame=100",
               "-use_pintoanimation=1",
-              "-mu=1e8"
+              "-mu=1e9",
+              "-maxiter=50"
             ]
           }, 
           {

@@ -264,6 +264,7 @@ class Cloth(PhysicalBase):
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
             self.project_constraints_xpbd()
+            self.update_pos()
             self.do_post_iter_xpbd()
             if self.r_iter.check():
                 break

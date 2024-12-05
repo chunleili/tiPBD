@@ -48,6 +48,8 @@ def init_args():
     parser.add_argument("-small", action="store_true")
     parser.add_argument("-omega", type=float, default=0.1)
     parser.add_argument("-smoother_type", type=str, default="jacobi")
+    parser.add_argument("-geo_dir", type=str, default=f"data/model/muscletest/")
+    parser.add_argument("-use_extra_spring", type=int, default=0)
 
 
     args = parser.parse_args()
@@ -107,11 +109,32 @@ class SoftBody(PhysicalBase):
 
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
 
+        #init extra springs
+        if args.use_extra_spring:
+            self.read_extra_spring_rest()
+            
         info(f"Creating instance done")
 
 
+    def read_extra_spring_rest(self,):
+        geo = self.geo
+        
+        vert1 = np.array(geo.get_extraSpring(),dtype=np.int32)
+        pos1 = np.array(geo.get_pos())
+        vert = ti.Vector.field(2, int, vert1.shape[0])
+        pos = ti.Vector.field(2, float, vert1.shape[0])
+        vert.from_numpy(vert1)
+        pos.from_numpy(pos1)
+
+        from engine.constraints.distance_constraints import DistanceConstraint
+        self.extra_springs = DistanceConstraint(vert, pos)
+
+    def read_extra_spring_pinpos(self):
+        ...
+
+
     def read_geo_pinpos(self):
-        dir = prj_path + "/" + "data/model/pintoanimation/"
+        dir = prj_path + "/" + args.geo_dir
         geo = Geo(dir+f"physdata_{ist.frame}.geo")
         pinpos = np.array(geo.get_pos())
         assert pinpos.shape[0] == self.pos.shape[0]
@@ -128,7 +151,7 @@ class SoftBody(PhysicalBase):
         self.pos.from_numpy(pos_)
 
     def read_geo_rest(self, input=None):
-        dir = prj_path + "/" + "data/model/pintoanimation/"
+        dir = prj_path + "/" + args.geo_dir + "/"
         geo = Geo(dir+"physdata_1.geo") #TODO:should be every frame
         pin = np.array(geo.get_gluetoaniamtion(),dtype=np.bool_)
         vert = np.array(geo.get_vert(),dtype=np.int32)
@@ -417,6 +440,8 @@ class SoftBody(PhysicalBase):
         self.r_iter.calc_r0()
 
     def substep_all_solver(self):
+        if args.use_extra_spring:
+            extra_springs.solve(pos, args.delta_t)
         if args.use_pintoanimation:
             self.read_geo_pinpos()
         self.semi_euler()

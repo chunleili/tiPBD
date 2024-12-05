@@ -94,26 +94,6 @@ class Geo:
     def _pairListToDict(pairs):
         return dict( zip(pairs[0::2],pairs[1::2]) )
 
-    # def read(self, input:str):
-    #     self.input = input
-    #     with open(input, "r") as f:
-    #         self.raw = json.load(f)
-    #     # 读取顶点个数等信息
-    #     self.pointcount = self.raw[5]
-    #     self.vertexcount = self.raw[7]
-    #     self.primitivecount = self.raw[9]
-    #     # 读取顶点索引
-    #     self.topology = self.raw[13]
-    #     self.pointref = self.topology[1]
-    #     self.indices = self.pointref[1] # IMPORTANT
-    #     # 读取顶点的位置
-    #     self.attributes = self.raw[15]
-    #     self.pointattributes = self.attributes[1]
-    #     self.primitiveattributes = self.attributes[3]
-    #     self.positions = self.pointattributes[0][1][7][5] # IMPORTANT
-    #     self._extract_prim()
-    #     print("Finish reading geo file: ", input)
-
 
     def read(self,filePath):
         with open(filePath, 'r') as fp:
@@ -131,6 +111,7 @@ class Geo:
         self.parse_vert()
         self.parse_pointattributes()
 
+        self.parse_primattributes()
 
         print("Finish reading geo file: ", filePath)
     
@@ -170,6 +151,8 @@ class Geo:
         self.indices = tri.flatten()
 
     def get_gluetoaniamtion(self):
+        if not hasattr(self, 'gluetoanimation'):
+            self.gluetoanimation = [0]*self.pointcount
         return self.gluetoanimation
     
     def get_pin(self):
@@ -213,6 +196,45 @@ class Geo:
 
     def get_pos(self):
         return self.positions
+    
+
+    def get_extraSpring(self):
+        return self.extraSpring
+
+    def parse_extraSpring_from_dict(self,extraSpring):
+        """
+        将list of dict数据的extraSpring转换为vert
+        第一个点为拉动点(bone_pt_idex)，第二个点为被拉动点(muscle_pt_idex)
+        """
+        extraSpring_vert = []
+        for i in range(len(extraSpring)):
+            extraSpring_vert.append([extraSpring[i]['bone_pt_index']['value'],extraSpring[i]['bone_pt_index']['value']])
+        self.extraSpring = extraSpring_vert
+        ...
+
+
+    def parse_primattributes(self):
+        self.primitiveattributes = self.attributes['primitiveattributes']
+        class AttributeValue:
+            None
+        class PrimAttr:
+            None
+        # parse point attributes
+        allPrimAttr = []
+        for i in range(len(self.primitiveattributes)):
+            attrRaw0 = self.primitiveattributes[i][0] #metadata
+            a = PrimAttr()
+            for name,item in zip(attrRaw0[0::2],attrRaw0[1::2]):
+                a.__setattr__(name,item)
+
+            attrRaw1 = self.primitiveattributes[i][1] #data
+            for name,item in zip(attrRaw1[0::2],attrRaw1[1::2]):
+                a.__setattr__(name,item)
+
+            if a.name == "extraSpring":
+                extraSpring_dict = a.dicts
+                self.parse_extraSpring_from_dict(extraSpring_dict)
+            allPrimAttr.append(a)
 
     
 class Polygon(object):

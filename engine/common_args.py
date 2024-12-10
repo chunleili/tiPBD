@@ -45,5 +45,8 @@ def add_common_args(parser):
     parser.add_argument("-calc_energy", type=int, default=False)
     parser.add_argument("-calc_primal", type=int, default=False)
     parser.add_argument("-use_pintoanimation", type=int, default=False)
+    parser.add_argument("-use_houdini_data", type=int, default=False)
     parser.add_argument("-use_ground_collision", type=int, default=False)
+    parser.add_argument("-geo_dir", type=str, default=f"data/model/extraSpring/")
+    parser.add_argument("-use_extra_spring", type=int, default=False)
     return parser

@@ -2,6 +2,16 @@
     "version": "0.2.0",
     "configurations": [
         {
+          "name": "Python: Current File",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "${file}",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+          ]
+        },  
+        {
             "name": "profile",
             "type": "debugpy",
             "request": "launch",
@@ -23,18 +33,7 @@
             "request": "attach",
             "processId": ""
           },     
-          {
-            "name": "Python: Current File",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "args": [
-              "-end_frame=100",
-              "-use_pintoanimation=1"
-            ]
-          },  
+
           {
             "name": "Debug extra_spring",
             "type": "debugpy",
@@ -44,7 +43,6 @@
             "cwd": "${workspaceFolder}",
             "args": [
               "-end_frame=100",
-              "-use_pintoanimation=1",
               "-use_extra_spring=1",
               "-mu=1e8",
               "-geo_dir=data/model/extraSpring"

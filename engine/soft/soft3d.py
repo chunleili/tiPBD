@@ -48,8 +48,6 @@ def init_args():
     parser.add_argument("-small", action="store_true")
     parser.add_argument("-omega", type=float, default=0.1)
     parser.add_argument("-smoother_type", type=str, default="jacobi")
-    parser.add_argument("-geo_dir", type=str, default=f"data/model/muscletest/")
-    parser.add_argument("-use_extra_spring", type=int, default=0)
 
 
     args = parser.parse_args()
@@ -85,16 +83,22 @@ class SoftBody(PhysicalBase):
         self.args = args
         self.delta_t = args.delta_t
         self.omega = args.omega
-        self.gravity = ti.Vector(args.gravity)
         self.damping_coeff = args.damping_coeff
 
 
         dir = str(Path(mesh_file).parent.stem)
         self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
+        self.frame=1
+        self.initial_frame=1
 
+        if args.use_extra_spring or args.use_pintoanimation:
+            args.use_houdini_data=1
 
-        if args.use_pintoanimation:
+        if args.use_houdini_data:
             self.read_geo_rest()
+            if args.use_extra_spring:
+                self.read_extra_spring_rest()
+                # self.read_pintotarget_rest()
         else:
             self.build_mesh(mesh_file)
             self.NCONS = self.NT
@@ -104,43 +108,93 @@ class SoftBody(PhysicalBase):
             if args.export_mesh:
                 write_mesh(args.out_dir + f"/mesh/{self.frame:04d}", self.pos.to_numpy(), self.model_tri)
 
-        self.frame=1
-        self.initial_frame=1
-
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
-
-        #init extra springs
-        if args.use_extra_spring:
-            self.read_extra_spring_rest()
-            
+        self.gravity = ti.Vector(args.gravity)
+        
         info(f"Creating instance done")
 
 
     def read_extra_spring_rest(self,):
         dir = prj_path + "/" + args.geo_dir + "/"
-        geo = Geo(dir+f"cons_{self.frame}.geo")
-
-        self.consgeo_rest = geo
+        consgeo = Geo(dir+f"cons_1.geo")
+        self.consgeo_rest = consgeo
         
-        vert1 = np.array(geo.get_extraSpring(),dtype=np.int32)
-        pos1 = np.array(geo.get_pos())
-        vert = ti.Vector.field(2, int, vert1.shape[0])
-        pos = ti.Vector.field(2, float, vert1.shape[0])
-        vert.from_numpy(vert1)
+        # read connectivity
+        # first column is target(driving point), second column is source(driven)
+        pts1 = np.array(consgeo.get_pts())
+        pts = ti.field(int, pts1.shape[0])
+        pts.from_numpy(pts1)
+
+        target_pt1 = np.array(consgeo.get_target_pt(),dtype=np.int32)
+        target_pt = ti.field(int, target_pt1.shape[0])
+        target_pt.from_numpy(target_pt1)
+
+        # read sim pos(to be driven)
+        pos1 = np.array(consgeo.get_pos())
+        pos = ti.Vector.field(3, float, pos1.shape[0])
         pos.from_numpy(pos1)
 
-        from engine.constraints.distance_constraints import DistanceConstraints
-        self.extra_springs = DistanceConstraints(vert, pos)
+        # read coll pos(driving)
+        collgeo = Geo(dir+f"coll_1.geo")
+        self.collgeo_rest = collgeo
+        target_pos1 = np.array(collgeo.get_pos())
+        target_pos = ti.Vector.field(3, float, target_pos1.shape[0])
+        target_pos.from_numpy(target_pos1)
 
+        from engine.constraints.distance_constraints import DistanceConstraintsAttach
+        self.extra_springs = DistanceConstraintsAttach(pts, target_pt, pos, target_pos)
+        ...
+
+    def read_pintotarget_rest(self,):
+        dir = prj_path + "/" + args.geo_dir + "/"
+        consgeo = Geo(dir+f"cons_1.geo")
+        self.consgeo_rest = consgeo
+        
+        # read connectivity
+        # first column is target(driving point), second column is source(driven)
+        pts1 = np.array(consgeo.get_pts())
+        pts = ti.field(int, pts1.shape[0])
+        pts.from_numpy(pts1)
+
+        target_pt1 = np.array(consgeo.get_target_pt(),dtype=np.int32)
+        target_pt = ti.field(int, target_pt1.shape[0])
+        target_pt.from_numpy(target_pt1)
+
+        # read sim pos(to be driven)
+        pos1 = np.array(consgeo.get_pos())
+        pos = ti.Vector.field(3, float, pos1.shape[0])
+        pos.from_numpy(pos1)
+
+        # read coll pos(driving)
+        collgeo = Geo(dir+f"coll_1.geo")
+        self.collgeo_rest = collgeo
+        target_pos1 = np.array(collgeo.get_pos())
+        target_pos = ti.Vector.field(3, float, target_pos1.shape[0])
+        target_pos.from_numpy(target_pos1)
+
+        from engine.constraints.distance_constraints import PinToTarget
+        self.pintotarget = PinToTarget(pts, target_pt, pos, target_pos)
+        self.inv_mass_np = self.inv_mass.to_numpy()
+        self.inv_mass_np[pts1] = 0.0
+        self.inv_mass.from_numpy(self.inv_mass_np)
+
+
+    def read_collgeo_target_pos(self):
+        dir = prj_path + "/" + args.geo_dir + "/"
+        collgeo = Geo(dir+f"coll_{ist.frame}.geo")
+        target_pos1 = np.array(collgeo.get_pos(), dtype=np.float32)
+        target_pos = ti.Vector.field(3, ti.f32, target_pos1.shape[0])
+        target_pos.from_numpy(target_pos1)
+        # self.target_pos = target_pos
+        return target_pos
 
 
     def read_geo_pinpos(self):
-        dir = prj_path + "/" + args.geo_dir
+        dir = prj_path + "/" + args.geo_dir + "/"
         geo = Geo(dir+f"physdata_{ist.frame}.geo")
         pinpos = np.array(geo.get_pos())
         assert pinpos.shape[0] == self.pos.shape[0]
         # set_pinpos_kernel(self.pin, self.pos, pinpos)
-        
         
         self.pinlist = np.where(self.pin)[0]
         self.inv_mass_np = self.inv_mass.to_numpy()
@@ -260,8 +314,6 @@ class SoftBody(PhysicalBase):
         # FIXME: no reinit will cause bug, why? FIXED: because when there is no deformation, the gradient will be in any direction! Sigma=(1,1,1) There will be singularity issue! We need to jump the constraint=0 case.
         # reinit pos
         self.initial_pos = self.pos.to_numpy()
-        if args.use_pintoanimation:
-            return
         if args.reinit == "random":
             random_val = np.random.rand(self.pos.shape[0], 3)
             self.pos.from_numpy(random_val)
@@ -271,6 +323,8 @@ class SoftBody(PhysicalBase):
             self.pos.from_numpy(self.model_pos * 0.01)
         elif args.reinit == "freefall":
             args.gravity = [0, -9.8, 0]
+            self.gravity = ti.Vector(args.gravity)
+
             args.use_ground_collision = 1
  
             #for ground collision response
@@ -441,11 +495,13 @@ class SoftBody(PhysicalBase):
         self.r_iter.calc_r0()
 
     def substep_all_solver(self):
-        if args.use_extra_spring:
-            self.extra_springs.solve(self.pos, args.delta_t)
+        self.semi_euler()
         if args.use_pintoanimation:
             self.read_geo_pinpos()
-        self.semi_euler()
+        if args.use_extra_spring:
+            target_pos = self.read_collgeo_target_pos()
+            self.extra_springs.solve(self.pos, target_pos, args.delta_t, args.maxiter)
+            # self.pintotarget.solve(self.pos, target_pos)
         self.lagrangian.fill(0)
         self.do_pre_iter0()
         for self.ite in range(args.maxiter):

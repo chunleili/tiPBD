@@ -231,7 +231,12 @@ class Geo:
             extraSpring_vert.append([self.target_pt[i],self.pts[i]])
         self.extraSpring = extraSpring_vert
         ...
+
+    def get_pts(self):
+        return self.pts
     
+    def get_target_pt(self):
+        return self.target_pt
 
     def parse_primattributes(self):
         if 'primitiveattributes' not in self.attributes:

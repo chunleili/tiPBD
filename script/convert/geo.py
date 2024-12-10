@@ -87,6 +87,7 @@ class Geo:
 
     def __init__(self, input:str=None):
         if input:
+            self.input = input
             self.read(input)
 
     
@@ -199,7 +200,14 @@ class Geo:
     
 
     def get_extraSpring(self):
-        return self.extraSpring
+        if  hasattr(self, 'extraSpring'):
+            return self.extraSpring
+        elif hasattr(self, 'target_pt') and hasattr(self, 'pts'):
+            self.parse_extraSpring_from_target_pt()
+            return self.extraSpring
+        else:
+            raise Exception("No extraSpring or target_pt and pts found in geo file")
+
 
     def parse_extraSpring_from_dict(self,extraSpring):
         """
@@ -213,7 +221,22 @@ class Geo:
         ...
 
 
+    def parse_extraSpring_from_target_pt(self):
+        """
+        给定target_pt和pts，生成extraSpring(vert格式)
+        target_pt为拉动点(driving point)，pts为被拉动点(to be driven point)
+        """
+        extraSpring_vert = []
+        for i in range(len(self.target_pt)):
+            extraSpring_vert.append([self.target_pt[i],self.pts[i]])
+        self.extraSpring = extraSpring_vert
+        ...
+    
+
     def parse_primattributes(self):
+        if 'primitiveattributes' not in self.attributes:
+            return
+        
         self.primitiveattributes = self.attributes['primitiveattributes']
         class AttributeValue:
             None
@@ -234,7 +257,16 @@ class Geo:
             if a.name == "extraSpring":
                 extraSpring_dict = a.dicts
                 self.parse_extraSpring_from_dict(extraSpring_dict)
+
+            if a.name == "target_pt":
+                self.target_pt = a.values[5][0]
+
+            if a.name == "pts":
+                self.pts = a.values[5][0]
+
             allPrimAttr.append(a)
+
+        
 
     
 class Polygon(object):

@@ -117,7 +117,10 @@ class SoftBody(PhysicalBase):
 
 
     def read_extra_spring_rest(self,):
-        geo = self.geo
+        dir = prj_path + "/" + args.geo_dir + "/"
+        geo = Geo(dir+f"cons_{self.frame}.geo")
+
+        self.consgeo_rest = geo
         
         vert1 = np.array(geo.get_extraSpring(),dtype=np.int32)
         pos1 = np.array(geo.get_pos())
@@ -126,11 +129,9 @@ class SoftBody(PhysicalBase):
         vert.from_numpy(vert1)
         pos.from_numpy(pos1)
 
-        from engine.constraints.distance_constraints import DistanceConstraint
-        self.extra_springs = DistanceConstraint(vert, pos)
+        from engine.constraints.distance_constraints import DistanceConstraints
+        self.extra_springs = DistanceConstraints(vert, pos)
 
-    def read_extra_spring_pinpos(self):
-        ...
 
 
     def read_geo_pinpos(self):
@@ -441,7 +442,7 @@ class SoftBody(PhysicalBase):
 
     def substep_all_solver(self):
         if args.use_extra_spring:
-            extra_springs.solve(pos, args.delta_t)
+            self.extra_springs.solve(self.pos, args.delta_t)
         if args.use_pintoanimation:
             self.read_geo_pinpos()
         self.semi_euler()

@@ -33,12 +33,11 @@ class DistanceConstraintAOS:
     @ti.func
     def calc_grad(self,pos):
         l = (pos[self.p1] - pos[self.p2]).norm()
+        g = ti.Vector([0.0, 0.0, 0.0])
         if l == 0.0:
             g = ti.Vector([0.0, 0.0, 0.0])
         else:
             g = (pos[self.p1] - pos[self.p2]) / l
-        self.g1 = g
-        self.g2 = -g
         return g
 
     @ti.func
@@ -109,6 +108,7 @@ class DistanceConstraints():
         def _solve_kernel(
             aos: ti.template(),
             inv_mass: ti.template(),
+            pos: ti.template(),
             delta_t: ti.f32,
             dpos: ti.template(),
         ):
@@ -118,8 +118,11 @@ class DistanceConstraints():
             for i in range(aos.shape[0]):
                 idx0, idx1 = aos[i].p1, aos[i].p2
                 invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
-                constraint = aos[i].calc_c()
-                g = aos[i].calc_grad()
+                l = (pos[idx0] - pos[idx1]).norm()
+                if l == 0.0:
+                    continue
+                constraint = l - aos[i].rest_len
+                g = (pos[idx0] - pos[idx1]) / l
                 alpha_tilde = aos[i].alpha / delta_t / delta_t
                 delta_lagrangian = -(constraint + aos[i].lam * alpha_tilde) / (invM0 + invM1 + alpha_tilde)
                 aos[i].lam += delta_lagrangian
@@ -131,6 +134,7 @@ class DistanceConstraints():
                 if invM1 != 0.0:
                     dpos[idx1] -= invM1 * delta_lagrangian * g
 
+
         dpos = ti.Vector.field(3, dtype=ti.f32, shape=pos.shape[0])
-        _solve_kernel(self.aos, self.inv_mass, delta_t, dpos)
+        _solve_kernel(self.aos, self.inv_mass, pos, delta_t, dpos)
         _update_pos_kernel(self.inv_mass, dpos, self.omega, pos)

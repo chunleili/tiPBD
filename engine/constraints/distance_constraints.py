@@ -1,5 +1,7 @@
 import taichi as ti
 import numpy as np
+from engine.util import timeit
+from time import perf_counter
 
 
 @ti.dataclass
@@ -141,6 +143,51 @@ class DistanceConstraintsAlongEdge():
         _update_pos_kernel(self.inv_mass, dpos, self.omega, pos)
 
 
+
+
+
+@staticmethod
+@ti.kernel
+def _solve_distance_attach_kernel(
+    target_inv_mass:ti.template(),
+    inv_mass:ti.template(),
+    p1:ti.template(),
+    p2:ti.template(),
+    rest_len:ti.template(),
+    lagrangian:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+    target_pos:ti.template(),
+    alpha:ti.template(),
+    delta_t:ti.f32
+):
+    for i in range(p1.shape[0]):
+        idx0, idx1 = p1[i], p2[i]
+        invM0, invM1 = target_inv_mass[idx0], inv_mass[idx1]
+        dis = target_pos[idx0] - pos[idx1]
+        constraint = dis.norm() - rest_len[i]
+        l = -constraint / (invM0 + invM1)
+        if l == 0.0:
+            continue
+        gradient = dis.normalized()
+        alpha_tilde = alpha[i] / delta_t / delta_t
+        delta_lagrangian = -(constraint + lagrangian[i] * alpha_tilde) / (invM0 + invM1 + alpha_tilde)
+        lagrangian[i] += delta_lagrangian
+        
+        if invM1 != 0.0:
+            dpos[idx1] -= invM1 * delta_lagrangian * gradient
+
+@ti.kernel
+def _update_pos_kernel(
+    inv_mass:ti.template(),
+    dpos:ti.template(),
+    omega:ti.f32,
+    pos:ti.template(),
+):
+    for i in range(pos.shape[0]):
+        if inv_mass[i] != 0.0:
+            pos[i] += omega * dpos[i]
+
 @ti.data_oriented
 class DistanceConstraintsAttach():
     """Attach to target geometry"""
@@ -159,6 +206,9 @@ class DistanceConstraintsAttach():
 
         self.pts = pts
         self.target_pt = target_pt
+
+        self.dpos = ti.Vector.field(3, dtype=ti.f32, shape=pos.shape[0])
+
 
     def set_inv_mass(self, inv_mass):
         self.inv_mass.from_numpy(inv_mass)
@@ -198,91 +248,19 @@ class DistanceConstraintsAttach():
         kernel(pts, target_pt, pos,target_pos, alpha, aos)
         return aos
     
-
+    @timeit
     def solve(self, pos, target_pos, delta_t=3e-3, maxiter=10):
         """Public API for solving distance constraints"""
         self.aos.lam.fill(0.0)
         for i in range(maxiter):
             self.solve_one_iter(pos,target_pos, delta_t)
 
-
+    @timeit
     def solve_one_iter(self, pos, target_pos, delta_t):
-        @ti.kernel
-        def _update_pos_kernel(
-            inv_mass:ti.template(),
-            dpos:ti.template(),
-            omega:ti.f32,
-            pos:ti.template(),
-        ):
-            for i in range(pos.shape[0]):
-                if inv_mass[i] != 0.0:
-                    pos[i] += omega * dpos[i]
-        
-        @ti.kernel
-        def _solve_kernel(
-            aos: ti.template(),
-            inv_mass: ti.template(),
-            target_inv_mass: ti.template(),
-            pos: ti.template(),
-            target_pos: ti.template(),
-            delta_t: ti.f32,
-            dpos: ti.template(),
-        ):
-            for i in range(dpos.shape[0]):
-                dpos[i] = ti.Vector([0.0, 0.0, 0.0])
-
-            for i in range(aos.shape[0]):
-                target_pt, sim_pt = aos[i].p1, aos[i].p2
-                invM1, invM2 = target_inv_mass[target_pt], inv_mass[sim_pt]
-                l = (target_pos[target_pt] - pos[sim_pt]).norm()
-                if l == 0.0:
-                    continue
-                constraint = l - aos[i].rest_len
-                g = (target_pos[target_pt] - pos[sim_pt]) / l
-                alpha_tilde = aos[i].alpha / delta_t / delta_t
-                dlam = -(constraint + aos[i].lam * alpha_tilde) / (invM1 + invM2 + alpha_tilde)
-                aos[i].lam += dlam
-
-                aos[i].dualr = -(constraint + alpha_tilde * aos[i].lam)
-                
-                if invM2 != 0.0:
-                    dpos[sim_pt] -= invM2 * dlam * g
-
-
-        @ti.kernel
-        def solve_distance_constraints_xpbd(
-            target_inv_mass:ti.template(),
-            inv_mass:ti.template(),
-            p1:ti.template(),
-            p2:ti.template(),
-            rest_len:ti.template(),
-            lagrangian:ti.template(),
-            dpos:ti.template(),
-            pos:ti.template(),
-            target_pos:ti.template(),
-            alpha:ti.template(),
-        ):
-            for i in range(NCONS):
-                idx0, idx1 = p1[i], p2[i]
-                invM0, invM1 = target_inv_mass[idx0], inv_mass[idx1]
-                dis = target_pos[idx0] - pos[idx1]
-                constraint = dis.norm() - rest_len[i]
-                l = -constraint / (invM0 + invM1)
-                if l == 0.0:
-                    continue
-                gradient = dis.normalized()
-                alpha_tilde = alpha[i] / delta_t / delta_t
-                delta_lagrangian = -(constraint + lagrangian[i] * alpha_tilde) / (invM0 + invM1 + alpha_tilde)
-                lagrangian[i] += delta_lagrangian
-                
-                if invM1 != 0.0:
-                    dpos[idx1] -= invM1 * delta_lagrangian * gradient
-
-        NCONS = self.aos.shape[0]
-        dpos = ti.Vector.field(3, dtype=ti.f32, shape=pos.shape[0])
-        # _solve_kernel(self.aos, self.inv_mass, self.target_inv_mass, pos, target_pos, delta_t, dpos)
-        solve_distance_constraints_xpbd(self.target_inv_mass, self.inv_mass, self.aos.p1, self.aos.p2, self.aos.rest_len, self.aos.lam, dpos, pos, target_pos, self.aos.alpha)
-        _update_pos_kernel(self.inv_mass, dpos, self.omega, pos)
+        t = perf_counter()
+        _solve_distance_attach_kernel(self.target_inv_mass, self.inv_mass, self.aos.p1, self.aos.p2, self.aos.rest_len, self.aos.lam, self.dpos, pos, target_pos, self.aos.alpha, delta_t)
+        _update_pos_kernel(self.inv_mass, self.dpos, self.omega, pos)
+        print(f"init dpos {perf_counter()-t }")
 
 
 

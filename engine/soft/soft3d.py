@@ -178,7 +178,7 @@ class SoftBody(PhysicalBase):
         self.inv_mass_np[pts1] = 0.0
         self.inv_mass.from_numpy(self.inv_mass_np)
 
-
+    @timeit
     def read_collgeo_target_pos(self):
         dir = prj_path + "/" + args.geo_dir + "/"
         collgeo = Geo(dir+f"coll_{ist.frame}.geo")
@@ -494,14 +494,18 @@ class SoftBody(PhysicalBase):
         self.update_constraints() # for calculation of r0
         self.r_iter.calc_r0()
 
-    def substep_all_solver(self):
-        self.semi_euler()
+    @timeit
+    def do_external_constraints(self):
         if args.use_pintoanimation:
             self.read_geo_pinpos()
         if args.use_extra_spring:
             target_pos = self.read_collgeo_target_pos()
             self.extra_springs.solve(self.pos, target_pos, args.delta_t, args.maxiter)
             # self.pintotarget.solve(self.pos, target_pos)
+
+    def substep_all_solver(self):
+        self.semi_euler()
+        self.do_external_constraints()
         self.lagrangian.fill(0)
         self.do_pre_iter0()
         for self.ite in range(args.maxiter):

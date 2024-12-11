@@ -157,6 +157,8 @@ class DistanceConstraintsAttach():
         self.target_inv_mass = ti.field(dtype=ti.f32, shape=pos.shape[0])
         self.target_inv_mass.fill(1.0)
 
+        self.pts = pts
+        self.target_pt = target_pt
 
     def set_inv_mass(self, inv_mass):
         self.inv_mass.from_numpy(inv_mass)

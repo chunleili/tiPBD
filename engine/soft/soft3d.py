@@ -130,15 +130,15 @@ class SoftBody(PhysicalBase):
         target_pt.from_numpy(target_pt1)
 
         # read sim pos(to be driven)
-        pos1 = np.array(consgeo.get_pos())
-        pos = ti.Vector.field(3, float, pos1.shape[0])
+        pos1 = np.array(consgeo.get_pos(),dtype=np.float32)
+        pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
         pos.from_numpy(pos1)
 
         # read coll pos(driving)
         collgeo = Geo(dir+f"coll_1.geo")
         self.collgeo_rest = collgeo
-        target_pos1 = np.array(collgeo.get_pos())
-        target_pos = ti.Vector.field(3, float, target_pos1.shape[0])
+        target_pos1 = np.array(collgeo.get_pos(),dtype=np.float32)
+        target_pos = ti.Vector.field(3, ti.f32, target_pos1.shape[0])
         target_pos.from_numpy(target_pos1)
 
         from engine.constraints.distance_constraints import DistanceConstraintsAttach
@@ -210,7 +210,7 @@ class SoftBody(PhysicalBase):
         geo = Geo(dir+"physdata_1.geo") #TODO:should be every frame
         pin = np.array(geo.get_gluetoaniamtion(),dtype=np.bool_)
         vert = np.array(geo.get_vert(),dtype=np.int32)
-        pinpos = np.array(geo.get_pos())
+        pinpos = np.array(geo.get_pos(), dtype=np.float32)
 
         self.NV = pinpos.shape[0]
         self.NT = vert.shape[0]

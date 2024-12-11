@@ -45,7 +45,8 @@
               "-end_frame=100",
               "-use_extra_spring=1",
               "-mu=1e8",
-              "-geo_dir=data/model/extraSpring"
+              "-geo_dir=data/model/extraSpring",
+              "-solver_type=DIRECT"
             ]
           }, 
           {

@@ -611,3 +611,24 @@ def pinlist_to_np(pinlist, pinposlist,NV):
         pinpos[pinlist[i]] = pinposlist[i]
 
     return pin, pinpos
+
+
+
+def python_list_to_ti_field(l:list):
+    t = type(l[0])
+    if t == int:
+        ndarr = np.array(l, dtype = t)
+        f = ti.field(dtype=ti.i32, shape=len(l))
+    elif t == float:
+        ndarr = np.array(l, dtype = t)
+        f = ti.field(dtype=ti.f32, shape=len(l))
+    elif t == bool:
+        ndarr = np.array(l, dtype = t)
+        f = ti.field(dtype=ti.i8, shape=len(l))
+    elif t == list:
+        tt = type(l[0][0])
+        ndarr = np.array(l, dtype = tt)
+        f = ti.Vector.field(len(l[0]), dtype=tt, shape=len(l))
+    f.from_numpy(ndarr)
+    return f
+        

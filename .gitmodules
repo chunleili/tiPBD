@@ -5,3 +5,6 @@
 	path = cpp/mgcg_cuda/extern/amgcl
 	url = https://github.com/chunleili/amgcl.git
 	branch = my
+[submodule "cpp/mgcg_cuda/extern/pybind"]
+	path = cpp/mgcg_cuda/extern/pybind
+	url = https://github.com/pybind/pybind11.git

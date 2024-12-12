@@ -30,4 +30,4 @@ classifiers = [
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
 minimum-version = "build-system.requires"
-
+build-dir = "build"

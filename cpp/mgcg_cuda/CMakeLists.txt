@@ -55,3 +55,11 @@ if(graph_coloring)
     # add_executable(graph_coloring_main graph_coloring.cpp)
     target_sources(fastmg PRIVATE graph_coloring.cpp)
 endif()
+
+
+option(use_binding "Build python binding" ON)
+if(use_binding)
+    add_subdirectory(extern/pybind)
+    add_subdirectory(extern/eigen)
+    add_subdirectory(binding)
+endif()

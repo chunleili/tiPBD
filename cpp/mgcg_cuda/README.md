@@ -28,21 +28,10 @@ https://www.dropbox.com/scl/fi/tvpr3g3btjca0maaz6gfl/dlls.zip?rlkey=68u687oghe5i
 
 
 # download external libraries
-(This is not necessary, because we don't use them in fastmg. I put them here just in case I need them in the future.)
-## eigen
-
 ```
-git clone https://gitlab.com/libeigen/eigen.git --depth 1
-```
-## pybind11
-```
-git clone https://github.com/pybind/pybind11.git --depth=1
+   git submodule update --init 
 ```
 
-You must has the same version of python as the one used to build pybind11
-```
-conda activate py310
-```
 
 # misc
 ## Remove build files in powershell
@@ -69,3 +58,15 @@ Modify launch.json as in .vscode/launch.json
 
 More Details:
 (https://blog.csdn.net/weixin_43940314/article/details/141869353)
+
+
+## python binding
+in ./cpp
+```
+pip install mgcg_cuda
+```
+
+
+```python
+import pymgpbd
+```

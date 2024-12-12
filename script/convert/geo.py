@@ -192,6 +192,8 @@ class Geo:
                 self.positions = a.values[5]
             if a.name == "gluetoanimation":
                 self.gluetoanimation = a.values[5][0]
+            if a.name == "mass":
+                self.mass = a.values[5][0]
             allPointAttr.append(a)
         return self.positions
 
@@ -237,6 +239,18 @@ class Geo:
     
     def get_target_pt(self):
         return self.target_pt
+    
+    def get_target_pos(self):
+        return self.target_pos
+    
+    def get_mass(self): # this is on particle
+        return self.mass
+    
+    def get_stiffness(self):
+        return self.stiffness
+    
+    def get_restlength(self):
+        return self.restlength
 
     def parse_primattributes(self):
         if 'primitiveattributes' not in self.attributes:
@@ -262,13 +276,16 @@ class Geo:
             if a.name == "extraSpring":
                 extraSpring_dict = a.dicts
                 self.parse_extraSpring_from_dict(extraSpring_dict)
-
             if a.name == "target_pt":
                 self.target_pt = a.values[5][0]
-
             if a.name == "pts":
                 self.pts = a.values[5][0]
-
+            if a.name == "stiffness":
+                self.stiffness = a.values[5][0]
+            if a.name == "restlength":
+                self.restlength = a.values[5][0]
+            if a.name == "target_pos":
+                self.target_pos = a.values[5]
             allPrimAttr.append(a)
 
         

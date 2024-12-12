@@ -25,9 +25,10 @@ from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import calc_norm,  ResidualDataOneIter, do_post_iter, init_logger, timeit
+from engine.util import calc_norm,  ResidualDataOneIter, do_post_iter, init_logger, timeit, python_list_to_ti_field
 from engine.physical_base import PhysicalBase
 from script.convert.geo import Geo
+
 
 
 def init_args():
@@ -98,7 +99,9 @@ class SoftBody(PhysicalBase):
             self.read_geo_rest()
             if args.use_extra_spring:
                 self.read_extra_spring_rest()
-                # self.read_pintotarget_rest()
+            # if args.use_pintotarget:
+            #     self.read_pintotarget_rest()
+            self.init_physics()
         else:
             self.build_mesh(mesh_file)
             self.NCONS = self.NT
@@ -125,68 +128,30 @@ class SoftBody(PhysicalBase):
         pts = ti.field(int, pts1.shape[0])
         pts.from_numpy(pts1)
 
-        target_pt1 = np.array(consgeo.get_target_pt(),dtype=np.int32)
-        target_pt = ti.field(int, target_pt1.shape[0])
-        target_pt.from_numpy(target_pt1)
-
         # read sim pos(to be driven)
-        pos1 = np.array(consgeo.get_pos(),dtype=np.float32)
+        pos1 = np.array(self.geo_rest.get_pos(),dtype=np.float32)
         pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
         pos.from_numpy(pos1)
 
-        # read coll pos(driving)
-        collgeo = Geo(dir+f"coll_1.geo")
-        self.collgeo_rest = collgeo
-        target_pos1 = np.array(collgeo.get_pos(),dtype=np.float32)
-        target_pos = ti.Vector.field(3, ti.f32, target_pos1.shape[0])
-        target_pos.from_numpy(target_pos1)
+        # read target pos(driving)
+        tp = consgeo.get_target_pos()
+        self.target_pos = python_list_to_ti_field(tp)
 
         from engine.constraints.distance_constraints import DistanceConstraintsAttach
-        self.extra_springs = DistanceConstraintsAttach(pts, target_pt, pos, target_pos)
-        ...
+        self.extra_springs = DistanceConstraintsAttach(pts, pos, self.target_pos)
 
-    def read_pintotarget_rest(self,):
-        dir = prj_path + "/" + args.geo_dir + "/"
-        consgeo = Geo(dir+f"cons_1.geo")
-        self.consgeo_rest = consgeo
-        
-        # read connectivity
-        # first column is target(driving point), second column is source(driven)
-        pts1 = np.array(consgeo.get_pts())
-        pts = ti.field(int, pts1.shape[0])
-        pts.from_numpy(pts1)
+        # optional data(inv_mass, stiffness, restlength)
+        self.extra_springs.set_alpha(consgeo.get_stiffness())
+        self.extra_springs.set_rest_len(consgeo.get_restlength())
 
-        target_pt1 = np.array(consgeo.get_target_pt(),dtype=np.int32)
-        target_pt = ti.field(int, target_pt1.shape[0])
-        target_pt.from_numpy(target_pt1)
-
-        # read sim pos(to be driven)
-        pos1 = np.array(consgeo.get_pos())
-        pos = ti.Vector.field(3, float, pos1.shape[0])
-        pos.from_numpy(pos1)
-
-        # read coll pos(driving)
-        collgeo = Geo(dir+f"coll_1.geo")
-        self.collgeo_rest = collgeo
-        target_pos1 = np.array(collgeo.get_pos())
-        target_pos = ti.Vector.field(3, float, target_pos1.shape[0])
-        target_pos.from_numpy(target_pos1)
-
-        from engine.constraints.distance_constraints import PinToTarget
-        self.pintotarget = PinToTarget(pts, target_pt, pos, target_pos)
-        self.inv_mass_np = self.inv_mass.to_numpy()
-        self.inv_mass_np[pts1] = 0.0
-        self.inv_mass.from_numpy(self.inv_mass_np)
 
     @timeit
-    def read_collgeo_target_pos(self):
+    def read_target_pos(self):
         dir = prj_path + "/" + args.geo_dir + "/"
-        collgeo = Geo(dir+f"coll_{ist.frame}.geo")
-        target_pos1 = np.array(collgeo.get_pos(), dtype=np.float32)
-        target_pos = ti.Vector.field(3, ti.f32, target_pos1.shape[0])
-        target_pos.from_numpy(target_pos1)
-        # self.target_pos = target_pos
-        return target_pos
+        consgeo = Geo(dir+f"cons_{self.frame}.geo")
+        tp = consgeo.get_target_pos()
+        self.target_pos.from_numpy(np.array(tp, dtype=np.float32))
+        ...
 
 
     def read_geo_pinpos(self):
@@ -205,9 +170,16 @@ class SoftBody(PhysicalBase):
         pos_[self.pin] = pinpos[self.pin]
         self.pos.from_numpy(pos_)
 
-    def read_geo_rest(self, input=None):
+
+    def read_geo_rest(self):
         dir = prj_path + "/" + args.geo_dir + "/"
-        geo = Geo(dir+"physdata_1.geo") #TODO:should be every frame
+        if os.path.exists(dir+"restpos.geo"):
+            geo = Geo(dir+"restpos.geo")
+        elif os.path.exists(dir+"physdata_1.geo"):
+            geo = Geo(dir+"physdata_1.geo")
+        else:
+            raise FileNotFoundError(f"restpos.geo or physdata_1.geo not found in {dir}")
+         
         pin = np.array(geo.get_gluetoaniamtion(),dtype=np.bool_)
         vert = np.array(geo.get_vert(),dtype=np.int32)
         pinpos = np.array(geo.get_pos(), dtype=np.float32)
@@ -226,11 +198,18 @@ class SoftBody(PhysicalBase):
         self.tet_indices.from_numpy(vert)
         self.geodir = dir
         self.geo = geo
+        self.geo_rest = geo
         
-        # init physics
-        inv_mass_np = np.ones(self.NV, dtype=np.float32)
-        inv_mass_np[pin] = 0.0
-        self.inv_mass.from_numpy(inv_mass_np)
+        # read mass from geo
+        im = np.array(geo.get_mass(), dtype=np.float32)
+        im = 1.0 / im[np.isnan(im)==False]
+        # set pinned point inv_mass to 0
+        im[pin] = 0.0
+
+        self.inv_mass.from_numpy(im)
+
+
+    def init_physics(self):
         init_B(self.pos, self.tet_indices, self.B)
         init_alpha_tilde(self.pos, self.tet_indices, self.rest_volume, self.alpha_tilde, 1.0 / args.mu, 1.0 / args.delta_t / args.delta_t)
         self.alpha_tilde_np = self.alpha_tilde.to_numpy()
@@ -291,7 +270,7 @@ class SoftBody(PhysicalBase):
         inv_mu = 1.0 / args.mu
         inv_h2 = 1.0 / args.delta_t / args.delta_t
         # init inv_mass rest volume alpha_tilde etc.
-        init_physics(
+        init_physics_kernel(
             self.pos,
             self.old_pos,
             self.vel,
@@ -499,8 +478,8 @@ class SoftBody(PhysicalBase):
         if args.use_pintoanimation:
             self.read_geo_pinpos()
         if args.use_extra_spring:
-            target_pos = self.read_collgeo_target_pos()
-            self.extra_springs.solve(self.pos, target_pos, args.delta_t, args.maxiter)
+            self.read_target_pos()
+            self.extra_springs.solve(self.pos, self.target_pos, args.delta_t, args.maxiter)
             # self.pintotarget.solve(self.pos, target_pos)
 
     def substep_all_solver(self):
@@ -597,7 +576,7 @@ def init_alpha_tilde(
 
 
 @ti.kernel
-def init_physics(
+def init_physics_kernel(
     pos: ti.template(),
     old_pos: ti.template(),
     vel: ti.template(),

@@ -46,7 +46,7 @@
               "-use_extra_spring=1",
               "-mu=1e8",
               "-geo_dir=data/model/extraSpring",
-              "-solver_type=DIRECT"
+              "-solver_type=AMG"
             ]
           }, 
           {

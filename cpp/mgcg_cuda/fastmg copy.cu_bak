@@ -26,9 +26,7 @@
 #include <thrust/random.h>
 
 #include "kernels.cuh"
-#include "cuda_utils.cuh"
-#include "fastmg.h"
-#include "fastfill.h"
+#include "utils.cuh"
 
 using std::cout;
 using std::endl;
@@ -36,8 +34,60 @@ using std::endl;
 #define USE_LESSMEM 1
 #define VERBOSE 0
 
-namespace fastmg{
+namespace {
 
+struct Buffer {
+    void *m_data;
+    size_t m_cap;
+
+    Buffer() noexcept : m_data(nullptr), m_cap(0) {
+    }
+
+    Buffer(Buffer &&that) noexcept : m_data(that.m_data), m_cap(that.m_cap) {
+        that.m_data = nullptr;
+        that.m_cap = 0;
+    }
+
+    Buffer &operator=(Buffer &&that) noexcept {
+        if (this == &that) return *this;
+        if (m_data)
+            CHECK_CUDA(cudaFree(m_data));
+        m_data = nullptr;
+        m_data = that.m_data;
+        m_cap = that.m_cap;
+        that.m_data = nullptr;
+        that.m_cap = 0;
+        return *this;
+    }
+
+    ~Buffer() noexcept {
+        if (m_data)
+            CHECK_CUDA(cudaFree(m_data));
+        m_data = nullptr;
+    }
+
+    void reserve(size_t new_cap) {
+        if (m_cap < new_cap) {
+            if (m_data)
+                CHECK_CUDA(cudaFree(m_data));
+            m_data = nullptr;
+            CHECK_CUDA(cudaMalloc(&m_data, new_cap));
+            m_cap = new_cap;
+        }
+    }
+
+    size_t capacity() const noexcept {
+        return m_cap;
+    }
+
+    void const *data() const noexcept {
+        return m_data;
+    }
+
+    void *data() noexcept {
+        return m_data;
+    }
+};
 
 template <class T>
 cudaDataType_t cudaDataTypeFor();
@@ -104,36 +154,186 @@ cudaDataType_t cudaDataTypeFor<double>() {
 
 
 
-// https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/amg_core/relaxation.h#L45
-void gauss_seidel_serial(const int Ap[], const int Ap_size,
-                  const int Aj[], const int Aj_size,
-                  const float Ax[], const int Ax_size,
-                        float  x[], const int  x_size,
-                  const float  b[], const int  b_size,
-                  const int row_start,
-                  const int row_stop,
-                  const int row_step)
-{
-    for(int i = row_start; i != row_stop; i += row_step) {
-        int start = Ap[i];
-        int end   = Ap[i+1];
-        float rsum = 0;
-        float diag = 0;
 
-        for(int jj = start; jj < end; jj++){
-            int j = Aj[jj];
-            if (i == j)
-                diag  = Ax[jj];
-            else
-                rsum += Ax[jj]*x[j];
+
+template <class T>
+struct Vec {
+    T *m_data;
+    size_t m_size;
+    size_t m_cap;
+
+    Vec() noexcept : m_data(nullptr), m_size(0), m_cap(0) {
+    }
+
+    Vec(Vec &&that) noexcept : m_data(that.m_data), m_size(that.m_size), m_cap(that.m_cap) {
+        that.m_data = nullptr;
+        that.m_size = 0;
+        that.m_cap = 0;
+    }
+
+    Vec &operator=(Vec &&that) noexcept {
+        if (this == &that) return *this;
+        if (m_data)
+            CHECK_CUDA(cudaFree(m_data));
+        m_data = nullptr;
+        m_data = that.m_data;
+        m_size = that.m_size;
+        m_cap = that.m_cap;
+        that.m_data = nullptr;
+        that.m_size = 0;
+        that.m_cap = 0;
+        return *this;
+    }
+
+    void swap(Vec &that) noexcept {
+        std::swap(m_data, that.m_data);
+        std::swap(m_size, that.m_size);
+        std::swap(m_cap, that.m_cap);
+    }
+
+    ~Vec() noexcept {
+        if (m_data)
+            CHECK_CUDA(cudaFree(m_data));
+        m_data = nullptr;
+    }
+
+    void resize(size_t new_size) {
+        bool change = m_cap < new_size;
+        if (change) {
+            if (m_data)
+                CHECK_CUDA(cudaFree(m_data));
+            m_data = nullptr;
+            CHECK_CUDA(cudaMalloc(&m_data, sizeof(T) * new_size));
+            m_cap = new_size;
         }
-
-        if (diag != (float) 0.0){
-            x[i] = (b[i] - rsum)/diag;
+        if (m_size != new_size || change) {
+            m_size = new_size;
         }
     }
-}
 
+    // host to device
+    void assign(T const *data, size_t size) {
+        resize(size);
+        CHECK_CUDA(cudaMemcpy(m_data, data, sizeof(T) * size, cudaMemcpyHostToDevice));
+    }
+
+    // device to host
+    void tohost(std::vector<T> &data_host) const{
+        data_host.resize(size());
+        CHECK_CUDA(cudaMemcpy(data_host.data(), m_data, sizeof(T) * size(), cudaMemcpyDeviceToHost));
+    }
+
+    size_t size() const noexcept {
+        return m_size;
+    }
+
+    T const *data() const noexcept {
+        return m_data;
+    }
+
+    T *data() noexcept {
+        return m_data;
+    }
+};
+
+
+template <class T>
+struct HostVec {
+    T *m_data;
+    size_t m_size;
+    size_t m_cap;
+
+    HostVec() noexcept : m_data(nullptr), m_size(0), m_cap(0) {
+    }
+
+    HostVec(HostVec &&that) noexcept : m_data(that.m_data), m_size(that.m_size), m_cap(that.m_cap) {
+        that.m_data = nullptr;
+        that.m_size = 0;
+        that.m_cap = 0;
+    }
+
+    HostVec &operator=(HostVec &&that) noexcept {
+        if (this == &that) return *this;
+        if (m_data)
+            CHECK_CUDA(cudaFree(m_data));
+        m_data = nullptr;
+        m_data = that.m_data;
+        m_size = that.m_size;
+        m_cap = that.m_cap;
+        that.m_data = nullptr;
+        that.m_size = 0;
+        that.m_cap = 0;
+        return *this;
+    }
+
+    void swap(HostVec &that) noexcept {
+        std::swap(m_data, that.m_data);
+        std::swap(m_size, that.m_size);
+        std::swap(m_cap, that.m_cap);
+    }
+
+    ~HostVec() noexcept {
+        if (m_data)
+            CHECK_CUDA(cudaFreeHost(m_data));
+        m_data = nullptr;
+    }
+
+    void resize(size_t new_size) {
+        bool change = m_cap < new_size;
+        if (change) {
+            if (m_data)
+                CHECK_CUDA(cudaFreeHost(m_data));
+            m_data = nullptr;
+            CHECK_CUDA(cudaMallocHost(&m_data, sizeof(T) * new_size));
+            m_cap = new_size;
+        }
+        if (m_size != new_size || change) {
+            m_size = new_size;
+        }
+    }
+
+    // host to device
+    void assign(T const *data, size_t size) {
+        resize(size);
+        CHECK_CUDA(cudaMemcpy(m_data, data, sizeof(T) * size, cudaMemcpyHostToDevice));
+    }
+
+    // device to host
+    void tohost(std::vector<T> &data_host) const{
+        data_host.resize(size());
+        CHECK_CUDA(cudaMemcpy(data_host.data(), m_data, sizeof(T) * size(), cudaMemcpyDeviceToHost));
+    }
+
+    size_t size() const noexcept {
+        return m_size;
+    }
+
+    T const *data() const noexcept {
+        return m_data;
+    }
+
+    T *data() noexcept {
+        return m_data;
+    }
+};
+
+
+template <typename T=float>
+std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {
+    std::vector<T> v_host(v.size());
+    v.tohost(v_host);
+    cout<<name<<"("<<v.size()<<") :";
+    int k=0;
+    for(auto i:v_host)
+    {
+        if(k>10)
+            break;
+        std::cout<<i<<" ";
+        k++;
+    }
+    std::cout<<endl;
+    return v_host;
+}
 
 struct DnVec {
     cusparseDnVecDescr_t handle;
@@ -201,6 +401,103 @@ struct ConstDnVec {
     }
 };
 
+
+// Data of csr matrix
+template <class T>
+struct CSR {
+    Vec<int> indices;
+    Vec<T> data;
+    Vec<int> indptr;
+    int64_t nrows;
+    int64_t ncols;
+    int64_t numnonz;
+
+    CSR() noexcept : nrows(0), ncols(0), numnonz(0) {}
+
+    void assign(T const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
+        indices.resize(nind);
+        indptr.resize(nptr);
+        data.resize(ndat);
+        CHECK_CUDA(cudaMemcpy(data.data(), datap, data.size() * sizeof(T), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(indices.data(), indicesp, indices.size() * sizeof(int), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(indptr.data(), indptrp, indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
+        nrows = rows;
+        ncols = cols;
+        numnonz = nnz;
+    }
+
+    void assign_v2(T const *datap,  int const *indicesp,  int const *indptrp, size_t rows, size_t cols, size_t nnz) {
+        int ndat = nnz;
+        int nind = nnz;
+        int nptr = rows + 1;
+        indices.resize(nind);
+        indptr.resize(nptr);
+        data.resize(ndat);
+        CHECK_CUDA(cudaMemcpy(data.data(), datap, data.size() * sizeof(T), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(indices.data(), indicesp, indices.size() * sizeof(int), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(indptr.data(), indptrp, indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
+        nrows = rows;
+        ncols = cols;
+        numnonz = nnz;
+    }
+
+    void resize(size_t rows, size_t cols, size_t nnz) {
+        nrows = rows;
+        ncols = cols;
+        numnonz = nnz;
+        data.resize(nnz);
+        indices.resize(nnz);
+        indptr.resize(rows + 1);
+    }
+
+    void tohost(std::vector<T> &data_host, std::vector<int> &indices_host, std::vector<int> &indptr_host) const {
+        data_host.resize(data.size());
+        indices_host.resize(indices.size());
+        indptr_host.resize(indptr.size());
+        CHECK_CUDA(cudaMemcpy(data_host.data(), data.data(), data.size() * sizeof(T), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indices_host.data(), indices.data(), indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indptr_host.data(), indptr.data(), indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
+    }
+};
+
+
+// template <class T>
+// struct SuperCSR:CSR<T>
+// {
+//     Vec<T> ii;
+//     Vec<T> jj;
+
+//     SuperCSR() noexcept : nrows(0), ncols(0), numnonz(0) {}
+
+//     void assign(T const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz, T const *iip, T const *jjp) {
+//         indices.resize(nind);
+//         indptr.resize(nptr);
+//         data.resize(ndat);
+//         CHECK_CUDA(cudaMemcpy(data.data(), datap, data.size() * sizeof(T), cudaMemcpyHostToDevice));
+//         CHECK_CUDA(cudaMemcpy(indices.data(), indicesp, indices.size() * sizeof(int), cudaMemcpyHostToDevice));
+//         CHECK_CUDA(cudaMemcpy(indptr.data(), indptrp, indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
+//         nrows = rows;
+//         ncols = cols;
+//         numnonz = nnz;
+
+//         ii.resize(nnz);
+//         jj.resize(nnz);
+//         CHECK_CUDA(cudaMemcpy(ii.data(), iip, ii.size() * sizeof(T), cudaMemcpyHostToDevice));
+//         CHECK_CUDA(cudaMemcpy(jj.data(), jjp, jj.size() * sizeof(T), cudaMemcpyHostToDevice));
+//     }
+
+//     void resize(size_t rows, size_t cols, size_t nnz) {
+//         nrows = rows;
+//         ncols = cols;
+//         numnonz = nnz;
+//         data.resize(nnz);
+//         indices.resize(nnz);
+//         indptr.resize(rows + 1);
+
+//         ii.resize(nnz);
+//         jj.resize(nnz);
+//     }
+// };
 
 
 
@@ -278,128 +575,195 @@ struct ConstSpMat {
     }
 };
 
+struct Kernels {
+    cublasHandle_t cublas;
+    cusparseHandle_t cusparse;
+    cusolverSpHandle_t cusolverH;
 
-// out = alpha * A@x + beta * out
-void Kernels::spmv(Vec<float> &out, float const &alpha, CSR<float> const &A, Vec<float> const &x, float const &beta, Buffer &buffer) {
-    assert(out.size() == A.nrows);
-    size_t bufSize = 0;
-    ConstSpMat dA(A);
-    ConstDnVec dx(x);
-    DnVec dout(out);
-    CHECK_CUSPARSE(cusparseSpMV_bufferSize(cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                            &alpha, dA, dx, &beta,
-                                            dout, cudaDataTypeFor<float>(),
-                                            CUSPARSE_SPMV_ALG_DEFAULT, &bufSize));
-    buffer.reserve(bufSize);
-    CHECK_CUSPARSE(cusparseSpMV(cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
-                                &alpha, dA, dx, &beta,
-                                dout, cudaDataTypeFor<float>(),
-                                CUSPARSE_SPMV_ALG_DEFAULT, buffer.data()));
-}
+    Kernels() {
+        CHECK_CUSPARSE(cusparseCreate(&cusparse));
+        CHECK_CUBLAS(cublasCreate_v2(&cublas));
+        CHECK_CUSOLVER(cusolverSpCreate(&cusolverH));
+    }
 
-// C = A * B
-void Kernels::spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_) 
-{
-    ConstSpMat descA(matA_); //descriptor for A
-    ConstSpMat descB(matB_);
-    matC_.resize(matA_.nrows, matB_.ncols, 0);
-    SpMat descC(matC_);
-    // https://github.com/NVIDIA/CUDALibrarySamples/blob/ade391a17672d26e55429035450bc44afd277d34/cuSPARSE/spgemm/spgemm_example.c#L161
-    // https://docs.nvidia.com/cuda/cusparse/#cusparsespgemm
-    //--------------------------------------------------------------------------
-    float               alpha       = 1.0f;
-    float               beta        = 0.0f;
-    cusparseOperation_t opA         = CUSPARSE_OPERATION_NON_TRANSPOSE;
-    cusparseOperation_t opB         = CUSPARSE_OPERATION_NON_TRANSPOSE;
-    cudaDataType        computeType = CUDA_R_32F;
-    //--------------------------------------------------------------------------
-    // buffers
-    size_t bufferSize1 = 0,    bufferSize2 = 0;
-    Buffer dBuffer1, dBuffer2;
-    //--------------------------------------------------------------------------
-    // SpGEMM Computation
-    cusparseSpGEMMDescr_t spgemmDesc;
-    CHECK_CUSPARSE( cusparseSpGEMM_createDescr(&spgemmDesc) )
+    Kernels(Kernels &&) = delete;
 
-    // ask bufferSize1 bytes for external memory
-    CHECK_CUSPARSE(
-        cusparseSpGEMM_workEstimation(cusparse, opA, opB,
-                                    &alpha, descA, descB, &beta, descC,
-                                    computeType, CUSPARSE_SPGEMM_DEFAULT,
-                                    spgemmDesc, &bufferSize1, NULL) )
-    // CHECK_CUDA( cudaMalloc((void**) &dBuffer1, bufferSize1) )
-    dBuffer1.reserve(bufferSize1);
+    ~Kernels() {
+        CHECK_CUSPARSE(cusparseDestroy(cusparse));
+        CHECK_CUBLAS(cublasDestroy_v2(cublas));
+        CHECK_CUSOLVER(cusolverSpDestroy(cusolverH));
+    }
 
-    // inspect the matrices A and B to understand the memory requirement for
-    // the next step
-    CHECK_CUSPARSE(
-        cusparseSpGEMM_workEstimation(cusparse, opA, opB,
-                                    &alpha, descA, descB, &beta, descC,
-                                    computeType, CUSPARSE_SPGEMM_DEFAULT,
-                                    spgemmDesc, &bufferSize1, dBuffer1.data()) )
+    // out = alpha * A@x + beta * out
+    void spmv(Vec<float> &out, float const &alpha, CSR<float> const &A, Vec<float> const &x, float const &beta, Buffer &buffer) {
+        assert(out.size() == A.nrows);
+        size_t bufSize = 0;
+        ConstSpMat dA(A);
+        ConstDnVec dx(x);
+        DnVec dout(out);
+        CHECK_CUSPARSE(cusparseSpMV_bufferSize(cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                               &alpha, dA, dx, &beta,
+                                               dout, cudaDataTypeFor<float>(),
+                                               CUSPARSE_SPMV_ALG_DEFAULT, &bufSize));
+        buffer.reserve(bufSize);
+        CHECK_CUSPARSE(cusparseSpMV(cusparse, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                    &alpha, dA, dx, &beta,
+                                    dout, cudaDataTypeFor<float>(),
+                                    CUSPARSE_SPMV_ALG_DEFAULT, buffer.data()));
+    }
 
-    // ask bufferSize2 bytes for external memory
-    CHECK_CUSPARSE(
-        cusparseSpGEMM_compute(cusparse, opA, opB,
-                            &alpha, descA, descB, &beta, descC,
-                            computeType, CUSPARSE_SPGEMM_DEFAULT,
-                            spgemmDesc, &bufferSize2, NULL) )
-    dBuffer2.reserve(bufferSize2);
+    // C = A * B
+    void spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_) 
+    {
+        ConstSpMat descA(matA_); //descriptor for A
+        ConstSpMat descB(matB_);
+        matC_.resize(matA_.nrows, matB_.ncols, 0);
+        SpMat descC(matC_);
+        // https://github.com/NVIDIA/CUDALibrarySamples/blob/ade391a17672d26e55429035450bc44afd277d34/cuSPARSE/spgemm/spgemm_example.c#L161
+        // https://docs.nvidia.com/cuda/cusparse/#cusparsespgemm
+        //--------------------------------------------------------------------------
+        float               alpha       = 1.0f;
+        float               beta        = 0.0f;
+        cusparseOperation_t opA         = CUSPARSE_OPERATION_NON_TRANSPOSE;
+        cusparseOperation_t opB         = CUSPARSE_OPERATION_NON_TRANSPOSE;
+        cudaDataType        computeType = CUDA_R_32F;
+        //--------------------------------------------------------------------------
+        // buffers
+        size_t bufferSize1 = 0,    bufferSize2 = 0;
+        Buffer dBuffer1, dBuffer2;
+        //--------------------------------------------------------------------------
+        // SpGEMM Computation
+        cusparseSpGEMMDescr_t spgemmDesc;
+        CHECK_CUSPARSE( cusparseSpGEMM_createDescr(&spgemmDesc) )
 
-    // compute the intermediate product of A * B
-    CHECK_CUSPARSE( cusparseSpGEMM_compute(cusparse, opA, opB,
+        // ask bufferSize1 bytes for external memory
+        CHECK_CUSPARSE(
+            cusparseSpGEMM_workEstimation(cusparse, opA, opB,
                                         &alpha, descA, descB, &beta, descC,
                                         computeType, CUSPARSE_SPGEMM_DEFAULT,
-                                        spgemmDesc, &bufferSize2, dBuffer2.data()) )
-    // --------------------------------------------------------------------------
-    // get matrix C non-zero entries C_nnz1
-    CHECK_CUSPARSE( cusparseSpMatGetSize(descC, &matC_.nrows, &matC_.ncols, &matC_.numnonz) )
-    // allocate matrix C
-    matC_.resize(matC_.nrows, matC_.ncols, matC_.numnonz);
-    // update matC with the new pointers
-    CHECK_CUSPARSE(cusparseCsrSetPointers(descC, matC_.indptr.data(), matC_.indices.data(), matC_.data.data()) )
+                                        spgemmDesc, &bufferSize1, NULL) )
+        // CHECK_CUDA( cudaMalloc((void**) &dBuffer1, bufferSize1) )
+        dBuffer1.reserve(bufferSize1);
 
-    // copy the final products to the matrix C
-    CHECK_CUSPARSE(
-        cusparseSpGEMM_copy(cusparse, opA, opB,
-                            &alpha, descA, descB, &beta, descC,
-                            computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
-}
+        // inspect the matrices A and B to understand the memory requirement for
+        // the next step
+        CHECK_CUSPARSE(
+            cusparseSpGEMM_workEstimation(cusparse, opA, opB,
+                                        &alpha, descA, descB, &beta, descC,
+                                        computeType, CUSPARSE_SPGEMM_DEFAULT,
+                                        spgemmDesc, &bufferSize1, dBuffer1.data()) )
+
+        // ask bufferSize2 bytes for external memory
+        CHECK_CUSPARSE(
+            cusparseSpGEMM_compute(cusparse, opA, opB,
+                                &alpha, descA, descB, &beta, descC,
+                                computeType, CUSPARSE_SPGEMM_DEFAULT,
+                                spgemmDesc, &bufferSize2, NULL) )
+        dBuffer2.reserve(bufferSize2);
+
+        // compute the intermediate product of A * B
+        CHECK_CUSPARSE( cusparseSpGEMM_compute(cusparse, opA, opB,
+                                            &alpha, descA, descB, &beta, descC,
+                                            computeType, CUSPARSE_SPGEMM_DEFAULT,
+                                            spgemmDesc, &bufferSize2, dBuffer2.data()) )
+        // --------------------------------------------------------------------------
+        // get matrix C non-zero entries C_nnz1
+        CHECK_CUSPARSE( cusparseSpMatGetSize(descC, &matC_.nrows, &matC_.ncols, &matC_.numnonz) )
+        // allocate matrix C
+        matC_.resize(matC_.nrows, matC_.ncols, matC_.numnonz);
+        // update matC with the new pointers
+        CHECK_CUSPARSE(cusparseCsrSetPointers(descC, matC_.indptr.data(), matC_.indices.data(), matC_.data.data()) )
+
+        // copy the final products to the matrix C
+        CHECK_CUSPARSE(
+            cusparseSpGEMM_copy(cusparse, opA, opB,
+                                &alpha, descA, descB, &beta, descC,
+                                computeType, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc) )
+    }
 
 
+    // dst = src + alpha * dst
+    void axpy(Vec<float> &dst, float const &alpha, Vec<float> const &src) {
+        assert(dst.size() == src.size());
+        CHECK_CUBLAS(cublasSaxpy_v2(cublas, dst.size(), &alpha, src.data(), 1, dst.data(), 1));
+    }
 
-// transpose csr matrix A to AT
-// https://docs.nvidia.com/cuda/cusparse/index.html?highlight=cusparseCsr2cscEx2#cusparsecsr2cscex2
-void Kernels::transpose(CSR<float> const & A, CSR<float>& AT)
-{
-    int m = A.nrows;
-    int n = A.ncols;
-    int nnz = A.numnonz;
-    const float *csrVal  = A.data.data();
-    const int *csrRowPtr = A.indptr.data();
-    const int *csrColInd = A.indices.data();
-    float *cscVal  = AT.data.data();
-    int *cscColPtr = AT.indptr.data();
-    int *cscRowInd = AT.indices.data();
-    cudaDataType  valType = CUDA_R_32F;
-    cusparseAction_t copyValues = CUSPARSE_ACTION_NUMERIC;
-    cusparseIndexBase_t idxBase = CUSPARSE_INDEX_BASE_ZERO;
-    cusparseCsr2CscAlg_t    alg = CUSPARSE_CSR2CSC_ALG_DEFAULT;
-    cusparseStatus_t status;
-    size_t bufferSize = 0;
-    Buffer buffer;
+    void zero(Vec<float> &dst) {
+        CHECK_CUDA(cudaMemset(dst.data(), 0, dst.size() * sizeof(float)));
+    }
 
-    CHECK_CUSPARSE( cusparseCsr2cscEx2_bufferSize(cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, &bufferSize));
-    buffer.reserve(bufferSize);
-    CHECK_CUSPARSE( cusparseCsr2cscEx2(           cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, buffer.data()));                
-}
+    void copy(Vec<float> &dst, Vec<float> const &src) {
+        dst.resize(src.size());
+        CHECK_CUDA(cudaMemcpy(dst.data(), src.data(), src.size() * sizeof(float), cudaMemcpyDeviceToDevice));
+    }
+
+    // dst = alpha * x
+    void scal2(Vec<float> &dst, float const &alpha, Vec<float> const &x) {
+        copy(dst, x);
+        CHECK_CUBLAS(cublasSscal_v2(cublas, dst.size(), &alpha, dst.data(), 1));
+    }
+
+    // dst = alpha * dst
+    void scal(Vec<float> &dst, float const &alpha) {
+        CHECK_CUBLAS(cublasSscal_v2(cublas, dst.size(), &alpha, dst.data(), 1));
+    }
+
+    // x = A^{-1} b by cusolver cholesky
+    // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csrlsvchol
+    void spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b) {
+        cusparseMatDescr_t descrA = NULL;
+        CHECK_CUSPARSE(cusparseCreateMatDescr(&descrA));
+        CHECK_CUSPARSE(cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL));
+        CHECK_CUSPARSE(cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ZERO)); 
+        int singularity;
+
+        CHECK_CUSOLVER( cusolverSpScsrlsvchol(cusolverH, A.nrows, A.numnonz, descrA, A.data.data(), A.indptr.data(), A.indices.data(), b.data(), 1e-10, 0, x.data(), &singularity) );
+    }
+
+    float vdot(Vec<float> const &x, Vec<float> const &y) {
+        float result;
+        CHECK_CUBLAS(cublasSdot_v2(cublas, x.size(), x.data(), 1, y.data(), 1, &result));
+        return result;
+    }
+
+    float vnorm(Vec<float> const &x) {
+        float result;
+        CHECK_CUBLAS(cublasSnrm2_v2(cublas, x.size(), x.data(), 1, &result));
+        return result;
+    }
+
+    // transpose csr matrix A to AT
+    // https://docs.nvidia.com/cuda/cusparse/index.html?highlight=cusparseCsr2cscEx2#cusparsecsr2cscex2
+    void transpose(CSR<float> const & A, CSR<float>& AT)
+    {
+        int m = A.nrows;
+        int n = A.ncols;
+        int nnz = A.numnonz;
+        const float *csrVal  = A.data.data();
+        const int *csrRowPtr = A.indptr.data();
+        const int *csrColInd = A.indices.data();
+        float *cscVal  = AT.data.data();
+        int *cscColPtr = AT.indptr.data();
+        int *cscRowInd = AT.indices.data();
+        cudaDataType  valType = CUDA_R_32F;
+        cusparseAction_t copyValues = CUSPARSE_ACTION_NUMERIC;
+        cusparseIndexBase_t idxBase = CUSPARSE_INDEX_BASE_ZERO;
+        cusparseCsr2CscAlg_t    alg = CUSPARSE_CSR2CSC_ALG_DEFAULT;
+        cusparseStatus_t status;
+        size_t bufferSize = 0;
+        Buffer buffer;
+
+        CHECK_CUSPARSE( cusparseCsr2cscEx2_bufferSize(cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, &bufferSize));
+        buffer.reserve(bufferSize);
+        CHECK_CUSPARSE( cusparseCsr2cscEx2(           cusparse, m, n, nnz, csrVal, csrRowPtr, csrColInd, cscVal, cscColPtr, cscRowInd, valType, copyValues, idxBase, alg, buffer.data()));                
+    }
 
 
 
 //Calculate the largest eigenvalue of a symmetric matrix using the power method!
 // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csreigvsi  (cusolverSpScsreigvsi is not used here, but it is another option, so I just keep the note. It use the shift inverse method to solve this equation Ax=lam x)
 // Reference code: https://github.com/physicslog/maxEigenValueGPU/blob/25e0aa3d6c9bbeb03be6249d0ab8cfaafd32188c/maxeigenvaluepower.cu#L255
-float Kernels::computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
+float computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
     // // Terminal output color (just for cosmetic purpose)
     // #define RST  "\x1B[37m"  // Reset color to white
     // #define KGRN  "\033[0;32m"   // Define green color
@@ -496,17 +860,322 @@ float Kernels::computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_i
     }
   return max_eigenvalue;
 }
+};
+
+struct MGLevel {
+    CSR<float> A;
+    CSR<float> R;
+    CSR<float> P;
+    Vec<float> residual;
+    Vec<float> b;
+    Vec<float> x;
+    Vec<float> h;
+    Vec<float> outh;
+    CSR<float> Dinv;
+    CSR<float> Aoff;
+    float scale_RAP=0.0;
+    // int presmoother_type=1; // 0: chebyshev: 1:w-jacobi, 2: multicolor gauss-seidel
+    // int postsmoother_type=1; // 0: chebyshev: 1:w-jacobi, 2: multicolor gauss-seidel
+    // int presmoother_niter=2;
+    // int postsmoother_niter=2;
+    float jacobi_omega=2.0/3.0;
+    std::array<float,3> chebyshev_coeff;
+    Vec<int> colors; // color index of each node
+    int color_num; // number of colors, max(colors)+1
+};
 
 
-void Kernels::spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b) {
-    cusparseMatDescr_t descrA = NULL;
-    CHECK_CUSPARSE(cusparseCreateMatDescr(&descrA));
-    CHECK_CUSPARSE(cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL));
-    CHECK_CUSPARSE(cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ZERO)); 
-    int singularity;
+// Base case for FastFillCloth and FastFillSoft
+struct FastFillBase: Kernels 
+{
+    int num_nonz;
+    int nrows, ncols;
+    CSR<float> A;
+};
 
-    CHECK_CUSOLVER( cusolverSpScsrlsvchol(cusolverH, A.nrows, A.numnonz, descrA, A.data.data(), A.indptr.data(), A.indices.data(), b.data(), 1e-10, 0, x.data(), &singularity) );
-}
+
+struct FastFillCloth : FastFillBase {
+    float alpha;
+    int NE;
+    int NV;
+    Vec<float> d_inv_mass;
+    Vec<int> d_ii, d_jj;
+    Vec<int> d_edges;
+    Vec<float> d_pos;
+    Vec<int> d_adjacent_edge_abc;
+    Vec<int> d_num_adjacent_edge;
+
+    void fetch_A_data(float *data_in) {
+        CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
+    }
+
+    void set_data_v2(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+    {
+        NE = NE_in;
+        NV = NV_in;
+        nrows = NE;
+        ncols = NE;
+
+        d_edges.assign(edges_in, NE*2);
+        d_inv_mass.assign(inv_mass_in, NV);
+        d_pos.assign(pos_in, NV*3);
+
+        alpha = alpha_in;
+    }
+
+    void update_pos_py2cu(float* pos_in)
+    {
+        d_pos.assign(pos_in, NV*3);
+    }
+
+
+    void init_from_python_cache_v2(
+        int *adjacent_edge_in,
+        int *num_adjacent_edge_in,
+        int *adjacent_edge_abc_in,
+        int num_nonz_in,
+        float *spmat_data_in,
+        int *spmat_indices_in,
+        int *spmat_indptr_in,
+        int *spmat_ii_in,
+        int *spmat_jj_in,
+        int NE_in,
+        int NV_in)
+    {
+        NE = NE_in;
+        NV = NV_in;
+        num_nonz = num_nonz_in;
+
+        printf("Copying A, ii, jj\n");
+        A.assign(spmat_data_in, num_nonz, spmat_indices_in, num_nonz, spmat_indptr_in, NE+1, NE, NE, num_nonz);
+        d_ii.assign(spmat_ii_in, num_nonz);
+        d_jj.assign(spmat_jj_in, num_nonz);
+        cout<<"Finish."<<endl;
+
+        printf("Copying adj\n");
+        d_num_adjacent_edge.assign(num_adjacent_edge_in, NE);
+        d_adjacent_edge_abc.resize(NE*60);
+        CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data(), adjacent_edge_abc_in, sizeof(int) * NE * 60, cudaMemcpyHostToDevice));
+        cout<<"Finish."<<endl;
+    }
+
+
+    void run(float* pos_in)
+    {
+        update_pos_py2cu(pos_in);
+        fill_A_CSR_gpu();
+    }
+
+
+    void fill_A_CSR_gpu()
+    {
+        fill_A_CSR_cloth_kernel<<<num_nonz / 256 + 1, 256>>>(A.data.data(),
+                                                 A.indptr.data(),
+                                                 A.indices.data(),
+                                                 d_ii.data(),
+                                                 d_jj.data(),
+                                                 d_adjacent_edge_abc.data(),
+                                                 d_num_adjacent_edge.data(),
+                                                 num_nonz,
+                                                 d_inv_mass.data(),
+                                                 alpha,
+                                                 NV,
+                                                 NE,
+                                                 d_edges.data(),
+                                                 d_pos.data());
+        cudaDeviceSynchronize();
+        launch_check();
+    }
+}; //FastFillCloth struct
+
+
+struct FastFillSoft : FastFillBase {
+    int NT;
+    int NV;
+    int MAX_ADJ;
+    Vec<float> d_inv_mass;
+    Vec<int> d_ii;
+    Vec<float> d_pos;
+    #ifndef USE_LESSMEM
+    Vec<int> d_jj; //dont need jj, it is the same as indices
+    Vec<int> d_adjacent;   
+    Vec<int> d_num_adjacent; 
+    Vec<int> d_n_shared_v;
+    Vec<int> d_shared_v;
+    Vec<int8_t> d_shared_v_order_in_cur;
+    Vec<int8_t> d_shared_v_order_in_adj;
+    Vec<int> d_nnz_each_row;
+    #endif
+    Vec<int> d_tet;
+    Vec<float> d_gradC;
+    Vec<float> d_alpha_tilde;
+
+
+    void fetch_A_data(float *data_in) {
+        CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
+    }
+
+    void set_data_v2(int* tet_in, int NT_in, float* inv_mass_in, int NV_in, float* pos_in, float* alpha_tilde_in)
+    {
+        NT = NT_in;
+        NV = NV_in;
+        nrows = NT;
+        ncols = NT;
+        d_alpha_tilde.assign(alpha_tilde_in, NT);
+        d_inv_mass.assign(inv_mass_in, NV);
+        d_pos.assign(pos_in, NV*3);
+        d_tet.assign(tet_in, NT*4);
+    }
+
+    void update_pos_and_gradC(float* pos_in, float* gradC_in)
+    {
+        d_pos.assign(pos_in, NV*3);
+        d_gradC.assign(gradC_in, NT*4*3);
+    }
+
+    #ifndef USE_LESSMEM
+    void init_from_python_cache_v2(
+        const int NT_in,
+        const int MAX_ADJ_in,
+        const int* adjacent_in,
+        const int* num_adjacent_in,
+        const float* data_in,
+        const int* indices_in,
+        const int* indptr_in,
+        const int* ii_in,
+        const int* jj_in,
+        const int num_nonz_in,
+        const int* nnz_each_row_in,
+        const int* n_shared_v_in,
+        const int* shared_v_in,
+        const int8_t* shared_v_order_in_cur,
+        const int8_t* shared_v_order_in_adj
+        )
+    {
+        NT = NT_in;
+        MAX_ADJ = MAX_ADJ_in;
+
+        num_nonz = num_nonz_in;
+        ncols = NT;
+        nrows = NT;
+        A.assign_v2(data_in, indices_in, indptr_in, NT, NT, num_nonz);
+        d_ii.assign(ii_in, num_nonz_in);
+        d_jj.assign(jj_in, num_nonz_in);
+        d_nnz_each_row.assign(nnz_each_row_in, NT);
+
+        d_num_adjacent.assign(num_adjacent_in, NT);
+        d_adjacent.assign(adjacent_in, NT*MAX_ADJ);
+        d_n_shared_v.assign(n_shared_v_in, NT*MAX_ADJ);
+        d_shared_v.assign(shared_v_in, NT*MAX_ADJ*3);
+        d_shared_v_order_in_cur.assign(shared_v_order_in_cur, NT*MAX_ADJ*3);
+        d_shared_v_order_in_adj.assign(shared_v_order_in_adj, NT*MAX_ADJ*3);
+
+        cout<<"Finish load python cache to cuda."<<endl;
+    }
+    #endif
+
+    void init_from_python_cache_lessmem(
+        const int NT_in,
+        const int MAX_ADJ_in,
+        const float* data_in,
+        const int* indices_in,
+        const int* indptr_in,
+        const int* ii_in,
+        const int num_nonz_in
+        )
+        // const int* jj_in, //jj is the same as indicies
+        // const int* nnz_each_row_in
+        // const int* adjacent_in,
+        // const int* num_adjacent_in,
+        // const int* n_shared_v_in,
+        // const int* shared_v_in,
+        // const int8_t* shared_v_order_in_cur,
+        // const int8_t* shared_v_order_in_adj
+    {
+        NT = NT_in;
+        MAX_ADJ = MAX_ADJ_in;
+
+        num_nonz = num_nonz_in;
+        ncols = NT;
+        nrows = NT;
+        A.assign_v2(data_in, indices_in, indptr_in, NT, NT, num_nonz);
+        d_ii.assign(ii_in, num_nonz_in);
+        // d_jj.assign(jj_in, num_nonz_in);
+        // d_nnz_each_row.assign(nnz_each_row_in, NT);
+        // d_num_adjacent.assign(num_adjacent_in, NT);
+        // d_adjacent.assign(adjacent_in, NT*MAX_ADJ);
+        // d_n_shared_v.assign(n_shared_v_in, NT*MAX_ADJ);
+        // d_shared_v.assign(shared_v_in, NT*MAX_ADJ*3);
+        // d_shared_v_order_in_cur.assign(shared_v_order_in_cur, NT*MAX_ADJ*3);
+        // d_shared_v_order_in_adj.assign(shared_v_order_in_adj, NT*MAX_ADJ*3);
+
+        cout<<"Finish load python cache to cuda."<<endl;
+    }
+
+
+    void run(float* pos_in, float* gradC_in)
+    {
+        update_pos_and_gradC(pos_in, gradC_in);
+        fill_A_CSR_gpu();
+        // debug_cuda_vec(A.data, "A.data");
+        // debug_cuda_vec(A.indptr, "A.indptr");
+        // debug_cuda_vec(A.indices, "A.indices");
+               
+    }
+
+
+    void fill_A_CSR_gpu()
+    {
+        // TODO
+        // cout<<"Begin fill_A_CSR_gpu soft."<<endl;
+
+        #ifndef USE_LESSMEM
+        fill_A_CSR_soft_kernel<<<num_nonz / 256 + 1, 256>>>(
+                A.data.data(),
+                A.indptr.data(),
+                A.indices.data(),
+                d_ii.data(),
+                d_jj.data(),
+                d_adjacent.data(),
+                d_num_adjacent.data(),
+                num_nonz,
+                d_inv_mass.data(),
+                d_alpha_tilde.data(),
+                NV,
+                NT,
+                MAX_ADJ,
+                d_tet.data(),
+                d_pos.data(),
+                d_gradC.data(),
+                d_n_shared_v.data(),
+                d_shared_v.data(),
+                d_shared_v_order_in_cur.data(),
+                d_shared_v_order_in_adj.data()
+        );
+        #else
+        fill_A_CSR_soft_lessmem_kernel<<<num_nonz / 256 + 1, 256>>>(
+                A.data.data(),
+                A.indptr.data(),
+                A.indices.data(), //jj is the same as indices
+                d_ii.data(),
+                num_nonz,
+                d_inv_mass.data(),
+                d_alpha_tilde.data(),
+                NV,
+                NT,
+                MAX_ADJ,
+                d_tet.data(),
+                d_pos.data(),
+                d_gradC.data()
+        );
+        #endif
+        cudaDeviceSynchronize();
+        launch_check();
+        
+        // cout<<"Finish fill_A_CSR_gpu soft."<<endl;
+
+    }
+}; //FastFillSoft struct
 
 
 struct VCycle : Kernels {
@@ -690,6 +1359,10 @@ struct VCycle : Kernels {
         CHECK_CUDA(cudaMemcpy(levels.at(0).A.indices.data(), (ff->A).indices.data(), (ff->A).indices.size() * sizeof(int), cudaMemcpyDeviceToDevice));
         levels.at(0).A.indptr.resize(ff->A.indptr.size());
         CHECK_CUDA(cudaMemcpy(levels.at(0).A.indptr.data(), (ff->A).indptr.data(), (ff->A).indptr.size() * sizeof(int), cudaMemcpyDeviceToDevice));
+
+        // debug_cuda_vec(levels.at(0).A.data, "A0.data");
+        // debug_cuda_vec(levels.at(0).A.indices, "A0.indices");
+        // debug_cuda_vec(levels.at(0).A.indptr, "A0.indptr");
     }
 
 
@@ -810,7 +1483,7 @@ struct VCycle : Kernels {
 
         scale_csr_by_row<<<(A.nrows + 255) / 256, 256>>>(data_new.data(), A.data.data(), A.indices.data(), A.indptr.data(), A.nrows, diag_inv.data());
         cudaDeviceSynchronize();
-        LAUNCH_CHECK();
+        launch_check();
 
         CSR<float> DinvA;
         DinvA.assign(data_new.data(), A.numnonz, A.indices.data(), A.numnonz, A.indptr.data(), A.nrows+1, A.nrows, A.ncols, A.numnonz);
@@ -913,6 +1586,7 @@ struct VCycle : Kernels {
 
 
     void gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
+        // serial gauss seidel
         std::vector<float> x_host(x.size());
         std::vector<float> b_host(b.size());
         x.tohost(x_host);
@@ -1167,7 +1841,12 @@ struct VCycle : Kernels {
     std::vector<float> elapsed1, elapsed2, elapsed3;
     void solve()
     {
+        // timer1.start();
+        // timer3.start();
         presolve();
+        // timer3.stop();
+        // elapsed3.push_back(timer3.elapsed());
+
         float bnrm2 = init_cg_iter0(residuals.data());
         float atol = bnrm2 * rtol;
         for (size_t iter=0; iter<maxiter; iter++)
@@ -1178,10 +1857,34 @@ struct VCycle : Kernels {
                 break;
             }
             copy(z, outer_x);
+            
+            // timer2.start();
             vcycle();
+            // timer2.stop();
+            // elapsed2.push_back(timer2.elapsed());
+
             do_cg_itern(residuals.data(), iter); 
+            // cout<<"iter: "<<iter<<" residual: "<<residuals[iter]<<endl;
             niter = iter;
         }
+        // timer1.stop();
+        // elapsed1.push_back(timer1.elapsed());
+        // cout<<elapsed1.size()<<" mgpcg time: "<<(elapsed1[0])<<" ms"<<endl;
+        // cout<<elapsed2.size()<<" vcycle time: "<<sum(elapsed2)<<" ms"<<endl;
+        // elapsed1.clear();
+        // elapsed2.clear();
+
+        // cout<<elapsed_smoother.size()<<" smoother time: "<<avg(elapsed_smoother)<<" ms"<<" total time: "<<sum(elapsed_smoother)<<" ms"<<endl;
+        // elapsed_smoother.clear();
+
+        // cout<<elapsed3.size()<<" presolve time: "<<(elapsed3[0])<<" ms"<<endl;
+        // elapsed3.clear();
+
+        // cout<<"Ax=b residuals: "<<endl;
+        // for(int i=0; i<niter;++i)
+        // {
+        //     cout<<residuals[i]<<endl;
+        // }
     }
 
     void solve_only_jacobi()
@@ -1233,6 +1936,11 @@ struct VCycle : Kernels {
         }
         copy(x_new, outer_x);
 
+        // cout<<"Ax=b residuals: "<<endl;
+        // for(int i=0; i<niter;++i)
+        // {
+        //     cout<<residuals[i]<<endl;
+        // }
         timer1.stop();
         elapsed1.push_back(timer1.elapsed());
         cout<<elapsed1.size()<<" only smoother time: "<<(elapsed1[0])<<" ms"<<endl;
@@ -1241,27 +1949,19 @@ struct VCycle : Kernels {
     }
 };
 
+} // namespace
 
 
 static VCycle *fastmg = nullptr;
-
+static FastFillCloth *fastFillCloth = nullptr;
+static FastFillSoft *fastFillSoft = nullptr;
+static FastFillBase *fastFillBase = nullptr;
 
 #if _WIN32
 #define DLLEXPORT __declspec(dllexport)
 #else
 #define DLLEXPORT
 #endif
-
-
-extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
-    fastmg->set_A0_from_fastFill(fastFillCloth);
-}
-
-extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillSoft() {
-    fastmg->set_A0_from_fastFill(fastFillSoft);
-}
-
-
 
 extern "C" DLLEXPORT void fastmg_new() {
     if (!fastmg)
@@ -1337,7 +2037,13 @@ extern "C" DLLEXPORT void fastmg_set_smoother_niter(const size_t niter) {
     fastmg->set_smoother_niter(niter);
 }
 
+extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
+    fastmg->set_A0_from_fastFill(fastFillCloth);
+}
 
+extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillSoft() {
+    fastmg->set_A0_from_fastFill(fastFillSoft);
+}
 
 extern "C" DLLEXPORT void fastmg_scale_RAP(float s, int lv) {
     fastmg->set_scale_RAP(s, lv);
@@ -1371,4 +2077,132 @@ extern "C" DLLEXPORT void fastmg_use_radical_omega(int flag) {
 }
 
 
-} // namespace
+
+// ------------------------------------------------------------------------------
+extern "C" DLLEXPORT void fastFillCloth_new() {
+    if (!fastFillCloth)
+        fastFillCloth = new FastFillCloth{};
+}
+
+extern "C" DLLEXPORT void fastFillCloth_set_data(int* edges_in, int NE_in, float* inv_mass_in, int NV_in, float* pos_in, float alpha_in)
+{
+    fastFillCloth->set_data_v2(edges_in, NE_in, inv_mass_in, NV_in, pos_in, alpha_in);
+}
+
+
+extern "C" DLLEXPORT void fastFillCloth_init_from_python_cache(
+    int *adjacent_edge_in,
+    int *num_adjacent_edge_in,
+    int *adjacent_edge_abc_in,
+    int num_nonz_in,
+    float *spmat_data_in,
+    int *spmat_indices_in,
+    int *spmat_indptr_in,
+    int *spmat_ii_in,
+    int *spmat_jj_in,
+    int NE_in,
+    int NV_in)
+{
+    fastFillCloth->init_from_python_cache_v2(adjacent_edge_in,
+                                     num_adjacent_edge_in,
+                                     adjacent_edge_abc_in,
+                                     num_nonz_in,
+                                     spmat_data_in,
+                                     spmat_indices_in,
+                                     spmat_indptr_in,
+                                     spmat_ii_in,
+                                     spmat_jj_in,
+                                     NE_in,
+                                     NV_in);
+}
+
+extern "C" DLLEXPORT void fastFillCloth_run(float* pos_in) {
+    fastFillCloth->run(pos_in);
+}
+
+extern "C" DLLEXPORT void fastFillCloth_fetch_A_data(float* data) {
+    fastFillCloth->fetch_A_data(data);
+}
+
+
+
+
+// ------------------------------------------------------------------------------
+extern "C" DLLEXPORT void fastFillSoft_new() {
+    if (!fastFillSoft)
+        fastFillSoft = new FastFillSoft{};
+}
+
+extern "C" DLLEXPORT void fastFillSoft_set_data(int* tet_in, int NT_in, float* inv_mass_in, int NV_in, float* pos_in, float* alpha_tilde_in)
+{
+    fastFillSoft->set_data_v2(tet_in, NT_in, inv_mass_in, NV_in, pos_in, alpha_tilde_in);
+}
+
+#ifndef USE_LESSMEM
+extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache(
+        const int NT_in,
+        const int MAX_ADJ_in,
+        const int* adjacent_in,
+        const int* num_adjacent_in,
+        const float* data_in,
+        const int* indices_in,
+        const int* indptr_in,
+        const int* ii_in,
+        const int* jj_in,
+        const int num_nonz_in,
+        const int* nnz_each_row_in,
+        const int* n_shared_v_in,
+        const int* shared_v_in,
+        const int8_t* shared_v_order_in_cur,
+        const int8_t* shared_v_order_in_adj
+        )
+{
+    fastFillSoft->init_from_python_cache_v2(
+        NT_in,
+        MAX_ADJ_in,
+        adjacent_in,
+        num_adjacent_in,
+        data_in,
+        indices_in,
+        indptr_in,
+        ii_in,
+        jj_in,
+        num_nonz_in,
+        nnz_each_row_in,
+        n_shared_v_in,
+        shared_v_in,
+        shared_v_order_in_cur,
+        shared_v_order_in_adj
+        );
+}
+#endif
+
+
+extern "C" DLLEXPORT void fastFillSoft_init_from_python_cache_lessmem(
+        const int NT_in,
+        const int MAX_ADJ_in,
+        const float* data_in,
+        const int* indices_in,
+        const int* indptr_in,
+        const int* ii_in,
+        const int num_nonz_in
+        )
+{
+    fastFillSoft->init_from_python_cache_lessmem(
+        NT_in,
+        MAX_ADJ_in,
+        data_in,
+        indices_in,
+        indptr_in,
+        ii_in,
+        num_nonz_in
+        );
+}
+
+extern "C" DLLEXPORT void fastFillSoft_run(float* pos_in, float* gradC_in) {
+    fastFillSoft->run(pos_in, gradC_in);
+}
+
+extern "C" DLLEXPORT void fastFillSoft_fetch_A_data(float* data) {
+    fastFillSoft->fetch_A_data(data);
+}

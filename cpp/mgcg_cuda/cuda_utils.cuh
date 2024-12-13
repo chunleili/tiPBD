@@ -1,3 +1,4 @@
+#pragma once
 #include <cuda_runtime.h>
 #include <chrono>
 
@@ -73,15 +74,6 @@
     } while (0)
 
 
-void launch_check()
-{
-    cudaError_t varCudaError1 = cudaGetLastError();
-    if (varCudaError1 != cudaSuccess)
-    {
-        std::cout << "Failed to launch kernel (error code: " << cudaGetErrorString(varCudaError1) << ")!" << std::endl;
-        exit(EXIT_FAILURE);
-    }
-}
 
 
 #define LAUNCH_CHECK() \

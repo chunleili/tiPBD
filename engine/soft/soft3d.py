@@ -409,13 +409,22 @@ class SoftBody(PhysicalBase):
         softC.pos = self.pos.to_numpy()
 
         softC.solve()
-
+        
+        # TODO: following data transfer will be removed
         c_ = softC.constraints
         gradC_ = softC.gradC
         b_ = softC.b
 
-        c1 = np.array(b_)
-        return c1
+        c_1 = np.array(c_)
+        gradC_1 = np.array(gradC_)
+        b_1 = np.array(b_)
+        
+        self.constraints.from_numpy(c_1)
+        self.gradC.from_numpy(gradC_1)
+        self.b = b_1
+
+        x, self.r_iter.r_Axb = self.linsol.run(self.b)
+        self.dlam2dpos(x)
 
 
     @timeit
@@ -423,16 +432,11 @@ class SoftBody(PhysicalBase):
         self.pos_mid.from_numpy(self.pos.to_numpy())
         self.compute_C_and_gradC()
         self.b = self.compute_b()
-        c = self.constraints.to_numpy()
-        gradC = self.gradC.to_numpy()
-        return self.b
-        # x, self.r_iter.r_Axb = self.linsol.run(self.b)
-        # self.dlam2dpos(x)
+        x, self.r_iter.r_Axb = self.linsol.run(self.b)
+        self.dlam2dpos(x)
 
     def solveSoft(self):
-        c2 = self.solveSoft_python()
-        c1 = self.solveSoft_cuda()
-        vec_is_equal(c1, c2)
+        self.solveSoft_python()
 
     def do_pre_iter0(self):
         self.update_constraints() # for calculation of r0

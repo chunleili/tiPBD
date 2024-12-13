@@ -9,6 +9,7 @@
           "console": "integratedTerminal",
           "cwd": "${workspaceFolder}",
           "args": [
+            "-end_frame=100"
           ]
         },  
         {

@@ -99,7 +99,9 @@
         "fft": "cpp",
         "csetjmp": "cpp",
         "ranges": "cpp",
-        "span": "cpp"
+        "span": "cpp",
+        "mprealsupport": "cpp",
+        "matrixfunctions": "cpp"
     },
     "notebook.output.wordWrap": true,
     "C_Cpp.vcFormat.newLine.closeBraceSameLine.emptyFunction": true,

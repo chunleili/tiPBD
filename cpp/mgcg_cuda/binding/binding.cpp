@@ -1,5 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/eigen.h>
+#include "common.h"
 #include "solve_soft.h"
 
 namespace py = pybind11;

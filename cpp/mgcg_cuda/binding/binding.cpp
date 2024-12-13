@@ -6,7 +6,7 @@ namespace py = pybind11;
 
 void addModule_SolveSoft(py::module &m);
 
-PYBIND11_MODULE(pypbd, m) {
+PYBIND11_MODULE(pymgpbd, m) {
     addModule_SolveSoft(m);
 }
 

@@ -26,6 +26,7 @@ from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
 from engine.util import calc_norm,  ResidualDataOneIter, do_post_iter, init_logger, timeit, python_list_to_ti_field
+from engine.util import vec_is_equal
 from engine.physical_base import PhysicalBase
 from script.convert.geo import Geo
 
@@ -396,62 +397,42 @@ class SoftBody(PhysicalBase):
         softC.delta_t = args.delta_t
 
         self.softC = softC
+
+        from engine.util import vec_is_equal
+        vec_is_equal(np.array(softC.B), self.B.to_numpy())
+
         return softC
 
     @timeit
     def solveSoft_cuda(self):
-        t = perf_counter()
         softC = self.solveSoft_cuda_init()
         softC.pos = self.pos.to_numpy()
-        print(f"cuda init cost: {perf_counter() - t:.4f}s")
-        t = perf_counter()
-        softC.solve()
-        print(f"cuda solve cost: {perf_counter() - t:.4f}s")
 
-        t = perf_counter()
+        softC.solve()
+
         c_ = softC.constraints
         gradC_ = softC.gradC
         b_ = softC.b
-        print(f"cuda fetch cost1: {perf_counter() - t:.4f}s")
 
-        t = perf_counter()
-        c1 = np.array(c_)
-        gradC1 = np.array(gradC_)
-        b1 = np.array(b_)
-        print(f"cuda fetch cost2: {perf_counter() - t:.4f}s")
+        c1 = np.array(b_)
+        return c1
 
-        # t = perf_counter()
-        # self.constraints.from_numpy(c1)
-        # self.gradC.from_numpy(gradC1)
-        # self.b = b1
-        # print(f"cuda fetch cost3: {perf_counter() - t:.4f}s")
-
-        self.compute_C_and_gradC()
-        self.b = self.compute_b()
-
-        from engine.util import vec_is_equal
-
-        vec_is_equal(b1, self.b)
-        vec_is_equal(c1, self.constraints.to_numpy())
-        vec_is_equal(gradC1, self.gradC.to_numpy())
-
-        assert np.allclose(c1, self.constraints.to_numpy())
-        assert np.allclose(gradC1, self.gradC.to_numpy())
-        assert np.allclose(b1, self.b)
-
-        dlam, self.r_iter.r_Axb = self.linsol.run(self.b)
-        self.dlam2dpos(dlam)
 
     @timeit
     def solveSoft_python(self):
         self.pos_mid.from_numpy(self.pos.to_numpy())
         self.compute_C_and_gradC()
         self.b = self.compute_b()
-        x, self.r_iter.r_Axb = self.linsol.run(self.b)
-        self.dlam2dpos(x)
+        c = self.constraints.to_numpy()
+        gradC = self.gradC.to_numpy()
+        return self.b
+        # x, self.r_iter.r_Axb = self.linsol.run(self.b)
+        # self.dlam2dpos(x)
 
     def solveSoft(self):
-        self.solveSoft_cuda()
+        c2 = self.solveSoft_python()
+        c1 = self.solveSoft_cuda()
+        vec_is_equal(c1, c2)
 
     def do_pre_iter0(self):
         self.update_constraints() # for calculation of r0

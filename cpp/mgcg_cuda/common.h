@@ -29,7 +29,7 @@ using std::array;
 using Eigen::Map;
 using Eigen::Vector3f;
 using Eigen::VectorXf;
-using Matrix3f = Eigen::Matrix3f;
+using Mat3f = Eigen::Matrix<float, 3, 3, Eigen::RowMajor>;
 using SpMat = Eigen::SparseMatrix<float>;
 using Triplet = Eigen::Triplet<float>;
 
@@ -47,5 +47,5 @@ using Field2i = vector<Vec2i>;
 using Field1i = vector<int>;
 using Field43f = vector<Vec43f>;
 using FieldXi = vector<vector<int>>;
-using FieldMat3f = vector<Eigen::Matrix3f>;
+using FieldMat3f = vector<Mat3f>;
 using Field43f = vector<Vec43f>;

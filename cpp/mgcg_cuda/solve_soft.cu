@@ -5,7 +5,7 @@
 
 // function declarations(static)
 Eigen::Matrix<float, 3, 9> make_matrix(float x, float y, float z);
-Vec43f compute_gradient(const Eigen::Matrix3f &U, const Eigen::Vector3f &S, const Eigen::Matrix3f &V, const Eigen::Matrix3f &B);
+Vec43f compute_gradient(const Mat3f &U, const Eigen::Vector3f &S, const Mat3f &V, const Mat3f &B);
 
 /* -------------------------------------------------------------------------- */
 /*                               implementations                              */
@@ -20,7 +20,7 @@ Eigen::Matrix<float, 3, 9> make_matrix(float x, float y, float z) {
 
 
 
-Vec43f compute_gradient(const Eigen::Matrix3f &U, const Eigen::Vector3f &S, const Eigen::Matrix3f &V, const Eigen::Matrix3f &B) {
+Vec43f compute_gradient(const Mat3f &U, const Eigen::Vector3f &S, const Mat3f &V, const Mat3f &B) {
     float sum_sigma = std::sqrt((S(0) - 1) * (S(0) - 1) + (S(1) - 1) * (S(1) - 1) + (S(2) - 1) * (S(2) - 1));
     // (dcdS00, dcdS11, dcdS22)
     Eigen::Vector3f dcdS = 1.0 / sum_sigma * Eigen::Vector3f(S(0) - 1, S(1) - 1, S(2) - 1);
@@ -75,16 +75,16 @@ void compute_C_and_gradC_imply(Field3f &pos_mid, Field4i &vert, FieldMat3f &B, F
         Vec3f x1 = pos_mid[p1];
         Vec3f x2 = pos_mid[p2];
         Vec3f x3 = pos_mid[p3];
-        Eigen::Matrix3f D_s;
+        Mat3f D_s;
         D_s <<
             x1[0] - x0[0], x2[0] - x0[0], x3[0] - x0[0],
             x1[1] - x0[1], x2[1] - x0[1], x3[1] - x0[1],
             x1[2] - x0[2], x2[2] - x0[2], x3[2] - x0[2];
-        Eigen::Matrix3f F = D_s * B[t];
+        Mat3f F = D_s * B[t];
 
-        Eigen::JacobiSVD<Eigen::Matrix3f, Eigen::NoQRPreconditioner> svd(F, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        Eigen::Matrix3f U = svd.matrixU();
-        Eigen::Matrix3f V = svd.matrixV();
+        Eigen::JacobiSVD<Mat3f, Eigen::NoQRPreconditioner> svd(F, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        Mat3f U = svd.matrixU();
+        Mat3f V = svd.matrixV();
         Eigen::Vector3f S = svd.singularValues();
         constraints[t] = std::sqrt((S[0] - 1) * (S[0] - 1) + (S[1] - 1) * (S[1] - 1) + (S[2] - 1) * (S[2] - 1));
         gradC[t] = compute_gradient(U, S, V, B[t]);
@@ -123,7 +123,7 @@ void SolveSoft::resize_fields(size_t NV, size_t NCONS)
     gradC.resize(NCONS, Vec43f{Vec3f(0.0, 0.0, 0.0), Vec3f(0.0, 0.0, 0.0), Vec3f(0.0, 0.0, 0.0), Vec3f(0.0, 0.0, 0.0)});
     alpha_tilde.resize(NCONS, 0.0);
     dlambda.resize(NCONS, 0.0);
-    B.resize(NCONS, Matrix3f::Zero());
+    B.resize(NCONS, Mat3f::Zero());
     b.resize(NCONS, 0.0);
 }
 

@@ -461,7 +461,7 @@ def dense_mat_is_equal(A, B):
     print("is equal!")
     return True
 
-def vec_is_equal(a, b, maxdiff=1e-6):
+def vec_is_equal(a, b, tol=1e-6):
     if a.shape[-1]==1:
         a = a.reshape(-1)
     if b.shape[-1]==1:
@@ -472,7 +472,7 @@ def vec_is_equal(a, b, maxdiff=1e-6):
     maxdiff = np.abs(diff).max()
     where = np.abs(diff.data).argmax()
     print("maxdiff: ", maxdiff)
-    if maxdiff > 1e-6:
+    if maxdiff > tol:
         assert False, f"maxdiff:{maxdiff}, where={where}"
     print("is equal!")
     return True

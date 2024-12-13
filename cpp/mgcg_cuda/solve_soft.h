@@ -16,7 +16,7 @@ public:
     Field1f constraints;
     FieldMat3f B;
     Field3f pos_mid;
-    Field1f lambda;
+    Field1f lam;
     Field1f dlambda;
     Field3f dpos;
     float residual=1e6;

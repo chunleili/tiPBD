@@ -103,7 +103,7 @@ void SolveSoft::solve() {
 
 void SolveSoft::compute_b() {
     for (int i=0; i<NCONS; i++) {
-        b[i] = - alpha_tilde[i] * lambda[i] - constraints[i];
+        b[i] = - alpha_tilde[i] * lam[i] - constraints[i];
     }
 }
 
@@ -116,7 +116,7 @@ void SolveSoft::resize_fields(size_t NV, size_t NCONS)
     vert.resize(NCONS, Vec4i{0, 0, 0, 0});
     inv_mass.resize(NV, 0.0);
     rest_len.resize(NCONS, 0.0);
-    lambda.resize(NCONS, 0.0);
+    lam.resize(NCONS, 0.0);
     constraints.resize(NCONS, 0.0);
     pos_mid.resize(NV, Vec3f(0.0, 0.0, 0.0));
     dpos.resize(NV, Vec3f(0.0, 0.0, 0.0));
@@ -177,7 +177,7 @@ void SolveSoft::resize_fields(size_t NV, size_t NCONS)
 //         solveSoft->B[i].transposeInPlace();
 //     }
 
-//     std::copy(lambda_in, lambda_in + NCONS_in, solveSoft->lambda.data());
+//     std::copy(lambda_in, lambda_in + NCONS_in, solveSoft->lam.data());
 // }
 
 

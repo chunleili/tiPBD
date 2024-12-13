@@ -9,6 +9,7 @@ namespace py = pybind11;
 void addModule_SolveSoft(py::module &m);
 
 PYBIND11_MODULE(pymgpbd, m) {
+    m.doc() = "Python binding for the MGPBD project";
     addModule_SolveSoft(m);
 }
 
@@ -25,7 +26,7 @@ void addModule_SolveSoft(py::module &m) {
         .def_readwrite("inv_mass", &SolveSoft::inv_mass)
         .def_readwrite("delta_t", &SolveSoft::delta_t)
         .def_readwrite("B", &SolveSoft::B)
-        .def_readwrite("lambda", &SolveSoft::lambda)
+        .def_readwrite("lam", &SolveSoft::lam)
         .def_readwrite("dlambda", &SolveSoft::dlambda)
         .def_readwrite("dpos", &SolveSoft::dpos)
         .def_readwrite("constraints", &SolveSoft::constraints)

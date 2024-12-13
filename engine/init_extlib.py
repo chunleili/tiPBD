@@ -3,7 +3,7 @@ import ctypes
 import numpy.ctypeslib as ctl
 import numpy as np
 import subprocess
-
+import sys
 
 def init_extlib(args, sim=""):
     if not args.use_cuda:
@@ -19,6 +19,8 @@ def init_extlib(args, sim=""):
         os.chdir(prj_path)
 
     os.add_dll_directory(args.cuda_dir)
+    libdir = prj_path+'/cpp/mgcg_cuda/lib/'
+    sys.path.append(libdir)
     extlib = ctl.load_library("fastmg.dll", prj_path+'/cpp/mgcg_cuda/lib')
 
     arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
@@ -80,7 +82,7 @@ def init_extlib(args, sim=""):
         extlib.fastFillSoft_fetch_A_data.argtypes = [arr_float]
         extlib.fastFillSoft_run.argtypes = [arr2d_float, arr3d_float]
         extlib.fastFillSoft_new()
-        extlib.solveSoft_new()
+        # extlib.solveSoft_new()
 
 
     

@@ -379,81 +379,65 @@ class SoftBody(PhysicalBase):
         )
 
 
+    def solveSoft_cuda_init(self):
+        if hasattr(self, "softC"):
+            return self.softC
+        import pymgpbd as mp # type: ignore
+
+        softC = mp.SolveSoft()
+
+        softC.resize_fields(self.NV, self.NCONS)
+        softC.pos = self.pos.to_numpy()
+        softC.alpha_tilde = self.alpha_tilde.to_numpy()
+        softC.vert = self.tet_indices.to_numpy()
+        softC.inv_mass = self.inv_mass.to_numpy()
+        softC.B = self.B.to_numpy()
+        softC.lam = self.lagrangian.to_numpy()
+        softC.delta_t = args.delta_t
+
+        self.softC = softC
+        return softC
+
     @timeit
     def solveSoft_cuda(self):
-        arr_int = ctl.ndpointer(dtype=np.int32, ndim=1, flags='aligned, c_contiguous')
-        arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
-        arr2d_float = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
-        arr2d_int = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
-        arr3d_float = ctl.ndpointer(dtype=np.float32, ndim=3, flags='aligned, c_contiguous')
-        arr2i_float = ctl.ndpointer(dtype=np.int32, ndim=2, flags='aligned, c_contiguous')
-        c_size_t = ctypes.c_size_t
-        c_float = ctypes.c_float
-        c_int = ctypes.c_int
+        t = perf_counter()
+        softC = self.solveSoft_cuda_init()
+        softC.pos = self.pos.to_numpy()
+        print(f"cuda init cost: {perf_counter() - t:.4f}s")
+        t = perf_counter()
+        softC.solve()
+        print(f"cuda solve cost: {perf_counter() - t:.4f}s")
 
+        t = perf_counter()
+        c_ = softC.constraints
+        gradC_ = softC.gradC
+        b_ = softC.b
+        print(f"cuda fetch cost1: {perf_counter() - t:.4f}s")
 
-        extlib.solveSoft_set_data.argtypes = [
-            c_size_t,
-            c_size_t,
-            arr2d_float, #pos
-            arr_float, #alpha_tilde
-            arr_float, #rest_len
-            arr2i_float, #vert
-            arr_float, #mass
-            c_float, #delta_t
-            arr3d_float, #restmatrix
-            arr_float, #lambda
-        ]
-        extlib.solveSoft_get_data.argtypes = [
-            arr_float, #dlambda
-            arr2d_float, #dpos
-            arr_float, #constraints
-            arr3d_float, #gradC
-            arr_float, #b_out
-        ]
-        extlib.solveSoft_get_data.restype = c_float
-        extlib.solveSoft_run.argtypes = [
-            arr2d_float, #pos
-        ]
-        extlib.solveSoft_run.restype = c_float
+        t = perf_counter()
+        c1 = np.array(c_)
+        gradC1 = np.array(gradC_)
+        b1 = np.array(b_)
+        print(f"cuda fetch cost2: {perf_counter() - t:.4f}s")
 
+        # t = perf_counter()
+        # self.constraints.from_numpy(c1)
+        # self.gradC.from_numpy(gradC1)
+        # self.b = b1
+        # print(f"cuda fetch cost3: {perf_counter() - t:.4f}s")
 
+        self.compute_C_and_gradC()
+        self.b = self.compute_b()
 
-        extlib.solveSoft_set_data(
-            self.NV,
-            self.NCONS,
-            self.pos.to_numpy(),
-            self.alpha_tilde.to_numpy(),
-            self.rest_volume.to_numpy(),
-            self.tet_indices.to_numpy(),
-            self.inv_mass.to_numpy(),
-            args.delta_t,
-            self.B.to_numpy(),
-            self.lagrangian.to_numpy(),
-        )
+        from engine.util import vec_is_equal
 
-        pos_out = self.pos.to_numpy()
-        extlib.solveSoft_run(pos_out)
+        vec_is_equal(b1, self.b)
+        vec_is_equal(c1, self.constraints.to_numpy())
+        vec_is_equal(gradC1, self.gradC.to_numpy())
 
-
-        self.dlambda_out = np.zeros(self.NCONS, dtype=np.float32)
-        self.dpos_out = np.zeros((self.NV, 3), dtype=np.float32)
-        self.constraints_out = np.zeros(self.NCONS, dtype=np.float32)
-        self.gradC_out = np.zeros((self.NCONS, 4, 3), dtype=np.float32)
-        self.b_out = np.zeros(self.NCONS, dtype=np.float32)
-        extlib.solveSoft_get_data(
-            self.dlambda_out, 
-            self.dpos_out,
-            self.constraints_out,
-            self.gradC_out,
-            self.b_out,
-        )
-
-        self.constraints.from_numpy(self.constraints_out)
-        self.gradC.from_numpy(self.gradC_out.copy())
-        self.b = self.b_out
-
-
+        assert np.allclose(c1, self.constraints.to_numpy())
+        assert np.allclose(gradC1, self.gradC.to_numpy())
+        assert np.allclose(b1, self.b)
 
         dlam, self.r_iter.r_Axb = self.linsol.run(self.b)
         self.dlam2dpos(dlam)
@@ -467,7 +451,7 @@ class SoftBody(PhysicalBase):
         self.dlam2dpos(x)
 
     def solveSoft(self):
-        self.solveSoft_python()
+        self.solveSoft_cuda()
 
     def do_pre_iter0(self):
         self.update_constraints() # for calculation of r0

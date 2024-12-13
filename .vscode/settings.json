@@ -2,6 +2,13 @@
     "python.analysis.diagnosticSeverityOverrides": {
         "reportInvalidTypeForm": false
     },
+    "python.autoComplete.extraPaths": [
+        "${workspaceFolder}/cpp/mgcg_cuda/lib/"
+    ],
+    "python.analysis.extraPaths": [
+
+        "${workspaceFolder}/cpp/mgcg_cuda/lib/"
+    ],
     "files.associations": {
         "random": "cpp",
         "vector": "cpp",

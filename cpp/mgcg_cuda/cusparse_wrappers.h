@@ -240,6 +240,7 @@ struct CusparseWrappers {
     cublasHandle_t cublas;
     cusparseHandle_t cusparse;
     cusolverSpHandle_t cusolverH;
+    Buffer buff;
 
     CusparseWrappers() {
         CHECK_CUSPARSE(cusparseCreate(&cusparse));

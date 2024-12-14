@@ -70,7 +70,6 @@ struct FastMG : CusparseWrappers {
 
     Vec<float> z;
     Vec<float> r;
-    Buffer buff;
 
     size_t nlvs;
     Vec<float> outer_x;

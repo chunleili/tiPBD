@@ -12,7 +12,7 @@ struct VCycle : CusparseWrappers {
     VCycle(std::vector<MGLevel> &levels,
      std::shared_ptr<Smoother> smoother,
       Vec<float> &z, Vec<float> &r, Buffer &buff
-    ) : levels(levels), smoother(smoother), z(z), r(r), buff(buff){}
+    ) : levels(levels), smoother(smoother), z(z), r(r){}
 
     size_t coarse_solver_type = 1; //0:direct solver by cusolver (cholesky), 1: one sweep smoother
 
@@ -20,7 +20,6 @@ struct VCycle : CusparseWrappers {
 
     Vec<float> &z;
     Vec<float> &r;
-    Buffer &buff;
 
 private:
     std::vector<MGLevel> &levels;

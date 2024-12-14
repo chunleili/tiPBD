@@ -65,18 +65,6 @@ float avg(std::vector<float> &v)
     }
 
 
-
-    float  FastMG::calc_residual_norm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A) {
-        float rnorm = 0.0;
-        Vec<float> r;
-        r.resize(b.size());
-        copy(r, b);
-        spmv(r, -1, A, x, 1, buff);
-        rnorm = vnorm(r);
-        return rnorm;
-    }
-
-
     void  FastMG::create_levels(size_t numlvs) {
         if (levels.size() < numlvs) {
             levels.resize(numlvs);
@@ -131,7 +119,7 @@ float avg(std::vector<float> &v)
 
 
 
-    float  FastMG::calc_residual(int lv, CSR<float> const &A, Vec<float> &x, Vec<float> const &b) {
+    float  FastMG::calc_residual(CSR<float> const &A, Vec<float> &x, Vec<float> const &b, Vec<float> &r) {
         copy(r, b);
         spmv(r, -1, A, x, 1, buff); // residual = b - A@x
         return vnorm(r);
@@ -311,7 +299,7 @@ float avg(std::vector<float> &v)
         for (size_t iter=0; iter<maxiter; iter++)
         {   
             smoother->smooth(0, outer_x, outer_b);
-            auto rnorm = calc_residual_norm(outer_b, outer_x, levels.at(0).A);
+            auto rnorm = calc_residual(levels.at(0).A, outer_x, outer_b, r);
             residuals[iter] = rnorm;
             if (residuals[iter] < atol)
             {

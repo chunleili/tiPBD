@@ -89,25 +89,25 @@ struct FastMG : CusparseWrappers {
     void create_levels(size_t numlvs);
 
     void set_scale_RAP(float s, int lv);
-    float calc_residual_norm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A);
     void set_P(size_t lv, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz);
+
+
     void set_A0(float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz);
+    void update_A0(float const *datap) ;// only update the data of A0
+    void set_A0_from_fastFill(FastFillBase *ff);
+    void fetch_A_data(float *data);
+    void fetch_A(size_t lv, float *data, int *indices, int *indptr);
+    void get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff);
     int get_nnz(int lv);
     int get_nrows(int lv);
 
-    // only update the data of A0
-    void update_A0(float const *datap) ;
-    void set_A0_from_fastFill(FastFillBase *ff);
-    void get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff);
 
-    float calc_residual(int lv, CSR<float> const &A, Vec<float> &x, Vec<float> const &b);
+    float calc_residual(CSR<float> const &A, Vec<float> &x, Vec<float> const &b, Vec<float> &r);
     void set_outer_x(float const *x, size_t n);
     void set_outer_b(float const *b, size_t n);
     float init_cg_iter0(float *residuals);
     void do_cg_itern(float *residuals, size_t iteration);
     void compute_RAP(size_t lv);
-    void fetch_A_data(float *data);
-    void fetch_A(size_t lv, float *data, int *indices, int *indptr);
     void set_data(const float* x, size_t nx, const float* b, size_t nb, float rtol_, size_t maxiter_);
     size_t get_data(float* x_out, float* r_out);
     void presolve();

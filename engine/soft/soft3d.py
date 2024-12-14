@@ -456,9 +456,11 @@ class SoftBody(PhysicalBase):
         self.do_external_constraints()
         self.lagrangian.fill(0)
         self.do_pre_iter0()
+        r = []
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
             self.solveSoft()
+            AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():
                 break
@@ -481,6 +483,23 @@ class SoftBody(PhysicalBase):
         self.update_vel()
 
 
+
+
+def AMG_calc_r(r,dual0, tic_iter, r_Axb):
+    from engine.ti_kernels import calc_dual_kernel
+    t_iter = perf_counter()-tic_iter
+    tic_calcr = perf_counter()
+    calc_dual_kernel(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
+    dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
+    r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
+    logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
+
+    if args.export_log:
+        logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
+        logging.info(f"{ist.frame}-{ist.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
+    r.append(dual_r)
+
+    return dual0
 
 # ---------------------------------------------------------------------------- #
 #                                    kernels                                   #

@@ -27,8 +27,12 @@
 
 #include "kernels.cuh"
 #include "cuda_utils.cuh"
+#include "cusparse_wrappers.h"
+#include "mglevel.h"
+#include "smoother.h"
 #include "fastmg.h"
 #include "fastfill.h"
+#include "vcycle.h"
 
 using std::cout;
 using std::endl;
@@ -79,7 +83,9 @@ float avg(std::vector<float> &v)
         }
         nlvs = numlvs;
 
-        smoother = std::make_unique<Smoother>(levels);
+        smoother = std::make_shared<Smoother>(levels);
+        vcycle = std::make_unique<VCycle>(levels, smoother,z,r,buff);
+
     }
 
 
@@ -132,53 +138,6 @@ float avg(std::vector<float> &v)
     }
 
 
-    void  FastMG::vcycle_down() {
-        for (int lv = 0; lv < nlvs-1; ++lv) {
-            Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : z;
-            Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : r;
-
-            smoother->smooth(lv, x, b);
-
-            copy(levels.at(lv).residual, b);
-            spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff); // residual = b - A@x
-
-            levels.at(lv).b.resize(levels.at(lv).R.nrows);
-            spmv(levels.at(lv).b, 1, levels.at(lv).R, levels.at(lv).residual, 0, buff); // coarse_b = R@residual
-
-            levels.at(lv).x.resize(levels.at(lv).b.size());
-            zero(levels.at(lv).x);
-        }
-    }
-
-    void  FastMG::vcycle_up() {
-        for (int lv = nlvs-2; lv >= 0; --lv) {
-            Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : z;
-            Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : r;
-            spmv(x, 1, levels.at(lv).P, levels.at(lv).x, 1, buff); // x += P@coarse_x
-            smoother->smooth(lv, x, b);
-        }
-    }
-
-    void  FastMG::vcycle() {
-        vcycle_down();
-        coarse_solve();
-        vcycle_up();
-    }
-
-
-    void  FastMG::coarse_solve() {
-        auto const &A = levels.at(nlvs - 1).A;
-        auto &x = levels.at(nlvs - 2).x;
-        auto &b = levels.at(nlvs - 2).b;
-        if (coarse_solver_type==0)
-        {
-            spsolve(x, A, b);
-        }
-        else if (coarse_solver_type==1)
-        {
-            smoother->smooth(nlvs-1, x, b);
-        }
-    }
 
     void  FastMG::set_outer_x(float const *x, size_t n) {
         outer_x.resize(n);
@@ -308,7 +267,7 @@ float avg(std::vector<float> &v)
                 break;
             }
             copy(z, outer_x);
-            vcycle();
+            vcycle -> run();
             do_cg_itern(residuals.data(), iter); 
             niter = iter;
         }
@@ -352,8 +311,8 @@ float avg(std::vector<float> &v)
         for (size_t iter=0; iter<maxiter; iter++)
         {   
             smoother->smooth(0, outer_x, outer_b);
-            auto r = calc_residual_norm(outer_b, outer_x, levels.at(0).A);
-            residuals[iter] = r;
+            auto rnorm = calc_residual_norm(outer_b, outer_x, levels.at(0).A);
+            residuals[iter] = rnorm;
             if (residuals[iter] < atol)
             {
                 niter = iter;
@@ -429,6 +388,10 @@ extern "C" DLLEXPORT void fastmg_use_radical_omega(int flag) {
     fastmg->smoother->use_radical_omega = bool(flag);
 }
 
+
+extern "C" DLLEXPORT void fastmg_set_coarse_solver_type(int t) {
+    fastmg->vcycle->coarse_solver_type = t;
+}
 
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
@@ -525,9 +488,7 @@ extern "C" DLLEXPORT void fastmg_solve_only_directsolver() {
     fastmg->solve_only_directsolver();
 }
 
-extern "C" DLLEXPORT void fastmg_set_coarse_solver_type(int t) {
-    fastmg->coarse_solver_type = t;
-}
+
 
 
 

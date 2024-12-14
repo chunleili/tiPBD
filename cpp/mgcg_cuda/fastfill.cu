@@ -1,5 +1,6 @@
 #include "fastmg.h"
 #include "fastfill.h"
+#include "kernels.cuh"
 
 namespace fastmg {
 /* -------------------------------------------------------------------------- */

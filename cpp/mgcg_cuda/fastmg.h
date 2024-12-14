@@ -27,11 +27,7 @@
 #include <thrust/inner_product.h>
 #include <thrust/random.h>
 
-#include "kernels.cuh"
-#include "cuda_utils.cuh"
 #include "cusparse_wrappers.h"
-#include "mglevel.h"
-#include "smoother.h"
 
 using std::cout;
 using std::endl;
@@ -39,6 +35,14 @@ using std::endl;
 #define USE_LESSMEM 1
 
 namespace fastmg {
+template <typename T>
+struct Vec;
+template <typename T>
+struct CSR;
+struct MGLevel;
+struct VCycle;
+struct Smoother;
+struct FastFillBase;
 
 
 template <typename T=float>
@@ -59,23 +63,22 @@ std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {
 }
 
 
-struct FastFillBase;
-
 struct FastMG : CusparseWrappers {
     std::vector<MGLevel> levels; // create in create_levels
-    std::unique_ptr<Smoother> smoother;  // create in create_levels
+    std::shared_ptr<Smoother> smoother;  // create in create_levels
+    std::unique_ptr<VCycle> vcycle;  // create in create_levels
 
-    size_t nlvs;
-    size_t coarse_solver_type = 1; //0:direct solver by cusolver (cholesky), 1: one sweep smoother
     Vec<float> z;
     Vec<float> r;
+    Buffer buff;
+
+    size_t nlvs;
     Vec<float> outer_x;
     Vec<float> x_new;
     Vec<float> outer_b;
     float save_rho_prev;
     Vec<float> save_p;
     Vec<float> save_q;
-    Buffer buff;
     float rtol;
     size_t maxiter;
     std::vector<float> residuals;
@@ -84,8 +87,8 @@ struct FastMG : CusparseWrappers {
     GpuTimer timer1,timer2,timer3;
     std::vector<float> elapsed1, elapsed2, elapsed3;
 
-
     void create_levels(size_t numlvs);
+
     void set_scale_RAP(float s, int lv);
     float calc_residual_norm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A);
     void set_P(size_t lv, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz);
@@ -99,10 +102,6 @@ struct FastMG : CusparseWrappers {
     void get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff);
 
     float calc_residual(int lv, CSR<float> const &A, Vec<float> &x, Vec<float> const &b);
-    void vcycle_down();
-    void vcycle_up();
-    void vcycle();
-    void coarse_solve();
     void set_outer_x(float const *x, size_t n);
     void set_outer_b(float const *b, size_t n);
     float init_cg_iter0(float *residuals);

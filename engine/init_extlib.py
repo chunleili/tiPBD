@@ -62,7 +62,6 @@ def init_extlib(args, sim=""):
     if args.scale_RAP:
         extlib.fastmg_scale_RAP.argtypes = [c_float, c_int]
 
-    extlib.fastmg_use_radical_omega(0)
 
     extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
     extlib.fastmg_setup_nl(1) # at least 1 level to prevent crash

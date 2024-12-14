@@ -14,7 +14,7 @@ struct Smoother:CusparseWrappers{
     size_t smoother_type = 1; //1:chebyshev, 2:w-jacobi, 3:gauss_seidel(level0)+w-jacobi(other levels)
     size_t smoother_niter=2; // TODO: we will replace smoother_niter later
     float max_eig;
-    bool use_radical_omega=true;
+    bool use_radical_omega=false;
     Buffer buff;
 
 

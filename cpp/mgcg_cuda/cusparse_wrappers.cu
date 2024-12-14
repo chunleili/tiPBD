@@ -4,6 +4,9 @@
 namespace fastmg{
 
 
+extern bool verbose=false; // FIXME: This is global
+
+
 template <class T>
 cudaDataType_t cudaDataTypeFor();
 

@@ -39,7 +39,7 @@ struct Vec;
 template <class T>
 struct CSR;
 
-bool verbose = false; // FIXME: This is global
+extern bool verbose; // FIXME: This is global
     
 struct Buffer {
     void *m_data;

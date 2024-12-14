@@ -4,7 +4,7 @@
 
 namespace fastmg {
 // Base case for FastFillCloth and FastFillSoft
-struct FastFillBase : Kernels
+struct FastFillBase : CusparseWrappers
 {
     int num_nonz;
     int nrows, ncols;

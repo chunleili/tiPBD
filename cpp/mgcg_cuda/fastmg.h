@@ -253,20 +253,20 @@ struct MGLevel {
 
 
 
-struct Kernels {
+struct CusparseWrappers {
     cublasHandle_t cublas;
     cusparseHandle_t cusparse;
     cusolverSpHandle_t cusolverH;
 
-    Kernels() {
+    CusparseWrappers() {
         CHECK_CUSPARSE(cusparseCreate(&cusparse));
         CHECK_CUBLAS(cublasCreate_v2(&cublas));
         CHECK_CUSOLVER(cusolverSpCreate(&cusolverH));
     }
 
-    Kernels(Kernels &&) = delete;
+    CusparseWrappers(CusparseWrappers &&) = delete;
 
-    ~Kernels() {
+    ~CusparseWrappers() {
         CHECK_CUSPARSE(cusparseDestroy(cusparse));
         CHECK_CUBLAS(cublasDestroy_v2(cublas));
         CHECK_CUSOLVER(cusolverSpDestroy(cusolverH));
@@ -354,7 +354,7 @@ std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {
 
 struct FastFillBase;
 
-struct VCycle : Kernels {
+struct VCycle : CusparseWrappers {
     std::vector<MGLevel> levels;
     size_t nlvs;
     std::vector<float> chebyshev_coeff;

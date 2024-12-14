@@ -290,7 +290,7 @@ struct ConstSpMat {
 
 
 // out = alpha * A@x + beta * out
-void Kernels::spmv(Vec<float> &out, float const &alpha, CSR<float> const &A, Vec<float> const &x, float const &beta, Buffer &buffer) {
+void CusparseWrappers::spmv(Vec<float> &out, float const &alpha, CSR<float> const &A, Vec<float> const &x, float const &beta, Buffer &buffer) {
     assert(out.size() == A.nrows);
     size_t bufSize = 0;
     ConstSpMat dA(A);
@@ -308,7 +308,7 @@ void Kernels::spmv(Vec<float> &out, float const &alpha, CSR<float> const &A, Vec
 }
 
 // C = A * B
-void Kernels::spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_) 
+void CusparseWrappers::spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_) 
 {
     ConstSpMat descA(matA_); //descriptor for A
     ConstSpMat descB(matB_);
@@ -380,7 +380,7 @@ void Kernels::spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<floa
 
 // transpose csr matrix A to AT
 // https://docs.nvidia.com/cuda/cusparse/index.html?highlight=cusparseCsr2cscEx2#cusparsecsr2cscex2
-void Kernels::transpose(CSR<float> const & A, CSR<float>& AT)
+void CusparseWrappers::transpose(CSR<float> const & A, CSR<float>& AT)
 {
     int m = A.nrows;
     int n = A.ncols;
@@ -409,7 +409,7 @@ void Kernels::transpose(CSR<float> const & A, CSR<float>& AT)
 //Calculate the largest eigenvalue of a symmetric matrix using the power method!
 // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csreigvsi  (cusolverSpScsreigvsi is not used here, but it is another option, so I just keep the note. It use the shift inverse method to solve this equation Ax=lam x)
 // Reference code: https://github.com/physicslog/maxEigenValueGPU/blob/25e0aa3d6c9bbeb03be6249d0ab8cfaafd32188c/maxeigenvaluepower.cu#L255
-float Kernels::computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
+float CusparseWrappers::computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_iter) {
     // // Terminal output color (just for cosmetic purpose)
     // #define RST  "\x1B[37m"  // Reset color to white
     // #define KGRN  "\033[0;32m"   // Define green color
@@ -508,7 +508,7 @@ float Kernels::computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, int max_i
 }
 
 
-void Kernels::spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b) {
+void CusparseWrappers::spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b) {
     cusparseMatDescr_t descrA = NULL;
     CHECK_CUSPARSE(cusparseCreateMatDescr(&descrA));
     CHECK_CUSPARSE(cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL));

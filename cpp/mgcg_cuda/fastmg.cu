@@ -86,13 +86,13 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
 /*                                   VCycle                                   */
 /* -------------------------------------------------------------------------- */
 
-    void VCycle::set_scale_RAP(float s, int lv)
+    void FastMG::set_scale_RAP(float s, int lv)
     {
         levels.at(lv).scale_RAP = s;
         cout<<"Set scale_RAP: "<<levels.at(lv).scale_RAP<<"  at level "<<lv<<endl;
     }
 
-    void  VCycle::setup_smoothers(int type) {
+    void  FastMG::setup_smoothers(int type) {
         if(VERBOSE)
             cout<<"\nSetting up smoothers..."<<endl;
         smoother_type = type;
@@ -112,7 +112,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::setup_chebyshev_cuda(CSR<float> &A) {
+    void  FastMG::setup_chebyshev_cuda(CSR<float> &A) {
         float lower_bound=1.0/30.0;
         float upper_bound=1.1;
         float rho = computeMaxEigenvaluePowerMethodOptimized(A, 100);
@@ -128,7 +128,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::chebyshev_polynomial_coefficients(float a, float b)
+    void  FastMG::chebyshev_polynomial_coefficients(float a, float b)
     {
         int degree=3;
         const float PI = 3.14159265358979323846;
@@ -186,7 +186,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    float  VCycle::calc_residual_norm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A) {
+    float  FastMG::calc_residual_norm(Vec<float> const &b, Vec<float> const &x, CSR<float> const &A) {
         float rnorm = 0.0;
         Vec<float> r;
         r.resize(b.size());
@@ -197,7 +197,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::setup(size_t numlvs) {
+    void  FastMG::setup(size_t numlvs) {
         if (levels.size() < numlvs) {
             levels.resize(numlvs);
         }
@@ -205,29 +205,29 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::set_P(size_t lv, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
+    void  FastMG::set_P(size_t lv, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
         levels.at(lv).P.assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
     }
 
-    void  VCycle::set_A0(float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
+    void  FastMG::set_A0(float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
         levels.at(0).A.assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
     }
 
 
-    int  VCycle::get_nnz(int lv) {
+    int  FastMG::get_nnz(int lv) {
         return levels.at(lv).A.numnonz;
     }
 
-    int  VCycle::get_nrows(int lv) {
+    int  FastMG::get_nrows(int lv) {
         return levels.at(lv).A.nrows;
     }
 
     // only update the data of A0
-    void  VCycle::update_A0(float const *datap) {
+    void  FastMG::update_A0(float const *datap) {
         CHECK_CUDA(cudaMemcpy(levels.at(0).A.data.data(), datap, levels.at(0).A.data.size() * sizeof(float), cudaMemcpyHostToDevice));
     }
 
-    void  VCycle::set_A0_from_fastFill(FastFillBase *ff)
+    void  FastMG::set_A0_from_fastFill(FastFillBase *ff)
     {
         if (levels.size() < 1) {
             levels.resize(1);
@@ -246,7 +246,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::chebyshev(int lv, Vec<float> &x, Vec<float> const &b) {
+    void  FastMG::chebyshev(int lv, Vec<float> &x, Vec<float> const &b) {
         copy(levels.at(lv).residual, b);
         spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff); // residual = b - A@x
         scal2(levels.at(lv).h, chebyshev_coeff.at(0), levels.at(lv).residual); // h = c0 * residual
@@ -265,12 +265,12 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::set_smoother_niter(size_t const n) {
+    void  FastMG::set_smoother_niter(size_t const n) {
         smoother_niter = n;
     }
 
 
-    void  VCycle::setup_weighted_jacobi() {
+    void  FastMG::setup_weighted_jacobi() {
         if(use_radical_omega)
         {
             // old way:
@@ -303,7 +303,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     // FIXME: this has bugs, taking too long time
     // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csreigvsi 
     // calculate the most close to 0.1 eigen value of a symmetric matrix using the shift inverse method
-    float  VCycle::calc_min_eig(CSR<float> &A, float mu0) {
+    float  FastMG::calc_min_eig(CSR<float> &A, float mu0) {
         cusparseMatDescr_t descrA = NULL;
         CHECK_CUSPARSE(cusparseCreateMatDescr(&descrA));
         CHECK_CUSPARSE(cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL));
@@ -347,7 +347,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    float  VCycle::calc_weighted_jacobi_omega(CSR<float>&A, bool use_radical_omega) {
+    float  FastMG::calc_weighted_jacobi_omega(CSR<float>&A, bool use_radical_omega) {
         GpuTimer timer;
         timer.start();
 
@@ -391,7 +391,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff)
+    void  FastMG::get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff)
     {
         int n = A.nrows;
         // get diagonal inverse of A, fill into a vector
@@ -424,7 +424,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
+    void  FastMG::jacobi(int lv, Vec<float> &x, Vec<float> const &b) {
         Vec<float> x_old;
         x_old.resize(x.size());
         copy(x_old, x);
@@ -436,7 +436,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
     // use cusparse instead of hand-written kernel
-    void  VCycle::jacobi_v2(int lv, Vec<float> &x, Vec<float> const &b) {
+    void  FastMG::jacobi_v2(int lv, Vec<float> &x, Vec<float> const &b) {
         auto jacobi_omega = levels.at(lv).jacobi_omega;
 
         Vec<float> x_old;
@@ -465,7 +465,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
+    void  FastMG::gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b) {
         std::vector<float> x_host(x.size());
         std::vector<float> b_host(b.size());
         x.tohost(x_host);
@@ -487,14 +487,14 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     // parallel gauss seidel
     // https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html
     // https://gist.github.com/Erkaman/b34b3531e209a1db38e259ea53ff0be9#file-gauss_seidel_graph_coloring-cpp-L101
-    void  VCycle::set_colors(const int* c, int n, int color_num_in, int lv) {
+    void  FastMG::set_colors(const int* c, int n, int color_num_in, int lv) {
         levels.at(lv).colors.resize(n);
         CHECK_CUDA(cudaMemcpy(levels.at(lv).colors.data(), c, n*sizeof(int), cudaMemcpyHostToDevice));
         levels.at(lv).color_num = color_num_in;
 
     }
 
-    void  VCycle::multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {
+    void  FastMG::multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b) {
         for(int color=0; color<levels.at(lv).color_num; color++)
         {
             multi_color_gauss_seidel_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, levels.at(lv).colors.data(), color);
@@ -503,7 +503,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::_smooth(int lv, Vec<float> &x, Vec<float> const &b) {
+    void  FastMG::_smooth(int lv, Vec<float> &x, Vec<float> const &b) {
         if(smoother_type == 1)
         {
             for(int i=0; i<smoother_niter; i++)
@@ -523,14 +523,14 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    float  VCycle::calc_residual(int lv, CSR<float> const &A, Vec<float> &x, Vec<float> const &b) {
+    float  FastMG::calc_residual(int lv, CSR<float> const &A, Vec<float> &x, Vec<float> const &b) {
         copy(r, b);
         spmv(r, -1, A, x, 1, buff); // residual = b - A@x
         return vnorm(r);
     }
 
 
-    void  VCycle::vcycle_down() {
+    void  FastMG::vcycle_down() {
         for (int lv = 0; lv < nlvs-1; ++lv) {
             Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : z;
             Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : r;
@@ -548,7 +548,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         }
     }
 
-    void  VCycle::vcycle_up() {
+    void  FastMG::vcycle_up() {
         for (int lv = nlvs-2; lv >= 0; --lv) {
             Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : z;
             Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : r;
@@ -557,14 +557,14 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         }
     }
 
-    void  VCycle::vcycle() {
+    void  FastMG::vcycle() {
         vcycle_down();
         coarse_solve();
         vcycle_up();
     }
 
 
-    void  VCycle::coarse_solve() {
+    void  FastMG::coarse_solve() {
         auto const &A = levels.at(nlvs - 1).A;
         auto &x = levels.at(nlvs - 2).x;
         auto &b = levels.at(nlvs - 2).b;
@@ -578,18 +578,18 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         }
     }
 
-    void  VCycle::set_outer_x(float const *x, size_t n) {
+    void  FastMG::set_outer_x(float const *x, size_t n) {
         outer_x.resize(n);
         CHECK_CUDA(cudaMemcpy(outer_x.data(), x, n * sizeof(float), cudaMemcpyHostToDevice));
         copy(x_new, outer_x);
     }
 
-    void  VCycle::set_outer_b(float const *b, size_t n) {
+    void  FastMG::set_outer_b(float const *b, size_t n) {
         outer_b.resize(n);
         CHECK_CUDA(cudaMemcpy(outer_b.data(), b, n * sizeof(float), cudaMemcpyHostToDevice));
     }
 
-    float  VCycle::init_cg_iter0(float *residuals) {
+    float  FastMG::init_cg_iter0(float *residuals) {
         float bnrm2 = vnorm(outer_b);
         // r = b - A@(x)
         copy(r, outer_b);
@@ -599,7 +599,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         return bnrm2;
     }
 
-    void  VCycle::do_cg_itern(float *residuals, size_t iteration) {
+    void  FastMG::do_cg_itern(float *residuals, size_t iteration) {
         float rho_cur = vdot(r, z);
         if (iteration > 0) {
             float beta = rho_cur / save_rho_prev;
@@ -624,7 +624,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         residuals[iteration + 1] = normr;
     }
 
-    void  VCycle::compute_RAP(size_t lv) {
+    void  FastMG::compute_RAP(size_t lv) {
             CSR<float> &A = levels.at(lv).A;
             CSR<float> &R = levels.at(lv).R;
             CSR<float> &P = levels.at(lv).P;
@@ -643,20 +643,20 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
             }
     }
 
-    void  VCycle::fetch_A_data(float *data) {
+    void  FastMG::fetch_A_data(float *data) {
         CSR<float> &A = levels.at(0).A;
         CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
     }
 
     // In python end, before you call fetch A, you should call get_nnz and get_matsize first to determine the size of the csr matrix. 
-    void  VCycle::fetch_A(size_t lv, float *data, int *indices, int *indptr) {
+    void  FastMG::fetch_A(size_t lv, float *data, int *indices, int *indptr) {
         CSR<float> &A = levels.at(lv).A;
         CHECK_CUDA(cudaMemcpy(data, A.data.data(), A.data.size() * sizeof(float), cudaMemcpyDeviceToHost));
         CHECK_CUDA(cudaMemcpy(indices, A.indices.data(), A.indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
         CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
     }
     
-    void  VCycle::set_data(const float* x, size_t nx, const float* b, size_t nb, float rtol_, size_t maxiter_)
+    void  FastMG::set_data(const float* x, size_t nx, const float* b, size_t nb, float rtol_, size_t maxiter_)
     {
         set_outer_x(x, nx);
         set_outer_b(b, nb);
@@ -665,12 +665,12 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         residuals.resize(maxiter+1);
     }
 
-    float  VCycle::calc_max_eig(CSR<float>& A)
+    float  FastMG::calc_max_eig(CSR<float>& A)
     {
         return  computeMaxEigenvaluePowerMethodOptimized(A, 100);
     }
 
-    size_t  VCycle::get_data(float* x_out, float* r_out)
+    size_t  FastMG::get_data(float* x_out, float* r_out)
     {
         CHECK_CUDA(cudaMemcpy(x_out, x_new.data(), x_new.size() * sizeof(float), cudaMemcpyDeviceToHost));
         std::copy(residuals.begin(), residuals.end(), r_out);
@@ -678,7 +678,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
     }
 
 
-    void  VCycle::presolve()
+    void  FastMG::presolve()
     {
         // TODO: move fillA from python-end to here as well in the future refactoring
         for(int lv=0; lv<nlvs; lv++)
@@ -697,7 +697,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         
     }
 
-    void  VCycle::solve()
+    void  FastMG::solve()
     {
         presolve();
         float bnrm2 = init_cg_iter0(residuals.data());
@@ -716,7 +716,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         }
     }
 
-    void  VCycle::solve_only_jacobi()
+    void  FastMG::solve_only_jacobi()
     {
         timer1.start();
         get_Aoff_and_Dinv(levels.at(0).A, levels.at(0).Dinv, levels.at(0).Aoff);
@@ -731,7 +731,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         elapsed1.clear();
     }
 
-    void  VCycle::solve_only_directsolver()
+    void  FastMG::solve_only_directsolver()
     {
         timer1.start();
 
@@ -745,7 +745,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
         elapsed1.clear();
     }
 
-    void  VCycle::solve_only_smoother()
+    void  FastMG::solve_only_smoother()
     {
         timer1.start();
         presolve();
@@ -775,7 +775,7 @@ void gauss_seidel_serial(const int Ap[], const int Ap_size,
 
 
 
-VCycle *fastmg = nullptr;
+FastMG *fastmg = nullptr;
 
 
 #if _WIN32
@@ -797,7 +797,7 @@ extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillSoft() {
 
 extern "C" DLLEXPORT void fastmg_new() {
     if (!fastmg)
-        fastmg = new VCycle{};
+        fastmg = new FastMG{};
 }
 
 extern "C" DLLEXPORT void fastmg_setup_nl(size_t numlvs) {

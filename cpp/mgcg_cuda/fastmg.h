@@ -87,7 +87,7 @@ std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {
 
 struct FastFillBase;
 
-struct VCycle : CusparseWrappers {
+struct FastMG : CusparseWrappers {
     std::vector<MGLevel> levels;
     size_t nlvs;
     std::vector<float> chebyshev_coeff;
@@ -169,8 +169,8 @@ struct VCycle : CusparseWrappers {
 
 
 
-struct VCycle;
-extern VCycle *fastmg;
+struct FastMG;
+extern FastMG *fastmg;
 
 } // namespace
 

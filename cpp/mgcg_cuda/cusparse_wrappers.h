@@ -31,7 +31,6 @@
 #include "cuda_utils.cuh"
 
 
-
 namespace fastmg {
 struct CusparseWrappers;
 struct Buffer;
@@ -40,6 +39,7 @@ struct Vec;
 template <class T>
 struct CSR;
 
+bool verbose = false; // FIXME: This is global
     
 struct Buffer {
     void *m_data;

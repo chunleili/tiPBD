@@ -3,7 +3,6 @@
 
 namespace fastmg{
 
-#define VERBOSE 0
 
 template <class T>
 cudaDataType_t cudaDataTypeFor();
@@ -407,7 +406,7 @@ float CusparseWrappers::computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, 
 
     err = std::abs(max_eigenvalue - max_eigenvalue_prev);
     if (err < tol && itr >= 10) {
-        if (VERBOSE)
+        if (verbose)
         {
             std::cout << ("[NOTE]: ") << "Converged at iterations: " << itr << std::endl;
         }
@@ -425,7 +424,7 @@ float CusparseWrappers::computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, 
   CHECK_CUSPARSE( cusparseDestroy(handle) )
   CHECK_CUDA( cudaFree(dBuffer) )
 
-    if (VERBOSE)
+    if (verbose)
     {
         std::cout << ("\n[NOTE]: ") << "Max_iter("<<max_iter<<") reached when calculating max eig, error=" <<err<< std::endl;  // no convergence
     }

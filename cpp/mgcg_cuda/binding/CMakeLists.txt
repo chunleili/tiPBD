@@ -4,12 +4,17 @@ project(pymgpbd LANGUAGES CXX CUDA)
 pybind11_add_module(pymgpbd
   binding.cpp
   ${CMAKE_SOURCE_DIR}/solve_soft.cu
+  ${CMAKE_SOURCE_DIR}/fastmg.cu
 )
 
 set_target_properties(pymgpbd PROPERTIES
         DEBUG_POSTFIX ""
         RELWITHDEBINFO_POSTFIX ""
-        MINSIZEREL_POSTFIX "")
+        MINSIZEREL_POSTFIX ""
+        CUDA_SEPARABLE_COMPILATION ON
+        CUDA_STANDARD 17
+        CUDA_ARCHITECTURES "60;70;75;80"
+)
 target_include_directories(pymgpbd PUBLIC ${CMAKE_SOURCE_DIR})
 target_link_libraries(pymgpbd PRIVATE fastmg)
 add_dependencies(pymgpbd fastmg)

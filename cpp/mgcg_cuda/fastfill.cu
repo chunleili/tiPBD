@@ -52,13 +52,13 @@ void FastFillCloth::init_from_python_cache_v2(
     A.assign(spmat_data_in, num_nonz, spmat_indices_in, num_nonz, spmat_indptr_in, NE+1, NE, NE, num_nonz);
     d_ii.assign(spmat_ii_in, num_nonz);
     d_jj.assign(spmat_jj_in, num_nonz);
-    cout<<"Finish."<<endl;
+    std::cout<<"Finish."<<std::endl;
 
     printf("Copying adj\n");
     d_num_adjacent_edge.assign(num_adjacent_edge_in, NE);
     d_adjacent_edge_abc.resize(NE*60);
     CHECK_CUDA(cudaMemcpy(d_adjacent_edge_abc.data(), adjacent_edge_abc_in, sizeof(int) * NE * 60, cudaMemcpyHostToDevice));
-    cout<<"Finish."<<endl;
+    std::cout<<"Finish."<<std::endl;
 }
 
 
@@ -140,7 +140,7 @@ void FastFillSoft::init_from_python_cache_lessmem(
     A.assign_v2(data_in, indices_in, indptr_in, NT, NT, num_nonz);
     d_ii.assign(ii_in, num_nonz_in);
 
-    cout<<"Finish load python cache to cuda."<<endl;
+    std::cout<<"Finish load python cache to cuda."<<std::endl;
 }
 
 

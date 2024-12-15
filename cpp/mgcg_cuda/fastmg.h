@@ -31,10 +31,6 @@
 #include "Vec.h"
 #include "CSR.h"
 
-using std::cout;
-using std::endl;
-
-#define USE_LESSMEM 1
 
 namespace fastmg {
 template <typename T>
@@ -50,7 +46,7 @@ template <typename T=float>
 std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {
     std::vector<T> v_host(v.size());
     v.tohost(v_host);
-    cout<<name<<"("<<v.size()<<") :";
+    std::cout<<name<<"("<<v.size()<<") :";
     int k=0;
     for(auto i:v_host)
     {
@@ -59,7 +55,7 @@ std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {
         std::cout<<i<<" ";
         k++;
     }
-    std::cout<<endl;
+    std::cout<<std::endl;
     return v_host;
 }
 

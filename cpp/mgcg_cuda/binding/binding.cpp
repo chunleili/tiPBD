@@ -3,10 +3,13 @@
 #include <pybind11/eigen.h>
 #include "common.h"
 #include "solve_soft.h"
+#include "fastmg.h"
 
 namespace py = pybind11;
 
 void addModule_SolveSoft(py::module &m);
+void addModule_FastMG(py::module &m);
+
 
 PYBIND11_MODULE(pymgpbd, m) {
     m.doc() = "Python binding for the MGPBD project";
@@ -32,5 +35,11 @@ void addModule_SolveSoft(py::module &m) {
         .def_readwrite("constraints", &SolveSoft::constraints)
         .def_readwrite("gradC", &SolveSoft::gradC)
         .def_readwrite("b", &SolveSoft::b)
+        ;
+}
+
+
+void addModule_FastMG(py::module &m) {
+    py::class_<FastMG>(m, "FastMG")
         ;
 }

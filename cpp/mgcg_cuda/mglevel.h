@@ -1,7 +1,8 @@
 
 #pragma once
 
-#include "cusparse_wrappers.h"
+#include "Vec.h"
+#include "CSR.h"
 
 namespace fastmg
 {

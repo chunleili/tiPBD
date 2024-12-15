@@ -28,6 +28,8 @@
 #include <thrust/random.h>
 
 #include "cusparse_wrappers.h"
+#include "Vec.h"
+#include "CSR.h"
 
 using std::cout;
 using std::endl;
@@ -43,7 +45,6 @@ struct MGLevel;
 struct VCycle;
 struct Smoother;
 struct FastFillBase;
-
 
 template <typename T=float>
 std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {

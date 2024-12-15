@@ -33,6 +33,8 @@
 #include "fastmg.h"
 #include "fastfill.h"
 #include "vcycle.h"
+#include "Vec.h"
+#include "CSR.h"
 
 using std::cout;
 using std::endl;

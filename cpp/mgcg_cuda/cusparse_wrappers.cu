@@ -216,6 +216,50 @@ struct ConstSpMat {
 };
 
 
+
+    Buffer::Buffer() noexcept : m_data(nullptr), m_cap(0) {
+    }
+
+    Buffer::Buffer(Buffer &&that) noexcept : m_data(that.m_data), m_cap(that.m_cap) {
+        that.m_data = nullptr;
+        that.m_cap = 0;
+    }
+
+    Buffer& Buffer::operator=(Buffer &&that) noexcept {
+        if (this == &that) return *this;
+        if (m_data)
+            CHECK_CUDA(cudaFree(m_data));
+        m_data = nullptr;
+        m_data = that.m_data;
+        m_cap = that.m_cap;
+        that.m_data = nullptr;
+        that.m_cap = 0;
+        return *this;
+    }
+
+    Buffer::~Buffer() noexcept {
+        if (m_data)
+            CHECK_CUDA(cudaFree(m_data));
+        m_data = nullptr;
+    }
+
+    void Buffer::reserve(size_t new_cap) {
+        if (m_cap < new_cap) {
+            if (m_data)
+                CHECK_CUDA(cudaFree(m_data));
+            m_data = nullptr;
+            CHECK_CUDA(cudaMalloc(&m_data, new_cap));
+            m_cap = new_cap;
+        }
+    }
+
+
+
+/* -------------------------------------------------------------------------- */
+/*                              cusparse wrappers                             */
+/* -------------------------------------------------------------------------- */
+
+
 // out = alpha * A@x + beta * out
 void CusparseWrappers::spmv(Vec<float> &out, float const &alpha, CSR<float> const &A, Vec<float> const &x, float const &beta, Buffer &buffer) {
     assert(out.size() == A.nrows);
@@ -444,5 +488,65 @@ void CusparseWrappers::spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b
 
     CHECK_CUSOLVER( cusolverSpScsrlsvchol(cusolverH, A.nrows, A.numnonz, descrA, A.data.data(), A.indptr.data(), A.indices.data(), b.data(), 1e-10, 0, x.data(), &singularity) );
 }
+
+
+
+
+CusparseWrappers::CusparseWrappers() {
+    CHECK_CUSPARSE(cusparseCreate(&cusparse));
+    CHECK_CUBLAS(cublasCreate_v2(&cublas));
+    CHECK_CUSOLVER(cusolverSpCreate(&cusolverH));
+}
+
+
+CusparseWrappers::~CusparseWrappers() {
+    CHECK_CUSPARSE(cusparseDestroy(cusparse));
+    CHECK_CUBLAS(cublasDestroy_v2(cublas));
+    CHECK_CUSOLVER(cusolverSpDestroy(cusolverH));
+}
+
+
+
+// dst = src + alpha * dst
+void CusparseWrappers::axpy(Vec<float> &dst, float const &alpha, Vec<float> const &src) {
+    assert(dst.size() == src.size());
+    CHECK_CUBLAS(cublasSaxpy_v2(cublas, dst.size(), &alpha, src.data(), 1, dst.data(), 1));
+}
+
+void CusparseWrappers::zero(Vec<float> &dst) {
+    CHECK_CUDA(cudaMemset(dst.data(), 0, dst.size() * sizeof(float)));
+}
+
+void CusparseWrappers::copy(Vec<float> &dst, Vec<float> const &src) {
+    dst.resize(src.size());
+    CHECK_CUDA(cudaMemcpy(dst.data(), src.data(), src.size() * sizeof(float), cudaMemcpyDeviceToDevice));
+}
+
+// dst = alpha * x
+void CusparseWrappers::scal2(Vec<float> &dst, float const &alpha, Vec<float> const &x) {
+    copy(dst, x);
+    CHECK_CUBLAS(cublasSscal_v2(cublas, dst.size(), &alpha, dst.data(), 1));
+}
+
+// dst = alpha * dst
+void CusparseWrappers::scal(Vec<float> &dst, float const &alpha) {
+    CHECK_CUBLAS(cublasSscal_v2(cublas, dst.size(), &alpha, dst.data(), 1));
+}
+
+float CusparseWrappers::vdot(Vec<float> const &x, Vec<float> const &y) {
+    float result;
+    CHECK_CUBLAS(cublasSdot_v2(cublas, x.size(), x.data(), 1, y.data(), 1, &result));
+    return result;
+}
+
+float CusparseWrappers::vnorm(Vec<float> const &x) {
+    float result;
+    CHECK_CUBLAS(cublasSnrm2_v2(cublas, x.size(), x.data(), 1, &result));
+    return result;
+}
+
+
+
+
 
 } // namespace fastmg

@@ -48,7 +48,7 @@
               "-mu=1e8",
               "-geo_dir=data/model/extraSpring",
               "-solver_type=AMG",
-              "-maxiter=50"
+              "-maxiter=30"
             ]
           }, 
           {
@@ -63,6 +63,21 @@
               "-use_pintoanimation=1",
               "-mu=1e9",
               "-maxiter=50"
+            ]
+          }, 
+          {
+            "name": "Debug pintotarget",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+              "-end_frame=100",
+              "-use_pintotarget=1",
+              "-maxiter=50",
+              "-mu=1e8",
+              "-use_gravity=1",
             ]
           }, 
           {

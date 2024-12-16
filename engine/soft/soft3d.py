@@ -93,15 +93,15 @@ class SoftBody(PhysicalBase):
         self.frame=1
         self.initial_frame=1
 
-        if args.use_extra_spring or args.use_pintoanimation:
+        if args.use_extra_spring or args.use_pintoanimation or args.use_pintotarget:
             args.use_houdini_data=1
 
         if args.use_houdini_data:
             self.read_geo_rest()
             if args.use_extra_spring:
                 self.read_extra_spring_rest()
-            # if args.use_pintotarget:
-            #     self.read_pintotarget_rest()
+            if args.use_pintotarget:
+                self.read_pintotarget_rest()
             self.init_physics()
         else:
             self.build_mesh(mesh_file)
@@ -113,7 +113,8 @@ class SoftBody(PhysicalBase):
                 write_mesh(args.out_dir + f"/mesh/{self.frame:04d}", self.pos.to_numpy(), self.model_tri)
 
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
-        self.gravity = ti.Vector(args.gravity)
+        if args.use_gravity:
+            self.gravity = ti.Vector([0.0, -9.8, 0])
         
         info(f"Creating instance done")
 
@@ -144,6 +145,30 @@ class SoftBody(PhysicalBase):
         # optional data(inv_mass, stiffness, restlength)
         self.extra_springs.set_alpha(consgeo.get_stiffness())
         self.extra_springs.set_rest_len(consgeo.get_restlength())
+
+
+    def read_pintotarget_rest(self,):
+        dir = prj_path + "/" + args.geo_dir + "/"
+        consgeo = Geo(dir+f"cons_1.geo")
+        self.consgeo_rest = consgeo
+        
+        # read connectivity
+        # first column is target(driving point), second column is source(driven)
+        pts1 = np.array(consgeo.get_pts())
+        pts = ti.field(int, pts1.shape[0])
+        pts.from_numpy(pts1)
+
+        # read sim pos(to be driven)
+        pos1 = np.array(self.geo_rest.get_pos(),dtype=np.float32)
+        pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
+        pos.from_numpy(pos1)
+
+        # read target pos(driving)
+        tp = consgeo.get_target_pos()
+        self.target_pos = python_list_to_ti_field(tp)
+
+        from engine.constraints.distance_constraints import PinToTarget
+        self.pintotarget = PinToTarget(pts, pos, self.target_pos)
 
 
     @timeit
@@ -446,16 +471,18 @@ class SoftBody(PhysicalBase):
     def read_external_pos(self):
         if args.use_pintoanimation:
             self.read_geo_pinpos()
-        if args.use_extra_spring:
+        if args.use_extra_spring or args.use_pintotarget:
             self.read_target_pos()
 
 
-    @timeit
+    # @timeit
     def do_external_constraints(self):
         if args.use_extra_spring:
             if self.ite ==0:
                 self.extra_springs.aos.lam.fill(0.0)
             self.extra_springs.solve_one_iter(self.pos, self.target_pos, args.delta_t)
+        if args.use_pintotarget:
+            self.pintotarget.solve(self.pos, self.target_pos, args.maxiter)
 
 
     def substep_all_solver(self):

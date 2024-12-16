@@ -107,32 +107,43 @@ class DistanceConstraintsAttach():
         return aos
     
     @timeit
-    def solve(self, pos, target_pos, delta_t=3e-3, maxiter=10):
-        """Public API for solving distance constraints"""
-        self.aos.lam.fill(0.0)
-        for i in range(maxiter):
-            self.solve_one_iter(pos,target_pos, delta_t)
-
-    @timeit
     def solve_one_iter(self, pos, target_pos, delta_t):
+        """
+        Solve one iteration of the distance constraint
+
+        Usage: First read target pos every frame.  Before the loop: Reset the aos.lam . During the loop: Call this function before solve other constraints.
+        """
         _solve_distance_attach_kernel(self.inv_mass2, self.aos.p2, self.aos.rest_len, self.aos.lam, self.dpos, pos, target_pos, self.aos.alpha, delta_t)
         _update_pos_kernel(self.inv_mass2, self.dpos, self.omega, pos)
 
 
-@ti.dataclass
-class PinToTargetAos:
-    p1:ti.i32
-    p2:ti.i32
+
+@ti.kernel
+def pintotarget_kernel(
+    pts: ti.template(),
+    pos: ti.template(),
+    target_pos: ti.template(),
+    restpos: ti.template(),
+    rest_target_pos: ti.template(),
+    maxiter:ti.i32
+):
+    ti.loop_config(serialize=True)
+    for i in range(pts.shape[0]):
+        # # restvec: vector from rest position to rest target position
+        restvec = rest_target_pos[i] - restpos[pts[i]]
+        # # toP: position pos to be after the constraint
+        toP = target_pos[i] - restvec
+        # # dP: displacement from pos to toP
+        dP = toP - pos[pts[i]]
+        # # move pos to toP in maxiter steps
+        pos[pts[i]] += dP/maxiter
+        # pos[pts[i]] = toP
 
 @ti.data_oriented
 class PinToTarget():
     """Pin to target geometry"""
-    def __init__(self,  pts, target_pt, pos, target_pos):
-        NCONS = pts.shape[0]
-
-        self.aos =  self.init_constraints(pts, target_pt, pos, target_pos)
+    def __init__(self,  pts, pos, target_pos):
         self.pts = pts
-        self.target_pt = target_pt
 
         self.rest_target_pos = ti.Vector.field(3, dtype=ti.f32, shape=target_pos.shape[0])
         self.rest_target_pos.copy_from(target_pos)
@@ -141,40 +152,7 @@ class PinToTarget():
 
         self.dpos = ti.Vector.field(3, dtype=ti.f32, shape=pos.shape[0])
 
-    def set_p1(self, target_pt):
-        self.aos.p1.from_numpy(target_pt)
-
-    def set_p2(self, pts):
-        self.aos.p1.from_numpy(pts)
- 
-    def init_constraints(self, pts, target_pt, pos, target_pos):
-        @ti.kernel
-        def kernel(
-            pts:ti.template(),
-            target_pt:ti.template(),
-        ):
-            for i in range(pts.shape[0]):
-                aos[i].p1, aos[i].p2 = target_pt[i], pts[i]
-        
-        NCONS = pts.shape[0]
-        aos = PinToTargetAos.field(shape=NCONS)
-        kernel(pts, target_pt)
-        return aos
-    
-    def solve(self, pos, target_pos):
-        """Public API for solving distance constraints"""
-        @ti.kernel
-        def _kernel(
-            aos: ti.template(),
-            pos: ti.template(),
-            target_pos: ti.template(),
-            restpos: ti.template(),
-            rest_target_pos: ti.template(),
-            dpos: ti.template(),
-        ):
-            for i in range(aos.shape[0]):
-                dpos[aos[i].p2] = target_pos[aos[i].p1] - rest_target_pos[aos[i].p1]
-                pos[aos[i].p2] = restpos[aos[i].p2] + dpos[aos[i].p2]
-        
-        _kernel(self.aos, pos, target_pos, self.restpos, self.rest_target_pos,  self.dpos)
+    def solve(self, pos, target_pos, maxiter):
+        pintotarget_kernel(self.pts, pos, target_pos, self.restpos, self.rest_target_pos,   maxiter)
+        ...
         

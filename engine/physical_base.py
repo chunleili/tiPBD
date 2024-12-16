@@ -20,6 +20,7 @@ class PhysicalBase:
         self.start_date = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         logging.info(f"start date:{self.start_date}")
         self.prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
         logging.info(f"prj_path:{self.prj_path}")
 
     def do_pre_iter0(self):

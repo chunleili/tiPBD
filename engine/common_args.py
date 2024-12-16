@@ -37,6 +37,7 @@ def add_common_args(parser):
     parser.add_argument("-use_json", type=int, default=False, help="json configs will overwrite the command line args")
     parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
     parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
+    parser.add_argument("-use_gravity", type=int, default=True)
     parser.add_argument("-converge_condition", type=str, default="dual", choices=["dual", "Newton", "strain"], help="dual: dual residual, Newton: sqrt(dual^2+primal^2), strain: strain limiting")
     parser.add_argument("-use_withK", type=int, default=False)
     parser.add_argument("-export_strain", type=int, default=False)
@@ -49,4 +50,5 @@ def add_common_args(parser):
     parser.add_argument("-use_ground_collision", type=int, default=False)
     parser.add_argument("-geo_dir", type=str, default=f"data/model/extraSpring/")
     parser.add_argument("-use_extra_spring", type=int, default=False)
+    parser.add_argument("-use_pintotarget", type=int, default=False)
     return parser

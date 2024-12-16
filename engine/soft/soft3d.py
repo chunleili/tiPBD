@@ -442,23 +442,31 @@ class SoftBody(PhysicalBase):
         self.update_constraints() # for calculation of r0
         self.r_iter.calc_r0()
 
-    @timeit
-    def do_external_constraints(self):
+
+    def read_external_pos(self):
         if args.use_pintoanimation:
             self.read_geo_pinpos()
         if args.use_extra_spring:
             self.read_target_pos()
-            self.extra_springs.solve(self.pos, self.target_pos, args.delta_t, args.maxiter)
-            # self.pintotarget.solve(self.pos, target_pos)
+
+
+    @timeit
+    def do_external_constraints(self):
+        if args.use_extra_spring:
+            if self.ite ==0:
+                self.extra_springs.aos.lam.fill(0.0)
+            self.extra_springs.solve_one_iter(self.pos, self.target_pos, args.delta_t)
+
 
     def substep_all_solver(self):
         self.semi_euler()
-        self.do_external_constraints()
+        self.read_external_pos()
         self.lagrangian.fill(0)
         self.do_pre_iter0()
         r = []
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
+            self.do_external_constraints()
             self.solveSoft()
             AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, get_A0_cuda)

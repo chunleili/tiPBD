@@ -116,7 +116,40 @@ class SoftBody(PhysicalBase):
         if args.use_gravity:
             self.gravity = ti.Vector([0.0, -9.8, 0])
         
+        args.use_line_search = False
         info(f"Creating instance done")
+
+
+    def line_search(self, x, dpos, ls_beta=0.5, EPSILON=1e-9,):
+        """
+        x: position of vertices, shape=(NV,3), numpy array
+        dpos: dpos, shape=(NV,3), numpy array
+        reutrn: step size
+        """
+
+        if not args.use_line_search:
+            return self.omega
+        
+        def evalutate_objective(x):
+            return calc_dualnorm_kernel(x, self.tet_indices,self.lagrangian,self.B,self.alpha_tilde,)
+
+        t = 1.0/ls_beta
+        ls_times = 0
+        currentObjectiveValue = evalutate_objective(x)
+        while ls_times==0 or (lhs >= rhs and t > EPSILON):
+            t *= ls_beta
+            x_plus_tdx = x + t*dpos
+            lhs = evalutate_objective(x_plus_tdx)
+            rhs = currentObjectiveValue 
+            ls_times += 1
+        obj = lhs
+        print(f'    obj: {obj:.8e}')
+        print(f'    ls_times: {ls_times}')
+        print(f'    step size: {t}')
+
+        if t < EPSILON:
+            t = 0.0
+        return t
 
 
     def read_extra_spring_rest(self,):
@@ -381,6 +414,8 @@ class SoftBody(PhysicalBase):
         self.dlambda.from_numpy(dlam)
         self.dpos.fill(0.0)
         dlam2dpos_kernel(self.gradC, self.tet_indices, self.inv_mass, self.dlambda, self.lagrangian, self.dpos)
+        if args.use_line_search:
+            self.omega = self.line_search(self.pos.to_numpy(), self.dpos.to_numpy())
         self.update_pos()
 
     def compute_b(self):
@@ -448,8 +483,8 @@ class SoftBody(PhysicalBase):
         self.gradC.from_numpy(gradC_1)
         self.b = b_1
 
-        x, self.r_iter.r_Axb = self.linsol.run(self.b)
-        self.dlam2dpos(x)
+        dlam, self.r_iter.r_Axb = self.linsol.run(self.b)
+        self.dlam2dpos(dlam)
 
 
     @timeit
@@ -457,16 +492,16 @@ class SoftBody(PhysicalBase):
         self.pos_mid.from_numpy(self.pos.to_numpy())
         self.compute_C_and_gradC()
         self.b = self.compute_b()
-        x, self.r_iter.r_Axb = self.linsol.run(self.b)
-        self.dlam2dpos(x)
+        dlam, self.r_iter.r_Axb = self.linsol.run(self.b)
+        self.dlam2dpos(dlam)
 
     def solveSoft(self):
         self.solveSoft_python()
 
     def do_pre_iter0(self):
         self.update_constraints() # for calculation of r0
-        self.r_iter.calc_r0()
-
+        self.dual0 = self.r_iter.calc_r0()
+        return self.dual0
 
     def read_external_pos(self):
         if args.use_pintoanimation:
@@ -482,20 +517,21 @@ class SoftBody(PhysicalBase):
                 self.extra_springs.aos.lam.fill(0.0)
             self.extra_springs.solve_one_iter(self.pos, self.target_pos, args.delta_t)
         if args.use_pintotarget:
-            self.pintotarget.solve(self.pos, self.target_pos, args.maxiter)
+            if self.ite ==0:
+                self.pintotarget.solve(self.pos, self.target_pos, args.maxiter)
 
 
     def substep_all_solver(self):
         self.semi_euler()
         self.read_external_pos()
         self.lagrangian.fill(0)
-        self.do_pre_iter0()
+        self.dual0 = self.do_pre_iter0()
         r = []
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
             self.do_external_constraints()
             self.solveSoft()
-            AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
+            self.dualr=AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, get_A0_cuda)
             if self.r_iter.check():
                 break
@@ -534,7 +570,7 @@ def AMG_calc_r(r,dual0, tic_iter, r_Axb):
         logging.info(f"{ist.frame}-{ist.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
     r.append(dual_r)
 
-    return dual0
+    return dual_r
 
 # ---------------------------------------------------------------------------- #
 #                                    kernels                                   #
@@ -757,6 +793,32 @@ def update_constraints_kernel(
         F = D_s @ B[t]
         U, S, V = ti.svd(F)
         constraints[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+
+
+@ti.kernel
+def calc_dualnorm_kernel(
+    pos_temp: ti.types.ndarray(dtype=ti.math.vec3),
+    tet_indices: ti.template(),
+    lagrangian: ti.template(),
+    B: ti.template(),
+    alpha_tilde: ti.template(),
+) -> ti.f32:
+    dual = 0.0
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+        x0, x1, x2, x3 = pos_temp[p0], pos_temp[p1], pos_temp[p2], pos_temp[p3]
+
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        c = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        r = -(c + alpha_tilde[t] * lagrangian[t])
+        dual += r * r
+    return ti.sqrt(dual)
+
 
 
 

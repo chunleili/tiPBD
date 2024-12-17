@@ -27,6 +27,7 @@ def _solve_distance_attach_kernel(
     delta_t:ti.f32
 ):
     h2inv = 1.0 / delta_t / delta_t
+    ti.loop_config(serialize=True)
     for i in range(p2.shape[0]):
         pid = p2[i]
         invM2 =  inv_mass2[pid]
@@ -132,11 +133,11 @@ def pintotarget_kernel(
         # # restvec: vector from rest position to rest target position
         restvec = rest_target_pos[i] - restpos[pts[i]]
         # # toP: position pos to be after the constraint
-        toP = target_pos[i] - restvec
-        # # dP: displacement from pos to toP
-        dP = toP - pos[pts[i]]
+        # toP = target_pos[i] - restvec
+        # # # dP: displacement from pos to toP
+        # dP = toP - pos[pts[i]]
         # # move pos to toP in maxiter steps
-        pos[pts[i]] += dP/maxiter
+        pos[pts[i]] = target_pos[i] - restvec 
         # pos[pts[i]] = toP
 
 @ti.data_oriented

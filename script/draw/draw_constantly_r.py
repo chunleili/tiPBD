@@ -70,10 +70,10 @@ import argparse
 from pathlib import Path
 
 os.chdir(prj_path)
-out_dir = "result/case144-1119-AMG-ball"
+out_dir = "result/latest"
 os.chdir(out_dir)
 mkdir_if_not_exist('./plt')
-log_file = "case144-1119-AMG-ball.log"
+log_file = "latest.log"
 r_type = "dual"
 
 # 不断更新图表

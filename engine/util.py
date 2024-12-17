@@ -135,6 +135,7 @@ class ResidualDataOneIter:
             self.energy0 = self.calc_energy()
 
         self.t_export = perf_counter()-tic # reset t_export here
+        return self.dual0
 
     def choose_mode(self, converge_condition):
         if converge_condition == "dual":

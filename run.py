@@ -1730,6 +1730,21 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
+# case156: 
+casenames[len(allargs)] = "capybara"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        "-end_frame=200",
+        "-use_pintotarget=1",
+        "-maxiter=20",
+        "-mu=1e9",
+        "-use_gravity=1",
+        "-geo_dir=data/model/extraSpring",
+        ]
+allargs.append(args)
+
+
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')

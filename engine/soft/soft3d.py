@@ -504,6 +504,7 @@ class SoftBody(PhysicalBase):
         self.dual0 = self.r_iter.calc_r0()
         return self.dual0
 
+    @timeit
     def read_external_pos(self):
         if args.use_pintoanimation:
             self.read_geo_pinpos()

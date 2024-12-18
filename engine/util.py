@@ -8,6 +8,15 @@ from enum import Enum
 import scipy
 
 
+def timeit(method):
+    def timed(*args, **kw):
+        ts = perf_counter()
+        result = method(*args, **kw)
+        te = perf_counter()
+        logging.info(f"    {method.__name__} took: {(te-ts)*1000:.0f}ms")
+        return result
+    return timed
+
 class ResidualType(Enum):
     dual = 1
     primal = 2
@@ -251,6 +260,7 @@ def ending(args, ist):
     exit()
 
 
+@timeit
 def export_after_substep(ist, args, **kwargs):
     import time
     from engine.mesh_io import write_mesh, write_edge_data, write_ply_with_strain, edge_data_to_tri_data, write_vtk_with_strain
@@ -397,14 +407,6 @@ def main_loop(ist,args):
         ending(args,ist)
 
 
-def timeit(method):
-    def timed(*args, **kw):
-        ts = perf_counter()
-        result = method(*args, **kw)
-        te = perf_counter()
-        logging.info(f"    {method.__name__} took: {(te-ts)*1000:.0f}ms")
-        return result
-    return timed
 
 
 def norm_sqr(x):

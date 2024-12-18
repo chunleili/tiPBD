@@ -196,9 +196,10 @@ class SoftBody(PhysicalBase):
         pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
         pos.from_numpy(pos1)
 
-        # read target pos(driving)
-        tp = consgeo.get_target_pos()
-        self.target_pos = python_list_to_ti_field(tp)
+        # read target pt(driving)
+        target_pos = np.array(consgeo.get_target_pos(),dtype=np.float32)
+        self.target_pos = ti.Vector.field(3, ti.f32, target_pos.shape[0])
+        self.target_pos.from_numpy(target_pos)
 
         from engine.constraints.distance_constraints import PinToTarget
         self.pintotarget = PinToTarget(pts, pos, self.target_pos)
@@ -207,8 +208,8 @@ class SoftBody(PhysicalBase):
     @timeit
     def read_target_pos(self):
         dir = prj_path + "/" + args.geo_dir + "/"
-        consgeo = Geo(dir+f"cons_{self.frame}.geo")
-        tp = consgeo.get_target_pos()
+        geo = Geo(dir+f"cons_{self.frame}.geo")
+        tp = np.array(geo.get_target_pos(),dtype=np.float32)
         self.target_pos.from_numpy(np.array(tp, dtype=np.float32))
         ...
 

@@ -85,7 +85,9 @@ class Geo:
     9. primitives
     """
 
-    def __init__(self, input:str=None):
+
+    def __init__(self, input:str=None, only_P=False):
+        self.only_P = only_P
         if input:
             self.input = input
             self.read(input)
@@ -94,7 +96,6 @@ class Geo:
     @staticmethod
     def _pairListToDict(pairs):
         return dict( zip(pairs[0::2],pairs[1::2]) )
-
 
     def read(self,filePath):
         with open(filePath, 'r') as fp:
@@ -108,10 +109,13 @@ class Geo:
 
         self.attributes = self._pairListToDict(self.attributes)
 
-
+        if self.only_P:
+            self.parse_pointattributes()
+            print("Finish reading geo file: ", filePath)
+            return
+        
         self.parse_vert()
         self.parse_pointattributes()
-
         self.parse_primattributes()
 
         print("Finish reading geo file: ", filePath)
@@ -161,6 +165,10 @@ class Geo:
         return self.pin
     
     def parse_vert(self):
+        if 'indices' not in self.pointref:
+            return None
+        if self.primitivecount==0:
+            return None
         self.indices = self.pointref['indices']
         self.NVERT_ONE_CONS = len(self.indices)//self.primitivecount
         self.NCONS = self.primitivecount
@@ -194,6 +202,10 @@ class Geo:
                 self.gluetoanimation = a.values[5][0]
             if a.name == "mass":
                 self.mass = a.values[5][0]
+            if a.name == "pts":
+                self.pts = a.values[5][0]
+            if a.name == "target_pos":
+                self.target_pos = a.values[5]
             allPointAttr.append(a)
         return self.positions
 

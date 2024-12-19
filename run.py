@@ -1731,15 +1731,46 @@ allargs.append(args)
 
 
 # case156: 
-casenames[len(allargs)] = "capybara"
+casenames[len(allargs)] = "capybara-3ms"
 args = ["engine/soft/soft3d.py",
-        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
-        "-end_frame=200",
+        f"-out_dir=result/{casenames[len(allargs)]}",
+        "-end_frame=300",
         "-use_pintotarget=1",
         "-maxiter=20",
         "-mu=1e9",
         "-use_gravity=1",
         "-geo_dir=data/model/extraSpring",
+        "-delta_t=3e-3",
+        ]
+allargs.append(args)
+
+
+# case157: 
+casenames[len(allargs)] = "capybara-10ms"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/{casenames[len(allargs)]}",
+        "-end_frame=300",
+        "-use_pintotarget=1",
+        "-maxiter=20",
+        "-mu=1e9",
+        "-use_gravity=1",
+        "-geo_dir=data/model/extraSpring",
+        "-delta_t=10e-3",
+        ]
+allargs.append(args)
+
+
+# case158: 
+casenames[len(allargs)] = "capybara-20ms"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/{casenames[len(allargs)]}",
+        "-end_frame=300",
+        "-use_pintotarget=1",
+        "-maxiter=20",
+        "-mu=1e9",
+        "-use_gravity=1",
+        "-geo_dir=data/model/extraSpring",
+        "-delta_t=20e-3",
         ]
 allargs.append(args)
 

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.23)
 
 set(CMAKE_CUDA_ARCHITECTURES 86;89)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # suppress the warning of unused function
@@ -24,6 +24,14 @@ target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eige
 set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON
 CUDA_STANDARD 17
 CUDA_ARCHITECTURES "60;70;75;80")
+
+
+add_executable(main main.cpp  meshio_tetgen.cpp physdata.cpp)
+# target_link_libraries(main PUBLIC  )
+target_include_directories(main PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen
+
+)
 
 
 ## -------------------------------------------------------------------------- */

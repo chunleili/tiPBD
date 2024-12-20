@@ -377,6 +377,17 @@ void CusparseWrappers::transpose(CSR<float> const & A, CSR<float>& AT)
 
 
 
+// Generate random number in the range [0, 1)
+struct genRandomNumber {
+    __host__ __device__
+    float operator()(const int n) const {
+        thrust::default_random_engine rng(n);
+        thrust::uniform_real_distribution<float> dist(0.0f, 1.0f);
+        return dist(rng);
+    }
+};
+
+
 //Calculate the largest eigenvalue of a symmetric matrix using the power method!
 // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csreigvsi  (cusolverSpScsreigvsi is not used here, but it is another option, so I just keep the note. It use the shift inverse method to solve this equation Ax=lam x)
 // Reference code: https://github.com/physicslog/maxEigenValueGPU/blob/25e0aa3d6c9bbeb03be6249d0ab8cfaafd32188c/maxeigenvaluepower.cu#L255

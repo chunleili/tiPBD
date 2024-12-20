@@ -3,12 +3,12 @@
 #include <pybind11/eigen.h>
 #include "common.h"
 #include "solve_soft.h"
-#include "fastmg.h"
+// #include "fastmg.h"
 
 namespace py = pybind11;
 
 void addModule_SolveSoft(py::module &m);
-void addModule_FastMG(py::module &m);
+// void addModule_FastMG(py::module &m);
 
 
 PYBIND11_MODULE(pymgpbd, m) {
@@ -39,7 +39,7 @@ void addModule_SolveSoft(py::module &m) {
 }
 
 
-void addModule_FastMG(py::module &m) {
-    py::class_<FastMG>(m, "FastMG")
-        ;
-}
+// void addModule_FastMG(py::module &m) {
+//     py::class_<FastMG>(m, "FastMG")
+//         ;
+// }

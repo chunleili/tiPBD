@@ -1,10 +1,11 @@
 #pragma once
 
-#include "fastmg.h"
+#include "Vec.h"
+#include "CSR.h"
 
 namespace fastmg {
 // Base case for FastFillCloth and FastFillSoft
-struct FastFillBase : CusparseWrappers
+struct FastFillBase 
 {
     int num_nonz;
     int nrows, ncols;

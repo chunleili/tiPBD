@@ -1,5 +1,6 @@
 #include "smoother.h"
 #include "kernels.cuh"
+#include "timer.h"
 
 #include <iostream>
 #include <vector>

@@ -30,8 +30,6 @@ using Eigen::Map;
 using Eigen::Vector3f;
 using Eigen::VectorXf;
 using Mat3f = Eigen::Matrix<float, 3, 3, Eigen::RowMajor>;
-using SpMat = Eigen::SparseMatrix<float>;
-using Triplet = Eigen::Triplet<float>;
 
 // typedefs
 using Vec3f = Eigen::Vector3f;
@@ -48,4 +46,17 @@ using Field1i = vector<int>;
 using Field43f = vector<Vec43f>;
 using FieldXi = vector<vector<int>>;
 using FieldMat3f = vector<Mat3f>;
-using Field43f = vector<Vec43f>;
+
+// all use eigen types except Field43f and FieldMat3f
+// using Vec3f = Eigen::Vector3f;
+// using Vec2i = Eigen::Vector2i;
+// using Vec3i = Eigen::Vector3i;
+// using Vec4i = Eigen::Vector4i;
+// using Field1f = Eigen::VectorXf;
+// using Field3f = Eigen::Matrix<float, -1, 3, Eigen::RowMajor>;
+// using Field3i = Eigen::Matrix<int, -1, 3, Eigen::RowMajor>;
+// using Field4i = Eigen::Matrix<int, -1, 4, Eigen::RowMajor>;
+// using Field2i = Eigen::Matrix<int, -1, 2, Eigen::RowMajor>;
+// using FieldMat3f = vector<Mat3f>;
+// using Vec43f = std::array<Vec3f, 4>;
+// using Field43f = vector<Vec43f>;

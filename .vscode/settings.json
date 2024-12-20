@@ -108,7 +108,9 @@
         "ranges": "cpp",
         "span": "cpp",
         "mprealsupport": "cpp",
-        "matrixfunctions": "cpp"
+        "matrixfunctions": "cpp",
+        "*.expression": "cpp",
+        "dense": "cpp"
     },
     "notebook.output.wordWrap": true,
     "C_Cpp.vcFormat.newLine.closeBraceSameLine.emptyFunction": true,

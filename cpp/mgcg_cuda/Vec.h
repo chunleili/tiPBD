@@ -2,6 +2,7 @@
 
 #include <cuda_runtime.h>
 #include <utility>
+#include "cuda_utils.cuh"
 
 namespace fastmg {
 

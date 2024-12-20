@@ -30,6 +30,7 @@
 #include "cusparse_wrappers.h"
 #include "Vec.h"
 #include "CSR.h"
+#include "timer.h"
 
 
 namespace fastmg {

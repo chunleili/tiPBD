@@ -4,7 +4,7 @@
 PhysData::PhysData(size_t NV, size_t NCONS, Field3f &pos,Field4i &vert)
 {
     resize(NV,NCONS);
-    this->pos.swap(pos);
+    this->pos = pos;
     this->vert = vert;
     this->init_B(pos,vert);
     this->delta_t = 1e-3;
@@ -50,6 +50,7 @@ void PhysData::resize(size_t NV, size_t NCONS)
     lam.resize(NCONS);
     constraints.resize(NCONS);
     pos_mid.resize(NV);
+    old_pos.resize(NV);
     dpos.resize(NV);
     alpha_tilde.resize(NCONS);
     gradC.resize(NCONS, Vec43f{Vec3f(0.0, 0.0, 0.0), Vec3f(0.0, 0.0, 0.0), Vec3f(0.0, 0.0, 0.0), Vec3f(0.0, 0.0, 0.0)});

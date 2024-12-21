@@ -27,7 +27,6 @@ public:
 
     void resize_fields(size_t NV, size_t NCONS);
     void solve();
-    
 private:
     void compute_C_and_gradC();
     void compute_b();

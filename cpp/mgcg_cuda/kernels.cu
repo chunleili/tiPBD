@@ -1,5 +1,5 @@
-#pragma once
 #include <cuda_runtime.h>
+#include <iostream>
 #include "kernels.cuh"
 #define USE_LESSMEM 1
 
@@ -231,6 +231,10 @@ __global__ void fill_A_CSR_soft_lessmem_kernel(
         float3 g4 = make_float3(gradC[i*4*3 + 3*3 + 0], gradC[i*4*3 + 3*3 + 1], gradC[i*4*3 + 3*3 + 2]);
         float diag = m1* d_norm_sqr(g1) + m2* d_norm_sqr(g2) + m3* d_norm_sqr(g3) + m4* d_norm_sqr(g4) + alpha;
         data[cnt] = diag;
+        if (isnan(diag))
+        {
+            printf("diag is nan\n");
+        }
     }
     else // offdiag 
     {
@@ -262,6 +266,10 @@ __global__ void fill_A_CSR_soft_lessmem_kernel(
             offdiag += sm * d_dot(go1, go2);
         }
         data[cnt] = offdiag;
+        if (isnan(offdiag))
+        {
+            printf("offdiag is nan\n");
+        }
     }
 }
 

@@ -64,6 +64,17 @@ struct CSR {
         CHECK_CUDA(cudaMemcpy(indices_host.data(), indices.data(), indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
         CHECK_CUDA(cudaMemcpy(indptr_host.data(), indptr.data(), indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
     }
+
+    void fetch(std::vector<T> &data_host, std::vector<int> &indices_host, std::vector<int> &indptr_host) const {
+        data_host.resize(data.size());
+        indices_host.resize(indices.size());
+        indptr_host.resize(indptr.size());
+        CHECK_CUDA(cudaMemcpy(data_host.data(), data.data(), data.size() * sizeof(T), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indices_host.data(), indices.data(), indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(indptr_host.data(), indptr.data(), indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
+    }
+
+
 };
 
 

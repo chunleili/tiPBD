@@ -2,13 +2,14 @@
 
 #include "Vec.h"
 #include "CSR.h"
+#include "PhysData.h"
+#include "SpMatData.h"
 
 namespace fastmg {
 // Base case for FastFillCloth and FastFillSoft
 struct FastFillBase 
 {
-    int num_nonz;
-    int nrows, ncols;
+    int m_nnz, m_nrows, m_ncols;
     CSR<float> A;
 };
 
@@ -43,7 +44,6 @@ struct FastFillCloth : FastFillBase
     void fill_A_CSR_gpu();
 }; // FastFillCloth struct
 
-
 struct FastFillSoft : FastFillBase
 {
     int NT;
@@ -61,9 +61,11 @@ struct FastFillSoft : FastFillBase
     std::vector<std::vector<int>> m_v2e, m_adj;
 
     FastFillSoft(){};
+    FastFillSoft(PhysData* d);
     FastFillSoft(std::vector<std::array<int,4>> tet);
 
     void fetch_A_data(float *data_in);
+    void fetch_A(SpMatData &A);
     void set_data_v2(int *tet_in, int NT_in, float *inv_mass_in, int NV_in, float *pos_in, float *alpha_tilde_in);
     void update_pos_and_gradC(float *pos_in, float *gradC_in);
     void init_from_python_cache_lessmem(

@@ -2,22 +2,14 @@
 #include "fastfill.h" 
 #include "meshio_tetgen.h"
 #include "physdata.h"
+#
 
 using std::shared_ptr;
 using std::make_shared;
-using SpMat = Eigen::SparseMatrix<float, Eigen::RowMajor>;
+using EigenSpMat = Eigen::SparseMatrix<float, Eigen::RowMajor>;
 
 using namespace fastmg;
 
-struct SpMatData
-{
-    float *data;
-    int *indices;
-    int *indptr;
-    int nrows;
-    int ncols;
-    int nnz;
-};
 
 
 
@@ -34,11 +26,11 @@ struct LinearSolver
     Eigen::ConjugateGradient<Eigen::SparseMatrix<float>, Eigen::Upper> solver;
 
 
-    Eigen::VectorXf& LinearSolver::run(SpMat& A, Eigen::VectorXf& b, bool should_setup=true);
+    Eigen::VectorXf& LinearSolver::run(EigenSpMat& A, Eigen::VectorXf& b, bool should_setup=true);
 };
 
 
-Eigen::VectorXf& LinearSolver::run(SpMat& A, Eigen::VectorXf& b, bool should_setup)
+Eigen::VectorXf& LinearSolver::run(EigenSpMat& A, Eigen::VectorXf& b, bool should_setup)
 {
     // Eigen::Map<Eigen::SparseMatrix<float, Eigen::RowMajor>> A_sp(
     //     A.nrows, A.ncols, A.nnz, A.indptr, A.indices, A.data);
@@ -159,7 +151,8 @@ void compute_C_and_gradC_imply(Field3f &pos_mid, Field4i &vert, FieldMat3f &B, F
         Mat3f V = svd.matrixV();
         Eigen::Vector3f S = svd.singularValues();
         constraints[t] = std::sqrt((S[0] - 1) * (S[0] - 1) + (S[1] - 1) * (S[1] - 1) + (S[2] - 1) * (S[2] - 1));
-        gradC[t] = compute_gradient(U, S, V, B[t]);
+        if (constraints[t]>1e-6) //CAUTION! When the constraint is too small, there is no deformation at all, the gradient will be in any direction! Sigma=(1,1,1) There will be singularity issue!
+            gradC[t] = compute_gradient(U, S, V, B[t]);
     }
 }
 
@@ -169,19 +162,23 @@ void compute_C_and_gradC_imply(Field3f &pos_mid, Field4i &vert, FieldMat3f &B, F
 
 struct FastFillSoftWrapper:FastFillSoft
 {
+    SpMatData m_A;
     FastFillSoftWrapper()  = delete;
     FastFillSoftWrapper(Field4i tet) : FastFillSoft(tet) {}
-    std::pair<SpMatData, Eigen::VectorXf> run(Field3f &pos, Field43f &gradC);
+    FastFillSoftWrapper(PhysData *d) : FastFillSoft(d) {}
+    SpMatData run(Field3f &pos, Field43f &gradC);
 };
 
-std::pair<SpMatData, Eigen::VectorXf> FastFillSoftWrapper::run(Field3f &pos, Field43f &gradC)
+
+
+SpMatData FastFillSoftWrapper::run(Field3f &pos, Field43f &gradC)
 {
-    SpMatData A;
-    Eigen::VectorXf b;
-    float* p = reinterpret_cast<float*>(pos.data());
-    float* g = reinterpret_cast<float*>(gradC.data());
+    float* p = pos[0].data();
+    float* g = gradC[0][0].data();
     FastFillSoft::run(p, g);
-    return std::make_pair(A,b);
+    FastFillSoft::fetch_A(m_A);
+
+    return m_A;
 }
 
 
@@ -194,7 +191,7 @@ struct SoftBody
     PhysData* m_d;
     FastFillSoftWrapper* m_ff;
     std::vector<float> residuals;
-    SpMat A;
+    EigenSpMat A;
     SoftBody(PhysData* d);
     ~SoftBody();
     void semi_euler(PhysData* m_d);
@@ -204,7 +201,7 @@ struct SoftBody
     void compute_C_and_gradC(PhysData* m_d);
     void copy_pos_mid();
     void update_pos(PhysData* m_d, Field3f& pos, Field3f& dpos);
-    SpMat fillA(PhysData* m_d);
+    EigenSpMat fillA(PhysData* m_d);
     void project_arap_oneiter(PhysData* m_d);
     void substep(int maxiter=10);
 };
@@ -216,7 +213,7 @@ SoftBody::SoftBody(PhysData* d) : m_d(d)
     // m_d is already initialized in the initializer list
 
     // create the fastfill
-    m_ff = new FastFillSoftWrapper(m_d->vert);
+    m_ff = new FastFillSoftWrapper(m_d);
 
     // create the linear solver
     m_linsol = new LinearSolver();
@@ -317,13 +314,14 @@ void SoftBody::copy_pos_mid() {
     Field3f& pos = m_d->pos;
     Field3f& pos_mid = m_d->pos_mid;
 
-    pos_mid = pos;
+    // pos_mid = pos;
+    std::copy(pos.begin(), pos.end(), pos_mid.begin());
 }
 
 
-SpMat SoftBody::fillA(PhysData* m_d) {
-    
-
+EigenSpMat SoftBody::fillA(PhysData* m_d) {
+    m_ff->run(m_d->pos, m_d->gradC);
+    // m_ff->fetch_A(A.valuePtr(), A.innerIndexPtr(), A.outerIndexPtr());
     return A;
 }
 
@@ -334,7 +332,6 @@ void SoftBody::project_arap_oneiter(PhysData* m_d) {
     compute_C_and_gradC(m_d);
     compute_b(m_d);
     A = fillA(m_d);
-    // auto &[A,b]=m_ff->run(m_d->pos, m_d->gradC);
     m_d->dlam = m_linsol->run(A,m_d->b);
     m_d->dpos = dlam2dpos(m_d, m_d->dlam);
     update_pos(m_d, m_d->pos, m_d->dpos);
@@ -399,15 +396,21 @@ std::pair<Field3f, Field4i> readmesh()
     return std::move(std::make_pair(pos3f, vert4i));
 }
 
-
+void reinit(Field3f& pos)
+{
+    for(int i=0; i<pos.size(); i++)
+    {
+        pos[i]*= 1.5; //enlarge
+    }
+}
 
 // example usage
 int main()
 {
     auto [pos,vert] = readmesh();
-
     PhysData d(pos.size(), vert.size(), pos, vert);
     SoftBody sb(&d);
+    reinit(d.pos);
 
     for(int i=0; i<100; i++)
     {

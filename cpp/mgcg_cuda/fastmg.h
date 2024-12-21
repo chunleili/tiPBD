@@ -43,22 +43,6 @@ struct VCycle;
 struct Smoother;
 struct FastFillBase;
 
-template <typename T=float>
-std::vector<T> debug_cuda_vec(Vec<T> &v, std::string name) {
-    std::vector<T> v_host(v.size());
-    v.tohost(v_host);
-    std::cout<<name<<"("<<v.size()<<") :";
-    int k=0;
-    for(auto i:v_host)
-    {
-        if(k>10)
-            break;
-        std::cout<<i<<" ";
-        k++;
-    }
-    std::cout<<std::endl;
-    return v_host;
-}
 
 
 struct FastMG : CusparseWrappers {

@@ -87,7 +87,9 @@ void compute_C_and_gradC_imply(Field3f &pos_mid, Field4i &vert, FieldMat3f &B, F
         Mat3f V = svd.matrixV();
         Eigen::Vector3f S = svd.singularValues();
         constraints[t] = std::sqrt((S[0] - 1) * (S[0] - 1) + (S[1] - 1) * (S[1] - 1) + (S[2] - 1) * (S[2] - 1));
-        gradC[t] = compute_gradient(U, S, V, B[t]);
+        if (constraints[t] > 1e-6) {
+            gradC[t] = compute_gradient(U, S, V, B[t]);
+        }
     }
 }
 

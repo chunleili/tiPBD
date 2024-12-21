@@ -15,8 +15,7 @@ void FastFillCloth::set_data_v2(int* edges_in, int NE_in, float* inv_mass_in, in
 {
     NE = NE_in;
     NV = NV_in;
-    nrows = NE;
-    ncols = NE;
+    m_nrows = NE;
 
     d_edges.assign(edges_in, NE*2);
     d_inv_mass.assign(inv_mass_in, NV);
@@ -46,12 +45,12 @@ void FastFillCloth::init_from_python_cache_v2(
 {
     NE = NE_in;
     NV = NV_in;
-    num_nonz = num_nonz_in;
+    m_nnz = num_nonz_in;
 
     printf("Copying A, ii, jj\n");
-    A.assign(spmat_data_in, num_nonz, spmat_indices_in, num_nonz, spmat_indptr_in, NE+1, NE, NE, num_nonz);
-    d_ii.assign(spmat_ii_in, num_nonz);
-    d_jj.assign(spmat_jj_in, num_nonz);
+    A.assign(spmat_data_in, num_nonz_in, spmat_indices_in, num_nonz_in, spmat_indptr_in, NE+1, NE, NE, num_nonz_in);
+    d_ii.assign(spmat_ii_in, num_nonz_in);
+    d_jj.assign(spmat_jj_in, num_nonz_in);
     std::cout<<"Finish."<<std::endl;
 
     printf("Copying adj\n");
@@ -71,14 +70,14 @@ void FastFillCloth::run(float* pos_in)
 
 void FastFillCloth::fill_A_CSR_gpu()
 {
-    fill_A_CSR_cloth_kernel<<<num_nonz / 256 + 1, 256>>>(A.data.data(),
+    fill_A_CSR_cloth_kernel<<<m_nnz / 256 + 1, 256>>>(A.data.data(),
                                                 A.indptr.data(),
                                                 A.indices.data(),
                                                 d_ii.data(),
                                                 d_jj.data(),
                                                 d_adjacent_edge_abc.data(),
                                                 d_num_adjacent_edge.data(),
-                                                num_nonz,
+                                                m_nnz,
                                                 d_inv_mass.data(),
                                                 alpha,
                                                 NV,
@@ -95,18 +94,39 @@ void FastFillCloth::fill_A_CSR_gpu()
 /* -------------------------------------------------------------------------- */
 /*                                FastFillSoft                                */
 /* -------------------------------------------------------------------------- */
+FastFillSoft::FastFillSoft(PhysData *d)
+{
+    warm_start(d->vert);
+
+    NT = d->NCONS;
+    NV = d->NV;
+    m_nrows = NT;
+    m_ncols = NT;
+    d_alpha_tilde.assign(d->alpha_tilde.data(), NT);
+    d_inv_mass.assign(d->inv_mass.data(), NV);
+    d_pos.assign(d->pos[0].data(), NV*3);
+    d_tet.assign(d->vert[0].data(), NT*4);
+
+
+    A.assign_v2(m_data.data(), m_indices.data(), m_indptr.data(), NT, NT, m_nnz);
+    d_ii.assign(m_ii.data(), m_nnz);
+}
 
 
 void FastFillSoft::fetch_A_data(float *data_in) {
     CHECK_CUDA(cudaMemcpy(data_in, A.data.data(), sizeof(float) * A.numnonz, cudaMemcpyDeviceToHost));
 }
 
+void FastFillSoft::fetch_A(SpMatData &A_out) {
+    A.fetch(A_out.data, A_out.indices, A_out.indptr);
+}
+
 void FastFillSoft::set_data_v2(int* tet_in, int NT_in, float* inv_mass_in, int NV_in, float* pos_in, float* alpha_tilde_in)
 {
     NT = NT_in;
     NV = NV_in;
-    nrows = NT;
-    ncols = NT;
+    m_nrows = NT;
+    m_ncols = NT;
     d_alpha_tilde.assign(alpha_tilde_in, NT);
     d_inv_mass.assign(inv_mass_in, NV);
     d_pos.assign(pos_in, NV*3);
@@ -134,10 +154,10 @@ void FastFillSoft::init_from_python_cache_lessmem(
     NT = NT_in;
     MAX_ADJ = MAX_ADJ_in;
 
-    num_nonz = num_nonz_in;
-    ncols = NT;
-    nrows = NT;
-    A.assign_v2(data_in, indices_in, indptr_in, NT, NT, num_nonz);
+    m_nnz = num_nonz_in;
+    m_ncols = NT;
+    m_nrows = NT;
+    A.assign_v2(data_in, indices_in, indptr_in, NT, NT, num_nonz_in);
     d_ii.assign(ii_in, num_nonz_in);
 
     std::cout<<"Finish load python cache to cuda."<<std::endl;
@@ -153,13 +173,12 @@ void FastFillSoft::run(float* pos_in, float* gradC_in)
 
 void FastFillSoft::fill_A_CSR_gpu()
 {
-    
-    fill_A_CSR_soft_lessmem_kernel<<<num_nonz / 256 + 1, 256>>>(
+    fill_A_CSR_soft_lessmem_kernel<<<m_nnz / 256 + 1, 256>>>(
             A.data.data(),
             A.indptr.data(),
             A.indices.data(), //jj is the same as indices
             d_ii.data(),
-            num_nonz,
+            m_nnz,
             d_inv_mass.data(),
             d_alpha_tilde.data(),
             NV,
@@ -244,7 +263,7 @@ init_adj(std::vector<std::array<int, 4>>& tet)
 }
 
 
-std::tuple<std::vector<float>,std::vector<int>,std::vector<int>, std::vector<int>>
+std::tuple<std::vector<float>,std::vector<int>,std::vector<int>, std::vector<int>, int, int>
 init_A_CSR_pattern(std::vector<std::vector<int>>& adj)
 {
     std::vector<float> data;
@@ -284,15 +303,17 @@ init_A_CSR_pattern(std::vector<std::vector<int>>& adj)
         }
     }
 
-    return std::move(std::tuple(data, indices, indptr, ii));
+    return std::move(std::tuple(data, indices, indptr, ii, nonz, nrows));
 }
 
 
 void FastFillSoft::warm_start(std::vector<std::array<int,4>> tet)
 {
+    printf("Warm start(init_adj and spmat pattern)...\n");
     // warm start
     std::tie(m_v2e,m_adj,MAX_ADJ) = init_adj(tet);
-    std::tie(m_data, m_indices, m_indptr, m_ii) = init_A_CSR_pattern(m_adj);
+    std::tie(m_data, m_indices, m_indptr, m_ii, m_nnz, m_nrows) = init_A_CSR_pattern(m_adj);
+    printf("Finish warm start.\n");
 }
 
 
@@ -302,6 +323,7 @@ FastFillSoft::FastFillSoft(std::vector<std::array<int,4>> tet)
     m_tet = tet;
     // warm start
     warm_start(tet);
+    NT = tet.size();
 }
  
 

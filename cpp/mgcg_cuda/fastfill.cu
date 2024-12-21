@@ -175,6 +175,83 @@ void FastFillSoft::fill_A_CSR_gpu()
 }
 
 
+
+
+void FastFillSoft::init_adj(std::vector<std::array<int,4>>& tet)
+{
+    int NT = tet.size();
+    std::map<int, std::set<int>> vertex_to_eles;
+    for (int ele_index = 0; ele_index < NT; ele_index++)
+    {
+        int v1 = tet[ele_index][0];
+        int v2 = tet[ele_index][1];
+        int v3 = tet[ele_index][2];
+        int v4 = tet[ele_index][3];
+
+        if (vertex_to_eles.find(v1) == vertex_to_eles.end())
+            vertex_to_eles[v1] = std::set<int>();
+        if (vertex_to_eles.find(v2) == vertex_to_eles.end())
+            vertex_to_eles[v2] = std::set<int>();
+        if (vertex_to_eles.find(v3) == vertex_to_eles.end())
+            vertex_to_eles[v3] = std::set<int>();
+        if (vertex_to_eles.find(v4) == vertex_to_eles.end())
+            vertex_to_eles[v4] = std::set<int>();
+
+        vertex_to_eles[v1].insert(ele_index);
+        vertex_to_eles[v2].insert(ele_index);
+        vertex_to_eles[v3].insert(ele_index);
+        vertex_to_eles[v4].insert(ele_index);
+    }
+
+    std::map<int, std::set<int>> all_adjacent_eles;
+    for (int ele_index = 0; ele_index < NT; ele_index++)
+    {
+        int v1 = tet[ele_index][0];
+        int v2 = tet[ele_index][1];
+        int v3 = tet[ele_index][2];
+        int v4 = tet[ele_index][3];
+
+        std::set<int> adjacent_eles = vertex_to_eles[v1];
+        adjacent_eles.insert(vertex_to_eles[v2].begin(), vertex_to_eles[v2].end());
+        adjacent_eles.insert(vertex_to_eles[v3].begin(), vertex_to_eles[v3].end());
+        adjacent_eles.insert(vertex_to_eles[v4].begin(), vertex_to_eles[v4].end());
+        adjacent_eles.erase(ele_index);
+        all_adjacent_eles[ele_index] = adjacent_eles;
+    }
+
+    // map to std::vector
+    // std::vector<std::vector<int>> m_v2e(vertex_to_eles.size());
+    m_v2e.resize(vertex_to_eles.size());
+    for (auto& [v, eles] : vertex_to_eles)
+    {
+        m_v2e[v] = std::vector<int>(eles.begin(), eles.end());
+    }
+
+    // std::vector<std::vector<int>> m_adj(all_adjacent_eles.size());
+    m_adj.resize(all_adjacent_eles.size());
+    this->MAX_ADJ = 0;
+
+    for (auto& [ele, eles] : all_adjacent_eles)
+    {
+        m_adj[ele] = std::vector<int>(eles.begin(), eles.end());
+        if (eles.size() > this->MAX_ADJ)
+            this->MAX_ADJ = eles.size();
+    }
+
+}
+
+
+FastFillSoft::FastFillSoft(std::vector<std::array<int,4>> tet)
+{
+    m_tet = tet;
+    init_adj(tet);
+}
+ 
+
+
+
+
+
 FastFillCloth *fastFillCloth = nullptr;
 FastFillSoft *fastFillSoft = nullptr;
 FastFillBase *fastFillBase = nullptr;

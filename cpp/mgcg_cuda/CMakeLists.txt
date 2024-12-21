@@ -26,7 +26,7 @@ CUDA_STANDARD 17
 CUDA_ARCHITECTURES "60;70;75;80")
 
 
-add_executable(main main.cpp  meshio_tetgen.cpp physdata.cpp)
+add_executable(main main.cpp  meshio_tetgen.cpp physdata.cpp fastfill.cu kernels.cu)
 # target_link_libraries(main PUBLIC  )
 target_include_directories(main PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen

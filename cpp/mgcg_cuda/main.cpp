@@ -5,10 +5,9 @@
 
 using std::shared_ptr;
 using std::make_shared;
-// using namespace fastmg;
-
 using SpMat = Eigen::SparseMatrix<float, Eigen::RowMajor>;
 
+using namespace fastmg;
 
 struct SpMatData
 {
@@ -168,21 +167,22 @@ void compute_C_and_gradC_imply(Field3f &pos_mid, Field4i &vert, FieldMat3f &B, F
 
 
 
-// struct FastFillSoftWrapper:FastFillSoft
-// {
-//     FastFillSoftWrapper() {}
-//     std::pair<SpMatData, Eigen::VectorXf> run(Field3f &pos, Field43f &gradC);
-// };
+struct FastFillSoftWrapper:FastFillSoft
+{
+    FastFillSoftWrapper()  = delete;
+    FastFillSoftWrapper(Field4i tet) : FastFillSoft(tet) {}
+    std::pair<SpMatData, Eigen::VectorXf> run(Field3f &pos, Field43f &gradC);
+};
 
-// std::pair<SpMatData, Eigen::VectorXf> FastFillSoftWrapper::run(Field3f &pos, Field43f &gradC)
-// {
-//     SpMatData A;
-//     Eigen::VectorXf b;
-//     float* p = reinterpret_cast<float*>(pos.data());
-//     float* g = reinterpret_cast<float*>(gradC.data());
-//     FastFillSoft::run(p, g);
-//     return std::make_pair(A,b);
-// }
+std::pair<SpMatData, Eigen::VectorXf> FastFillSoftWrapper::run(Field3f &pos, Field43f &gradC)
+{
+    SpMatData A;
+    Eigen::VectorXf b;
+    float* p = reinterpret_cast<float*>(pos.data());
+    float* g = reinterpret_cast<float*>(gradC.data());
+    FastFillSoft::run(p, g);
+    return std::make_pair(A,b);
+}
 
 
 
@@ -192,7 +192,7 @@ struct SoftBody
 {
     LinearSolver* m_linsol; 
     PhysData* m_d;
-    // FastFillSoftWrapper* m_ff;
+    FastFillSoftWrapper* m_ff;
     std::vector<float> residuals;
     SpMat A;
     SoftBody(PhysData* d);
@@ -216,7 +216,7 @@ SoftBody::SoftBody(PhysData* d) : m_d(d)
     // m_d is already initialized in the initializer list
 
     // create the fastfill
-    // m_ff = new FastFillSoftWrapper;
+    m_ff = new FastFillSoftWrapper(m_d->vert);
 
     // create the linear solver
     m_linsol = new LinearSolver();

@@ -1,0 +1,9 @@
+/// Wrappers for the cuda handwritten kernels in kernels.cu and kernels.cuh
+/// Include this instead of the cuda headers to separate cuda code from cpp code.
+
+#pragma once
+
+void fill_A_CSR_soft_lessmem(float *data, int *indptr, int *indices,int *d_ii,
+                             int num_nonz, float *d_inv_mass, float *d_alpha_tilde,
+                             int NV, int NT, int MAX_ADJ,
+                             int *d_tet, float *d_pos, float *d_gradC)

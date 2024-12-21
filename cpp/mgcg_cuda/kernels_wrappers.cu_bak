@@ -1,0 +1,47 @@
+#include <cuda_runtime.h>
+#include "kernels.cuh"
+#include "cuda_utils.cuh"
+
+/**
+ * @brief Fills a CSR (Compressed Sparse Row) matrix with softbody arap constraints using less memory.
+ *
+ * This function launches a CUDA kernel to fill the CSR matrix with the provided data.
+ * It synchronizes the device after the kernel execution and checks for any launch errors.
+ *
+ * @param data Pointer to the data array of the CSR matrix.
+ * @param indptr Pointer to the row start pointer array of the CSR matrix.
+ * @param indices Pointer to the column indices array of the CSR matrix.
+ * @param d_ii Pointer to the device array of row indices.
+ * @param num_nonz Number of non-zero elements in the CSR matrix.
+ * @param d_inv_mass Pointer to the device array of inverse mass values.
+ * @param d_alpha_tilde Pointer to the device array of alpha tilde values.
+ * @param NV Number of vertices.
+ * @param NT Number of tetrahedrons.
+ * @param MAX_ADJ Maximum number of adjacent elements.
+ * @param d_tet Pointer to the device array of tetrahedron indices.
+ * @param d_pos Pointer to the device array of positions.
+ * @param d_gradC Pointer to the device array of gradient values.
+ */
+void fill_A_CSR_soft_lessmem(float *data, int *indptr, int *indices,int *d_ii,
+                             int num_nonz, float *d_inv_mass, float *d_alpha_tilde,
+                             int NV, int NT, int MAX_ADJ,
+                             int *d_tet, float *d_pos, float *d_gradC)
+{
+    fill_A_CSR_soft_lessmem_kernel<<<num_nonz / 256 + 1, 256>>>(
+        data,
+        indptr,
+        indices, // jj is the same as indices
+        d_ii,
+        num_nonz,
+        d_inv_mass,
+        d_alpha_tilde,
+        NV,
+        NT,
+        MAX_ADJ,
+        d_tet,
+        d_pos,
+        d_gradC);
+
+    cudaDeviceSynchronize();
+    LAUNCH_CHECK();
+}

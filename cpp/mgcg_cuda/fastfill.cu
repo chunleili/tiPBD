@@ -177,7 +177,8 @@ void FastFillSoft::fill_A_CSR_gpu()
 
 
 
-void FastFillSoft::init_adj(std::vector<std::array<int,4>>& tet)
+std::tuple<std::vector<std::vector<int>>, std::vector<std::vector<int>>, int> 
+init_adj(std::vector<std::array<int, 4>>& tet)
 {
     int NT = tet.size();
     std::map<int, std::set<int>> vertex_to_eles;
@@ -219,32 +220,88 @@ void FastFillSoft::init_adj(std::vector<std::array<int,4>>& tet)
         all_adjacent_eles[ele_index] = adjacent_eles;
     }
 
-    // map to std::vector
-    // std::vector<std::vector<int>> m_v2e(vertex_to_eles.size());
-    m_v2e.resize(vertex_to_eles.size());
+
+    // copy map to std::vector
+    std::vector<std::vector<int>> v2e(vertex_to_eles.size());
+    v2e.resize(vertex_to_eles.size());
     for (auto& [v, eles] : vertex_to_eles)
     {
-        m_v2e[v] = std::vector<int>(eles.begin(), eles.end());
+        v2e[v] = std::vector<int>(eles.begin(), eles.end());
     }
 
-    // std::vector<std::vector<int>> m_adj(all_adjacent_eles.size());
-    m_adj.resize(all_adjacent_eles.size());
-    this->MAX_ADJ = 0;
+    std::vector<std::vector<int>> adj(all_adjacent_eles.size());
+    adj.resize(all_adjacent_eles.size());
+    int max_adj = 0;
 
     for (auto& [ele, eles] : all_adjacent_eles)
     {
-        m_adj[ele] = std::vector<int>(eles.begin(), eles.end());
-        if (eles.size() > this->MAX_ADJ)
-            this->MAX_ADJ = eles.size();
+        adj[ele] = std::vector<int>(eles.begin(), eles.end());
+        if (eles.size() > max_adj)
+            max_adj = eles.size();
     }
 
+    return std::move(std::tuple(v2e, adj, max_adj));
 }
+
+
+std::tuple<std::vector<float>,std::vector<int>,std::vector<int>, std::vector<int>>
+init_A_CSR_pattern(std::vector<std::vector<int>>& adj)
+{
+    std::vector<float> data;
+    std::vector<int> indices;
+    std::vector<int> indptr;
+
+    int nrows = adj.size();
+    int nonz = 0;
+    for (int i = 0; i < nrows; i++)
+    {
+        nonz += adj[i].size() + 1;
+    }
+    indptr.resize(nrows+1);
+    indices.resize(nonz);
+    data.resize(nonz);
+    indptr[0] = 0;
+    for (int i = 0; i < nrows; i++)
+    {
+        int num_adj_i = adj[i].size();
+        indptr[i+1] = indptr[i] + num_adj_i + 1;
+        for (int j = 0; j < num_adj_i; j++)
+        {
+            indices[indptr[i]+j] = adj[i][j];
+        }
+        indices[indptr[i+1]-1] = i;
+    }
+    assert(indptr[indptr.size()-1] == nonz);
+
+
+    // CSR index to COO index
+    std::vector<int> ii(nonz);
+    for (int i = 0; i < nrows; i++)
+    {
+        for (int j = indptr[i]; j < indptr[i+1]; j++)
+        {
+            ii[j] = i;
+        }
+    }
+
+    return std::move(std::tuple(data, indices, indptr, ii));
+}
+
+
+void FastFillSoft::warm_start(std::vector<std::array<int,4>> tet)
+{
+    // warm start
+    std::tie(m_v2e,m_adj,MAX_ADJ) = init_adj(tet);
+    std::tie(m_data, m_indices, m_indptr, m_ii) = init_A_CSR_pattern(m_adj);
+}
+
 
 
 FastFillSoft::FastFillSoft(std::vector<std::array<int,4>> tet)
 {
     m_tet = tet;
-    init_adj(tet);
+    // warm start
+    warm_start(tet);
 }
  
 

@@ -53,9 +53,11 @@ struct FastFillSoft : FastFillBase
     Vec<int> d_ii;
     Vec<float> d_pos;
     Vec<int> d_tet;
-    std::vector<std::array<int,4>> m_tet;
     Vec<float> d_gradC;
     Vec<float> d_alpha_tilde;
+    std::vector<std::array<int,4>> m_tet;
+    std::vector<int> m_ii, m_indices, m_indptr;
+    std::vector<float> m_data;
     std::vector<std::vector<int>> m_v2e, m_adj;
 
     FastFillSoft(){};
@@ -74,7 +76,11 @@ struct FastFillSoft : FastFillBase
         const int num_nonz_in);
     void run(float *pos_in, float *gradC_in);
     void fill_A_CSR_gpu();
-    void init_adj(std::vector<std::array<int,4>>& tet);
+private:
+    void warm_start(std::vector<std::array<int,4>> tet);
+    // std::tuple<std::vector<std::vector<int>>,std::vector<std::vector<int>>,int> init_adj(std::vector<std::array<int,4>>& tet);
+    // std::tuple<std::vector<float>,std::vector<int>,std::vector<int>> FastFillSoft::init_A_CSR_pattern(std::vector<std::vector<int>>& adj)
+
 }; // FastFillSoft struct
 
 

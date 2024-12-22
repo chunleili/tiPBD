@@ -31,6 +31,7 @@
 #include "Vec.h"
 #include "CSR.h"
 #include "timer.h"
+#include "mgpcg.h"
 
 
 namespace fastmg {
@@ -45,25 +46,13 @@ struct FastFillBase;
 
 
 
-struct FastMG : CusparseWrappers {
+struct FastMG :CusparseWrappers{
     std::vector<MGLevel> levels; // create in create_levels
     std::shared_ptr<Smoother> smoother;  // create in create_levels
-    std::unique_ptr<VCycle> vcycle;  // create in create_levels
+    std::shared_ptr<VCycle> vcycle;  // create in create_levels
+    std::shared_ptr<MGPCG> mgpcg;  // create in create_levels
 
-    Vec<float> z;
-    Vec<float> r;
 
-    size_t nlvs;
-    Vec<float> outer_x;
-    Vec<float> x_new;
-    Vec<float> outer_b;
-    float save_rho_prev;
-    Vec<float> save_p;
-    Vec<float> save_q;
-    float rtol;
-    size_t maxiter;
-    std::vector<float> residuals;
-    size_t niter; //final number of iterations to break the loop
     bool verbose = false;
     GpuTimer timer1,timer2,timer3;
     std::vector<float> elapsed1, elapsed2, elapsed3;
@@ -84,11 +73,8 @@ struct FastMG : CusparseWrappers {
     int get_nrows(int lv);
 
 
-    float calc_residual(CSR<float> const &A, Vec<float> &x, Vec<float> const &b, Vec<float> &r);
     void set_outer_x(float const *x, size_t n);
     void set_outer_b(float const *b, size_t n);
-    float init_cg_iter0(float *residuals);
-    void do_cg_itern(float *residuals, size_t iteration);
     void compute_RAP(size_t lv);
     void set_data(const float* x, size_t nx, const float* b, size_t nb, float rtol_, size_t maxiter_);
     size_t get_data(float* x_out, float* r_out);
@@ -98,12 +84,14 @@ struct FastMG : CusparseWrappers {
     void solve_only_jacobi();
     void solve_only_directsolver();
     void solve_only_smoother();
+
+    FastMG(){};
+    static FastMG* get_instance() {
+        static FastMG instance;
+        return &instance;
+    }
+
 };
-
-
-
-struct FastMG;
-extern FastMG *fastmg;
 
 } // namespace
 

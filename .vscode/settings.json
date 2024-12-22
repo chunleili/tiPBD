@@ -110,7 +110,8 @@
         "mprealsupport": "cpp",
         "matrixfunctions": "cpp",
         "*.expression": "cpp",
-        "dense": "cpp"
+        "dense": "cpp",
+        "cfenv": "cpp"
     },
     "notebook.output.wordWrap": true,
     "C_Cpp.vcFormat.newLine.closeBraceSameLine.emptyFunction": true,

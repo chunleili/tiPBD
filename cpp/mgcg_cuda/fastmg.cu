@@ -69,10 +69,10 @@ float avg(std::vector<float> &v)
         if (levels.size() < numlvs) {
             levels.resize(numlvs);
         }
-        nlvs = numlvs;
 
         smoother = std::make_shared<Smoother>(levels);
-        vcycle = std::make_unique<VCycle>(levels, smoother,z,r,buff);
+        vcycle = std::make_shared<VCycle>(levels, smoother);
+        mgpcg = std::make_shared<MGPCG>(levels,smoother, vcycle);
 
     }
 
@@ -119,59 +119,6 @@ float avg(std::vector<float> &v)
 
 
 
-    float  FastMG::calc_residual(CSR<float> const &A, Vec<float> &x, Vec<float> const &b, Vec<float> &r) {
-        copy(r, b);
-        spmv(r, -1, A, x, 1, buff); // residual = b - A@x
-        return vnorm(r);
-    }
-
-
-
-    void  FastMG::set_outer_x(float const *x, size_t n) {
-        outer_x.resize(n);
-        CHECK_CUDA(cudaMemcpy(outer_x.data(), x, n * sizeof(float), cudaMemcpyHostToDevice));
-        copy(x_new, outer_x);
-    }
-
-    void  FastMG::set_outer_b(float const *b, size_t n) {
-        outer_b.resize(n);
-        CHECK_CUDA(cudaMemcpy(outer_b.data(), b, n * sizeof(float), cudaMemcpyHostToDevice));
-    }
-
-    float  FastMG::init_cg_iter0(float *residuals) {
-        float bnrm2 = vnorm(outer_b);
-        // r = b - A@(x)
-        copy(r, outer_b);
-        spmv(outer_b, -1, levels.at(0).A, outer_x, 1, buff);
-        float normr = vnorm(r);
-        residuals[0] = normr;
-        return bnrm2;
-    }
-
-    void  FastMG::do_cg_itern(float *residuals, size_t iteration) {
-        float rho_cur = vdot(r, z);
-        if (iteration > 0) {
-            float beta = rho_cur / save_rho_prev;
-            // p *= beta
-            // p += z
-            scal(save_p, beta);
-            axpy(save_p, 1, z);
-        } else {
-            // p = move(z)
-            save_p.swap(z);
-        }
-        // q = A@(p)
-        save_q.resize(levels.at(0).A.nrows);
-        spmv(save_q, 1, levels.at(0).A, save_p, 0, buff);
-        save_rho_prev = rho_cur;
-        float alpha = rho_cur / vdot(save_p, save_q);
-        // x += alpha*p
-        axpy(x_new, alpha, save_p);
-        // r -= alpha*q
-        axpy(r, -alpha, save_q);
-        float normr = vnorm(r);
-        residuals[iteration + 1] = normr;
-    }
 
     void  FastMG::compute_RAP(size_t lv) {
             CSR<float> &A = levels.at(lv).A;
@@ -204,30 +151,43 @@ float avg(std::vector<float> &v)
         CHECK_CUDA(cudaMemcpy(indices, A.indices.data(), A.indices.size() * sizeof(int), cudaMemcpyDeviceToHost));
         CHECK_CUDA(cudaMemcpy(indptr, A.indptr.data(), A.indptr.size() * sizeof(int), cudaMemcpyDeviceToHost));
     }
+
+
+
+    void  FastMG::set_outer_x(float const *x, size_t n) {
+        mgpcg->outer_x.resize(n);
+        CHECK_CUDA(cudaMemcpy(mgpcg->outer_x.data(), x, n * sizeof(float), cudaMemcpyHostToDevice));
+        copy(mgpcg->x_new, mgpcg->outer_x);
+    }
+
+    void  FastMG::set_outer_b(float const *b, size_t n) {
+        mgpcg->outer_b.resize(n);
+        CHECK_CUDA(cudaMemcpy(mgpcg->outer_b.data(), b, n * sizeof(float), cudaMemcpyHostToDevice));
+    }
     
     void  FastMG::set_data(const float* x, size_t nx, const float* b, size_t nb, float rtol_, size_t maxiter_)
     {
         set_outer_x(x, nx);
         set_outer_b(b, nb);
-        rtol = rtol_;
-        maxiter = maxiter_;
-        residuals.resize(maxiter+1);
+        mgpcg->rtol = rtol_;
+        mgpcg->maxiter = maxiter_;
+        mgpcg->residuals.resize(mgpcg->maxiter+1);
     }
 
 
 
     size_t  FastMG::get_data(float* x_out, float* r_out)
     {
-        CHECK_CUDA(cudaMemcpy(x_out, x_new.data(), x_new.size() * sizeof(float), cudaMemcpyDeviceToHost));
-        std::copy(residuals.begin(), residuals.end(), r_out);
-        return niter;
+        CHECK_CUDA(cudaMemcpy(x_out, mgpcg->x_new.data(), mgpcg->x_new.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        std::copy(mgpcg->residuals.begin(), mgpcg->residuals.end(), r_out);
+        return mgpcg->niter;
     }
 
 
     void  FastMG::presolve()
     {
         // TODO: move fillA from python-end to here as well in the future refactoring
-        for(int lv=0; lv<nlvs; lv++)
+        for(int lv=0; lv<levels.size(); lv++)
         {
             // for jacobi_v2 (use cusparse etc.)
             if(smoother->smoother_type == 2)
@@ -235,7 +195,7 @@ float avg(std::vector<float> &v)
                 get_Aoff_and_Dinv(levels.at(lv).A, levels.at(lv).Dinv, levels.at(lv).Aoff);
             }
         }
-        for (size_t lv = 0; lv < nlvs-1; lv++)
+        for (size_t lv = 0; lv < levels.size()-1; lv++)
         {
             compute_RAP(lv);
         }
@@ -245,29 +205,16 @@ float avg(std::vector<float> &v)
     void  FastMG::solve()
     {
         presolve();
-        float bnrm2 = init_cg_iter0(residuals.data());
-        float atol = bnrm2 * rtol;
-        for (size_t iter=0; iter<maxiter; iter++)
-        {   
-            if (residuals[iter] < atol)
-            {
-                niter = iter;
-                break;
-            }
-            copy(z, outer_x);
-            vcycle -> run();
-            do_cg_itern(residuals.data(), iter); 
-            niter = iter;
-        }
+        mgpcg->solve(mgpcg->maxiter,mgpcg->rtol);
     }
 
     void  FastMG::solve_only_jacobi()
     {
         timer1.start();
         get_Aoff_and_Dinv(levels.at(0).A, levels.at(0).Dinv, levels.at(0).Aoff);
-        for (size_t iter=0; iter<maxiter; iter++)
-            smoother->jacobi_v2(0, outer_x, outer_b);
-        copy(x_new, outer_x);
+        for (size_t iter=0; iter<mgpcg->maxiter; iter++)
+            smoother->jacobi_v2(0, mgpcg->outer_x, mgpcg->outer_b);
+        copy(mgpcg->x_new, mgpcg->outer_x);
         
         timer1.stop();
         elapsed1.push_back(timer1.elapsed());
@@ -280,8 +227,8 @@ float avg(std::vector<float> &v)
     {
         timer1.start();
 
-        spsolve(outer_x, levels.at(0).A, outer_b);
-        copy(x_new, outer_x);
+        spsolve(mgpcg->outer_x, levels.at(0).A, mgpcg->outer_b);
+        copy(mgpcg->x_new, mgpcg->outer_x);
         
         timer1.stop();
         elapsed1.push_back(timer1.elapsed());
@@ -292,29 +239,8 @@ float avg(std::vector<float> &v)
 
     void  FastMG::solve_only_smoother()
     {
-        timer1.start();
         presolve();
-        float bnrm2 = init_cg_iter0(residuals.data());
-        float atol = bnrm2 * rtol;
-        for (size_t iter=0; iter<maxiter; iter++)
-        {   
-            smoother->smooth(0, outer_x, outer_b);
-            auto rnorm = calc_residual(levels.at(0).A, outer_x, outer_b, r);
-            residuals[iter] = rnorm;
-            if (residuals[iter] < atol)
-            {
-                niter = iter;
-                break;
-            }
-            niter = iter;
-        }
-        copy(x_new, outer_x);
-
-        timer1.stop();
-        elapsed1.push_back(timer1.elapsed());
-        cout<<elapsed1.size()<<" only smoother time: "<<(elapsed1[0])<<" ms"<<endl;
-        elapsed1.clear();
-
+        mgpcg->solve_only_smoother(mgpcg->maxiter,mgpcg->rtol);
     }
 
 
@@ -348,7 +274,11 @@ void FastMG::get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff
 }
 
 
-FastMG *fastmg = nullptr;
+FastMG* get_fastmg() {
+    FastMG* f = FastMG::get_instance();
+    return f;
+}
+
 
 
 #if _WIN32
@@ -359,120 +289,121 @@ FastMG *fastmg = nullptr;
 
 
 extern "C" DLLEXPORT void fastmg_setup_smoothers(int type) {
-    fastmg->smoother->setup_smoothers(type);
+    get_fastmg()->smoother->setup_smoothers(type);
 }
 
 
 extern "C" DLLEXPORT void fastmg_set_smoother_niter(const size_t niter) {
-    fastmg->smoother->set_smoother_niter(niter);
+    get_fastmg()->smoother->set_smoother_niter(niter);
 }
 
 extern "C" DLLEXPORT void fastmg_set_colors(const int *c, int n, int color_num, int lv) {
-    fastmg->smoother->set_colors(c, n, color_num, lv);
+    get_fastmg()->smoother->set_colors(c, n, color_num, lv);
 }
 
 extern "C" DLLEXPORT void fastmg_use_radical_omega(int flag) {
-    fastmg->smoother->use_radical_omega = bool(flag);
+    get_fastmg()->smoother->use_radical_omega = bool(flag);
 }
 
 
 extern "C" DLLEXPORT void fastmg_set_coarse_solver_type(int t) {
-    fastmg->vcycle->coarse_solver_type = t;
+    get_fastmg()->vcycle->coarse_solver_type = t;
 }
 
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillCloth() {
-    fastmg->set_A0_from_fastFill(fastFillCloth);
+    get_fastmg()->set_A0_from_fastFill(fastFillCloth);
 }
 
 extern "C" DLLEXPORT void fastmg_set_A0_from_fastFillSoft() {
-    fastmg->set_A0_from_fastFill(fastFillSoft);
+    get_fastmg()->set_A0_from_fastFill(fastFillSoft);
 }
 
 
 
 extern "C" DLLEXPORT void fastmg_new() {
-    if (!fastmg)
-        fastmg = new FastMG{};
+    // if (!fastmg)
+    //     fastmg = new FastMG{};
+    get_fastmg();
 }
 
 extern "C" DLLEXPORT void fastmg_setup_nl(size_t numlvs) {
-    fastmg->create_levels(numlvs);
+    get_fastmg()->create_levels(numlvs);
 }
 
 
 extern "C" DLLEXPORT void fastmg_RAP(size_t lv) {
-    fastmg->compute_RAP(lv);
+    get_fastmg()->compute_RAP(lv);
 }
 
 
 extern "C" DLLEXPORT int fastmg_get_nnz(size_t lv) {
-    int nnz = fastmg->get_nnz(lv);
+    int nnz = get_fastmg()->get_nnz(lv);
     std::cout<<"nnz: "<<nnz<<std::endl;
     return nnz;
 }
 
 extern "C" DLLEXPORT int fastmg_get_matsize(size_t lv) {
-    int n = fastmg->get_nrows(lv);
+    int n = get_fastmg()->get_nrows(lv);
     std::cout<<"matsize: "<<n<<std::endl;
     return n;
 }
 
 extern "C" DLLEXPORT void fastmg_fetch_A(size_t lv, float* data, int* indices, int* indptr) {
-    fastmg->fetch_A(lv, data, indices, indptr);
+    get_fastmg()->fetch_A(lv, data, indices, indptr);
 }
 
 extern "C" DLLEXPORT void fastmg_fetch_A_data(float* data) {
-    fastmg->fetch_A_data(data);
+    get_fastmg()->fetch_A_data(data);
 }
 
 extern "C" DLLEXPORT void fastmg_solve() {
-    fastmg->solve();
+    get_fastmg()->solve();
 }
 
 extern "C" DLLEXPORT void fastmg_set_data(const float* x, size_t nx, const float* b, size_t nb, float rtol, size_t maxiter) {
-    fastmg->set_data(x, nx, b, nb, rtol, maxiter);
+    get_fastmg()->set_data(x, nx, b, nb, rtol, maxiter);
 }
 
 extern "C" DLLEXPORT size_t fastmg_get_data(float *x, float *r) {
-    size_t niter = fastmg->get_data(x, r);
+    size_t niter = get_fastmg()->get_data(x, r);
     return niter;
 }
 
 extern "C" DLLEXPORT void fastmg_set_A0(float* data, int* indices, int* indptr, int rows, int cols, int nnz)
 {
-    fastmg->set_A0(data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
+    get_fastmg()->set_A0(data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
 }
 
 // only update the data of A0
 extern "C" DLLEXPORT void fastmg_update_A0(const float* data_in)
 {
-    fastmg->update_A0(data_in);
+    get_fastmg()->update_A0(data_in);
 }
 
 extern "C" DLLEXPORT void fastmg_set_P(int lv, float* data, int* indices, int* indptr, int rows, int cols, int nnz)
 {
-    fastmg->set_P(lv, data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
+    get_fastmg()->set_P(lv, data, nnz, indices, nnz, indptr, rows + 1, rows, cols, nnz);
 }
 
 
 
 extern "C" DLLEXPORT void fastmg_scale_RAP(float s, int lv) {
-    fastmg->set_scale_RAP(s, lv);
+    get_fastmg()->set_scale_RAP(s, lv);
 }
 
 
 extern "C" DLLEXPORT void fastmg_solve_only_smoother() {
-    fastmg->solve_only_smoother();
+    get_fastmg()->solve_only_smoother();
 }
 
 
 extern "C" DLLEXPORT void fastmg_solve_only_jacobi() {
-    fastmg->solve_only_jacobi();
+    get_fastmg()->solve_only_jacobi();
 }
 
 extern "C" DLLEXPORT void fastmg_solve_only_directsolver() {
-    fastmg->solve_only_directsolver();
+    get_fastmg()->solve_only_directsolver();
 }
 
 

@@ -19,7 +19,7 @@ SET( CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_LIST_DIR}/lib")
 
 project(fastmg LANGUAGES CXX CUDA)
 
-add_library(fastmg SHARED fastmg.cu cuda_utils.cu kernels.cu solve_soft.cu fastfill.cpp cusparse_wrappers.cu smoother.cu vcycle.cu )
+add_library(fastmg SHARED fastmg.cu cuda_utils.cu kernels.cu solve_soft.cpp fastfill.cpp cusparse_wrappers.cu smoother.cu vcycle.cu mgpcg.cu)
 target_link_libraries(fastmg PUBLIC cusparse cublas cusolver)
 target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen)
 set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON
@@ -50,7 +50,7 @@ endif()
 
 option(test "Build test for debug" OFF)
 if(test)
-    add_executable(test_main test_main.cu)
+    add_executable(test_main test_main.cpp)
     target_link_libraries(test_main PUBLIC fastmg)
 endif()
 

@@ -24,18 +24,20 @@ target_link_libraries(fastmg PUBLIC cusparse cublas cusolver)
 target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen)
 set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON
 CUDA_STANDARD 17
-CUDA_ARCHITECTURES "60;70;75;80")
+CUDA_ARCHITECTURES "60;70;75;80;86;89")
 
 
-add_executable(main main.cpp  meshio_tetgen.cpp physdata.cpp fastfill.cu kernels.cu linear_solver.cpp)
+add_executable(main main.cpp  meshio_tetgen.cpp physdata.cpp  linear_solver.cpp)
 target_include_directories(main PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen
 )
+set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON
+CUDA_STANDARD 17
+CUDA_ARCHITECTURES "60;70;75;80;86;89")
 add_subdirectory(extern/amgcl)
-target_link_libraries(main PRIVATE  amgcl)
-set(	OpenMP_CXX_FLAGS "")
-set(	OpenMP_C_FLAGS "")
-list(APPEND CUDA_NVCC_FLAGS -Xcompiler ${OpenMP_CXX_FLAGS})
+add_dependencies(main fastmg amgcl)
+target_link_libraries(main PRIVATE fastmg amgcl)
+
 ## -------------------------------------------------------------------------- */
 ##                                optional targets                            */
 ## -------------------------------------------------------------------------- */

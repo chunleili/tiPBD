@@ -50,3 +50,24 @@ extern __global__ void get_Aoff_kernel(float *data, const int *indices, const in
 // https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html
 // https://gist.github.com/Erkaman/b34b3531e209a1db38e259ea53ff0be9#file-gauss_seidel_graph_coloring-cpp-L101  
 extern __global__ void multi_color_gauss_seidel_kernel(float *x, const float *b, float *data, int *indices, int *indptr, int nrows, int *colors, int color);
+
+    
+void fill_A_CSR_soft_lessmem_cuda(
+    float *data, int *indptr, int *indices,int *d_ii,
+    int num_nonz, float *d_inv_mass, float *d_alpha_tilde,
+    int NV, int NT, int MAX_ADJ,
+    int *d_tet, float *d_pos, float *d_gradC);
+
+void fill_A_CSR_cloth_cuda(
+    float *data, int *indptr, int *indices,
+    const int *d_ii,
+    const int *d_jj,
+    const int *d_adjacent_edge_abc,
+    const int *d_num_adjacent_edge,
+    const int num_nonz,
+    const float *d_inv_mass,
+    const float alpha_tilde,
+    const int NV,
+    const int NE,
+    const int *d_edges,
+    const float *d_pos);

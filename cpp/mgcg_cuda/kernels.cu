@@ -1,6 +1,7 @@
 #include <cuda_runtime.h>
 #include <iostream>
 #include "kernels.cuh"
+#include "cuda_utils.cuh"
 #define USE_LESSMEM 1
 
 
@@ -36,7 +37,7 @@ __global__ void fill_A_CSR_cloth_kernel(
     const int *num_adjacent_edge,
     const int num_nonz,
     const float *inv_mass,
-    const float alpha,
+    const float alpha_tilde,
     const int NV,
     const int NE,
     const int *edge,
@@ -53,7 +54,7 @@ __global__ void fill_A_CSR_cloth_kernel(
         int j = jj[cnt]; // col index
         if (row_idx==j) // diag
         {
-            data[cnt] = inv_mass[edge[row_idx*2 + 0]] + inv_mass[edge[row_idx*2 + 1]] + alpha;
+            data[cnt] = inv_mass[edge[row_idx*2 + 0]] + inv_mass[edge[row_idx*2 + 1]] + alpha_tilde;
         }
         else
         {
@@ -439,4 +440,71 @@ __global__ void multi_color_gauss_seidel_kernel(float *x, const float *b, float 
             x[i] =  1.0 / diag * (b[i] - rsum);
         }
     }
+}
+
+
+
+
+/* -------------------------------------------------------------------------- */
+/*                        Caller functions of C++ wrappers                    */
+/* -------------------------------------------------------------------------- */
+
+void fill_A_CSR_soft_lessmem_cuda(
+    float *data, int *indptr, int *indices, int *d_ii,
+    int num_nonz, float *d_inv_mass, float *d_alpha_tilde,
+    int NV, int NT, int MAX_ADJ,
+    int *d_tet, float *d_pos, float *d_gradC)
+{
+    fill_A_CSR_soft_lessmem_kernel<<<num_nonz / 256 + 1, 256>>>(
+        data,
+        indptr,
+        indices, // jj is the same as indices
+        d_ii,
+        num_nonz,
+        d_inv_mass,
+        d_alpha_tilde,
+        NV,
+        NT,
+        MAX_ADJ,
+        d_tet,
+        d_pos,
+        d_gradC);
+
+    cudaDeviceSynchronize();
+    LAUNCH_CHECK();
+}
+
+
+
+void fill_A_CSR_cloth_cuda(
+    float *data, int *indptr, int *indices,
+    const int *d_ii,
+    const int *d_jj,
+    const int *d_adjacent_edge_abc,
+    const int *d_num_adjacent_edge,
+    const int num_nonz,
+    const float *d_inv_mass,
+    const float alpha_tilde,
+    const int NV,
+    const int NE,
+    const int *d_edges,
+    const float *d_pos)
+{
+    fill_A_CSR_cloth_kernel<<<num_nonz / 256 + 1, 256>>>(
+        data,
+        indptr,
+        indices,
+        d_ii,
+        d_jj,
+        d_adjacent_edge_abc,
+        d_num_adjacent_edge,
+        num_nonz,
+        d_inv_mass,
+        alpha_tilde,
+        NV,
+        NE,
+        d_edges,
+        d_pos);
+    cudaDeviceSynchronize();
+    LAUNCH_CHECK();
 }

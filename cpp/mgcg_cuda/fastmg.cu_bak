@@ -26,6 +26,8 @@
 #include <thrust/random.h>
 
 #include "kernels.cuh"
+#include "cuda_utils.cuh"
+#include "cusparse_wrappers.h"
 #include "mglevel.h"
 #include "smoother.h"
 #include "fastmg.h"

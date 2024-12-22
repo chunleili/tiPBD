@@ -71,3 +71,10 @@ void fill_A_CSR_cloth_cuda(
     const int NE,
     const int *d_edges,
     const float *d_pos);
+
+
+// get diagonal inverse of A, fill into a vector
+void calc_diag_inv_cuda(float *diag_inv, const float *data, const int *indices, const int *indptr, const int nrows);
+
+// get Aoff by set diagonal of A to 0
+void get_Aoff_cuda(float *Aoff_data, const int *indices, const int *indptr, const int nrows, const int numnonz);

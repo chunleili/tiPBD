@@ -322,13 +322,13 @@ float avg(std::vector<float> &v)
 
 void FastMG::get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff)
 {
+
     int n = A.nrows;
     // get diagonal inverse of A, fill into a vector
     Vec<float> d_diag_inv;
     d_diag_inv.resize(n);
-    calc_diag_inv_kernel<<<(n + 255) / 256, 256>>>(d_diag_inv.data(), A.data.data(), A.indices.data(), A.indptr.data(), n);
-    cudaDeviceSynchronize();
-    LAUNCH_CHECK();
+    calc_diag_inv_cuda(d_diag_inv.data(), A.data.data(), A.indices.data(), A.indptr.data(), n);
+
 
     // fill diag to a CSR matrix Dinv
     std::vector<int> seqence(n);
@@ -344,10 +344,9 @@ void FastMG::get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff
     Aoff.resize(n, n, A.numnonz);
     CHECK_CUDA(cudaMemcpy(Aoff.data.data(), A.data.data(), A.numnonz * sizeof(float), cudaMemcpyDeviceToDevice));
     Aoff.assign(Aoff.data.data(), A.numnonz, A.indices.data(), A.numnonz, A.indptr.data(), n + 1, n, n, A.numnonz);
+
     // get Aoff by set diagonal of A to 0
-    get_Aoff_kernel<<<(A.numnonz + 255) / 256, 256>>>(Aoff.data.data(), A.indices.data(), A.indptr.data(), n);
-    cudaDeviceSynchronize();
-    LAUNCH_CHECK();
+    get_Aoff_cuda(Aoff.data.data(), A.indices.data(), A.indptr.data(), n, A.numnonz);
 }
 
 

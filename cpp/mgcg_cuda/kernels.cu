@@ -508,3 +508,22 @@ void fill_A_CSR_cloth_cuda(
     cudaDeviceSynchronize();
     LAUNCH_CHECK();
 }
+
+
+
+
+void calc_diag_inv_cuda(float *diag_inv, const float *data, const int *indices, const int *indptr, const int nrows)
+{
+    // get diagonal inverse of A, fill into a vector
+    calc_diag_inv_kernel<<<(nrows + 255) / 256, 256>>>(diag_inv, data, indices, indptr, nrows);
+    cudaDeviceSynchronize();
+    LAUNCH_CHECK();
+}
+
+
+void get_Aoff_cuda(float *Aoff_data, const int *indices, const int *indptr, const int nrows, const int numnonz)
+{
+    get_Aoff_kernel<<<(numnonz + 255) / 256, 256>>>(Aoff_data, indices, indptr, nrows);
+    cudaDeviceSynchronize();
+    LAUNCH_CHECK();
+}

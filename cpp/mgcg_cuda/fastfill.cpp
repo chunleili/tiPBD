@@ -1,4 +1,5 @@
-#include "fastmg.h"
+// #include "fastmg.h"
+#include <set>
 #include "fastfill.h"
 #include "kernels.cuh"
 

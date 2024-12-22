@@ -107,8 +107,8 @@ float avg(std::vector<float> &v)
             levels.resize(1);
         }
 
-        levels.at(0).A.numnonz = ( ff->num_nonz);
-        levels.at(0).A.nrows = ( ff->nrows);
+        levels.at(0).A.numnonz = ( ff->m_nnz);
+        levels.at(0).A.nrows = ( ff->m_nrows);
 
         //FIXME: As in python code, we need copy A, why?
         levels.at(0).A.data.resize(ff->A.data.size());

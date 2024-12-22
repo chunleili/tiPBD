@@ -2,77 +2,10 @@
 #include "fastfill.h" 
 #include "meshio_tetgen.h"
 #include "physdata.h"
-#
+#include "linear_solver.h"
 
-using std::shared_ptr;
-using std::make_shared;
-using EigenSpMat = Eigen::SparseMatrix<float, Eigen::RowMajor>;
 
 using namespace fastmg;
-
-
-
-
-
-struct LinearSolver
-{
-    Eigen::VectorXf x0;
-    Eigen::VectorXf x;
-    float rtol = 1e-5;
-    int maxiter = 100;
-    std::vector<float> residuals;
-    int niter;
-    
-    Eigen::ConjugateGradient<Eigen::SparseMatrix<float>, Eigen::Upper> solver;
-
-
-    Eigen::VectorXf& LinearSolver::run(EigenSpMat& A, Eigen::VectorXf& b, bool should_setup=true);
-};
-
-
-Eigen::VectorXf& LinearSolver::run(EigenSpMat& A, Eigen::VectorXf& b, bool should_setup)
-{
-    // Eigen::Map<Eigen::SparseMatrix<float, Eigen::RowMajor>> A_sp(
-    //     A.nrows, A.ncols, A.nnz, A.indptr, A.indices, A.data);
-
-    x = solver.compute(A).solve(b);
-    
-    if(solver.info()!=Eigen::Success) {
-        std::cerr << "Solver failed" << std::endl;
-    }
-    return x;
-}
-
-
-// struct AmgCuda:LinearSolver
-// {
-//     FastMG *fastmg;
-//     AmgCuda(){fastmg = new FastMG();}
-
-//     void run(SpMatData& A, Field1f& b, bool should_setup=true)
-//     {
-//         if (should_setup)
-//         {
-//             fastmg->setup();
-//         }
-
-//         fastmg->set_A0(A.data, A.nnz, A.indices, A.nnz, A.indptr, A.nrows + 1, A.nrows, A.ncols, A.nnz);
-//         x0.clear()
-//         x0.resize(b.size())
-//         fastmg->set_data(x0.data(), x0.size(), b.data(), b.size(), rtol, maxiter);
-//         fastmg->solve();
-
-//         x.clear();
-//         x.resize(b.size());
-//         residuals.resize(maxiter);
-//         niter = fastmg->get_data(x.data(), residuals.data())
-//         niter+=1;
-//         residuals.resize(niter);
-
-//         printf("    inner iter: %d", niter);
-//         printf("    residual: %.6e->%.6e",residuals[0], residuals[niter-1]);
-//     }
-// };
 
 
 Eigen::Matrix<float, 3, 9> make_matrix(float x, float y, float z) {
@@ -162,23 +95,21 @@ void compute_C_and_gradC_imply(Field3f &pos_mid, Field4i &vert, FieldMat3f &B, F
 
 struct FastFillSoftWrapper:FastFillSoft
 {
-    SpMatData m_A;
+    SpMatData *m_hostA;
     FastFillSoftWrapper()  = delete;
-    FastFillSoftWrapper(Field4i tet) : FastFillSoft(tet) {}
-    FastFillSoftWrapper(PhysData *d) : FastFillSoft(d) {}
-    SpMatData run(Field3f &pos, Field43f &gradC);
+    FastFillSoftWrapper(PhysData *d, SpMatData*A) : FastFillSoft(d), m_hostA(A) {};
+    SpMatData* run(Field3f &pos, Field43f &gradC);
 };
 
 
 
-SpMatData FastFillSoftWrapper::run(Field3f &pos, Field43f &gradC)
+SpMatData* FastFillSoftWrapper::run(Field3f &pos, Field43f &gradC)
 {
     float* p = pos[0].data();
     float* g = gradC[0][0].data();
     FastFillSoft::run(p, g);
-    FastFillSoft::fetch_A(m_A);
-
-    return m_A;
+    FastFillSoft::fetch_A(*m_hostA);
+    return m_hostA;
 }
 
 
@@ -191,17 +122,17 @@ struct SoftBody
     PhysData* m_d;
     FastFillSoftWrapper* m_ff;
     std::vector<float> residuals;
-    EigenSpMat A;
+    SpMatData *m_hostA;
     SoftBody(PhysData* d);
     ~SoftBody();
     void semi_euler(PhysData* m_d);
     void update_vel(PhysData* m_d);
-    Field3f&  dlam2dpos(PhysData* m_d, Eigen::VectorXf& dlam);
+    Field3f&  dlam2dpos(PhysData* m_d, Field1f& dlam);
     void compute_b(PhysData* m_d);
     void compute_C_and_gradC(PhysData* m_d);
     void copy_pos_mid();
     void update_pos(PhysData* m_d, Field3f& pos, Field3f& dpos);
-    EigenSpMat fillA(PhysData* m_d);
+    void fillA(PhysData* m_d);
     void project_arap_oneiter(PhysData* m_d);
     void substep(int maxiter=10);
 };
@@ -212,11 +143,14 @@ SoftBody::SoftBody(PhysData* d) : m_d(d)
     // physics data
     // m_d is already initialized in the initializer list
 
+    // create the system matrix
+    m_hostA = new SpMatData();
+    
     // create the fastfill
-    m_ff = new FastFillSoftWrapper(m_d);
+    m_ff = new FastFillSoftWrapper(m_d, m_hostA);
 
     // create the linear solver
-    m_linsol = new LinearSolver();
+    m_linsol = new AmgclSolver();
 
 };
 
@@ -235,7 +169,7 @@ void SoftBody::compute_b(PhysData* m_d) {
     Field1f& alpha_tilde = m_d->alpha_tilde;
     Field1f& lam = m_d->lam;
     Field1f& constraints = m_d->constraints;
-    Eigen::VectorXf& b = m_d->b;
+    Field1f& b = m_d->b;
     int NCONS = m_d->NCONS;
 
     for (int i=0; i<NCONS; i++) {
@@ -256,7 +190,7 @@ void SoftBody::compute_C_and_gradC(PhysData* m_d) {
 
 
 
-Field3f& SoftBody::dlam2dpos(PhysData* m_d, Eigen::VectorXf& dlam)
+Field3f& SoftBody::dlam2dpos(PhysData* m_d, Field1f& dlam)
 {
     Field43f& gradC = m_d->gradC;
     Field4i& vert = m_d->vert;
@@ -319,10 +253,9 @@ void SoftBody::copy_pos_mid() {
 }
 
 
-EigenSpMat SoftBody::fillA(PhysData* m_d) {
-    m_ff->run(m_d->pos, m_d->gradC);
-    // m_ff->fetch_A(A.valuePtr(), A.innerIndexPtr(), A.outerIndexPtr());
-    return A;
+void SoftBody::fillA(PhysData* m_d) {
+    m_hostA = m_ff->run(m_d->pos, m_d->gradC);
+    return ;
 }
 
 
@@ -331,8 +264,8 @@ void SoftBody::project_arap_oneiter(PhysData* m_d) {
     copy_pos_mid();
     compute_C_and_gradC(m_d);
     compute_b(m_d);
-    A = fillA(m_d);
-    m_d->dlam = m_linsol->run(A,m_d->b);
+    fillA(m_d);
+    m_d->dlam = m_linsol->run(m_hostA,m_d->b);
     m_d->dpos = dlam2dpos(m_d, m_d->dlam);
     update_pos(m_d, m_d->pos, m_d->dpos);
 }
@@ -378,8 +311,8 @@ void SoftBody::update_vel(PhysData *m_d)
 
 std::pair<Field3f, Field4i> readmesh()
 {
-    std::string file="D:/Dev/tiPBD/data/model/bunny_small/bunny_small";
-
+    std::string file="D:/Dev/tiPBD/data/model/cube/minicube";
+            
     auto [pos,vert,face] = read_tetgen(file);
     // change pos to vector of vec3f
     Field3f pos3f(pos.size()/3);

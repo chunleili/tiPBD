@@ -126,6 +126,19 @@
               "-restart_file=result/meta/0099.npz"
               
             ]
-          }   
+          }   ,
+          {
+            "name": "debug for lib",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+              "-mu=1e8",
+              "-delta_t=1e-3",
+              "-model_path=data/model/cube/minicube.node"
+            ]
+          },  
     ]
 }

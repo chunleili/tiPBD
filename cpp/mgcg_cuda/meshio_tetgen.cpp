@@ -19,6 +19,11 @@ std::tuple<std::vector<float>, std::vector<int>, std::vector<int>> read_tetgen(s
     std::ifstream f(node_file_name);
     std::string line;
     std::getline(f, line);
+    // if start with #, skip
+    if (line[0] == '#')
+    {
+        std::getline(f, line);
+    }
     std::istringstream iss(line);
     int NV;
     iss >> NV;
@@ -37,6 +42,11 @@ std::tuple<std::vector<float>, std::vector<int>, std::vector<int>> read_tetgen(s
 
     std::ifstream f2(ele_file_name);
     std::getline(f2, line);
+    // if start with #, skip
+    if (line[0] == '#')
+    {
+        std::getline(f2, line);
+    }
     std::istringstream iss2(line);
     int NT;
     iss2 >> NT;
@@ -56,6 +66,11 @@ std::tuple<std::vector<float>, std::vector<int>, std::vector<int>> read_tetgen(s
 
     std::ifstream f3(face_file_name);
     std::getline(f3, line);
+    // if start with #, skip
+    if (line[0] == '#')
+    {
+        std::getline(f3, line);
+    }
     std::istringstream iss3(line);
     int NF;
     iss3 >> NF;

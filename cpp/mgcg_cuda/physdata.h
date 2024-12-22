@@ -21,8 +21,8 @@ struct PhysData
     float omega;
     Field43f gradC;
     Vec3f gravity;
-    Eigen::VectorXf dlam;
-    Eigen::VectorXf b;
+    Field1f dlam;
+    Field1f b;
 
     PhysData();
     PhysData(size_t NV, size_t NCONS, Field3f &pos, Field4i &vert);

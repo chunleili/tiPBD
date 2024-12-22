@@ -30,6 +30,9 @@ using Eigen::Map;
 using Eigen::Vector3f;
 using Eigen::VectorXf;
 using Mat3f = Eigen::Matrix<float, 3, 3, Eigen::RowMajor>;
+using EigenSpMat = Eigen::SparseMatrix<float, Eigen::RowMajor>;
+using MapEigenSpmat = Eigen::Map<EigenSpMat>;
+using Eigen::RowMajor;
 
 // typedefs
 using Vec3f = Eigen::Vector3f;

@@ -27,16 +27,14 @@ CUDA_STANDARD 17
 CUDA_ARCHITECTURES "60;70;75;80;86;89")
 
 
-add_executable(main main.cpp  meshio_tetgen.cpp physdata.cpp  linear_solver.cpp)
-target_include_directories(main PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen
-)
-set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON
-CUDA_STANDARD 17
-CUDA_ARCHITECTURES "60;70;75;80;86;89")
-add_subdirectory(extern/amgcl)
-add_dependencies(main fastmg amgcl)
-target_link_libraries(main PRIVATE fastmg amgcl)
+# add_subdirectory(extern/amgcl)
+set(CUDA_NVCC_FLAGS "")
+add_executable(main main.cpp  meshio_tetgen.cpp physdata.cpp  linear_solver.cpp kernels.cu fastfill.cpp)
+target_compile_definitions(main PUBLIC AMGCL_NO_BOOST)
+target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen
+${CMAKE_CURRENT_SOURCE_DIR}/extern/amgcl)
+add_dependencies(main fastmg)
+target_link_libraries(main PRIVATE fastmg)
 
 ## -------------------------------------------------------------------------- */
 ##                                optional targets                            */

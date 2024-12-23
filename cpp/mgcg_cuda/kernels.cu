@@ -239,7 +239,7 @@ __global__ void fill_A_CSR_soft_lessmem_kernel(
     }
     else // offdiag 
     {
-        int k = cnt - indptr[i]; // k-th element in row i
+        // int k = cnt - indptr[i]; // k-th element in row i
 
         float offdiag = 0.0;
 
@@ -376,7 +376,7 @@ __global__ void scale_csr_by_row(float *data_new, float *data, const int *indice
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < nrows) {
         for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
-            size_t j = indices[n];
+            // size_t j = indices[n];
              data_new[n] = data[n] * diag_inv[i];
         }
     }

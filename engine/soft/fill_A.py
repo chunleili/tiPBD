@@ -17,11 +17,15 @@ def init_adj_ele(eles):
             vertex_to_eles[v3] = set()
         if v4 not in vertex_to_eles:
             vertex_to_eles[v4] = set()
-        
+
         vertex_to_eles[v1].add(ele_index)
         vertex_to_eles[v2].add(ele_index)
         vertex_to_eles[v3].add(ele_index)
         vertex_to_eles[v4].add(ele_index)
+
+    # sort 
+    for k in vertex_to_eles.keys():
+        vertex_to_eles[k] = set(sorted(list(vertex_to_eles[k])))
 
     all_adjacent_eles = {}
 
@@ -29,7 +33,7 @@ def init_adj_ele(eles):
         v1, v2, v3, v4 = eles[ele_index]
         adjacent_eles = vertex_to_eles[v1] | vertex_to_eles[v2] | vertex_to_eles[v3] | vertex_to_eles[v4]
         adjacent_eles.remove(ele_index)  # 移除本身
-        all_adjacent_eles[ele_index] = list(adjacent_eles)
+        all_adjacent_eles[ele_index] = sorted(list(adjacent_eles))# sort
     return all_adjacent_eles, vertex_to_eles
 
 

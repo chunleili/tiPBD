@@ -85,10 +85,28 @@ Field1f& EigenSolver::run(SpMatData* hostA, Field1f& b, bool should_setup)
     int nrows = hostA->nrows();
     int ncols = hostA->ncols();
     int nnz = hostA->nnz();
-    // https://www.eigen.tuxfamily.org/dox/classEigen_1_1Map_3_01SparseMatrixType_01_4.html
-    Eigen::Map<EigenSpMat> eigenA(
-        nrows, ncols, nnz, hostA->indptr.data(), hostA->indices.data(), hostA->data.data());
-    Eigen::SimplicialLLT<EigenSpMat,Eigen::Lower|Eigen::Upper> solver;
+
+    // transfer the A to Eigen
+    // // https://www.eigen.tuxfamily.org/dox/classEigen_1_1Map_3_01SparseMatrixType_01_4.html
+    // Eigen::Map<EigenSpMat> eigenA(
+    //     nrows, ncols, nnz, hostA->indptr.data(), hostA->indices.data(), hostA->data.data());
+    // Workaround for Eigen bug, deep copy the data
+    EigenSpMat eigenA = EigenSpMat(nrows, ncols);
+    eigenA.reserve(nnz);
+    typedef Eigen::Triplet<float> T;
+    std::vector<T> tripletList;
+    tripletList.reserve(nrows);
+    for(int i = 0; i < nrows; i++)
+    {
+        for(int j = hostA->indptr[i]; j < hostA->indptr[i+1]; j++)
+        {
+            tripletList.push_back(T(i, hostA->indices[j], hostA->data[j]));
+        }
+    }
+    eigenA.setFromTriplets(tripletList.begin(), tripletList.end());
+
+
+    Eigen::BiCGSTAB<EigenSpMat> solver;
     solver.compute(eigenA);
     Map<VectorXf> b_(b.data(), b.size());
     Eigen::VectorXf x = solver.solve(b_);

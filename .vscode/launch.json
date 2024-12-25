@@ -127,5 +127,23 @@
               
             ]
           }   
+          ,
+          {
+            "name": "debug muscle2muscle",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+              "-end_frame=100",
+              "-use_muscle2muscle=1",
+              "-use_pintotarget=1",
+              "-maxiter=20",
+              "-mu=1e9",
+              "-use_gravity=1",
+              "-geo_dir=data/model/extraSpring",
+            ]
+          }   
     ]
 }

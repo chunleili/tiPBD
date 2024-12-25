@@ -93,7 +93,7 @@ class SoftBody(PhysicalBase):
         self.frame=1
         self.initial_frame=1
 
-        if args.use_extra_spring or args.use_pintoanimation or args.use_pintotarget:
+        if args.use_extra_spring or args.use_pintoanimation or args.use_pintotarget or args.use_muscle2muscle:
             args.use_houdini_data=1
 
         if args.use_houdini_data:
@@ -102,6 +102,8 @@ class SoftBody(PhysicalBase):
                 self.read_extra_spring_rest()
             if args.use_pintotarget:
                 self.read_pintotarget_rest()
+            if args.use_muscle2muscle:
+                self.read_muscle2muscle_rest()
             self.init_physics()
         else:
             self.build_mesh(mesh_file)
@@ -180,13 +182,41 @@ class SoftBody(PhysicalBase):
         self.extra_springs.set_rest_len(consgeo.get_restlength())
 
 
+    def read_muscle2muscle_rest(self,):
+        """ read muscle2muscle topology from geo file
+            It start from pt_index 1
+        """
+        dir = prj_path + "/" + args.geo_dir + "/"
+        m2mgeo = Geo(dir+f"m2m.geo")
+        self.m2mgeo = m2mgeo
+
+        # source pt(interior pt of muscle A)
+        src = np.array(m2mgeo.get_pts())
+
+        # target pts (surface pts of muscle B, could be multiple)
+        tps = (m2mgeo.get_target_pts())
+
+        # pairs of (p1, p2)
+        pairs = []
+        for i,p1 in enumerate(src):
+            p2s = tps[i]
+            for k,p2 in enumerate(p2s):
+                pairs.append((p1,p2))
+
+        pairs_np = np.array(pairs)
+        p1 = python_list_to_ti_field(pairs_np[:,0].tolist())
+        p2 = python_list_to_ti_field(pairs_np[:,1].tolist())
+        from engine.constraints.distance_constraints import DistanceConstraints
+        self.m2mCons = DistanceConstraints(p1,p2, self.pos )
+
+
     def read_pintotarget_rest(self,):
         dir = prj_path + "/" + args.geo_dir + "/"
         consgeo = Geo(dir+f"cons_1.geo")
         self.consgeo_rest = consgeo
         
         # read connectivity
-        # first column is target(driving point), second column is source(driven)
+        # target_pos is driving point, pts is source points(to be driven)
         pts1 = np.array(consgeo.get_pts())
         pts = ti.field(int, pts1.shape[0])
         pts.from_numpy(pts1)
@@ -196,7 +226,7 @@ class SoftBody(PhysicalBase):
         pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
         pos.from_numpy(pos1)
 
-        # read target pt(driving)
+        # read target pos(driving)
         target_pos = np.array(consgeo.get_target_pos(),dtype=np.float32)
         self.target_pos = ti.Vector.field(3, ti.f32, target_pos.shape[0])
         self.target_pos.from_numpy(target_pos)
@@ -521,7 +551,10 @@ class SoftBody(PhysicalBase):
         if args.use_pintotarget:
             if self.ite ==0:
                 self.pintotarget.solve(self.pos, self.target_pos, args.maxiter)
-
+        if args.use_muscle2muscle:
+            if self.ite ==0:
+                self.m2mCons.aos.lam.fill(0.0)
+            self.m2mCons.solve_one_iter(self.pos, args.delta_t)
 
     def substep_all_solver(self):
         self.semi_euler()

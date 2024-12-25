@@ -635,3 +635,9 @@ def python_list_to_ti_field(l:list):
     f.from_numpy(ndarr)
     return f
         
+
+def ndarray_to_ti_field(l:np.ndarray):
+    l_ = l.tolist()
+    f = python_list_to_ti_field(l_)
+    return f
+        

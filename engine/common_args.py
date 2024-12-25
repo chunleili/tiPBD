@@ -51,4 +51,5 @@ def add_common_args(parser):
     parser.add_argument("-geo_dir", type=str, default=f"data/model/extraSpring/")
     parser.add_argument("-use_extra_spring", type=int, default=False)
     parser.add_argument("-use_pintotarget", type=int, default=False)
+    parser.add_argument("-use_muscle2muscle", type=int, default=False)
     return parser

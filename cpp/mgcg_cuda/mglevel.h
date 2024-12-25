@@ -3,6 +3,7 @@
 
 #include "Vec.h"
 #include "CSR.h"
+#include <array>
 
 namespace fastmg
 {

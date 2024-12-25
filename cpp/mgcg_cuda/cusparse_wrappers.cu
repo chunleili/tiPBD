@@ -1,4 +1,30 @@
 
+#include <algorithm>
+#include <cassert>
+#include <cstring>
+#include <fstream>
+#include <vector>
+#include <cuda_runtime.h>
+#include <cublas_v2.h>
+#include <cusparse.h>
+#include <cusolverSp.h>
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <cstdio>
+#include <cmath>
+#include <chrono>
+#include <array>
+#include <unordered_set>
+#include <unordered_map>
+#include <map>
+#include <set>
+#include <numeric>
+
+#include <thrust/device_vector.h>
+#include <thrust/transform.h>
+#include <thrust/inner_product.h>
+#include <thrust/random.h>
 #include "cusparse_wrappers.h"
 
 namespace fastmg{

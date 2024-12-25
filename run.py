@@ -1731,10 +1731,10 @@ allargs.append(args)
 
 
 # case156: 
-casenames[len(allargs)] = "capybara-3ms"
+casenames[len(allargs)] = "capybara-fullbody"
 args = ["engine/soft/soft3d.py",
         f"-out_dir=result/{casenames[len(allargs)]}",
-        "-end_frame=300",
+        "-end_frame=600",
         "-use_pintotarget=1",
         "-maxiter=20",
         "-mu=1e9",

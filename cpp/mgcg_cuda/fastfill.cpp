@@ -120,6 +120,10 @@ void FastFillSoft::fetch_A(SpMatData &A_out) {
     A.fetch(A_out.data, A_out.indices, A_out.indptr);
 }
 
+void FastFillSoft::get_ii(std::vector<int> &ii_out) {
+    ii_out = this->m_ii;
+}
+
 void FastFillSoft::set_data_v2(int* tet_in, int NT_in, float* inv_mass_in, int NV_in, float* pos_in, float* alpha_tilde_in)
 {
     NT = NT_in;

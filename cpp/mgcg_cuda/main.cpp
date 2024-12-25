@@ -109,6 +109,7 @@ SpMatData* FastFillSoftWrapper::run(Field3f &pos, Field43f &gradC)
     float* g = gradC[0][0].data();
     FastFillSoft::run(p, g);
     FastFillSoft::fetch_A(*m_hostA);
+    FastFillSoft::get_ii(m_hostA->ii);
     return m_hostA;
 }
 
@@ -150,7 +151,7 @@ SoftBody::SoftBody(PhysData* d) : m_d(d)
     m_ff = new FastFillSoftWrapper(m_d, m_hostA);
 
     // create the linear solver
-    m_linsol = new AmgclSolver();
+    m_linsol = new EigenSolver();
 
 };
 
@@ -253,6 +254,34 @@ void SoftBody::copy_pos_mid() {
 }
 
 
+
+Eigen::Matrix<float,-1,-1,RowMajor>
+ spmat_to_dense(SpMatData* spA)
+{
+    int nrows = spA->nrows();
+    int ncols = spA->ncols();
+    int nnz = spA->nnz();
+    Eigen::Matrix<float,-1,-1,RowMajor> dense(nrows, ncols);
+    for(int i=0; i<nrows; i++)
+    {
+        for(int j=0; j<ncols; j++)
+        {
+            dense(i,j) = 0.0;
+        }
+    }
+    for(int i=0; i<nrows; i++)
+    {
+        for(int j=spA->indptr[i]; j<spA->indptr[i+1]; j++)
+        {
+            dense(i, spA->indices[j]) = spA->data[j];
+        }
+    }
+    return dense;
+}
+
+
+
+
 void SoftBody::fillA(PhysData* m_d) {
     m_hostA = m_ff->run(m_d->pos, m_d->gradC);
     return ;
@@ -311,8 +340,8 @@ void SoftBody::update_vel(PhysData *m_d)
 
 std::pair<Field3f, Field4i> readmesh()
 {
-    std::string file="D:/Dev/tiPBD/data/model/cube/minicube";
-            
+    std::string file="D:/Dev/tiPBD/data/model/bunny_small/bunny_small";
+
     auto [pos,vert,face] = read_tetgen(file);
     // change pos to vector of vec3f
     Field3f pos3f(pos.size()/3);

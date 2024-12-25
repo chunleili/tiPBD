@@ -133,7 +133,8 @@ class ResidualDataOneIter:
 
         s+= f" t_iter:{self.t_iter*1000:.2f}ms"
 
-        logging.info(s)
+        # FIXME: there is bug with dualr but I dont know now, just use legacy AMG_calc_r will work
+        # logging.info(s)
 
     def calc_r0(self):
         tic = perf_counter()
@@ -382,7 +383,7 @@ def main_loop(ist,args):
     ist.r_all.t_export = 0.0
 
     try:
-        for f in range(ist.initial_frame, args.end_frame):
+        for f in range(ist.initial_frame, args.end_frame+1):
             ist.tic_frame = time.perf_counter()
 
             if args.solver_type == "XPBD":

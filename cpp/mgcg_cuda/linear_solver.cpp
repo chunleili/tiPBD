@@ -1,6 +1,7 @@
 #include "linear_solver.h"
 #include "SpMatData.h"
 #include "common.h"
+#include <unsupported/Eigen/SparseExtra>
 
 #include <vector>
 #include <iostream>
@@ -18,16 +19,47 @@
 #include <amgcl/io/mm.hpp>
 #include <amgcl/profiler.hpp>
 
+
+#include "eigen/unsupported/Eigen/SparseExtra"
+#include "mmio.h"
+
+template<typename T = EigenSpMat>
+ void saveMatrix(T& d, std::string filename = "mat")
+ {
+     Eigen::saveMarket(d, filename);
+ }
+
+template<typename T=VectorXf>
+void savetxt(T &field, std::string filename)
+{
+    std::ofstream myfile;
+    myfile.open(filename);
+    for(auto &i:field)
+    {
+        myfile << i << '\n';
+    }
+    myfile.close();
+}
+
+
 Field1f& AmgclSolver::run(SpMatData* A_, Field1f& b, bool should_setup)
 {
     // The profiler:
-    amgcl::profiler<> prof("poisson3Db");
+    amgcl::profiler<> prof("amgclSolver");
 
     int rows = A_->nrows();
     // We use the tuple of CRS arrays to represent the system matrix.
     // Note that std::tie creates a tuple of references, so no data is actually
     // copied here:
-    auto A = std::tie(rows, A_->indptr, A_->indices, A_->data);
+    std::vector<int> indptr = A_->indptr;
+    std::vector<int> indices = A_->indices;
+    std::vector<float> data = A_->data;
+    // auto A = std::tie(rows, A_->indptr, A_->indices, A_->data);
+    auto A = std::tie(rows, indptr, indices, data);
+
+    // mmwrite(A_,"A2.mtx");
+    // savetxt(b,"b.mtx");
+
 
     // Compose the solver type
     //   the solver backend:
@@ -105,10 +137,12 @@ Field1f& EigenSolver::run(SpMatData* hostA, Field1f& b, bool should_setup)
     }
     eigenA.setFromTriplets(tripletList.begin(), tripletList.end());
 
-
-    Eigen::BiCGSTAB<EigenSpMat> solver;
-    solver.compute(eigenA);
     Map<VectorXf> b_(b.data(), b.size());
+    // saveMatrix(eigenA, "eigenA.mtx");
+    // savetxt(b_, "b.mtx");
+
+    Eigen::SimplicialLLT<EigenSpMat> solver;
+    solver.compute(eigenA);
     Eigen::VectorXf x = solver.solve(b_);
     if(solver.info()!=Eigen::Success) {
         std::cerr << "Solver failed" << std::endl;

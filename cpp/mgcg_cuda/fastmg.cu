@@ -33,6 +33,7 @@
 #include "vcycle.h"
 #include "Vec.h"
 #include "CSR.h"
+#include "mmio.h"
 
 using std::cout;
 using std::endl;
@@ -62,6 +63,14 @@ float avg(std::vector<float> &v)
     {
         levels.at(lv).scale_RAP = s;
         cout<<"Set scale_RAP: "<<levels.at(lv).scale_RAP<<"  at level "<<lv<<endl;
+    }
+
+    void  FastMG::setup() {
+        // workaround for setup:read from P.mtx
+        std::string filename = "P.mtx";
+        SpMatData P;
+        mmread(&P,filename);
+        levels.at(0).P.assign_v2(P.data.data(), P.indices.data(), P.indptr.data(), P.nrows(), P.ncols(), P.nnz());
     }
 
 

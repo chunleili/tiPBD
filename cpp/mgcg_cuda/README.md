@@ -127,3 +127,11 @@ It will install the module in the site-packages folder of the python environment
 If you want to uninstall the module, use `pip uninstall mgcg_cuda`.
 
 Installing is not necessary. It may take long time. I suggest you to install it only if you have finished the development and want to publish the module.
+
+
+# Pure C++ version 
+## SoftBody
+
+target: main_softbody
+
+Usage: see main function in main_softbody.cpp

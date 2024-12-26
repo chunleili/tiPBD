@@ -112,8 +112,8 @@ void AmgclSolver::run(SpMatData* A_, Field1f& b, bool should_setup)
 
     // Output the number of iterations, the relative error,
     // and the profiling data:
-    std::cout << "Iters: " << iters << std::endl
-              << "Error: " << error << std::endl;
+    std::cout << "  Linear solver iters: " << iters 
+              << "\terror: " << error << std::endl;
             //   << prof << std::endl;
 }
 

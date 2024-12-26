@@ -6,6 +6,8 @@
 /// 
 struct PhysData
 {
+    size_t ite=0;          // current constraint iteration number
+    size_t frame=0;        // current frame number
     size_t NV=0;
     size_t NCONS=0; //number of constraints
     Field3f pos;

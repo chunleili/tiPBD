@@ -1,6 +1,7 @@
 #include "common.h"
 #include "fastfill.h" 
 #include "meshio_tetgen.h"
+#include "meshio_obj.h"
 #include "physdata.h"
 #include "linear_solver.h"
 
@@ -244,8 +245,9 @@ void SoftBody::substep(int maxiter)
 {
     semi_euler(m_d);
     std::fill(m_d->lam.begin(), m_d->lam.end(), 0.0);
-    for(int i=0; i<maxiter; i++)
+    for(m_d->ite=0; m_d->ite<maxiter; m_d->ite++)
     {
+        printf("iter = %d\n", m_d->ite);
         project_arap_oneiter(m_d);
     }
     update_vel(m_d);
@@ -263,7 +265,7 @@ void SoftBody::copy_pos_mid() {
 
 
 void SoftBody::fillA(PhysData* m_d) {
-    m_hostA = m_ff->run(m_d->pos, m_d->gradC);
+    m_hostA = m_ff->run(m_d->pos_mid, m_d->gradC);
     return ;
 }
 
@@ -319,25 +321,30 @@ void SoftBody::update_vel(PhysData *m_d)
 }
 
 
-std::pair<Field3f, Field4i> readmesh()
+std::tuple<Field3f, Field4i, Field3i> readmesh(std::string file)
 {
-    std::string file="D:/Dev/tiPBD/data/model/bunny_small/bunny_small";
-
     auto [pos,vert,face] = read_tetgen(file);
-    // change pos to vector of vec3f
+    // reshape pos to vector of Vec3f
     Field3f pos3f(pos.size()/3);
     for(int i=0; i<pos.size(); i+=3)
     {
         pos3f.at(i/3) = Vec3f(pos[i], pos[i+1], pos[i+2]);
     }
-    // change vert to vector of vec4i
+    // reshape vert to vector of Vec4i
     Field4i vert4i(vert.size()/4);
     for(int i=0; i<vert.size(); i+=4)
     {
         vert4i.at(i/4) = Vec4i{vert[i], vert[i+1], vert[i+2], vert[i+3]};
     }
-    return std::move(std::make_pair(pos3f, vert4i));
+    // reshape face to vector of Vec3i
+    Field3i face3i(face.size()/3);
+    for(int i=0; i<face.size(); i+=3)
+    {
+        face3i.at(i/3) = Vec3i{face[i], face[i+1], face[i+2]};
+    }
+    return std::move(std::make_tuple(pos3f, vert4i, face3i));
 }
+
 
 void reinit(Field3f& pos)
 {
@@ -347,19 +354,37 @@ void reinit(Field3f& pos)
     }
 }
 
+
+
+void write_mesh(int frame_num, Field3f &pos, Field3i &face)
+{
+    // tic();
+    std::filesystem::path p(__FILE__);
+    std::filesystem::path prj_path = p.parent_path().parent_path().parent_path();
+    auto proj_dir_path = prj_path.string();
+    std::string mesh_dir = proj_dir_path + "/result/latest/mesh/";
+
+    std::string out_mesh_name = mesh_dir + std::to_string(frame_num) + ".obj";
+    write_obj(out_mesh_name, pos, face);
+    // toc("output mesh");
+}
+
+
 // example usage
 int main()
 {
-    auto [pos,vert] = readmesh();
+    auto [pos,vert, face] = readmesh("D:/Dev/tiPBD/data/model/bunny_small/bunny_small");
     // all physical data in in this class
     PhysData d(pos, vert, 1e6, 3e-3);
     SoftBody sb(&d);
     //enlarge the model to see deformation, in your case, you can skip this step
     reinit(d.pos);
 
-    for(int i=0; i<100; i++)
+    for(d.frame=1; d.frame<100; d.frame++)
     {
+        printf("\n-------------\nframe = %d\n", d.frame);
         sb.substep();
+        write_mesh(d.frame, d.pos, face);
     }
 
     return 0;

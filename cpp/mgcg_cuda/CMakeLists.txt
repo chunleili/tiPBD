@@ -29,17 +29,18 @@ CUDA_ARCHITECTURES "60;70;75;80;86;89")
 
 # add_subdirectory(extern/amgcl)
 set(CUDA_NVCC_FLAGS "")
-add_executable(main main.cpp  meshio_tetgen.cpp physdata.cpp  linear_solver.cpp kernels.cu fastfill.cpp  
+add_executable(main_softbody main_softbody.cpp  meshio_tetgen.cpp physdata.cpp  linear_solver.cpp kernels.cu fastfill.cpp  
 # soureces related to the fastmg
-fastmg.cu cuda_utils.cu kernels.cu fastfill.cpp cusparse_wrappers.cu smoother.cu vcycle.cu mgpcg.cu)
-target_compile_definitions(main PUBLIC AMGCL_NO_BOOST)
-set_target_properties(main PROPERTIES CUDA_SEPARABLE_COMPILATION ON
+fastmg.cu cuda_utils.cu kernels.cu fastfill.cpp cusparse_wrappers.cu smoother.cu vcycle.cu mgpcg.cu
+meshio_obj.cpp)
+target_compile_definitions(main_softbody PUBLIC AMGCL_NO_BOOST)
+set_target_properties(main_softbody PROPERTIES CUDA_SEPARABLE_COMPILATION ON
 CUDA_STANDARD 17
 CUDA_ARCHITECTURES "60;70;75;80;86;89")
-target_include_directories(main PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen
+target_include_directories(main_softbody PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen
 ${CMAKE_CURRENT_SOURCE_DIR}/extern/amgcl)
-add_dependencies(main fastmg)
-target_link_libraries(main PRIVATE fastmg)
+add_dependencies(main_softbody fastmg)
+target_link_libraries(main_softbody PRIVATE fastmg)
 
 ## -------------------------------------------------------------------------- */
 ##                                optional targets                            */

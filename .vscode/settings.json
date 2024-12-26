@@ -116,4 +116,6 @@
     "notebook.output.wordWrap": true,
     "C_Cpp.vcFormat.newLine.closeBraceSameLine.emptyFunction": true,
     "editor.wordWrap": "on",
+    "cmake.sourceDirectory": "${workspaceFolder}/cpp/mgcg_cuda",
+    "cmake.buildDirectory": "${workspaceFolder}/cpp/mgcg_cuda/build"
 }

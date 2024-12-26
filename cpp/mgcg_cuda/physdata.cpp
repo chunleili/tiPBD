@@ -1,21 +1,24 @@
 #pragma once
 #include "physdata.h"
 
-PhysData::PhysData(size_t NV, size_t NCONS, Field3f &pos,Field4i &vert)
+PhysData::PhysData(Field3f &pos,Field4i &vert, float mu, float delta_t)
 {
-    resize(NV,NCONS);
+    this->NV = pos.size();
+    this->NCONS = vert.size();
+    resize(this->NV,this->NCONS);
     this->pos = pos;
     this->vert = vert;
-    this->init_B(pos,vert);
-    this->delta_t = 1e-3;
+    this->init_physics(pos,vert,mu,delta_t);
     std::fill(inv_mass.begin(), inv_mass.end(), 1.0);
-    std::fill(alpha_tilde.begin(), alpha_tilde.end(), 1e-8/(this->delta_t * this->delta_t));
     this->gravity = Vec3f(0.0, -9.8, 0.0);
 };
 
 
-void PhysData::init_B(Field3f &pos, Field4i &vert)
+void PhysData::init_physics(Field3f &pos, Field4i &vert, float arap_mu, float delta_t)
 {
+    // init B and rest_volume
+    rest_volume.resize(vert.size());
+    B.resize(vert.size());
     for(int i=0; i<vert.size(); i++)
     {
         int ia = vert[i][0];
@@ -34,7 +37,24 @@ void PhysData::init_B(Field3f &pos, Field4i &vert)
         D_m.col(1) = p2 - p0;
         D_m.col(2) = p3 - p0;
 
-        B[i] = D_m.inverse();
+        this->B[i] = D_m.inverse();
+        this->rest_volume[i] = 1.0 / 6.0 * std::abs(D_m.determinant());
+    }
+
+    // init delta_t
+    this->delta_t = delta_t;
+
+    // init alpha_tilde
+    float inv_mu = 1.0 / arap_mu;
+    float inv_h2 = 1.0 / (delta_t * delta_t);
+    if(NCONS==0)
+        throw std::runtime_error("NCONS==0!");
+    this->alpha_tilde.resize(NCONS);
+    for (int i = 0; i < alpha_tilde.size(); i++)
+    {
+        if (rest_volume[i]<=0.0)
+            throw std::runtime_error("rest_volume <= 0.0, please check the input tet mesh  or init the rest_volume(by init_B) first!");
+        this->alpha_tilde[i] = inv_h2 * inv_mu * 1.0/rest_volume[i];
     }
 }
 

@@ -97,8 +97,14 @@ struct FastFillSoftWrapper:FastFillSoft
 {
     SpMatData *m_hostA;
     FastFillSoftWrapper()  = delete;
-    FastFillSoftWrapper(PhysData *d, SpMatData*A) : FastFillSoft(d), m_hostA(A) {};
+    FastFillSoftWrapper(PhysData *d, SpMatData*A);
     SpMatData* run(Field3f &pos, Field43f &gradC);
+};
+
+
+FastFillSoftWrapper::FastFillSoftWrapper(PhysData *d, SpMatData*A) : FastFillSoft(d), m_hostA(A) {
+    this->d_alpha_tilde.assign(d->alpha_tilde.data(), d->NCONS);
+    this->d_inv_mass.assign(d->inv_mass.data(), d->NV);
 };
 
 
@@ -151,7 +157,7 @@ SoftBody::SoftBody(PhysData* d) : m_d(d)
     m_ff = new FastFillSoftWrapper(m_d, m_hostA);
 
     // create the linear solver
-    m_linsol = new EigenSolver();
+    m_linsol = new AmgclSolver();
 
 };
 
@@ -160,8 +166,9 @@ SoftBody::SoftBody(PhysData* d) : m_d(d)
 
 SoftBody::~SoftBody()
 {
-    // delete m_ff;
     delete m_linsol;
+    delete m_ff;
+    delete m_hostA;
 }
 
 
@@ -255,33 +262,6 @@ void SoftBody::copy_pos_mid() {
 
 
 
-Eigen::Matrix<float,-1,-1,RowMajor>
- spmat_to_dense(SpMatData* spA)
-{
-    int nrows = spA->nrows();
-    int ncols = spA->ncols();
-    int nnz = spA->nnz();
-    Eigen::Matrix<float,-1,-1,RowMajor> dense(nrows, ncols);
-    for(int i=0; i<nrows; i++)
-    {
-        for(int j=0; j<ncols; j++)
-        {
-            dense(i,j) = 0.0;
-        }
-    }
-    for(int i=0; i<nrows; i++)
-    {
-        for(int j=spA->indptr[i]; j<spA->indptr[i+1]; j++)
-        {
-            dense(i, spA->indices[j]) = spA->data[j];
-        }
-    }
-    return dense;
-}
-
-
-
-
 void SoftBody::fillA(PhysData* m_d) {
     m_hostA = m_ff->run(m_d->pos, m_d->gradC);
     return ;
@@ -294,7 +274,8 @@ void SoftBody::project_arap_oneiter(PhysData* m_d) {
     compute_C_and_gradC(m_d);
     compute_b(m_d);
     fillA(m_d);
-    m_d->dlam = m_linsol->run(m_hostA,m_d->b);
+    m_linsol->run(m_hostA,m_d->b);
+    m_d->dlam = m_linsol->solution;
     m_d->dpos = dlam2dpos(m_d, m_d->dlam);
     update_pos(m_d, m_d->pos, m_d->dpos);
 }
@@ -370,8 +351,10 @@ void reinit(Field3f& pos)
 int main()
 {
     auto [pos,vert] = readmesh();
-    PhysData d(pos.size(), vert.size(), pos, vert);
+    // all physical data in in this class
+    PhysData d(pos, vert, 1e6, 3e-3);
     SoftBody sb(&d);
+    //enlarge the model to see deformation, in your case, you can skip this step
     reinit(d.pos);
 
     for(int i=0; i<100; i++)

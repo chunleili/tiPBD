@@ -29,20 +29,37 @@ template<typename T = EigenSpMat>
      Eigen::saveMarket(d, filename);
  }
 
-template<typename T=VectorXf>
-void savetxt(T &field, std::string filename)
+
+
+
+
+Eigen::Matrix<float,-1,-1,RowMajor>
+ spmat_to_dense(SpMatData* spA)
 {
-    std::ofstream myfile;
-    myfile.open(filename);
-    for(auto &i:field)
+    int nrows = spA->nrows();
+    int ncols = spA->ncols();
+    int nnz = spA->nnz();
+    Eigen::Matrix<float,-1,-1,RowMajor> dense(nrows, ncols);
+    for(int i=0; i<nrows; i++)
     {
-        myfile << i << '\n';
+        for(int j=0; j<ncols; j++)
+        {
+            dense(i,j) = 0.0;
+        }
     }
-    myfile.close();
+    for(int i=0; i<nrows; i++)
+    {
+        for(int j=spA->indptr[i]; j<spA->indptr[i+1]; j++)
+        {
+            dense(i, spA->indices[j]) = spA->data[j];
+        }
+    }
+    return dense;
 }
 
 
-Field1f& AmgclSolver::run(SpMatData* A_, Field1f& b, bool should_setup)
+
+void AmgclSolver::run(SpMatData* A_, Field1f& b, bool should_setup)
 {
     // The profiler:
     amgcl::profiler<> prof("amgclSolver");
@@ -51,18 +68,8 @@ Field1f& AmgclSolver::run(SpMatData* A_, Field1f& b, bool should_setup)
     // We use the tuple of CRS arrays to represent the system matrix.
     // Note that std::tie creates a tuple of references, so no data is actually
     // copied here:
-    std::vector<int> indptr = A_->indptr;
-    std::vector<int> indices = A_->indices;
-    std::vector<float> data = A_->data;
-    // auto A = std::tie(rows, A_->indptr, A_->indices, A_->data);
-    auto A = std::tie(rows, indptr, indices, data);
+    auto A = std::tie(rows, A_->indptr, A_->indices, A_->data);
 
-    // mmwrite(A_,"A2.mtx");
-    // savetxt(b,"b.mtx");
-
-
-    // Compose the solver type
-    //   the solver backend:
     typedef amgcl::backend::builtin<float> SBackend;
     typedef amgcl::backend::builtin<float> PBackend;
     
@@ -86,7 +93,7 @@ Field1f& AmgclSolver::run(SpMatData* A_, Field1f& b, bool should_setup)
     prof.toc("setup");
 
     // Show the mini-report on the constructed solver:
-    std::cout << solve << std::endl;
+    // std::cout << solve << std::endl;
 
     // output the prolongation operator:
     auto levels = solve.precond().get_levels();
@@ -96,23 +103,22 @@ Field1f& AmgclSolver::run(SpMatData* A_, Field1f& b, bool should_setup)
     // Solve the system with the zero initial approximation:
     int iters;
     float error;
-    std::vector<float> x(rows, 0.0);
+    solution.clear();
+    solution.resize(rows, 0.0);
 
     prof.tic("solve");
-    std::tie(iters, error) = solve(A, b, x);
+    std::tie(iters, error) = solve(A, b, solution);
     prof.toc("solve");
 
     // Output the number of iterations, the relative error,
     // and the profiling data:
     std::cout << "Iters: " << iters << std::endl
-              << "Error: " << error << std::endl
-              << prof << std::endl;
-    solution = std::move(x);
-    return solution;
+              << "Error: " << error << std::endl;
+            //   << prof << std::endl;
 }
 
 
-Field1f& EigenSolver::run(SpMatData* hostA, Field1f& b, bool should_setup)
+void EigenSolver::run(SpMatData* hostA, Field1f& b, bool should_setup)
 {
     int nrows = hostA->nrows();
     int ncols = hostA->ncols();
@@ -148,8 +154,6 @@ Field1f& EigenSolver::run(SpMatData* hostA, Field1f& b, bool should_setup)
         std::cerr << "Solver failed" << std::endl;
     }
     std::cout << "The solution is:\n" << x << std::endl;
-    vector<float> x_(x.data(), x.data() + x.rows() );
-    solution = std::move(x_);
-    return solution;
+    std::copy(x.data(), x.data()+x.size(), solution.begin());
 }
 

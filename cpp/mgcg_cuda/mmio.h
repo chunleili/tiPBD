@@ -1,7 +1,64 @@
 #pragma once
 #include "SpMatData.h"
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <string>
+
+template<typename T=std::vector<float>>
+void savetxt(T &field, std::string filename)
+{
+    std::ofstream myfile;
+    myfile.open(filename);
+    for(auto &i:field)
+    {
+        myfile << i << '\n';
+    }
+    myfile.close();
+}
+
+template<typename T=FieldXi>
+void savetxt2d(T &field, std::string filename="1.txt")
+{
+    std::ofstream myfile;
+    myfile.open(filename);
+    for(auto &i:field)
+    {
+        for(auto &ii:i)
+        {
+            myfile << ii << " ";
+        }
+        myfile << std::endl;
+    }
+    myfile.close();
+}
 
 
+template<typename T=FieldXi>
+void loadtxt(T &M, std::string filename)
+{
+  std::ifstream inputFile(filename);
+  std::string line;
+
+  unsigned int rows = 0;
+  while (std::getline(inputFile, line))
+  {
+    std::istringstream iss(line);
+    int val;
+    M.resize(rows + 1);
+    while (iss >> val)
+    {
+      M[rows].push_back(val);
+    }
+    rows++;
+  }
+}
+
+
+
+
+template <typename T=float>
 void mmwrite(SpMatData* A, std::string filename="mat.mtx")
 {
     std::ofstream myfile;
@@ -24,7 +81,7 @@ void mmwrite(SpMatData* A, std::string filename="mat.mtx")
     myfile.close();
 }
 
-
+template <typename T=float>
 void mmread(SpMatData* A, std::string filename="mat.mtx")
 {
     std::ifstream myfile;

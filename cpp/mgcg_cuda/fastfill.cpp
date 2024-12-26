@@ -1,5 +1,6 @@
 // #include "fastmg.h"
 #include <set>
+#include <cassert>
 #include "fastfill.h"
 #include "kernels.cuh"
 

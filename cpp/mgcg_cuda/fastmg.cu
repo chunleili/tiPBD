@@ -66,11 +66,11 @@ float avg(std::vector<float> &v)
     }
 
     void  FastMG::setup() {
-        // workaround for setup:read from P.mtx
-        std::string filename = "P.mtx";
-        SpMatData P;
-        mmread(&P,filename);
-        levels.at(0).P.assign_v2(P.data.data(), P.indices.data(), P.indptr.data(), P.nrows(), P.ncols(), P.nnz());
+        // FIXME:workaround for setup:read from P.mtx
+    //     std::string filename = "P_0.mtx";
+    //     SpMatData P;
+    //     mmread(&P,filename);
+    //     levels.at(0).P.assign_v2(P.data.data(), P.indices.data(), P.indptr.data(), P.nrows(), P.ncols(), P.nnz());
     }
 
 

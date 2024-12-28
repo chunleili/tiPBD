@@ -34,6 +34,7 @@
 #include "Vec.h"
 #include "CSR.h"
 #include "mmio.h"
+#include "SpMatData.h"
 
 using std::cout;
 using std::endl;
@@ -65,12 +66,13 @@ float avg(std::vector<float> &v)
         cout<<"Set scale_RAP: "<<levels.at(lv).scale_RAP<<"  at level "<<lv<<endl;
     }
 
-    void  FastMG::setup() {
+    void  FastMG::setup(SpMatData* P0) {
         // FIXME:workaround for setup:read from P.mtx
     //     std::string filename = "P_0.mtx";
     //     SpMatData P;
     //     mmread(&P,filename);
     //     levels.at(0).P.assign_v2(P.data.data(), P.indices.data(), P.indptr.data(), P.nrows(), P.ncols(), P.nnz());
+        levels.at(0).P.assign_v2(P0->data.data(), P0->indices.data(), P0->indptr.data(), P0->nrows(), P0->ncols(), P0->nnz());
     }
 
 

@@ -32,7 +32,10 @@ set(CUDA_NVCC_FLAGS "")
 add_executable(main_softbody main_softbody.cpp  meshio_tetgen.cpp physdata.cpp  linear_solver.cpp kernels.cu fastfill.cpp  
 # soureces related to the fastmg
 fastmg.cu cuda_utils.cu kernels.cu fastfill.cpp cusparse_wrappers.cu smoother.cu vcycle.cu mgpcg.cu
-meshio_obj.cpp)
+meshio_obj.cpp
+amgcl_solver.cpp
+eigen_solver.cpp
+)
 target_compile_definitions(main_softbody PUBLIC AMGCL_NO_BOOST)
 set_target_properties(main_softbody PROPERTIES CUDA_SEPARABLE_COMPILATION ON
 CUDA_STANDARD 17

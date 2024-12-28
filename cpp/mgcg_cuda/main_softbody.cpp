@@ -4,6 +4,8 @@
 #include "meshio_obj.h"
 #include "physdata.h"
 #include "linear_solver.h"
+#include "amgcl_solver.h"
+#include "eigen_solver.h"
 
 
 using namespace fastmg;
@@ -283,8 +285,7 @@ void SoftBody::project_arap_oneiter(PhysData* m_d) {
     compute_C_and_gradC(m_d);
     compute_b(m_d); //also compute dual
     fillA(m_d);
-    m_linsol->run(m_hostA,m_d->b);
-    m_d->dlam = m_linsol->solution;
+    m_d->dlam = m_linsol->solve(m_hostA,m_d->b);
     m_d->dpos = dlam2dpos(m_d, m_d->dlam);
     update_pos(m_d, m_d->pos, m_d->dpos);
     printf("    dual = %f\n", m_d->dual);

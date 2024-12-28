@@ -179,11 +179,15 @@ void SoftBody::compute_b(PhysData* m_d) {
     Field1f& lam = m_d->lam;
     Field1f& constraints = m_d->constraints;
     Field1f& b = m_d->b;
+    float& dual = m_d->dual;
     int NCONS = m_d->NCONS;
 
+    dual = 0.0;
     for (int i=0; i<NCONS; i++) {
         b[i] = - alpha_tilde.at(i) * lam.at(i) - constraints.at(i);
+        dual += b[i] * b[i];
     }
+    dual = std::sqrt(dual);
 }
 
 
@@ -206,6 +210,9 @@ Field3f& SoftBody::dlam2dpos(PhysData* m_d, Field1f& dlam)
     Field1f& inv_mass = m_d->inv_mass;
     Field1f& lam = m_d->lam;
     Field3f& dpos = m_d->dpos;
+
+    dpos.clear();
+    dpos.resize(m_d->NV, Vec3f(0.0, 0.0, 0.0));
 
     for(int i=0; i<vert.size(); i++)
     {
@@ -274,12 +281,13 @@ void SoftBody::fillA(PhysData* m_d) {
 void SoftBody::project_arap_oneiter(PhysData* m_d) {
     copy_pos_mid();
     compute_C_and_gradC(m_d);
-    compute_b(m_d);
+    compute_b(m_d); //also compute dual
     fillA(m_d);
     m_linsol->run(m_hostA,m_d->b);
     m_d->dlam = m_linsol->solution;
     m_d->dpos = dlam2dpos(m_d, m_d->dlam);
     update_pos(m_d, m_d->pos, m_d->dpos);
+    printf("    dual = %f\n", m_d->dual);
 }
 
 
@@ -288,17 +296,21 @@ void SoftBody::semi_euler(PhysData *m_d)
     Field3f& pos = m_d->pos;
     Field3f& vel = m_d->vel;
     Field3f& old_pos = m_d->old_pos;
+    Field3f& predict_pos = m_d->predict_pos;
+    Field3f& force = m_d->force;
     Field1f& inv_mass = m_d->inv_mass;
     Vec3f& gravity = m_d->gravity;
-    float h = m_d->delta_t;
+    float delta_t = m_d->delta_t;
+    float damping_coeff = m_d->damping_coeff;
 
     for (int i = 0; i < pos.size(); i++)
     {
         if (inv_mass[i] != 0.0)
         {
-            vel[i] += h * gravity;
             old_pos[i] = pos[i];
-            pos[i] += h * vel[i];
+            vel[i] += damping_coeff* delta_t * (gravity+force[i]);
+            pos[i] += delta_t * vel[i];
+            predict_pos[i] = pos[i];
         }
     }
 }

@@ -78,6 +78,8 @@ void PhysData::resize(size_t NV, size_t NCONS)
     dlam.resize(NCONS);
     b.resize(NCONS);
     vel.resize(NV);
+    force.resize(NV, Vec3f(0.0, 0.0, 0.0));
+    predict_pos.resize(NV, Vec3f(0.0, 0.0, 0.0));
 }
 
 

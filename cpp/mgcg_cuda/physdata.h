@@ -24,12 +24,16 @@ struct PhysData
     Field3f dpos;       // change in position
     Field3f old_pos;    // last substep position
     float delta_t;      // time step
-    float omega=0.25;   // relaxation parameter for dpos
+    float omega=0.1;   // relaxation parameter for dpos
+    float damping_coeff=1.0;   // relaxation parameter for dpos
     float mu;           //second lame parameter for arap
+    float dual;         //dual residual(scalar)
     Field43f gradC;     // gradient of the constraint, size: NCONS x 4 x 3
     Vec3f gravity;
     Field1f dlam;
     Field1f b;          // right hand side of the linear system
+    Field3f force;      // external force
+    Field3f predict_pos; // predicted position
 
     PhysData();
     PhysData::PhysData(Field3f &pos,Field4i &vert, float mu=1e6, float delta_t=3e-3);

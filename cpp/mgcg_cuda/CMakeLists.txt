@@ -35,6 +35,7 @@ fastmg.cu cuda_utils.cu kernels.cu fastfill.cpp cusparse_wrappers.cu smoother.cu
 meshio_obj.cpp
 amgcl_solver.cpp
 eigen_solver.cpp
+amgcuda_solver.cpp
 )
 target_compile_definitions(main_softbody PUBLIC AMGCL_NO_BOOST)
 set_target_properties(main_softbody PROPERTIES CUDA_SEPARABLE_COMPILATION ON

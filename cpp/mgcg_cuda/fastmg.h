@@ -30,7 +30,7 @@ struct FastMG :CusparseWrappers{
     GpuTimer timer1,timer2,timer3;
     std::vector<float> elapsed1, elapsed2, elapsed3;
 
-    void setup(SpMatData* P0); //setup P0 from outside
+    void setup(std::vector<SpMatData*> Ps); //setup Ps from outside
     void create_levels(size_t numlvs);
 
     void set_scale_RAP(float s, int lv);

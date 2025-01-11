@@ -145,5 +145,21 @@
               "-geo_dir=data/model/extraSpring",
             ]
           }   
+          ,
+          {
+            "name": "debug sqush",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+              "-end_frame=100",
+              "-maxiter=20",
+              "-mu=1e9",
+              "-use_gravity=0",
+              "-reinit=squash",
+            ]
+          }  
     ]
 }

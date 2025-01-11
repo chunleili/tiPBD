@@ -112,11 +112,13 @@ class SoftBody(PhysicalBase):
             self.initialize()
             self.reinit()
             if args.export_mesh:
-                write_mesh(args.out_dir + f"/mesh/{self.frame:04d}", self.pos.to_numpy(), self.model_tri)
+                write_mesh(args.out_dir + f"/mesh/{0:04d}", self.pos.to_numpy(), self.model_tri)
 
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
         if args.use_gravity:
             self.gravity = ti.Vector([0.0, -9.8, 0])
+        else:
+            self.gravity = ti.Vector([0.0, 0.0, 0.0])
         
         args.use_line_search = False
         info(f"Creating instance done")
@@ -389,7 +391,10 @@ class SoftBody(PhysicalBase):
         elif args.reinit == "enlarge":
             self.pos.from_numpy(self.model_pos * 1.5)
         elif args.reinit == "squash":
-            self.pos.from_numpy(self.model_pos * 0.01)
+            p = self.model_pos
+            pymin = np.min(p[:, 1])
+            p[:, 1] = pymin
+            self.pos.from_numpy(p)
         elif args.reinit == "freefall":
             args.gravity = [0, -9.8, 0]
             self.gravity = ti.Vector(args.gravity)

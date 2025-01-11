@@ -89,36 +89,38 @@ casenames= {}
 
 # naming convention: case{case_num}-{date:4 digits}-{object_type:cloth or soft}{resolution}-{solver_type:AMG or XPBD}
 
-# case1: cloth 1024 AMG 3ms
-case_num = len(allargs)
-casenames[case_num] = "cloth-1024-AMG-3ms"
+# case1: cloth   AMG 
+casenames[len(allargs)] = "cloth-AMG"
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=AMG",
         f"-end_frame=100",
-        f"-out_dir=result/case{case_num}-{day}-{casenames[case_num]}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-arch=cpu",
-        "-N=64",
-        "-maxiter=50",
-        "-delta_t=10e-3",
-        "-rtol=1e-2",
+        "-N=256",
+        "-maxiter=20",
+        "-delta_t=1e-3",
         "-tol=1e-4",
-        "-end_frame=100",
+        "-end_frame=2000",
+        "-compliance=1e-9",
+        "-build_P_method=strength0.1"
         ]
 allargs.append(args)
 
-# case2: cloth 64 XPBD gpu 5ms
+# case2: cloth  XPBD gpu
+casenames[len(allargs)] = "cloth-AMG"
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=XPBD",
         f"-end_frame=100",
-        f"-out_dir=result/case{len(allargs)}-{day}-XPBD",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-arch=gpu",
-        "-N=1024",
+        "-N=256",
         "-maxiter=10000",
-        "-delta_t=3e-3",
+        "-delta_t=1e-3",
         "-tol=1e-4",
         "-end_frame=100",
+        "-compliance=1e-9"
         ]
 allargs.append(args)
 
@@ -1774,6 +1776,37 @@ args = ["engine/soft/soft3d.py",
         ]
 allargs.append(args)
 
+# case159: bunny squash small
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-squash",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-end_frame=100",
+        "-maxiter=20",
+        "-mu=1e9",
+        "-use_gravity=0",
+        "-reinit=squash",
+        ]
+allargs.append(args)
+ 
+# case160: bunny squash large
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-bunny-squash",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunnyBig/bunnyBig.node",
+        "-tol=1e-4",
+        "-delta_t=1e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=150",
+        "-end_frame=100",
+        "-mu=1e9",
+        "-use_gravity=0",
+        "-reinit=squash",
+        # "-smoother_niter=2",
+        # "-build_P_method=strength0.1",
+        ]
+allargs.append(args)
 
 
 def run_case(case_num:int):

@@ -1849,7 +1849,40 @@ for config in ["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/b
 
 
 
+# case169-172: cloth for different size
+for config in [64,128,256,1024]:
+    args = ["engine/cloth/cloth3d.py",
+            "-solver_type=AMG",
+            f"-end_frame=100",
+            f"-out_dir=result/case{len(allargs)}-{day}-cloth{config}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            "-arch=cpu",
+            f"-N={config}",
+            "-maxiter=20",
+            "-delta_t=1e-3",
+            "-tol=1e-4",
+            "-end_frame=30",
+            "-compliance=1e-9",
+            "-build_P_method=strength0.1"
+            ]
+    allargs.append(args)
 
+# case173-176: cloth for different size
+for config in [64,128,256,1024]:
+    args = ["engine/cloth/cloth3d.py",
+            "-solver_type=XPBD",
+            f"-end_frame=100",
+            f"-out_dir=result/case{len(allargs)}-{day}-cloth{config}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            "-arch=gpu",
+            f"-N={config}",
+            "-maxiter=10000",
+            "-delta_t=1e-3",
+            "-tol=1e-4",
+            "-end_frame=30",
+            "-compliance=1e-9",
+            ]
+    allargs.append(args)
 
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):

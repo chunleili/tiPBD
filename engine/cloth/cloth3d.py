@@ -31,7 +31,6 @@ from engine.line_search import LineSearch
 from engine.physical_data import PhysicalData
 
 
-
 def init_args():
     #parse arguments to change default values
     from engine.common_args import add_common_args
@@ -256,21 +255,43 @@ class Cloth(PhysicalBase):
             # TODO: should use seperate dual_residual_bending and lagrangian_bending
             solve_bending_constraints_xpbd(self.dual_residual, self.inv_mass, self.lagrangian, self.dpos, self.pos, self.bending_length, self.tri_pairs, self.alpha_bending)
         solve_distance_constraints_xpbd(self.dual_residual, self.inv_mass, self.edge, self.rest_len, self.lagrangian, self.dpos, self.pos, self.alpha_tilde)
+        
+    def substep_xpbd(ist):
+        semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos,args.delta_t)
+        reset_lagrangian(ist.lagrangian)
 
-    def substep_xpbd(self):
-        self.semi_euler()
-        self.lagrangian.fill(0)
-        self.do_pre_iter0()
-        for self.ite in range(args.maxiter):
-            self.r_iter.tic_iter = perf_counter()
-            self.project_constraints_xpbd()
-            self.update_pos()
-            self.do_post_iter_xpbd()
-            if self.r_iter.check():
-                break
-        self.collision_response()
-        self.n_outer_all.append(self.ite+1)
-        self.update_vel()
+        ist.r_iter.calc_r0()
+        for ist.ite in range(args.maxiter):
+            tic_iter = perf_counter()
+
+            reset_dpos(ist.dpos)
+            if args.use_bending:
+                # TODO: should use seperate dual_residual_bending and lagrangian_bending
+                solve_bending_constraints_xpbd(ist.dual_residual, ist.inv_mass, ist.lagrangian, ist.dpos, ist.pos, ist.bending_length, ist.tri_pairs, ist.alpha_bending)
+            solve_distance_constraints_xpbd(ist.dual_residual, ist.inv_mass, ist.edge, ist.rest_len, ist.lagrangian, ist.dpos, ist.pos, ist.alpha_tilde)
+            update_pos(ist.inv_mass, ist.dpos, ist.pos,args.omega)
+
+            if args.calc_dual: #calc dual is expensive becuase of we have to calculate norm. which cost 3ms compared to 0.3ms for solve_constraints
+                ist.dualr=xpbd_calcr(ist, tic_iter, ist.r_iter.dual0)
+                if ist.dualr<args.tol:
+                    break
+        ist.n_outer_all.append(ist.ite+1)
+        update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
+
+    # def substep_xpbd(self):
+    #     self.semi_euler()
+    #     self.lagrangian.fill(0)
+    #     self.do_pre_iter0()
+    #     for self.ite in range(args.maxiter):
+    #         self.r_iter.tic_iter = perf_counter()
+    #         self.project_constraints_xpbd()
+    #         self.update_pos()
+    #         self.do_post_iter_xpbd()
+    #         if self.r_iter.check():
+    #             break
+    #     self.collision_response()
+    #     self.n_outer_all.append(self.ite+1)
+    #     self.update_vel()
 
 
     def step_one_iter_mgpbd(self):
@@ -487,6 +508,67 @@ def semi_euler_kernel(
             predict_pos[i] = pos[i]
 
 
+
+
+def xpbd_calcr(ist, tic_iter, dual0):
+    t_iter = perf_counter()-tic_iter
+    tic_calcr = perf_counter()
+    dualr = calc_norm(ist.dual_residual)
+    t_calcr = perf_counter()-tic_calcr
+    tic_exportr = perf_counter()
+    if args.export_log:
+        logging.info(f"{ist.frame}-{ist.ite}  dual0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{t_calcr:.2e}s")
+    ist.r_iter.t_export += perf_counter() - tic_exportr
+    return dualr
+
+@ti.kernel
+def update_vel(
+    old_pos:ti.template(),
+    inv_mass:ti.template(),    
+    vel:ti.template(),
+    pos:ti.template(),
+):
+    for i in range(ist.NV):
+        if inv_mass[i] != 0.0:
+            vel[i] = (pos[i] - old_pos[i]) / args.delta_t
+
+@ti.kernel
+def semi_euler(
+    old_pos:ti.template(),
+    inv_mass:ti.template(),
+    vel:ti.template(),
+    pos:ti.template(),
+    predict_pos:ti.template(),
+    delta_t:ti.f32,
+):
+    g = ti.Vector(args.gravity)
+    for i in range(ist.NV):
+        if inv_mass[i] != 0.0:
+            vel[i] += delta_t * g
+            old_pos[i] = pos[i]
+            pos[i] += delta_t * vel[i]
+            predict_pos[i] = pos[i]
+
+@ti.kernel
+def reset_lagrangian(lagrangian: ti.template()):
+    for i in range(ist.NE):
+        lagrangian[i] = 0.0
+
+@ti.kernel 
+def reset_dpos(dpos:ti.template()):
+    for i in range(ist.NV):
+        dpos[i] = ti.Vector([0.0, 0.0, 0.0])
+
+@ti.kernel
+def update_pos(
+    inv_mass:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+    omega:ti.f32,
+):
+    for i in range(ist.NV):
+        if inv_mass[i] != 0.0:
+            pos[i] += omega * dpos[i]
 
 @ti.kernel
 def solve_distance_constraints_xpbd(

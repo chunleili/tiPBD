@@ -579,20 +579,160 @@ class SoftBody(PhysicalBase):
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
 
-    def substep_xpbd(self):
-        self.semi_euler()
-        self.lagrangian.fill(0)
-        self.do_pre_iter0()
-        for self.ite in range(args.maxiter):
-            self.r_iter.tic_iter = perf_counter()
-            self.project_arap_xpbd()
-            self.do_post_iter_xpbd()
-            if self.r_iter.check():
+    # def substep_xpbd(self):
+    #     self.semi_euler()
+    #     self.lagrangian.fill(0)
+    #     self.do_pre_iter0()
+    #     for self.ite in range(args.maxiter):
+    #         self.r_iter.tic_iter = perf_counter()
+    #         self.project_arap_xpbd()
+    #         self.do_post_iter_xpbd()
+    #         if self.r_iter.check():
+    #             break
+    #     self.collision_response()
+    #     self.n_outer_all.append(self.ite+1)
+    #     self.update_vel()
+        
+    def substep_xpbd(ist):
+        gravity = ti.Vector(args.gravity)
+        semi_euler(args.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, args.damping_coeff, gravity)
+        reset_lagrangian(ist.lagrangian)
+        r=[]
+        for ist.ite in range(args.maxiter):
+            tic = time.perf_counter()
+            project_constraints(
+                ist.pos_mid,
+                ist.tet_indices,
+                ist.inv_mass,
+                ist.lagrangian,
+                ist.B,
+                ist.pos,
+                ist.alpha_tilde,
+                ist.constraints,
+                ist.residual,
+                ist.gradC,
+                ist.dlambda,
+                ist.dpos,
+                args.omega
+            )
+            # collsion_response(ist.pos)
+            calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
+            dualr = np.linalg.norm(ist.residual.to_numpy())
+            if ist.ite == 0:
+                dualr0 = dualr.copy()
+            toc = time.perf_counter()
+            logging.info(f"{ist.frame}-{ist.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
+            # r.append(ist.ResidualData(dualr, 0, toc-tic))
+            if dualr < args.tol:
+                logging.info("Converge: tol")
                 break
-        self.collision_response()
-        self.n_outer_all.append(self.ite+1)
-        self.update_vel()
+            if dualr / dualr0 < args.rtol:
+                logging.info("Converge: rtol")
+                break
+            # if is_stall(r):
+            #     logging.warning("Stall detected, break")
+            #     break
+        ist.n_outer_all.append(ist.ite+1)
+        update_vel(args.delta_t, ist.pos, ist.old_pos, ist.vel)
 
+
+@ti.kernel
+def update_vel(delta_t: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
+    for i in pos:
+        vel[i] = (pos[i] - old_pos[i]) / delta_t
+
+
+@ti.kernel
+def calc_dual_residual(alpha_tilde:ti.template(),
+                       lagrangian:ti.template(),
+                       constraint:ti.template(),
+                       dual_residual:ti.template()):
+    for i in range(dual_residual.shape[0]):
+        dual_residual[i] = -(constraint[i] + alpha_tilde[i] * lagrangian[i])
+
+
+@ti.kernel
+def project_constraints(
+    pos_mid: ti.template(),
+    tet_indices: ti.template(),
+    inv_mass: ti.template(),
+    lagrangian: ti.template(),
+    B: ti.template(),
+    pos: ti.template(),
+    alpha_tilde: ti.template(),
+    constraint: ti.template(),
+    residual: ti.template(),
+    gradC: ti.template(),
+    dlambda: ti.template(),
+    dpos: ti.template(),
+    omega: ti.f32
+):
+    for i in pos:
+        pos_mid[i] = pos[i]
+
+    # ti.loop_config(serialize=meta.serialize)
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        if constraint[t] > 1e-6:
+            g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
+            gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
+            denorminator = (
+                inv_mass[p0] * g0.norm_sqr()
+                + inv_mass[p1] * g1.norm_sqr()
+                + inv_mass[p2] * g2.norm_sqr()
+                + inv_mass[p3] * g3.norm_sqr()
+            )
+            residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t])
+            dlambda[t] = residual[t] / (denorminator + alpha_tilde[t])
+
+            lagrangian[t] += dlambda[t]
+
+    for t in range(tet_indices.shape[0]):
+        if constraint[t] > 1e-6:
+            p0 = tet_indices[t][0]
+            p1 = tet_indices[t][1]
+            p2 = tet_indices[t][2]
+            p3 = tet_indices[t][3]
+            pos[p0] += omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+            pos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+            pos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+            pos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+            dpos[p0] += omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+            dpos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+            dpos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+            dpos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+
+@ti.kernel
+def semi_euler(
+    delta_t: ti.f32,
+    pos: ti.template(),
+    predict_pos: ti.template(),
+    old_pos: ti.template(),
+    vel: ti.template(),
+    damping_coeff: ti.f32,
+    gravity: ti.template(),
+):
+    for i in pos:
+        vel[i] += delta_t * gravity
+        vel[i] *= damping_coeff
+        old_pos[i] = pos[i]
+        pos[i] += delta_t * vel[i]
+        predict_pos[i] = pos[i]
+
+@ti.kernel
+def reset_lagrangian(lagrangian: ti.template()):
+    for i in lagrangian:
+        lagrangian[i] = 0.0
 
 
 

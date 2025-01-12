@@ -1799,7 +1799,7 @@ args = ["engine/soft/soft3d.py",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=150",
-        "-end_frame=100",
+        "-end_frame=300",
         "-mu=1e9",
         "-use_gravity=0",
         "-reinit=squash",
@@ -1807,6 +1807,48 @@ args = ["engine/soft/soft3d.py",
         # "-build_P_method=strength0.1",
         ]
 allargs.append(args)
+
+
+# case161-164: bunny for different size
+for config in ["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]:
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-bunny",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=1e-3",
+            "-solver_type=AMG",
+            "-arch=cpu",
+            "-maxiter=20",
+            "-end_frame=5",
+            "-mu=1e9",
+            "-use_gravity=0",
+            "-reinit=squash",
+            ]
+    allargs.append(args)
+
+
+# case165-168: bunny for different size
+for config in ["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]:
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-bunny",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=1e-3",
+            "-solver_type=XPBD",
+            "-arch=gpu",
+            "-maxiter=10000",
+            "-end_frame=20",
+            "-mu=1e9",
+            "-use_gravity=0",
+            "-reinit=squash",
+            ]
+    allargs.append(args)
+
+
+
+
 
 
 def run_case(case_num:int):

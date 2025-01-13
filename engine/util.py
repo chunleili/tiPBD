@@ -322,8 +322,6 @@ def export_mat(ist,get_A,b):
     tic = perf_counter()
     if not args.export_matrix or get_A is None:
         return
-    if ist.frame != args.export_matrix_frame:
-        return
     if hasattr(args, "export_matrix_ite"):
         if ist.ite != args.export_matrix_ite:
             return

@@ -67,8 +67,8 @@ def build_Ps(A,args,extlib=None, verbose=False):
         extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
         extlib.fastmg_setup_nl(num_levels)
     
-    if(verbose):
-        logging.info(ml)
+    # if(verbose):
+    logging.info(ml)
 
     Ps = []
     for i in range(len(ml.levels)-1):

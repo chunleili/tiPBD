@@ -27,35 +27,41 @@ Field1f AmgclSolver::solve(SpMatData* A_, Field1f& b)
     // copied here:
     auto A = std::tie(rows, A_->indptr, A_->indices, A_->data);
 
-    typedef amgcl::backend::builtin<float> SBackend;
-    typedef amgcl::backend::builtin<float> PBackend;
-    
-    typedef amgcl::make_solver<
-        amgcl::amg<
-            PBackend,
-            amgcl::coarsening::smoothed_aggregation,
-            amgcl::relaxation::damped_jacobi
-            >,
-        amgcl::solver::cg<SBackend>
-        > Solver;
 
-    // Set the parameters for the solver:
-    Solver::params prm;
-    prm.precond.coarsening.relax = 0.0; //Unsmoothed aggregation
-    prm.precond.coarsening.aggr.eps_strong = 0.25; //Strength threshold
-    
-    // Initialize the solver with the system matrix:
-    prof.tic("setup");
-    Solver solve(A);
-    prof.toc("setup");
+    // if(should_setup)
+    // {
+        typedef amgcl::backend::builtin<float> SBackend;
+        typedef amgcl::backend::builtin<float> PBackend;
+        typedef amgcl::make_solver<
+            amgcl::amg<
+                PBackend,
+                amgcl::coarsening::smoothed_aggregation,
+                amgcl::relaxation::damped_jacobi
+                >,
+            amgcl::solver::cg<SBackend>
+            > Solver;
 
-    // Show the mini-report on the constructed solver:
-    // std::cout << solve << std::endl;
+        // Set the parameters for the solver:
+        Solver::params prm;
+        prm.precond.coarsening.relax = 0.0; //Unsmoothed aggregation
+        prm.precond.coarsening.aggr.eps_strong = 0.25; //Strength threshold
+        
+        // Initialize the solver with the system matrix:
+        prof.tic("setup");
+        Solver setted_solver(A);
+        prof.toc("setup");
 
-    // output the prolongation operator:
-    auto levels = solve.precond().get_levels();
-    size_t numlevels = levels.size();
-    auto Ps = solve.precond().get_Ps();
+        // Show the mini-report on the constructed solver:
+        if(verbose)
+            std::cout << setted_solver << std::endl;
+
+        // output the prolongation operator:
+        auto levels = setted_solver.precond().get_levels();
+        size_t numlevels = levels.size();
+        auto Ps = setted_solver.precond().get_Ps();
+    // }
+
+
 
     // Solve the system with the zero initial approximation:
     int iters;
@@ -64,14 +70,15 @@ Field1f AmgclSolver::solve(SpMatData* A_, Field1f& b)
     solution.resize(rows, 0.0);
 
     prof.tic("solve");
-    std::tie(iters, error) = solve(A, b, solution);
+    std::tie(iters, error) = setted_solver(A, b, solution);
     prof.toc("solve");
 
     // Output the number of iterations, the relative error,
     // and the profiling data:
     std::cout << "  Linear solver iters: " << iters 
               << "\terror: " << error << std::endl;
-            //   << prof << std::endl;
+    if(verbose)
+        std::cout << prof << std::endl;
     residuals.push_back(error);
     niter = iters;
     return (solution);

@@ -382,18 +382,20 @@ void write_mesh(int frame_num, Field3f &pos, Field3i &face)
     // toc("output mesh");
 }
 
-
 // example usage
-int main()
+int run_softbody(std::string mesh="D:/Dev/tiPBD/data/model/bunny_small/bunny_small", int endframe=100, float mu=1e6, float delta_t=3e-3, bool verbose=false)
 {
-    auto [pos,vert, face] = readmesh("D:/Dev/tiPBD/data/model/bunny_small/bunny_small");
+    printf("Reading mesh...\n");
+    auto [pos,vert, face] = readmesh(mesh);
     // all physical data in in this class
-    PhysData d(pos, vert, 1e6, 3e-3);
+    printf("Initializing softbody...\n");
+    PhysData d(pos, vert, mu, delta_t);
     SoftBody sb(&d);
+    sb.m_linsol->verbose = verbose; // print solver info and time
     //enlarge the model to see deformation, in your case, you can skip this step
     reinit(d.pos);
-
-    for(d.frame=1; d.frame<100; d.frame++)
+    printf("Start run softbody...\n");
+    for(d.frame=1; d.frame<endframe; d.frame++)
     {
         printf("\n-------------\nframe = %d\n", d.frame);
         sb.substep();
@@ -403,3 +405,16 @@ int main()
     return 0;
 }
 
+
+int main(int argc, char *argv[]) {
+    fprintf(stdout, "Usage: %s <output_file> <endframe> <mu> <delta_t> <verbose>\n", argv[0]);
+    fprintf(stdout, "Example: %s D:/Dev/tiPBD/data/model/bunny_small/bunny_small 100 1e6 3e-3 0\n", argv[0]);
+    fprintf(stdout, "Example: %s D:/Dev/tiPBD/data/model/bunny85w/bunny85w 2 1e9 3e-3 1\n", argv[0]);
+    std::string mesh = argv[1];
+    int endframe = std::stoi(argv[2]);
+    float mu = std::stof(argv[3]);
+    float delta_t = std::stof(argv[4]);
+    bool verbose = std::stoi(argv[5]);
+    run_softbody(mesh, endframe, mu, delta_t, verbose);
+    return 0;
+}

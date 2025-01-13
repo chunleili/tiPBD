@@ -9,6 +9,7 @@ struct LinearSolver
     std::vector<float> residuals;
     std::vector<float> solution;
     int niter;
+    bool verbose = false;
     
     virtual Field1f solve(SpMatData* A, Field1f& b)=0;
 };

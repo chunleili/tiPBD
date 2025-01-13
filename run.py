@@ -1884,6 +1884,24 @@ for config in [64,128,256,1024]:
             ]
     allargs.append(args)
 
+
+    
+# case177: 
+casenames[len(allargs)] = "human"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/{casenames[len(allargs)]}",
+        "-start_frame=1300",
+        "-end_frame=1305",
+        "-use_pintotarget=1",
+        "-maxiter=20",
+        "-mu=1e9",
+        "-use_gravity=1",
+        "-geo_dir=data/model/human",
+        "-delta_t=3e-3",
+        ]
+allargs.append(args)
+
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')

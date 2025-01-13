@@ -90,8 +90,8 @@ class SoftBody(PhysicalBase):
 
         dir = str(Path(mesh_file).parent.stem)
         self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
-        self.frame=1
-        self.initial_frame=1
+        self.frame=args.start_frame
+        self.initial_frame=args.start_frame
 
         if args.use_extra_spring or args.use_pintoanimation or args.use_pintotarget or args.use_muscle2muscle:
             args.use_houdini_data=1
@@ -158,7 +158,7 @@ class SoftBody(PhysicalBase):
 
     def read_extra_spring_rest(self,):
         dir = prj_path + "/" + args.geo_dir + "/"
-        consgeo = Geo(dir+f"cons_1.geo")
+        consgeo = Geo(dir+f"cons_{self.initial_frame}.geo")
         self.consgeo_rest = consgeo
         
         # read connectivity
@@ -214,7 +214,7 @@ class SoftBody(PhysicalBase):
 
     def read_pintotarget_rest(self,):
         dir = prj_path + "/" + args.geo_dir + "/"
-        consgeo = Geo(dir+f"cons_1.geo")
+        consgeo = Geo(dir+f"cons_{self.initial_frame}.geo")
         self.consgeo_rest = consgeo
         
         # read connectivity

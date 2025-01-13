@@ -1741,7 +1741,7 @@ args = ["engine/soft/soft3d.py",
         "-maxiter=20",
         "-mu=1e9",
         "-use_gravity=1",
-        "-geo_dir=data/model/extraSpring",
+        "-geo_dir=data/model/capybara-full",
         "-delta_t=3e-3",
         ]
 allargs.append(args)

@@ -573,6 +573,7 @@ class SoftBody(PhysicalBase):
             self.solveSoft()
             self.dualr=AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, get_A0_cuda)
+            export_all_levels_A(self)
             if self.r_iter.check():
                 break
         self.collision_response()
@@ -1219,9 +1220,15 @@ def AMG_A():
 def fetch_A_from_cuda(lv=0):
     nnz = extlib.fastmg_get_nnz(lv)
     matsize = extlib.fastmg_get_matsize(lv)
-
-    extlib.fastmg_fetch_A(lv, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr)
-    A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(matsize, matsize))
+    if lv==0:
+        extlib.fastmg_fetch_A(lv, ist.spmat_data, ist.spmat_indices, ist.spmat_indptr)
+        A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(matsize, matsize))
+    else:
+        data = np.zeros(nnz, dtype=np.float32)
+        indices = np.zeros(nnz, dtype=np.int32)
+        indptr = np.zeros(matsize+1, dtype=np.int32)
+        extlib.fastmg_fetch_A(lv, data, indices, indptr)
+        A = scipy.sparse.csr_matrix((data, indices, indptr), shape=(matsize, matsize))
     return A
 
 def fetch_A_data_from_cuda():
@@ -1238,6 +1245,19 @@ def get_A0_cuda()->scipy.sparse.csr_matrix:
     A = fetch_A_from_cuda(0)
     return A
 
+
+def export_all_levels_A(ist):
+    from engine.util import export_A_b
+    AMG_A()
+    nl = ist.linsol.get_nl()
+    for l in range(nl):
+        print(f"exporting A of level {l}...")
+        A = fetch_A_from_cuda(l)
+        print(f"A.shape={A.shape}")
+        export_A_b(A, None, dir=args.out_dir+"/A/", postfix=f"L{l}")
+        print(f"exported A of level {l}...")
+    print("exported all levels A and exit..")
+    exit(0)
 
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #

@@ -181,7 +181,8 @@ class AmgCuda:
         if self.args.smoother_type=="gauss_seidel":
             self.graph_coloring()    
 
-
+    def get_nl(self):
+        return self.num_levels
 
     def run_v2(self, A, b):
         def AMG_setup_phase_v2(self, A=None):

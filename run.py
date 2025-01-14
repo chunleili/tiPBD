@@ -1902,6 +1902,42 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
+# case178(from case 98): for draw sparsity partten soft85w AMG niter3 3ms SA
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-sparsity_SA",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=20",
+        "-smoother_niter=3",
+        "-build_P_method=SA",
+        "-export_matrix=1",
+        ]
+allargs.append(args)
+
+# case179(from case 98): for draw sparsity partten UA
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-sparsity_UA",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=20",
+        "-smoother_niter=3",
+        "-build_P_method=UA",
+        "-export_matrix=1",
+        ]
+allargs.append(args)
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')

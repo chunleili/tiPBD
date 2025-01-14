@@ -33,7 +33,7 @@ def load_A(path):
 
 
 def draw(to_read_dir="result/sparsityUA/"):
-    fig, axs = plt.subplots(3, figsize=(7, 15),
+    fig, axs = plt.subplots(3, figsize=(7, 18),
                             layout="constrained", gridspec_kw={"hspace": 0.1})  # 调整子图大小
     As = [None] * 3
     As[0] = load_A(to_read_dir+"A_L0.npz")
@@ -58,8 +58,8 @@ def draw(to_read_dir="result/sparsityUA/"):
     titles = ["Level 0", "Level 1", "Level 2"]
     sparsity = [As[0].nnz/As[0].shape[0]**2, As[1].nnz/As[1].shape[0]**2, As[2].nnz/As[2].shape[0]**2]
     nnz = [As[0].nnz, As[1].nnz, As[2].nnz]
-    # titles = [f"{titles[i]}: {sparsity[i]*100:.1f}%" for i in range(3)]
-    titles = [f"{titles[i]}: {sparsity[i]:.0e}" for i in range(3)]
+    titles = [f"Sparsity of level {i}: {sparsity[i]*100:.1f}%" for i in range(3)]
+    # titles = [f"{titles[i]}: {sparsity[i]:.0e}" for i in range(3)]
     # titles=[f"Level 0: sparsity" ]
     # titles = [f"{titles[i]}: {nnz[i]:.1e} nnz" for i in range(3)]
     for i, ax in enumerate(axs):
@@ -92,6 +92,7 @@ def draw(to_read_dir="result/sparsityUA/"):
     #     axs[i].axhline(y=axs[i].get_ylim()[1], color='black', linewidth=1)
 
     # plt.show()
+    fig.savefig(f"{to_read_dir}/sparsity.png", dpi=300)
 
 def generate_data_from_sim():
     import subprocess,os
@@ -110,7 +111,9 @@ def generate_data_from_sim():
     "-arch=cpu",
     "-maxiter=20",
     "-smoother_niter=3",
-    "-build_P_method=UA",]
+    "-build_P_method=UA",
+    "-clean_dir=0"
+    ]
     subprocess.check_call(args)
 
     print("generating data for SA...")
@@ -125,12 +128,14 @@ def generate_data_from_sim():
     "-arch=cpu",
     "-maxiter=20",
     "-smoother_niter=3",
-    "-build_P_method=SA",]
+    "-build_P_method=SA",
+    "-clean_dir=0"
+    ]
     subprocess.check_call(args)
 
 
 if __name__ == "__main__":
-    generate_data_from_sim()
+    # generate_data_from_sim()
     draw("result/sparsityUA/A/")
     draw("result/sparsitySA/A/")
     plt.show()

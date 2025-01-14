@@ -55,7 +55,7 @@ def use_another_outdir(dir):
 def process_dirs(args):
     if args.auto_another_outdir:
         args.out_dir = use_another_outdir(args.out_dir)
-    if not args.restart:
+    if args.clean_dir and not args.restart:
         make_and_clean_dirs(args.out_dir)
     else:
         make_dirs(args.out_dir)

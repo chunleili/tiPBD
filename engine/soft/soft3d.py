@@ -571,9 +571,9 @@ class SoftBody(PhysicalBase):
             self.r_iter.tic_iter = perf_counter()
             self.do_external_constraints()
             self.solveSoft()
-            self.dualr=AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
+            self.dualr=AMG_calc_r(self, r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, get_A0_cuda)
-            export_all_levels_A(self)
+            # export_all_levels_A(self)
             if self.r_iter.check():
                 break
         self.collision_response()
@@ -619,6 +619,9 @@ class SoftBody(PhysicalBase):
             # collsion_response(ist.pos)
             calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
             dualr = np.linalg.norm(ist.residual.to_numpy())
+            if args.export_fulldual:
+                if ist.ite==0 or ist.ite==args.maxiter-1:
+                    np.save(args.out_dir+f"/r/fulldual-{ist.frame}-{ist.ite}.npy",ist.dual_residual.to_numpy())
             if ist.ite == 0:
                 dualr0 = dualr.copy()
             toc = time.perf_counter()
@@ -737,7 +740,7 @@ def reset_lagrangian(lagrangian: ti.template()):
 
 
 
-def AMG_calc_r(r,dual0, tic_iter, r_Axb):
+def AMG_calc_r(ist, r,dual0, tic_iter, r_Axb):
     from engine.ti_kernels import calc_dual_kernel
     t_iter = perf_counter()-tic_iter
     tic_calcr = perf_counter()
@@ -745,6 +748,10 @@ def AMG_calc_r(r,dual0, tic_iter, r_Axb):
     dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
     r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
     logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
+
+    if args.export_fulldual:
+        if ist.ite==0 or ist.ite==args.maxiter-1:
+            np.save(args.out_dir+f"/r/fulldual-{ist.frame}-{ist.ite}.npy",ist.dual_residual.to_numpy())
 
     if args.export_log:
         logging.info(f"    iter total time: {t_iter*1000:.0f}ms")

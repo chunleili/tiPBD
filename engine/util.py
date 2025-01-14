@@ -380,7 +380,7 @@ def main_loop(ist,args):
     ist.r_all.t_export = 0.0
 
     try:
-        for f in range(ist.initial_frame, args.end_frame):
+        for ist.frame in range(ist.initial_frame, args.end_frame+1):
             ist.tic_frame = time.perf_counter()
 
             if args.solver_type == "XPBD":
@@ -391,7 +391,6 @@ def main_loop(ist,args):
                 ist.substep_all_solver()
 
             export_after_substep(ist,args)
-            ist.frame += 1
 
             logging.info("\n")
             step_pbar.update(1)

@@ -9,7 +9,7 @@
           "console": "integratedTerminal",
           "cwd": "${workspaceFolder}",
           "args": [
-            "-end_frame=100"
+            // "-solver_type=XPBD"
           ]
         },  
         {
@@ -160,6 +160,16 @@
               "-use_gravity=0",
               "-reinit=squash",
             ]
-          }  
+          }  ,
+          {
+            "name": "draw frequency",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "script/draw/draw_frequency.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+            ]
+          },  
     ]
 }

@@ -105,10 +105,10 @@ class FillACloth():
             "num_adjacent_edge",
             "adjacent_edge_abc",
             "num_nonz",
-            "spmat_indices",
-            "spmat_indptr",
-            "spmat_ii",
-            "spmat_jj",
+            "indices",
+            "indptr",
+            "ii",
+            "jj",
             "v2e",
             "num_v2e",
             ]
@@ -149,7 +149,7 @@ class FillACloth():
         npzfile = np.load(f"{self.cache_name}")
         for key in self.alldata_names():
             setattr(self, key, npzfile[key])
-        self.spmat.jj = self.spmat.indices
+        self.spmat.get_from_outside(npzfile["data"], npzfile["indices"], npzfile["indptr"], npzfile["ii"], npzfile["jj"])
         self.num_nonz = self.calc_num_nonz(self.num_adjacent_edge)
         print(f"load {self.cache_name}")
 
@@ -168,7 +168,8 @@ class FillACloth():
                 self.initFill_cpp()
             else:
                 self.initFill_python()
-            self.save_cache()
+                if self.use_cache:
+                    self.save_cache()
 
     @staticmethod
     def calc_num_nonz(num_adjacent_edge):

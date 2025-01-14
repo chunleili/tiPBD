@@ -53,5 +53,6 @@ def add_common_args(parser):
     parser.add_argument("-use_pintotarget", type=int, default=False)
     parser.add_argument("-use_muscle2muscle", type=int, default=False)
     parser.add_argument("-start_frame", type=int, default=1)
-    parser.add_argument("-clean_dir", type=int, default=True)
+    parser.add_argument("-clean_dir", type=int, default=False)
+    parser.add_argument("-export_fulldual", type=int, default=False)
     return parser

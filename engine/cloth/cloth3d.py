@@ -69,6 +69,8 @@ class Cloth(PhysicalBase):
         self.args = args
         self.extlib = extlib
         self.sim_type = "cloth"
+        self.initial_frame = args.start_frame
+        self.frame = args.start_frame
 
         # ---------------------------------------------------------------------------- #
         #                               mesh and topology                              #
@@ -236,6 +238,7 @@ class Cloth(PhysicalBase):
         self.semi_euler()
         self.lagrangian.fill(0)
         self.r_iter.calc_r0()
+        r=[]
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
             self.compute_C_and_gradC()
@@ -243,6 +246,7 @@ class Cloth(PhysicalBase):
             dlambda, self.r_iter.r_Axb = self.linsol.run(self.b)
             self.dlam2dpos(dlambda)
             self.update_pos()
+            AMG_calc_r(self, r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, self.get_A0_cuda)
             if self.r_iter.check():
                 break
@@ -514,6 +518,9 @@ def xpbd_calcr(ist, tic_iter, dual0):
     t_iter = perf_counter()-tic_iter
     tic_calcr = perf_counter()
     dualr = calc_norm(ist.dual_residual)
+    if args.export_fulldual:
+        if ist.ite==0 or ist.ite==args.maxiter-1:
+            np.save(args.out_dir+f"/r/fulldual-{ist.frame}-{ist.ite}.npy",ist.dual_residual.to_numpy())
     t_calcr = perf_counter()-tic_calcr
     tic_exportr = perf_counter()
     if args.export_log:
@@ -910,6 +917,25 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32),
 #                                  end fill A                                  #
 # ---------------------------------------------------------------------------- #
 
+def AMG_calc_r(ist, r,dual0, tic_iter, r_Axb):
+    from engine.ti_kernels import calc_dual_kernel
+    t_iter = perf_counter()-tic_iter
+    tic_calcr = perf_counter()
+    calc_dual_kernel(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
+    dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
+    r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
+    logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
+
+    if args.export_fulldual:
+        if ist.ite==0 or ist.ite==args.maxiter-1:
+            np.save(args.out_dir+f"/r/fulldual-{ist.frame}-{ist.ite}.npy",ist.dual_residual.to_numpy())
+
+    if args.export_log:
+        logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
+        logging.info(f"{ist.frame}-{ist.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
+    r.append(dual_r)
+
+    return dual_r
 
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #

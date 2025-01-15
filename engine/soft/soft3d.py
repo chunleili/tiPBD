@@ -546,6 +546,17 @@ class SoftBody(PhysicalBase):
         if args.use_extra_spring or args.use_pintotarget:
             self.read_target_pos()
 
+    def has_no_time_budget(self):
+        if (self.frame%self.args.setup_interval==0) or (self.frame==self.initial_frame): 
+            logging.info("do not use time budget for setup")
+            return False
+        self.frame_past_time = perf_counter() - self.tic_frame
+        self.timeBudget_left = args.time_budget - self.frame_past_time
+        logging.info(f"Time budget left: {self.timeBudget_left:.2f}s")
+        if self.timeBudget_left < 0:
+            logging.info(f"Time budget exceeded, break: frame past time: {self.frame_past_time:.2f}s, iter:{self.ite}")
+            return True
+        return False
 
     # @timeit
     def do_external_constraints(self):
@@ -562,10 +573,12 @@ class SoftBody(PhysicalBase):
             self.m2mCons.solve_one_iter(self.pos, args.delta_t)
 
     def substep_all_solver(self):
+        self.tic_frame = time.perf_counter()
         self.semi_euler()
         self.read_external_pos()
         self.lagrangian.fill(0)
         self.dual0 = self.do_pre_iter0()
+        self.r_iter.r0 = self.dual0
         r = []
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
@@ -573,8 +586,10 @@ class SoftBody(PhysicalBase):
             self.solveSoft()
             self.dualr=AMG_calc_r(self, r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, get_A0_cuda)
+            if self.has_no_time_budget():
+                break
             # export_all_levels_A(self)
-            if self.r_iter.check():
+            if self.r_iter.check(self.dualr):
                 break
         self.collision_response()
         self.n_outer_all.append(self.ite+1)

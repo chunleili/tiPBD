@@ -171,5 +171,27 @@
             "args": [
             ]
           },  
+          {
+            "name": "timeBudget",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+            "-out_dir=result/timeBudget",
+            "-model_path=data/model/bunny_small/bunny_small.node",
+            "-tol=1e-3",
+            "-delta_t=3e-3",
+            "-solver_type=AMG",
+            "-arch=cpu",
+            "-maxiter=20",
+            "-end_frame=5",
+            "-mu=1e9",
+            "-use_gravity=0",
+            "-reinit=squash",
+            "-time_budget=1.0"
+            ]
+          },  
     ]
 }

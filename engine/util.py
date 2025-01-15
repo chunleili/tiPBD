@@ -70,9 +70,10 @@ class ResidualDataOneIter:
             self.use_calc_strain = args.calc_strain
         self.choose_mode(converge_condition)
 
-    def check(self):
+    def check(self,r=None):
         '''Check Convergence'''
-        self.set_r() # set r and r0 according to mode
+        self.r = r
+        # self.set_r() # set r and r0 according to mode
         if self.is_diverge():
             raise Exception("diverge")
         if self.is_converge():
@@ -360,7 +361,7 @@ def export_A_b(A, b, dir, postfix=f"", binary=True):
 
 def do_post_iter(ist, get_A0_cuda=None):
     ist.update_constraints() #CAUTION that this should be called before calc_r
-    ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
+    # ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
     export_mat(ist, get_A0_cuda, ist.b)
     ist.r_all.t_export += ist.r_iter.t_export
     ist.r_iter.t_export = 0.0

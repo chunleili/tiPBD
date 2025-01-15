@@ -226,14 +226,14 @@ def ending(args, ist):
 
     sim_time_with_export = time.perf_counter() - ist.timer_loop
     sim_time = sim_time_with_export - ist.r_all.t_export
-    nframes = (args.end_frame - ist.initial_frame) if args.end_frame > ist.initial_frame else 1
+    nframes = (args.end_frame - ist.initial_frame + 1) if args.end_frame > ist.initial_frame else 1
     avg_sim_time = sim_time / nframes
 
     s = f"\n-------\n"+\
     f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
     f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
     f"Time of exporting: {ist.r_all.t_export:.3f}s\n" + \
-    f"Frame {ist.initial_frame}-{args.end_frame}({args.end_frame-ist.initial_frame} frames)."+\
+    f"Frame {ist.initial_frame}-{args.end_frame}({nframes} frames)."+\
     f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{ist.start_date},\nEnd\t{end_date}."+\
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\

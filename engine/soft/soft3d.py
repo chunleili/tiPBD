@@ -547,12 +547,13 @@ class SoftBody(PhysicalBase):
             self.read_target_pos()
 
     def has_no_time_budget(self):
-        if (self.frame%self.args.setup_interval==0) or (self.frame==self.initial_frame): 
-            logging.info("do not use time budget for setup")
-            return False
+        if args.solver_type=="AMG":
+            if (self.frame%self.args.setup_interval==0) or (self.frame==self.initial_frame): 
+                logging.info("do not use time budget for setup")
+                return False
         self.frame_past_time = perf_counter() - self.tic_frame
         self.timeBudget_left = args.time_budget - self.frame_past_time
-        logging.info(f"Time budget left: {self.timeBudget_left:.2f}s")
+        logging.info(f"Time budget left: {self.timeBudget_left*1000:.0f}ms")
         if self.timeBudget_left < 0:
             logging.info(f"Time budget exceeded, break: frame past time: {self.frame_past_time:.2f}s, iter:{self.ite}")
             return True
@@ -578,7 +579,6 @@ class SoftBody(PhysicalBase):
         self.read_external_pos()
         self.lagrangian.fill(0)
         self.dual0 = self.do_pre_iter0()
-        self.r_iter.r0 = self.dual0
         r = []
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
@@ -589,7 +589,11 @@ class SoftBody(PhysicalBase):
             if self.has_no_time_budget():
                 break
             # export_all_levels_A(self)
-            if self.r_iter.check(self.dualr):
+            if self.dualr < args.tol:
+                logging.info("Converge: tol")
+                break
+            if self.dualr / self.dual0 < args.rtol:
+                logging.info("Converge: rtol")
                 break
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
@@ -642,6 +646,8 @@ class SoftBody(PhysicalBase):
             toc = time.perf_counter()
             logging.info(f"{ist.frame}-{ist.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
             # r.append(ist.ResidualData(dualr, 0, toc-tic))
+            if ist.has_no_time_budget():
+                break
             if dualr < args.tol:
                 logging.info("Converge: tol")
                 break

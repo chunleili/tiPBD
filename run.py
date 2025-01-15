@@ -109,7 +109,7 @@ args = ["engine/cloth/cloth3d.py",
 allargs.append(args)
 
 # case2: cloth  XPBD gpu
-casenames[len(allargs)] = "cloth-AMG"
+casenames[len(allargs)] = "cloth-xpbd"
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=XPBD",
         f"-end_frame=100",

@@ -215,5 +215,47 @@
             "-time_budget=1.0"
             ]
           },  
+          {
+            "name": "timeBudgetClothXPBD",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/cloth/cloth3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+              "-solver_type=XPBD",
+              "-end_frame=30",
+              "-out_dir=result/timeBudget-cloth-XPBD",
+              "-arch=gpu",
+              "-N=256",
+              "-maxiter=10000",
+              "-delta_t=10e-3",
+              "-tol=1e-4",
+              "-compliance=1e-9",
+              "-use_gravity=1",
+              "-time_budget=1.0"
+            ]
+          },  
+          {
+            "name": "timeBudgetClothMGPBD",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/cloth/cloth3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+              "-solver_type=AMG",
+              "-end_frame=30",
+              "-out_dir=result/timeBudget-cloth-MGPBD",
+              "-arch=gpu",
+              "-N=256",
+              "-maxiter=10000",
+              "-delta_t=10e-3",
+              "-tol=1e-4",
+              "-compliance=1e-9",
+              "-use_gravity=1",
+              "-time_budget=1.0"
+            ]
+          },  
     ]
 }

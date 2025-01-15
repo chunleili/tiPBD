@@ -183,6 +183,7 @@ def calc_conv(r):
 @ti.kernel
 def calc_norm(a:ti.template())->ti.f32:
     sum = 0.0
+    ti.loop_config(serialize=True)
     for i in range(a.shape[0]):
         sum += a[i] * a[i]
     sum = ti.sqrt(sum)
@@ -360,7 +361,7 @@ def export_A_b(A, b, dir, postfix=f"", binary=True):
 
 
 def do_post_iter(ist, get_A0_cuda=None):
-    ist.update_constraints() #CAUTION that this should be called before calc_r
+    # ist.update_constraints() #CAUTION that this should be called before calc_r
     # ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
     export_mat(ist, get_A0_cuda, ist.b)
     ist.r_all.t_export += ist.r_iter.t_export

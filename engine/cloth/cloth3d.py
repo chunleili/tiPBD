@@ -234,10 +234,48 @@ class Cloth(PhysicalBase):
         self.G = G
         return G
 
+
+    def has_no_time_budget(self):
+        self.frame_past_time = perf_counter() - self.tic_frame
+        self.timeBudget_left = args.time_budget - self.frame_past_time
+        logging.info(f"Time budget left: {self.timeBudget_left*1000:.0f}ms")
+        if args.solver_type=="AMG":
+            if self.should_setup(): 
+                self.timeBudget_left = args.time_budget
+                logging.info("refresh time budget for setup iter")
+                return False
+        if self.timeBudget_left < 0:
+            logging.info(f"Time budget exceeded, break: frame past time: {self.frame_past_time:.2f}s, iter:{self.ite}")
+            return True
+        return False
+    
+    
+    def AMG_calc_r(self, r,dual0, tic_iter, r_Axb):
+        from engine.ti_kernels import calc_dual_kernel
+        self.t_iter = perf_counter()-tic_iter
+        tic_calcr = perf_counter()
+        calc_dual_kernel(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
+        dual_r = np.linalg.norm(self.dual_residual.to_numpy()).astype(float)
+        r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
+        logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
+
+        if args.export_fulldual:
+            if self.ite==0 or self.ite==args.maxiter-1:
+                np.save(args.out_dir+f"/r/fulldual-{self.frame}-{self.ite}.npy",self.dual_residual.to_numpy())
+
+        if args.export_log:
+            logging.info(f"    iter total time: {self.t_iter*1000:.0f}ms")
+            logging.info(f"{self.frame}-{self.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
+        r.append(dual_r)
+
+        return dual_r
+    
+
     def substep_all_solver(self):
         self.semi_euler()
         self.lagrangian.fill(0)
-        self.r_iter.calc_r0()
+        self.dual0 = self.r_iter.calc_r0()
+        # self.dual0 = self.calc_dual()
         r=[]
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
@@ -245,10 +283,14 @@ class Cloth(PhysicalBase):
             self.b = self.compute_b()
             dlambda, self.r_iter.r_Axb = self.linsol.run(self.b)
             self.dlam2dpos(dlambda)
-            self.update_pos()
-            AMG_calc_r(self, r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
+            self.update_pos()   
+            self.dualr = self.AMG_calc_r( r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, self.get_A0_cuda)
-            if self.r_iter.check():
+            if self.has_no_time_budget():
+                break
+            if self.dualr<args.tol:
+                break
+            if self.dualr/self.dual0<args.rtol:
                 break
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
@@ -275,6 +317,9 @@ class Cloth(PhysicalBase):
             solve_distance_constraints_xpbd(ist.dual_residual, ist.inv_mass, ist.edge, ist.rest_len, ist.lagrangian, ist.dpos, ist.pos, ist.alpha_tilde)
             update_pos(ist.inv_mass, ist.dpos, ist.pos,args.omega)
 
+            if ist.has_no_time_budget():
+                break
+        
             if args.calc_dual: #calc dual is expensive becuase of we have to calculate norm. which cost 3ms compared to 0.3ms for solve_constraints
                 ist.dualr=xpbd_calcr(ist, tic_iter, ist.r_iter.dual0)
                 if ist.dualr<args.tol:
@@ -917,25 +962,6 @@ def fill_A_ijv_kernel(ii:ti.types.ndarray(dtype=ti.i32),
 #                                  end fill A                                  #
 # ---------------------------------------------------------------------------- #
 
-def AMG_calc_r(ist, r,dual0, tic_iter, r_Axb):
-    from engine.ti_kernels import calc_dual_kernel
-    t_iter = perf_counter()-tic_iter
-    tic_calcr = perf_counter()
-    calc_dual_kernel(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
-    dual_r = np.linalg.norm(ist.dual_residual.to_numpy()).astype(float)
-    r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
-    logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
-
-    if args.export_fulldual:
-        if ist.ite==0 or ist.ite==args.maxiter-1:
-            np.save(args.out_dir+f"/r/fulldual-{ist.frame}-{ist.ite}.npy",ist.dual_residual.to_numpy())
-
-    if args.export_log:
-        logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
-        logging.info(f"{ist.frame}-{ist.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
-    r.append(dual_r)
-
-    return dual_r
 
 # ---------------------------------------------------------------------------- #
 #                                initialization                                #

@@ -34,8 +34,8 @@ cache*.npz
 settings.json
 *.node
 *.ele
-!data/config/*.json
-data/*
+!data/config/*
+# data/*
 .vs
 
 ./perf.obj

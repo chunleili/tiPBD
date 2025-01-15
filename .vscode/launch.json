@@ -9,7 +9,7 @@
           "console": "integratedTerminal",
           "cwd": "${workspaceFolder}",
           "args": [
-            // "-solver_type=XPBD"
+            "-case 1"
           ]
         },  
         {

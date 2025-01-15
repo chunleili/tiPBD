@@ -39,6 +39,7 @@ parser.add_argument("-case", type=int, nargs='*',help=f"case numbers(can be mult
 parser.add_argument("-end_frame", type=int, default=10, help=f"end frame")
 parser.add_argument("-overwrite", action="store_true")
 parser.add_argument("-A", type=str, help="export a matrix file for testing")
+parser.add_argument("-exportCases", action="store_true", help="export the cases to json file")
 
 end_frame = parser.parse_args().end_frame
 
@@ -1938,6 +1939,88 @@ args = ["engine/soft/soft3d.py",
         ]
 allargs.append(args)
 
+
+#case 180: timeBudgetSoftSmall 10ms AMG
+args = ["engine/soft/soft3d.py",
+    f"-out_dir=result/case{len(allargs)}-{day}-timeBudgetSoftSmall",
+        "-model_path=data/model/bunny_small/bunny_small.node",
+        "-tol=1e-3",
+        "-delta_t=10e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=20",
+        "-end_frame=5",
+        "-mu=1e9",
+        "-use_gravity=0",
+        "-reinit=squash",
+        "-time_budget=1.0"
+]
+allargs.append(args)
+
+
+#case 181: timeBudgetSoftSmall 10ms XPBD
+args=["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-timeBudgetSoftSmallXPBD",
+        "-model_path=data/model/bunny_small/bunny_small.node",
+        "-tol=1e-3",
+        "-delta_t=10e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=10000",
+        "-end_frame=5",
+        "-mu=1e9",
+        "-use_gravity=0",
+        "-reinit=squash",
+        "-time_budget=1.0"
+        ]
+allargs.append(args)
+
+#case 182: timeBudgetCloth256 10ms AMG
+args=["engine/soft/soft3d.py",
+        "-solver_type=AMG",
+        "-end_frame=10",
+        "-out_dir=result/timeBudget-cloth-MGPBD",
+        "-arch=gpu",
+        "-N=256",
+        "-maxiter=10000",
+        "-delta_t=10e-3",
+        "-tol=1e-4",
+        "-compliance=1e-9",
+        "-use_gravity=1",
+        "-time_budget=1.0"
+        ]
+allargs.append(args)
+
+
+#case 183: timeBudgetCloth256 10ms XPBD
+args = ["engine/soft/soft3d.py",
+            "-solver_type=XPBD",
+            "-end_frame=10",
+            "-out_dir=result/case{len(allargs)}-{day}-timeBudget-cloth-XPBD",
+            "-arch=gpu",
+            "-N=256",
+            "-maxiter=10000",
+            "-delta_t=10e-3",
+            "-tol=1e-4",
+            "-compliance=1e-9",
+            "-use_gravity=1",
+            "-time_budget=1.0"
+            ]
+allargs.append(args)
+
+
+def export_cases_to_json(allargs):
+    import json
+    for i in range(len(allargs)):
+        if i in casenames:
+            casename = f"data/config/generated/case{i}-{casenames[i]}.json"
+        else:
+            casename = f"data/config/generated/case{i}.json"
+        print(f"Exporting {casename}")
+        with open(casename, "w") as f:
+            json.dump(allargs[i], f, indent=4)
+
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')
@@ -1990,6 +2073,12 @@ if __name__=='__main__':
 
     cli_args = parser.parse_args()
 
+
+    if cli_args.exportCases:
+        print("Exporting cases to json (data/config/generated/)...")
+        export_cases_to_json(allargs)
+        print("Export done.")
+        exit(0)
 
     if cli_args.A is not None:
         export_A(cli_args)

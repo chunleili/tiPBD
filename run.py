@@ -39,7 +39,6 @@ parser.add_argument("-case", type=int, nargs='*',help=f"case numbers(can be mult
 parser.add_argument("-end_frame", type=int, default=10, help=f"end frame")
 parser.add_argument("-overwrite", action="store_true")
 parser.add_argument("-A", type=str, help="export a matrix file for testing")
-parser.add_argument("-timeBudget", type=float, default=30.0, help="time budget for each case")
 
 end_frame = parser.parse_args().end_frame
 
@@ -1946,8 +1945,6 @@ def run_case(case_num:int):
     
     args = allargs[case_num]
     
-    if parser.parse_args().timeBudget:
-        args = ["-timeBudget", str(parser.parse_args().timeBudget), *args]
 
     if parser.parse_args().profile:
         logging.info(f"Running with cProfile. Output to '{case_num}.profile' file. Use 'snakeviz {case_num}.profile' to view the result.")

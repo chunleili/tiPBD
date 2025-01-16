@@ -549,6 +549,7 @@ class SoftBody(PhysicalBase):
     def has_no_time_budget(self):
         self.frame_past_time = perf_counter() - self.tic_frame
         self.timeBudget_left = args.time_budget - self.frame_past_time
+        # logging.info(f"FramePastTime: {self.frame_past_time*1000:.0f}ms")
         logging.info(f"Time budget left: {self.timeBudget_left*1000:.0f}ms")
         if args.solver_type=="AMG":
             if self.should_setup(): 
@@ -576,7 +577,7 @@ class SoftBody(PhysicalBase):
 
         if args.export_log:
             logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
-            logging.info(f"{self.frame}-{self.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
+            logging.info(f"{self.frame}-{self.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)} FramePastTime:{self.frame_past_time*1000:.0f} ms")
         r.append(dual_r)
 
         return dual_r
@@ -606,10 +607,10 @@ class SoftBody(PhysicalBase):
             self.r_iter.tic_iter = perf_counter()
             self.do_external_constraints()
             self.solveSoft()
-            self.dualr=self.AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
-            do_post_iter(self, get_A0_cuda)
             if self.has_no_time_budget():
                 break
+            self.dualr=self.AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
+            do_post_iter(self, get_A0_cuda)
             # export_all_levels_A(self)
             if self.dualr < args.tol:
                 logging.info("Converge: tol")
@@ -666,10 +667,10 @@ class SoftBody(PhysicalBase):
             if ist.ite == 0:
                 dualr0 = dualr.copy()
             toc = time.perf_counter()
-            logging.info(f"{ist.frame}-{ist.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s")
-            # r.append(ist.ResidualData(dualr, 0, toc-tic))
             if ist.has_no_time_budget():
                 break
+            logging.info(f"{ist.frame}-{ist.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s FramePastTime:{ist.frame_past_time*1000:.0f} ms")
+            # r.append(ist.ResidualData(dualr, 0, toc-tic))
             if dualr < args.tol:
                 logging.info("Converge: tol")
                 break

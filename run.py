@@ -1816,15 +1816,16 @@ for config in ["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/b
             f"-out_dir=result/case{len(allargs)}-{day}-bunny",
             f"-auto_another_outdir={auto_another_outdir}",
             f"-model_path=data/model/{config}",
-            "-tol=1e-3",
+            "-tol=10e-3",
             "-delta_t=1e-3",
             "-solver_type=AMG",
             "-arch=cpu",
             "-maxiter=20",
-            "-end_frame=5",
+            "-end_frame=2",
             "-mu=1e9",
             "-use_gravity=0",
             "-reinit=squash",
+            "-time_budget=1.0"
             ]
     allargs.append(args)
 
@@ -1836,14 +1837,15 @@ for config in ["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/b
             f"-auto_another_outdir={auto_another_outdir}",
             f"-model_path=data/model/{config}",
             "-tol=1e-3",
-            "-delta_t=1e-3",
+            "-delta_t=10e-3",
             "-solver_type=XPBD",
             "-arch=gpu",
             "-maxiter=10000",
-            "-end_frame=20",
+            "-end_frame=2",
             "-mu=1e9",
             "-use_gravity=0",
             "-reinit=squash",
+            "-time_budget=1.0"
             ]
     allargs.append(args)
 

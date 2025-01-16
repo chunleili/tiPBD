@@ -28,28 +28,52 @@ def read_from_log(log_file, frame, r_type, with0=False):
             r[i] = float(l.split(f"{r_type}:")[1].split()[0])
             if with0:
                 r0.append( float(l.split(f"{r_type}0:")[1].split()[0]))
-    return r, r0
 
+        # 提取出FramePastTime后面的数字
+        FramePastTime = [line for line in lines if f"FramePastTime:" in line]
+        for i,l in enumerate(FramePastTime):
+            FramePastTime[i] = float(l.split(f"FramePastTime:")[1].split()[0])
+    return r, r0, FramePastTime
 
-def run_and_draw(log_file, ax, legend):
-    r, r0= read_from_log(log_file, frame, r_type, with0)
+def run_and_draw(log_file, ax, r0):
+    r, r0, FramePastTime= read_from_log(log_file, frame, r_type, with0)
     r = np.array(r)
+    r = np.concatenate([r0, r])
     print(r[:5])
-    ax.plot(r)
+    ax.plot(FramePastTime, r)
+    ax.set_xlabel(f"Frame Past Time(ms)")
     ax.set_ylabel(f"{r_type}")
     ax.set_yscale("log")
-    ax.legend([legend])
+    return r
 
-frame = 74
+frame = 2
 r_type = "dual"
-with0 = False
-fig,axs = plt.subplots(4)
-log_file = "result/latest/latest.log"
-run_and_draw(log_file, axs[0], r_type)
-r_type = "Newton"
-run_and_draw(log_file, axs[1], r_type)
-r_type = "energy"
-run_and_draw(log_file, axs[2], r_type)
-r_type = "strain"
-run_and_draw(log_file, axs[3], r_type)
+with0 = True
+fig,axs = plt.subplots(1,squeeze=True)
+log_file = "result/case166-0116-bunny/latest.log"
+r, r0, FramePastTime= read_from_log(log_file, frame, r_type, with0)
+r = np.array(r)
+print(r[:5])
+r0__ = r[0]
+axs.plot(FramePastTime, r)
+axs.set_xlabel(f"Frame Past Time(ms)")
+axs.set_ylabel("dual residual")
+axs.set_yscale("log")
+
+log_file = "result/case162-0116-bunny/latest.log"
+r, r0, FramePastTime= read_from_log(log_file, frame, r_type, with0)
+# run_and_draw(log_file, axs, "MGPBD")
+r.insert(0, r0__)
+FramePastTime.insert(0, 0)
+r = np.array(r)
+axs.plot(FramePastTime, r)
+axs.legend(["XPBD", "MGPBD"])
+# r_type = "Newton"
+# run_and_draw(log_file, axs[1], r_type)
+# r_type = "energy"
+# run_and_draw(log_file, axs[2], r_type)
+# r_type = "strain"
+# run_and_draw(log_file, axs[3], r_type)
 plt.show()
+
+Path("result/case166-0116-bunny/latest.log").mkdir(parents=True, exist_ok=True)

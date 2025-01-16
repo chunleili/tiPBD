@@ -397,6 +397,17 @@ def read_tet(filename, build_face_flag=False):
     else:
         return pos, tet_indices
 
+def read_geo(filename, build_face_flag=False):
+    from script.convert.geo import Geo
+    geo = Geo(filename)
+    tet_indices = np.array(geo.get_vert(),dtype=np.int32)
+    pos = np.array(geo.get_pos(), dtype=np.float32)
+    if build_face_flag:
+        face_indices = build_face_indices(tet_indices)
+        return pos, tet_indices, face_indices, geo
+    else:
+        return pos, tet_indices, geo
+
 
 
 # Usage:

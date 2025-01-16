@@ -18,7 +18,7 @@ import datetime
 prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(prj_path)
 from engine.file_utils import process_dirs
-from engine.mesh_io import write_mesh, read_tet
+from engine.mesh_io import write_mesh, read_tet, read_geo
 from engine.common_args import add_common_args
 from engine.init_extlib import init_extlib
 from engine.solver.amg_python import AmgPython
@@ -45,7 +45,7 @@ def init_args():
     # "data/model/bunnyBig/bunnyBig.node"
     # "data/model/bunny85w/bunny85w.node"
     # "data/model/ball/ball.node"
-    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall"])
+    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall","beam"])
     parser.add_argument("-large", action="store_true")
     parser.add_argument("-small", action="store_true")
     parser.add_argument("-omega", type=float, default=0.1)
@@ -263,6 +263,25 @@ class SoftBody(PhysicalBase):
         self.pos.from_numpy(pos_)
 
 
+    def read_geo_mesh(self,filename):
+        geo = Geo(filename)
+        vert = np.array(geo.get_vert(),dtype=np.int32)
+        pos = np.array(geo.get_pos(), dtype=np.float32)
+        self.NV = pos.shape[0]
+        self.NT = vert.shape[0]
+        self.NCONS = self.NT
+        self.allocate_fields(self.NV, self.NT)
+
+        self.vert = vert
+        self.pos.from_numpy(pos)
+        self.pos_mid.from_numpy(pos)
+        self.old_pos.from_numpy(pos)
+        self.tet_indices.from_numpy(vert)
+        self.geodir = dir
+        self.geo = geo
+        self.geo_rest = geo
+
+
     def read_geo_rest(self):
         dir = prj_path + "/" + args.geo_dir + "/"
         if os.path.exists(dir+"restpos.geo"):
@@ -314,7 +333,11 @@ class SoftBody(PhysicalBase):
 
     def build_mesh(self,mesh_file):
         tic = time.perf_counter()
-        self.model_pos, self.model_tet, self.model_tri = read_tet(mesh_file, build_face_flag=True)
+        if Path(mesh_file).suffix == ".node":
+            self.model_pos, self.model_tet, self.model_tri = read_tet(mesh_file, build_face_flag=True)
+        elif Path(mesh_file).suffix == ".geo":
+            self.model_pos, self.model_tet, self.model_tri, self.geo = read_geo(mesh_file, build_face_flag=True)
+        print(f"Tetrahedrons:{self.model_tet.shape[0]}, Vertices:{self.model_pos.shape[0]}")
         print(f"read_tet cost: {time.perf_counter() - tic:.4f}s")
         self.NV = len(self.model_pos)
         self.NT = len(self.model_tet)
@@ -409,6 +432,23 @@ class SoftBody(PhysicalBase):
                 logging.warning(f"move the model above the ground")
                 self.pos.from_numpy(self.pos.to_numpy() + np.array([0, -min_pos_y+(max_pos_y-min_pos_y)*0.01, 0]))
             self.ground_pos = 0.0
+        elif args.reinit=="beam":
+            p = self.model_pos
+            # fix the beam at the left end
+            # find the left end postion
+            xmin = np.min(p, axis=0)[0]
+            xmax = np.max(p, axis=0)[0]
+            xsize = xmax - xmin 
+            # a small region within the left end
+            endregion = (xmin - xsize*0.01, xmin + xsize*0.01)
+            # find the end particles where x is within the region
+            self.fixed_particles = np.where((p[:, 0] > endregion[0]) & (p[:, 0] < endregion[1]))[0]
+            # set those particles inv_mass to 0
+            # self.inv_mass_np = self.inv_mass.to_numpy()
+            self.inv_mass_np = args.pmass * np.ones(self.NV, dtype=np.float32)
+            self.inv_mass_np[self.fixed_particles] = 0.0
+            self.inv_mass.from_numpy(self.inv_mass_np)
+            args.use_gravity = True
 
 
     # calc_dual use the base class's

@@ -56,4 +56,5 @@ def add_common_args(parser):
     parser.add_argument("-clean_dir", type=int, default=False)
     parser.add_argument("-export_fulldual", type=int, default=False)
     parser.add_argument("-time_budget", type=float, default=1000.0)
+    parser.add_argument("-pmass", type=float, default=1.0)
     return parser

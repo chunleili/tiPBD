@@ -93,6 +93,11 @@ class SoftBody(PhysicalBase):
         self.frame=args.start_frame
         self.initial_frame=args.start_frame
 
+        if args.use_gravity:
+            self.gravity = ti.Vector([0.0, -9.8, 0])
+        else:
+            self.gravity = ti.Vector([0.0, 0.0, 0.0])
+
         if args.use_extra_spring or args.use_pintoanimation or args.use_pintotarget or args.use_muscle2muscle:
             args.use_houdini_data=1
 
@@ -113,13 +118,7 @@ class SoftBody(PhysicalBase):
             self.reinit()
             if args.export_mesh:
                 write_mesh(args.out_dir + f"/mesh/{0:04d}", self.pos.to_numpy(), self.model_tri)
-
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
-        if args.use_gravity:
-            self.gravity = ti.Vector([0.0, -9.8, 0])
-        else:
-            self.gravity = ti.Vector([0.0, 0.0, 0.0])
-        
         args.use_line_search = False
         info(f"Creating instance done")
 
@@ -720,6 +719,7 @@ class SoftBody(PhysicalBase):
             # if is_stall(r):
             #     logging.warning("Stall detected, break")
             #     break
+        self.collision_response()
         self.n_outer_all.append(self.ite+1)
         update_vel(args.delta_t, self.pos, self.old_pos, self.vel)
 

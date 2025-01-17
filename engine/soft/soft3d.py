@@ -676,41 +676,41 @@ class SoftBody(PhysicalBase):
     #     self.n_outer_all.append(self.ite+1)
     #     self.update_vel()
         
-    def substep_xpbd(ist):
-        gravity = ti.Vector(args.gravity)
-        semi_euler(args.delta_t, ist.pos, ist.predict_pos, ist.old_pos, ist.vel, args.damping_coeff, gravity)
-        reset_lagrangian(ist.lagrangian)
+    def substep_xpbd(self):
+        # semi_euler(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
+        self.semi_euler()
+        reset_lagrangian(self.lagrangian)
         r=[]
-        for ist.ite in range(args.maxiter):
+        for self.ite in range(args.maxiter):
             tic = time.perf_counter()
             project_constraints(
-                ist.pos_mid,
-                ist.tet_indices,
-                ist.inv_mass,
-                ist.lagrangian,
-                ist.B,
-                ist.pos,
-                ist.alpha_tilde,
-                ist.constraints,
-                ist.residual,
-                ist.gradC,
-                ist.dlambda,
-                ist.dpos,
+                self.pos_mid,
+                self.tet_indices,
+                self.inv_mass,
+                self.lagrangian,
+                self.B,
+                self.pos,
+                self.alpha_tilde,
+                self.constraints,
+                self.residual,
+                self.gradC,
+                self.dlambda,
+                self.dpos,
                 args.omega
             )
-            # collsion_response(ist.pos)
-            calc_dual_residual(ist.alpha_tilde, ist.lagrangian, ist.constraints, ist.dual_residual)
-            dualr = np.linalg.norm(ist.residual.to_numpy())
+            # collsion_response(self.pos)
+            calc_dual_residual(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
+            dualr = np.linalg.norm(self.residual.to_numpy())
             if args.export_fulldual:
-                if ist.ite==0 or ist.ite==args.maxiter-1:
-                    np.save(args.out_dir+f"/r/fulldual-{ist.frame}-{ist.ite}.npy",ist.dual_residual.to_numpy())
-            if ist.ite == 0:
+                if self.ite==0 or self.ite==args.maxiter-1:
+                    np.save(args.out_dir+f"/r/fulldual-{self.frame}-{self.ite}.npy",self.dual_residual.to_numpy())
+            if self.ite == 0:
                 dualr0 = dualr.copy()
             toc = time.perf_counter()
-            if ist.has_no_time_budget():
+            if self.has_no_time_budget():
                 break
-            logging.info(f"{ist.frame}-{ist.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s FramePastTime:{ist.frame_past_time*1000:.0f} ms")
-            # r.append(ist.ResidualData(dualr, 0, toc-tic))
+            logging.info(f"{self.frame}-{self.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s FramePastTime:{self.frame_past_time*1000:.0f} ms")
+            # r.append(self.ResidualData(dualr, 0, toc-tic))
             if dualr < args.tol:
                 logging.info("Converge: tol")
                 break
@@ -720,8 +720,8 @@ class SoftBody(PhysicalBase):
             # if is_stall(r):
             #     logging.warning("Stall detected, break")
             #     break
-        ist.n_outer_all.append(ist.ite+1)
-        update_vel(args.delta_t, ist.pos, ist.old_pos, ist.vel)
+        self.n_outer_all.append(self.ite+1)
+        update_vel(args.delta_t, self.pos, self.old_pos, self.vel)
 
 
 @ti.kernel

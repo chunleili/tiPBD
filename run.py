@@ -1811,27 +1811,29 @@ allargs.append(args)
 
 
 # case161-164: bunny for different size
-for config in ["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]:
+timeBudget=[0.5,1,5,10]
+for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]):
     args = ["engine/soft/soft3d.py",
             f"-out_dir=result/case{len(allargs)}-{day}-bunny",
             f"-auto_another_outdir={auto_another_outdir}",
             f"-model_path=data/model/{config}",
-            "-tol=10e-3",
-            "-delta_t=1e-3",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
             "-solver_type=AMG",
             "-arch=cpu",
             "-maxiter=20",
-            "-end_frame=2",
+            "-end_frame=300",
             "-mu=1e9",
             "-use_gravity=0",
             "-reinit=squash",
-            "-time_budget=1.0"
+            f"-time_budget={timeBudget[i]}"
             ]
     allargs.append(args)
 
 
 # case165-168: bunny for different size
-for config in ["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]:
+timeBudget=[0.5,1,5,10]
+for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]):
     args = ["engine/soft/soft3d.py",
             f"-out_dir=result/case{len(allargs)}-{day}-bunny",
             f"-auto_another_outdir={auto_another_outdir}",
@@ -1841,11 +1843,11 @@ for config in ["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/b
             "-solver_type=XPBD",
             "-arch=gpu",
             "-maxiter=10000",
-            "-end_frame=2",
+            "-end_frame=300",
             "-mu=1e9",
             "-use_gravity=0",
             "-reinit=squash",
-            "-time_budget=1.0"
+            f"-time_budget={timeBudget[i]}"
             ]
     allargs.append(args)
 
@@ -1866,7 +1868,8 @@ for config in [64,128,256,1024]:
             "-tol=1e-4",
             "-end_frame=30",
             "-compliance=1e-9",
-            "-build_P_method=strength0.1"
+            "-build_P_method=strength0.1",
+            "-time_budget=3.0"
             ]
     allargs.append(args)
 
@@ -1884,6 +1887,7 @@ for config in [64,128,256,1024]:
             "-tol=1e-4",
             "-end_frame=30",
             "-compliance=1e-9",
+            "-time_budget=3.0"
             ]
     allargs.append(args)
 
@@ -1943,15 +1947,16 @@ allargs.append(args)
 
 
 #case 180: timeBudgetSoftSmall 10ms AMG
+casenames[len(allargs)] = "timeBudgetSoftSmallMG"
 args = ["engine/soft/soft3d.py",
-    f"-out_dir=result/case{len(allargs)}-{day}-timeBudgetSoftSmall",
+    f"-out_dir=result/case{len(allargs)}-{day}-timeBudgetSoftSmallMG",
         "-model_path=data/model/bunny_small/bunny_small.node",
         "-tol=1e-3",
         "-delta_t=10e-3",
         "-solver_type=AMG",
         "-arch=cpu",
         "-maxiter=20",
-        "-end_frame=5",
+        "-end_frame=300",
         "-mu=1e9",
         "-use_gravity=0",
         "-reinit=squash",
@@ -1961,6 +1966,7 @@ allargs.append(args)
 
 
 #case 181: timeBudgetSoftSmall 10ms XPBD
+casenames[len(allargs)] = "timeBudgetSoftSmallXPBD"
 args=["engine/soft/soft3d.py",
         f"-out_dir=result/case{len(allargs)}-{day}-timeBudgetSoftSmallXPBD",
         "-model_path=data/model/bunny_small/bunny_small.node",
@@ -1969,7 +1975,7 @@ args=["engine/soft/soft3d.py",
         "-solver_type=XPBD",
         "-arch=gpu",
         "-maxiter=10000",
-        "-end_frame=5",
+        "-end_frame=300",
         "-mu=1e9",
         "-use_gravity=0",
         "-reinit=squash",
@@ -1978,9 +1984,10 @@ args=["engine/soft/soft3d.py",
 allargs.append(args)
 
 #case 182: timeBudgetCloth256 10ms AMG
+casenames[len(allargs)] = "timeBudgetCloth256MG"
 args=["engine/soft/soft3d.py",
         "-solver_type=AMG",
-        "-end_frame=10",
+        "-end_frame=300",
         "-out_dir=result/timeBudget-cloth-MGPBD",
         "-arch=gpu",
         "-N=256",
@@ -1995,9 +2002,10 @@ allargs.append(args)
 
 
 #case 183: timeBudgetCloth256 10ms XPBD
+casenames[len(allargs)] = "timeBudgetCloth256XPBD"
 args = ["engine/soft/soft3d.py",
             "-solver_type=XPBD",
-            "-end_frame=10",
+            "-end_frame=300",
             "-out_dir=result/case{len(allargs)}-{day}-timeBudget-cloth-XPBD",
             "-arch=gpu",
             "-N=256",
@@ -2011,6 +2019,49 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
+
+
+# case184-186: ball for different size
+for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]):
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-bunny",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=AMG",
+            "-arch=cpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            f"-time_budget={1}"
+            ]
+    allargs.append(args)
+
+
+# case187-189: ball for different size
+for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]):
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-bunny",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=XPBD",
+            "-arch=gpu",
+            "-maxiter=10000",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-reinit=freefall",
+            f"-time_budget={1}"
+            ]
+    allargs.append(args)
+
+
+
+
 def export_cases_to_json(allargs):
     import json
     for i in range(len(allargs)):
@@ -2019,6 +2070,7 @@ def export_cases_to_json(allargs):
         else:
             casename = f"data/config/generated/case{i}.json"
         print(f"Exporting {casename}")
+        Path(casename).parent.mkdir(parents=True, exist_ok=True)
         with open(casename, "w") as f:
             json.dump(allargs[i], f, indent=4)
 

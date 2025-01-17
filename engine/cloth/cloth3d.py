@@ -147,7 +147,8 @@ class Cloth(PhysicalBase):
     def set_mass_chain(self, NV, pin):
         mass = np.zeros(NV, dtype=np.float32)
         inv_mass_np = np.zeros(NV, dtype=np.float32)
-        mass[:]=np.arange(0,NV) # increasingly heavy, 0 1 2.. NV
+        # increasingly heavier, 0 1 4.. NV^2
+        mass[:] = np.arange(0,NV)**2
         mass[pin!=0] = 0.0 
         inv_mass_np[:] = 1.0/mass
         inv_mass_np[pin!=0] = 0.0 

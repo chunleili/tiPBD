@@ -290,11 +290,13 @@
             "args": [
             "-out_dir=result/chain",
             "-solver_type=AMG",
+            "-tol=1e-9",
             "-arch=gpu",
-            "-time_budget=0.1",
+            "-time_budget=0.01",
             "-setup_num=2",
-            "-N=10",
-            "-end_frame=300",
+            "-maxiter=10000",
+            "-N=5",
+            "-end_frame=100",
             "-delta_t=10e-3",
             ]
           }, 

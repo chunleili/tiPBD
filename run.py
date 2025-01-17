@@ -2095,7 +2095,29 @@ for i, config in enumerate(["1e5","1e7","1e9"]*2):
         ]
     allargs.append(args)
 
+# case196-197 chain
+timeBudget = [1]*2
+for i, config in enumerate(["30"]*2):
+    if i<=0:
+        solver = "AMG"
+    else:
+        solver = "XPBD"
+    casenames[len(allargs)] = f"chain-N{config}-{solver}"
+    args = ["engine/cloth/cloth3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-solver_type={solver}",
+            "-tol=1e-9",
+            "-arch=gpu",
+            f"-time_budget={timeBudget[i]}",
+            "-setup_num=2",
+            "-maxiter=10000",
+            f"-N={config}",
+            "-end_frame=100",
+            "-delta_t=10e-3",
+        ]
+    allargs.append(args)
 
+    
 def export_cases_to_json(allargs):
     import json
     for i in range(len(allargs)):

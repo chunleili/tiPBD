@@ -266,18 +266,18 @@
             "cwd": "${workspaceFolder}",
             "args": [
             "-out_dir=result/beam",
-            "-model_path=data/model/beam418/beam418.geo",
+            "-model_path=data/model/beam9k/beam9k.geo",
             "-tol=1e-3",
             "-delta_t=10e-3",
             "-solver_type=XPBD",
             "-arch=gpu",
             "-maxiter=10000",
             "-end_frame=100",
-            "-pmass=100",
-            "-mu=1e9",
+            "-pmass=1",
+            "-mu=1e6",
             "-use_gravity=1",
             "-reinit=beam",
-            "-time_budget=1.0"
+            "-time_budget=1"
             ]
           }, 
     ]

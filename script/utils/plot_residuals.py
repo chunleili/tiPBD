@@ -2,8 +2,8 @@ def plot_residuals_all(allres,show_fig=True,save_fig=True,postfix='', use_marker
     import matplotlib.pyplot as plt
     import os
     import numpy as np
-    from utils.mkdir_if_not_exist import mkdir_if_not_exist
-    from utils.define_to_read_dir import to_read_dir
+    from script.utils.mkdir_if_not_exist import mkdir_if_not_exist
+    from script.utils.define_to_read_dir import to_read_dir
 
     # draw_plot
     colors = ['blue', 'orange', 'red', 'purple', 'green', 'black', 'brown', 'pink', 'gray', 'olive', 'cyan', 'lime', 'teal', 'brown', 'pink']
@@ -57,10 +57,15 @@ def plot_residuals_all_new(df,show_fig=True,save_fig=True,postfix='', use_marker
         return r/r[0]
     
     for i in range(len(df)):
-        # if allres[i].label == 'SA+CG' or\
-        #    allres[i].label == 'UA+CG' or\
-        #    allres[i].label == 'GS':
-        plot_residuals(a2r(df.iloc[i].loc['residual']), axs,  label=df.iloc[i].loc['label'], marker=markers[i], color=colors[i])
+        import ast
+        res = df.iloc[i].loc['r']
+        res = ast.literal_eval(res)
+        label =df.iloc[i].loc['label']
+
+        if  not(label == 'SA+CG' or label == 'UA+CG' or label == 'diag PCG'):
+            continue
+        print(label)
+        plot_residuals(a2r(res), axs,  label=label, marker=markers[i], color=colors[i])
 
     fig.canvas.manager.set_window_title(postfix)
     plt.tight_layout()

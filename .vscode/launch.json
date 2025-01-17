@@ -9,7 +9,6 @@
           "console": "integratedTerminal",
           "cwd": "${workspaceFolder}",
           "args": [
-            "-N 5"
           ]
         },  
         {

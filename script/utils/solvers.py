@@ -162,3 +162,25 @@ def SA(A,b,x0,allres):
     r = []
     _ = ml2.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
     allres.append(Residual(label, r, perf_counter()))
+
+def adaptive_SA_CG(A,b,x0,allres):
+    label = "adaptive SA+CG"
+    print(f"Calculating {label}...")
+    r = []
+    ml = pyamg.aggregation.adaptive_sa_solver(A.astype(np.float64), max_coarse=400,  num_candidates=6)[0]
+    _ = ml.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
+    allres.append(Residual(label, r, perf_counter()))
+
+def adaptive_SA_CG_my(A,b,x0,allres):
+    label = "adaptive SA+CG(my)"
+    print(f"Calculating {label}...")
+    from script.amg_cuda_easy import amg_cuda_easy
+    x, r = amg_cuda_easy(A, b,  tol=tol, maxiter=maxiter, build_P_method="adaptive_SA")
+    allres.append(Residual(label, r, perf_counter()))
+
+def nullspace_UA_CG(A,b,x0,allres):
+    label = "near kernel UA+CG"
+    print(f"Calculating {label}...")
+    from script.amg_cuda_easy import amg_cuda_easy
+    x, r = amg_cuda_easy(A, b,  tol=tol, maxiter=maxiter, build_P_method="nullspace")
+    allres.append(Residual(label, r, perf_counter()))

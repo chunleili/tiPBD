@@ -272,15 +272,15 @@ def AMGCG(A,b):
 
 
 
-def compare_adaptive_SA(postfix='F10-0'):
+def compare_adaptive_SA(postfix='F1'):
     import os, sys
     sys.path.append(os.getcwd())
-    from utils.load_A_b import load_A_b
-    from utils.solvers import UA_CG, UA_CG_chebyshev, UA_CG_jacobi, CG
+    from script.utils.load_A_b import load_A_b
+    from script.utils.solvers import UA_CG, UA_CG_chebyshev, UA_CG_jacobi, CG
     from collections import namedtuple
-    from utils.plot_residuals import plot_residuals_all
-    from utils.postprocess_residual import print_allres_time, calc_conv
-    from utils.parms import maxiter
+    from script.utils.plot_residuals import plot_residuals_all
+    from script.utils.postprocess_residual import print_allres_time, calc_conv
+    from script.utils.parms import maxiter
     Residual = namedtuple('Residual', ['label','r', 't'])
     global smoother, chebyshev, levels
 
@@ -301,7 +301,7 @@ def compare_adaptive_SA(postfix='F10-0'):
         print(f"level {i} shape: {levels[i].A.shape}")
 
     # 注意！chebyshev对软体是不收敛的!
-    smoother = 'gauss_seidel'
+    smoother = 'jacobi'
     tic = perf_counter()
     x0 = np.zeros_like(b)
     x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)
@@ -331,7 +331,7 @@ def compare_adaptive_SA(postfix='F10-0'):
         print(f"level {i} shape: {levels[i].A.shape}")
 
     # smoother = 'chebyshev'
-    smoother = 'gauss_seidel'
+    smoother = 'jacobi'
     tic = perf_counter()
     x0 = np.zeros_like(b)
     x,residuals = amg_cg_solve(levels, b, x0=x0.copy(), maxiter=maxiter, tol=1e-6)

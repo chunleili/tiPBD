@@ -54,20 +54,20 @@ def export_A(cli_args):
         # output a matrix for testing
         if cli_args.A == "soft":
                 args = ["engine/soft/soft3d.py",
-                        f"-end_frame={end_frame}",
                         f"-out_dir=result/test_A",
                         f"-auto_another_outdir={auto_another_outdir}",
-                        "-model_path=data/model/bunny85w/bunny85w.node",
+                        "-model_path=data/model/bunnyBig/bunnyBig.node",
                         "-rtol=1e-2",
                         "-tol=1e-4",
-                        "-delta_t=3e-3",
+                        "-delta_t=5e-3",
                         "-solver_type=AMG",
                         "-arch=cpu",
                         "-maxiter=100",
                         "-smoother_niter=2",
                         "-build_P_method=strength0.1",
-                        "-end_frame=1",
+                        "-end_frame=11",
                         "-export_matrix=1",
+                        "-mu=1e9"
                         ]
                 subprocess.check_call([pythonExe] + args)
         

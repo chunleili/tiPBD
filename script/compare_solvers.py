@@ -34,7 +34,7 @@ save_fig = True
 show_fig = True
 generate_data = False
 draw_plot = True
-maxiter = 10
+maxiter = 100
 early_stop = False
 tol=1e-10 # relative tolerance
 run_concate_png = True
@@ -203,13 +203,13 @@ def test_amg(A, b, postfix=""):
     _ = ml.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
     allres.append(Residual(label, r, perf_counter()))
 
-    label = "adaptive SA+CG(my)"
-    print(f"Calculating {label}...")
-    from script.amg_cuda_easy import amg_cuda_easy
-    x, r = amg_cuda_easy(A, b,  tol=tol, maxiter=maxiter, build_P_method="adaptive_SA")
-    allres.append(Residual(label, r, perf_counter()))
+    # label = "adaptive SA+CG(my)"
+    # print(f"Calculating {label}...")
+    # from script.amg_cuda_easy import amg_cuda_easy
+    # x, r = amg_cuda_easy(A, b,  tol=tol, maxiter=maxiter, build_P_method="adaptive_SA")
+    # allres.append(Residual(label, r, perf_counter()))
 
-    # label = "near kernel UA+CG"
+    label = "nullspace UA+CG"
     print(f"Calculating {label}...")
     from script.amg_cuda_easy import amg_cuda_easy
     x, r = amg_cuda_easy(A, b,  tol=tol, maxiter=maxiter, build_P_method="nullspace")
@@ -1251,6 +1251,7 @@ def draw_saved_data(postfix="F1"):
 
 if __name__ == "__main__":
     # draw_saved_data()
+    print("first run python run.py -A soft  to generate data!")
 
     frames = [1]
     for frame in frames:

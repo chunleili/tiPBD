@@ -40,7 +40,8 @@ def init_args():
     parser.add_argument("-N", type=int, default=64)
     parser.add_argument("-compliance", type=float, default=1.0e-8)
     parser.add_argument("-compliance_bending", type=float, default=1.0e-8)
-    parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
+    parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1 2:chain")
+    parser.add_argument("-reinit", type=str, default=None,choices=["attach","scale","chain"]) # we just to keep consitent with soft3d. If None, this will not work and use setup_num.
     parser.add_argument("-omega", type=float, default=0.25)
     parser.add_argument("-smoother_type", type=str, default="chebyshev")
     parser.add_argument("-use_bending", type=int, default=False)
@@ -75,28 +76,46 @@ class Cloth(PhysicalBase):
         # ---------------------------------------------------------------------------- #
         #                               mesh and topology                              #
         # ---------------------------------------------------------------------------- #
+        self.transfer_reinit_to_setup_num()
         self.build_mesh()
         self.init_constraints(self.edge, self.pos,self.tri)
         self.init_dynamics(self.NV)
         self.init_physics(args.N, args.setup_num, self.NV)
+        self.write_topo()
+        self.reinit()
+        self.linsol = self.init_linear_solver(args, extlib)
 
+        self.init_fill()
+    
+    def transfer_reinit_to_setup_num(self):
+        if args.reinit == "attach":
+            args.setup_num = 0
+        elif args.reinit == "scale":
+            args.setup_num = 1
+        elif args.reinit == "chain":
+            args.setup_num = 2
+
+
+    def reinit(self):
+        if args.setup_num == 0:
+            self.set_pin(self.NV, args.N, 0)
+            self.set_mass(self.NV, self.pin)
+        if args.setup_num == 1:
+            from engine.ti_kernels import init_scale
+            init_scale(self.NV, self.pos, 1.5)
+        if args.setup_num == 2:
+            self.pin = np.zeros(self.NV, dtype=np.int32)
+            self.pin[0] = 1
+            self.set_mass_chain(self.NV, self.pin)
+
+
+    def write_topo(self):
         if args.export_strain:
             self.max_strain = 0.0
             self.strain = ti.field(ti.f32, shape=self.NCONS)
             from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
             self.v2e, self.v2t, self.e2t = write_and_rebuild_topology(self.edge.to_numpy(),self.tri,args.out_dir)
-
-        self.linsol = self.init_linear_solver(args, extlib)
-
-        if args.setup_num == 1:
-            from engine.ti_kernels import init_scale
-            init_scale(self.NV, self.pos, 1.5)
-
-        if args.solver_type == "AMG":
-            self.args.use_initFill = True
-        if self.args.use_initFill:
-            self.init_fill()
-
+        
 
     def set_pin(self, NV, N, setup_num):
         pin = np.zeros(NV, dtype=np.int32)
@@ -125,16 +144,36 @@ class Cloth(PhysicalBase):
         self.inv_mass.from_numpy(inv_mass_np)
 
 
+    def set_mass_chain(self, NV, pin):
+        mass = np.zeros(NV, dtype=np.float32)
+        inv_mass_np = np.zeros(NV, dtype=np.float32)
+        mass[:]=np.arange(0,NV) # increasingly heavy, 0 1 2.. NV
+        mass[pin!=0] = 0.0 
+        inv_mass_np[:] = 1.0/mass
+        inv_mass_np[pin!=0] = 0.0 
+        
+        inv_mass3 = np.repeat(inv_mass_np, 3, axis=0)
+        M_inv = scipy.sparse.diags(inv_mass3)
+        mass3 = np.repeat(mass, 3, axis=0)
+        MASS = scipy.sparse.diags(mass3, format="csr")
+        self.MASS = MASS
+        self.M_inv = M_inv
+        self.inv_mass    = ti.field(dtype=float, shape=(NV))
+        self.inv_mass.from_numpy(inv_mass_np)
+
+
     def init_physics(self, N, setup_num, NV):
         pin = self.set_pin(NV,N,setup_num)
         self.set_mass(NV,pin)
 
         
     def build_mesh(self,):
+        if args.setup_num == 2:
+            args.cloth_mesh_type = "chain"
         # cloth_type = "quad" or
         # cloth_type = "tri"
         # args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
-        from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth, TriMeshClothTxt
+        from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth, TriMeshClothTxt, ChainMeshCloth
         if args.cloth_mesh_type=="tri":
             mesh = TriMeshCloth(args.cloth_mesh_file)
             name = Path(args.cloth_mesh_file).name
@@ -142,9 +181,12 @@ class Cloth(PhysicalBase):
         elif args.cloth_mesh_type=="quad":
             mesh = QuadMeshCloth(args.N)
             self.sim_name=f"cloth-N{args.N}"
-        if args.cloth_mesh_type=="txt":
+        elif args.cloth_mesh_type=="txt":
             mesh = TriMeshClothTxt(args.pos_file, args.edge_file, args.tri_file)
             self.sim_name=f"cloth-txt"
+        elif args.cloth_mesh_type=="chain": # caution
+            mesh = ChainMeshCloth(args.N)
+            self.sim_name=f"chain-{args.N}"
         pos, edge, tri = mesh.build()
 
         self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
@@ -438,6 +480,8 @@ class Cloth(PhysicalBase):
 
 
     def init_fill(self):
+        if args.solver_type == "AMG":
+            self.args.use_initFill = True
         if args.solver_type == "XPBD" :
             return
         tic = time.perf_counter()

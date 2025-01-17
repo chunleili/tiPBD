@@ -217,6 +217,51 @@ class QuadMeshCloth():
 
 
 
+@ti.data_oriented
+class ChainMeshCloth():
+    """ For long chain case, no triangle, only edge. But to keep the API consitent with TriMeshCloth, we still return the tri as empty array.
+    So if you want to output the mesh, just output the points in ply.
+    Called by cloth3d.py:build_mesh
+    Input: N: number of edges
+    Output: pos, edge
+    Usage: pos, edge = ChainMeshCloth(N).build()
+    """
+    def __init__(self, N) -> None:
+        self.N = N
+        self.NV = N + 1
+        self.NE = N
+        self.NCONS = self.NE
+        self.NT=0
+    
+    def build(self):
+        self.pos = np.zeros((self.NV, 3), dtype=np.float32)
+        self.edge = np.zeros((self.NE, 2), dtype=np.int32)
+        self.tri = np.array([], dtype=np.float32)
+
+        self.init_edge(self.edge, self.N)
+        self.init_pos(self.pos, self.N)
+
+        return self.pos, self.edge, self.tri
+    
+    @staticmethod
+    @ti.kernel
+    def init_pos(
+        pos:ti.types.ndarray(dtype=tm.vec3),
+        N:ti.i32,
+    ):
+        for i in range(N+1):
+            pos[i] = ti.Vector([i/N, 0, 0],ti.f32)
+
+    @staticmethod
+    @ti.kernel
+    def init_edge(
+        edge:ti.types.ndarray(dtype=tm.ivec2),
+        N:ti.i32,
+    ):
+        for i in range(N):
+            edge[i] = ti.Vector([i, i + 1], ti.i32)
+        
+
 
 def write_and_rebuild_topology(edge:np.ndarray, tri:np.ndarray, out_dir:str):
     """

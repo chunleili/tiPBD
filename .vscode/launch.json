@@ -9,7 +9,7 @@
           "console": "integratedTerminal",
           "cwd": "${workspaceFolder}",
           "args": [
-            "-case 1"
+            "-N 5"
           ]
         },  
         {
@@ -280,5 +280,24 @@
             "-time_budget=1"
             ]
           }, 
+          {
+            "name": "chain",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/cloth/cloth3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+            "-out_dir=result/chain",
+            "-solver_type=AMG",
+            "-arch=gpu",
+            "-time_budget=0.1",
+            "-setup_num=2",
+            "-N=10",
+            "-end_frame=300",
+            "-delta_t=10e-3",
+            ]
+          }, 
+
     ]
 }

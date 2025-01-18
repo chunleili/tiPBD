@@ -30,6 +30,7 @@ def add_common_args(parser):
     parser.add_argument("-filter_P", type=str, default=None)
     parser.add_argument("-scale_RAP", type=int, default=False)
     parser.add_argument("-only_smoother", type=int, default=False)
+    parser.add_argument("-only_PCG", type=int, default=False)
     parser.add_argument("-debug", type=int, default=False)
     parser.add_argument("-coarse_solver_type", type=int, default=1, help="0: direct solver, 1: smoother")
     parser.add_argument("-amgx_config", type=str, default="data/config/FGMRES_CLASSICAL_AGGRESSIVE_PMIS.json")

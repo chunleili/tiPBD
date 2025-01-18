@@ -80,6 +80,8 @@ struct FastMG : CusparseWrappers {
     std::vector<float> residuals;
     size_t niter; //final number of iterations to break the loop
     bool verbose = false;
+    bool calc_r_every_iter = true;
+
     GpuTimer timer1,timer2,timer3;
     std::vector<float> elapsed1, elapsed2, elapsed3;
 
@@ -113,6 +115,7 @@ struct FastMG : CusparseWrappers {
     void solve_only_jacobi();
     void solve_only_directsolver();
     void solve_only_smoother();
+    void solve_only_PCG();
 };
 
 

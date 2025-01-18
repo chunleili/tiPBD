@@ -42,6 +42,7 @@ def sparse_gauss_seidel_kernel(  Ap: ti.types.ndarray(),
                                  row_start: int,
                                  row_stop: int,
                                  row_step: int):
+    ti.loop_config(serialize=True)
     for i in range(row_start, row_stop):
         if i%row_step != 0:
             continue

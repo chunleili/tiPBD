@@ -59,13 +59,13 @@ def export_A(cli_args):
                         "-model_path=data/model/bunnyBig/bunnyBig.node",
                         "-rtol=1e-2",
                         "-tol=1e-4",
-                        "-delta_t=5e-3",
+                        "-delta_t=1e-3",
                         "-solver_type=AMG",
                         "-arch=cpu",
                         "-maxiter=100",
                         "-smoother_niter=2",
                         "-build_P_method=strength0.1",
-                        "-end_frame=11",
+                        "-end_frame=2",
                         "-export_matrix=1",
                         "-mu=1e9"
                         ]

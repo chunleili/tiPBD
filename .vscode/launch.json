@@ -299,6 +299,16 @@
             "-delta_t=10e-3",
             ]
           }, 
-
+          {
+            "name": "compare_solvers",
+            "type": "debugpy",
+            "request": "launch",
+            "justMyCode": false,
+            "program": "script/compare_solvers.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+            ]
+          }, 
     ]
 }

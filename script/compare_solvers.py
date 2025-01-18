@@ -41,260 +41,37 @@ run_concate_png = True
 run_strength_options = False
 postfix = ''
 
-Residual = namedtuple('Residual', ['label','r', 't'])
 
 def test_amg(A, b, postfix=""):
     # x0 = np.random.rand(A.shape[0])
     x0 = np.zeros_like(b)
     allres = []
-    tic = perf_counter()
 
-    # # classical AMG
-    # label = "Classical AMG"
-    # print(f"Calculating {label}...")
-    # ml1 = pyamg.ruge_stuben_solver(A)
-    # r = []
-    # _ = ml1.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
-    # allres.append(Residual(label, r, perf_counter()))
+    run_amg_solvers(A,b,allres,x0)
 
-    # # SA
-    # label = "Smoothed Aggregation"
-    # print(f"Calculating {label}...")
-    # ml2 = pyamg.smoothed_aggregation_solver(A)
-    # r = []
-    # _ = ml2.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter)
-    # allres.append(Residual(label, r, perf_counter()))
+    from script.utils.postprocess_residual import postprocess_allres
+    df = postprocess_allres(allres)
 
-    # # Jacobi: diverge
-    # # x3 = x0.copy()
-    # # res3 = []
-    # # for _ in range(maxiter+1):
-    # #     res3.append(np.linalg.norm(b - A @ x3))
-    # #     pyamg.relaxation.relaxation.jacobi(A=A, x=x3, b=b, iterations=1)
-    # # conv3 = calc_conv(res3)
-    # # print("res3 Jacobi",conv3)
-    # # toc3 = perf_counter()
+    from script.utils.plot_residuals import plot_residuals_all
+    plot_residuals_all(df, postfix=postfix)
+    plt.show()
 
-    # # GS
-    # label = "Gauss Seidel"
-    # print(f"Calculating {label}...")
-    # x4 = x0.copy()
-    # r = []
-    # for _ in range(maxiter*8+1):
-    #     r.append(np.linalg.norm(b - A @ x4))
-    #     pyamg.relaxation.relaxation.gauss_seidel(A=A, x=x4, b=b, iterations=1)
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # #  SA+CG, from diagnostic,
-    # label = "SA+CG"
-    # print(f"Calculating {label}...")
-    # r = []
-    # B = np.ones((A.shape[0],1), dtype=A.dtype); BH = B.copy()
-    # ml5 = pyamg.smoothed_aggregation_solver(A,B=B,BH=BH, 
-    #     strength=('symmetric', {'theta': 0.0}),
-    #     smooth="jacobi",
-    #     improve_candidates=None,
-    #     aggregate="standard",
-    #     presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-    #     postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-    #     max_levels=15,
-    #     max_coarse=300,
-    #     coarse_solver="pinv")
-    # x = ml5.solve(b, x0=x0, tol=tol, residuals=r, accel="cg", maxiter=maxiter, cycle="W")
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # # CG
-    # label = "CG"
-    # print(f"Calculating {label}...")
-    # x6 = x0.copy()
-    # r = []
-    # r.append(np.linalg.norm(b - A @ x6))
-    # x6 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)))
-    # allres.append(Residual(label, r, perf_counter()))
-
-    #  diagnal preconditioner + CG
-    label = "diag PCG"
-    print(f"Calculating {label}...")
-    M = scipy.sparse.diags(1.0/A.diagonal())
-    x7 = x0.copy()
-    r = []
-    r.append(np.linalg.norm(b - A @ x7))
-    x7 = scipy.sparse.linalg.cg(A, b, x0=x0.copy(), rtol=tol, maxiter=maxiter, callback=lambda x: r.append(np.linalg.norm(b - A @ x)), M=M)
-    allres.append(Residual(label, r, perf_counter()))
-
-    # # SA with strength algebraic_distance_epsilon3
-    # label = "SA+CG+Algebraic3.0"
-    # print(f"Calculating {label}...")
-    # ml8 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('algebraic_distance', {'epsilon': 3.0}))
-    # r = []
-    # _ = ml8.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
+def run_amg_solvers(A,b,allres,x0):
+    from script.utils.solvers import UA_CG_jacobi, diagCG, SA_from_diagnostic, UA_CG_jacobi, SA_CG, adaptive_SA_CG, CAMG_CG, amg_cuda_solvers, nullspace_UA_CG, amg_cuda_PCG
+    # diagCG(A,b,x0,allres,tol=tol,maxiter=maxiter)
+    # UA_CG_jacobi(A,b,x0,allres, tol=tol, maxiter=maxiter)
+    # SA_CG(A,b,x0,allres, tol=tol, maxiter=maxiter)
+    # CAMG_CG(A,b,x0,allres,tol=tol,maxiter=maxiter)
+    # nullspace_UA_CG(A,b,x0,allres,tol=tol,maxiter=maxiter)
+    # adaptive_SA_CG(A,b,x0,allres, tol=tol, maxiter=maxiter)
+    amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"nullspace","jacobi")
+    amg_cuda_PCG(A,b,x0,allres,tol,maxiter)
+    amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"UA","jacobi")
+    amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"SA","jacobi")
+    amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"CAMG","jacobi")
+    # amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"adaptive_SA","jacobi")
 
 
-    # # SA with strength affinity_4.0
-    # label = "SA+CG+Affinity4.0"
-    # print(f"Calculating {label}...")
-    # ml9 = pyamg.smoothed_aggregation_solver(A, max_coarse=300, max_levels=15, strength=('affinity', {'epsilon': 4.0, 'R': 10, 'alpha': 0.5, 'k': 20}))
-    # r = []
-    # _ = ml9.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
-
-
-    # # blackbox
-    # label = "Blackbox"
-    # print(f"Calculating {label}...")
-    # r=[]
-    # x = pyamg.solve(A, b, x0, tol=tol, verb=False, residuals=r, maxiter=maxiter)
-    # conv10 = calc_conv(r)
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # # rootnode
-    # label = "Rootnode+CG"
-    # print(f"Calculating {label}...")
-    # ml12 = pyamg.rootnode_solver(A)
-    # r = []
-    # x12 = ml12.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
-
-
-    # SA+CG normal
-    label = "SA+CG"
-    print(f"Calculating {label}...")
-    ml13 = pyamg.smoothed_aggregation_solver(A)
-    r = []
-    _ = ml13.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    allres.append(Residual(label, r, perf_counter()))
-
-    # # SA+CG smooth='energy'
-    # label = "SA+CG smooth=energy"
-    # print(f"Calculating {label}...")
-    # ml14 = pyamg.smoothed_aggregation_solver(A, smooth='energy')
-    # r = []
-    # _ = ml14.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # allres.append(Residual(label, r, perf_counter()))
-
-    # CAMG+CG
-    label = "CAMG+CG"
-    print(f"Calculating {label}...")
-    ml16 = pyamg.ruge_stuben_solver(A)
-    r = []
-    _ = ml16.solve(b, x0=x0.copy(), tol=tol, residuals=r, maxiter=maxiter, accel='cg')
-    allres.append(Residual(label, r, perf_counter()))
-
-    # UA+CG
-    label = "UA+CG"
-    print(f"Calculating {label}...")
-    ml17 = pyamg.smoothed_aggregation_solver(A, smooth=None)
-    r = []
-    _ = ml17.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    allres.append(Residual(label, r, perf_counter()))
-
-    # # label = "UA+CG coarse=GS"
-    # # print(f"Calculating {label}...")
-    # # ml18 = pyamg.smoothed_aggregation_solver(A, smooth=None, coarse_solver='gauss_seidel', max_coarse=300)
-    # # r = []
-    # # _ = ml18.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    # # allres.append(Residual(label, r, perf_counter()))
-
-    label = "adaptive SA+CG"
-    print(f"Calculating {label}...")
-    r = []
-    ml = pyamg.aggregation.adaptive_sa_solver(A.astype(np.float64), max_coarse=400,  num_candidates=6)[0]
-    _ = ml.solve(b, x0=x0.copy(), tol=tol, residuals=r,maxiter=maxiter, accel='cg')
-    allres.append(Residual(label, r, perf_counter()))
-
-    # label = "adaptive SA+CG(my)"
-    # print(f"Calculating {label}...")
-    # from script.amg_cuda_easy import amg_cuda_easy
-    # x, r = amg_cuda_easy(A, b,  tol=tol, maxiter=maxiter, build_P_method="adaptive_SA")
-    # allres.append(Residual(label, r, perf_counter()))
-
-    label = "nullspace UA+CG"
-    print(f"Calculating {label}...")
-    from script.amg_cuda_easy import amg_cuda_easy
-    x, r = amg_cuda_easy(A, b,  tol=tol, maxiter=maxiter, build_P_method="nullspace")
-    allres.append(Residual(label, r, perf_counter()))
-
-    convs,times,labels  = postprocess_residual(allres, tic)
-    
-    draw_convergence_factors(convs, labels)
-    draw_times(times, labels)
-
-    df = print_df(labels, convs, times)
-    save_data(allres,postfix)
-
-    if draw_plot:
-        colors = ['blue', 'orange', 'red', 'purple', 'green', 'black', 'brown', 'pink', 'gray', 'olive', 'cyan', 'lime', 'teal', 'brown', 'pink']
-        markers = ['o', 'x', 's', 'd', '^', 'v', '>', '<', '1', '2', '3', '4', '+', 'X']
-        markers = ['' for _ in range(len(allres)-1)]
-        markers.append('o')
-
-        # https://matplotlib.org/stable/api/markers_api.html for different markers
-        # https://matplotlib.org/stable/users/explain/colors/colors.html#colors-def for different colors
-        # https://matplotlib.org/stable/gallery/color/named_colors.html
-        fig, axs = plt.subplots(1, figsize=(8, 9))
-        for i in range(len(allres)):
-            # if allres[i].label == 'SA+CG' or\
-            #    allres[i].label == 'UA+CG' or\
-            #    allres[i].label == 'UA+CG coarse=GS':
-            plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label, marker=markers[i], color=colors[i])
-
-        global plot_title
-        plot_title = postfix
-        fig.canvas.manager.set_window_title(plot_title)
-        plt.tight_layout()
-        if save_fig:
-            dir = os.path.dirname(os.path.dirname(to_read_dir)) + '/png/'
-            mkdir_if_not_exist(dir)
-            plt.savefig(dir+f"/residuals_{plot_title}.png")
-        if show_fig:
-            plt.show()
-
-def calc_conv(r):
-    return (r[-1]/r[0])**(1.0/(len(r)-1))
-
-def a2r(r): #absolute to relative
-    return r/r[0]
-
-def draw_convergence_factors(convs, labels):
-    assert len(convs) == len(labels)
-    print("\n\nConvergence factor of each solver")
-    for i in range(len(labels)):
-        print(f"{labels[i]}:\t{convs[i]:.3f}")
-    fig, ax = plt.subplots()
-    ax.barh(range(len(convs)), convs, color='blue')
-    ax.set_yticks(range(len(convs)))
-    ax.set_yticklabels(labels)
-    ax.set_title("Convergence factor of each solver")
-
-
-
-def draw_times(times, labels):
-    assert len(times) == len(labels)
-    print("\n\nTime(s) taken for each solver")
-    for i in range(len(labels)):
-        print(f"{labels[i]}:\t{times[i]:.2f}")
-    fig, ax = plt.subplots()
-    ax.barh(range(len(times)), times, color='red')
-    ax.set_yticks(range(len(times)))
-    ax.set_yticklabels(labels)
-    ax.set_title("Time taken for each solver")
-
-
-def print_df(labels, convs, times, verbose=False):
-    import pandas as pd
-    print("\n\nDataframe of convergence factor and time taken for each solver")
-    pd.set_option("display.precision", 3)
-    df = pd.DataFrame({"label":labels, "conv_fac":convs, "time":times})
-    print(df)
-    if verbose:
-        print("\nIn increasing order of conv_fac:")
-        df = df.sort_values(by="conv_fac", ascending=True)
-        print(df)
-        print("\nIn increasing order of time taken:")
-        df = df.sort_values(by="time", ascending=True)
-        print(df)
-    return df
 
 def save_data(allres, postfix=""):
     import pandas as pd
@@ -302,6 +79,7 @@ def save_data(allres, postfix=""):
     dir = os.path.dirname(os.path.dirname(to_read_dir)) + '/png/'
     mkdir_if_not_exist(dir)
     df.to_csv(dir+f"/allres_{postfix}.csv")
+    return df
 
 def load_data(postfix=""):
     import pandas as pd
@@ -309,233 +87,6 @@ def load_data(postfix=""):
     df = pd.read_csv(dir+f"/allres_{postfix}.csv")
     return df
 
-def postprocess_residual(allres, tic):
-    # import pandas as pd
-    #calculate convergence factor and time
-    convs = np.zeros(len(allres))
-    times = np.zeros(len(allres)+1)
-    times[0] = tic
-    for i in range(len(allres)):
-        convs[i] = calc_conv(allres[i].r)
-        times[i+1] = allres[i].t
-    times = np.diff(times)
-    for i in range(len(allres)):
-        allres[i]._replace(t = times[i])
-    labels = [ri.label for ri in allres]
-    return convs, times, labels
-
-
-# def test_amg1(mat_size = 10, case_num = 0, postfix=""):
-#     # ------------------------------- prepare data ------------------------------- #
-#     if(generate_data):
-#         print("generating data...")
-#         # A, b = generate_A_b_pyamg(n=mat_size)
-#         A, b = generate_A_b_spd(n=mat_size)
-#         scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
-#         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
-#     else:
-#         print("loading data...")
-#         A = scipy.io.mmread(to_read_dir+f"A_F10-0.mtx")
-#         A = A.tocsr()
-#         b = np.loadtxt(to_read_dir+f"b_F10-0.txt", dtype=np.float32)
-#         # b = np.random.random(A.shape[0])
-#         # b = np.ones(A.shape[0])
-
-#     A1 = A.copy()
-#     A2 = improve_A_by_remove_offdiag(A)
-#     A3 = improve_A_by_reduce_offdiag(A)
-#     t = perf_counter()
-#     print("to make M matrix...")
-#     A4 = improve_A_make_M_matrix(A)
-#     print(f"make M matrix took {perf_counter() - t:.3e} s")
-#     print(f"A: {A.shape}")
-
-#     # generate R by pyamg
-#     R1,P1 = generate_R_P(A1)
-#     R2,P2 = generate_R_P(A2)
-#     R3,P3 = generate_R_P(A3)
-#     R4,P4 = generate_R_P(A4)
-#     scipy.io.mmwrite(to_read_dir + f"R{case_num}.mtx", R1)
-
-#     # analyse_A(A,R,P)
-
-#     # ------------------------------- test solvers ------------------------------- #
-#     # print("Solving pyamg...")
-#     # x0 = np.zeros_like(b)
-#     # res = []
-#     #ml = pyamg.ruge_stuben_solver(A, max_levels=2)
-#     #_,res = timer_wrapper(solve_pyamg, ml, b)
-
-#     x0 = np.zeros_like(b)
-#     x_amg = solve_amg(A, b, x0, R1, P1, residuals=[])
-#     x_rep,residuals_rep, full_residual_rep = timer_wrapper(solve_rep, A, b, x0, R1, P1)
-#     x_onlySmoother,residuals_onlySmoother = timer_wrapper(solve_onlySmoother, A, b, x0, R1, P1)
-#     x_noSmoother,residuals_noSmoother = timer_wrapper(solve_rep_noSmoother, A, b, x0, R1, P1)
-#     x_remove_offdiag,residuals_remove_offdiag,_ = timer_wrapper(solve_rep, A2, b, x0, R2, P2)
-#     x_reduce_offdiag,residuals_reduce_offdiag,_ = timer_wrapper(solve_rep, A3, b, x0, R3, P3)
-#     x_M_matrix,residuals_M_matrix,_ = timer_wrapper(solve_rep, A4, b, x0, R4, P4)
-
-#     #assert np.allclose(x_rep, x_amg, atol=1e-5)
-#     # print("generating R and P by selecting row...")
-#     # R2 = scipy.sparse.csr_matrix((2,A.shape[0]), dtype=np.int32)
-#     # R2[0,0] = 1
-#     # R2[1,9] = 1
-#     # P2 = R2.T
-#     # x0 = np.zeros_like(b)
-#     # _,residuals_selectRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R2, P2)
-
-#     # print("generating R and P by removing rows...")
-#     # R3 = scipy.sparse.identity(A.shape[0], dtype=np.int32)
-#     # R3=R3.tocsr()
-#     # R3 = delete_rows_csr(R3, range(0, A.shape[0] - 1, 2))
-#     # P3 = R3.T
-#     # print(f"##########R: {R3.shape}, P: {P3.shape}")
-#     # x0 = np.zeros_like(b)
-#     # print("rank of P3:", np.linalg.matrix_rank(P3.toarray()))
-#     # _,residuals_removeRows = timer_wrapper(solve_rep_noSmoother, A, b, x0, R3, P3)
-
-#     # ------------------------------- print results ---------------------------- #
-#     # print("x_rep:", x_rep)
-#     # x_rep_max = np.max(np.abs(x_rep))
-#     # print("x_onlySmoother:", np.max(np.abs(x_rep-x_onlySmoother)/x_rep_max))
-#     # print("x_noSmoother:", np.max(np.abs(x_rep-x_noSmoother)/x_rep_max))
-#     # print("x_remove_offdiag:", np.max(np.abs(x_rep-x_remove_offdiag)/x_rep_max))
-#     # print("x_reduce_offdiag:", np.max(np.abs(x_rep-x_reduce_offdiag)/x_rep_max))
-#     # print("x_M_matrix:", np.max(np.abs(x_rep-x_M_matrix)/x_rep_max))
-
-
-#     print_residuals(residuals_rep, "rep")
-#     print_residuals(residuals_onlySmoother, "onlySmoother")
-#     print_residuals(residuals_noSmoother, "noSmoother")
-#     print_residuals(residuals_remove_offdiag, "remove_offdiag")
-#     print_residuals(residuals_reduce_offdiag, "reduce_offdiag")
-#     print_residuals(residuals_M_matrix, "M_matrix")
-
-#     if show_plot:
-#         fig, axs = plt.subplots(2, 1, figsize=(8, 9))
-#         plot_residuals(residuals_rep, axs[0], label="rep")
-#         plot_residuals(residuals_onlySmoother, axs[0], label="onlySmoother")
-#         plot_residuals(residuals_remove_offdiag, axs[0],  label="remove_offdiag")
-#         plot_residuals(residuals_reduce_offdiag, axs[0],  label="reduce_offdiag")
-#         plot_residuals(residuals_M_matrix, axs[0],  label="M_matrix")
-#         plot_residuals(residuals_noSmoother, axs[1],  label="noSmoother")
-
-#         # plot_full_residual(full_residual_rep[0], "residual0")
-#         # plot_full_residual(full_residual_rep[1], "residual1")
-#         # plot_full_residual(full_residual_rep[2], "residual2")
-#         # plot_full_residual(full_residual_rep[3], "residual3")
-
-#         fig.canvas.manager.set_window_title(plot_title)
-#         plt.tight_layout()
-#         if save_fig_instad_of_show:
-#             plt.savefig(f"result/latest/residuals_{plot_title}.png")
-#         else:
-#             plt.show()
-
-
-# def test_amg2(A, b, postfix=''):
-#     R1, P1 = generate_R_P(A)
-#     x0 = np.zeros_like(b)
-#     res_amg = []
-#     x_amg = solve_amg(A, b, x0=np.zeros_like(b), R=R1, P=P1, residuals=res_amg, maxiter=maxiter)
-
-#     res4 = []
-#     x4=x0.copy()
-#     for _ in range(maxiter+1):
-#         x4 = gauss_seidel(A, x4, b, iterations=1, residuals=res4, tol=tol)
-#         x4 = gauss_seidel(A, x4, b, iterations=1, residuals=res4, tol=tol)
-#     print("res4 GS",len(res4), res4[-1])
-#     print((res4[-1]/res4[0])**(1.0/(len(res4)-1)))
-
-
-#     ml = pyamg.ruge_stuben_solver(A)
-#     res1 = []
-#     x_pyamg = ml.solve(b, tol=1e-10, residuals=res1,maxiter=maxiter)
-#     print(ml)
-#     print("res1 classical AMG", len(res1), res1[-1])
-#     print((res1[-1]/res1[0])**(1.0/(len(res1)-1)))
-
-
-#     if show_plot:
-#         fig, axs = plt.subplots(1, 1, figsize=(8, 9))
-#         plot_residuals(res_amg, axs, label="amg")
-#         plot_residuals(res4, axs, label="gs2",marker='.')
-#         plot_residuals(res1, axs, label="amg_full",marker='o')
-
-#         fig.canvas.manager.set_window_title(plot_title)
-#         plt.tight_layout()
-#         if save_fig_instad_of_show:
-#             plt.savefig(f"result/latest/residuals_{plot_title}.png")
-#         else:
-#             plt.show()
-
-
-
-
-def plot_full_residual(data, title=""):
-    from matplotlib import cm
-    from matplotlib.ticker import LinearLocator
-
-    N = np.sqrt(len(data)).astype(int)
-
-    A = np.linspace(1, N, N)
-    B = np.linspace(1, N, N)
-
-    X, Y = np.meshgrid(A, B)
-    d0 = data[:N*N].reshape((N, N))
-
-    # Plot the surface.
-    fig, ax = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
-    surf0 = ax.plot_surface(X, Y, d0, cmap=cm.coolwarm, label="residual0")
-    # ax.set_zlim(-.03, .03)
-    fig.text(0.5, 0.9, title, ha='center')
-    fig.canvas.manager.set_window_title(title)
-    # ax.zaxis.set_major_locator(LinearLocator(10))
-    # ax.zaxis.set_major_formatter('{x:.02f}')
-    fig.colorbar(surf0, shrink=0.5, aspect=5)
-
-def SA_from_diagnostic(A, b, x0, res):
-    # Generate B
-    B = np.ones((A.shape[0],1), dtype=A.dtype); BH = B.copy()
-    # Create solver
-    ml = pyamg.smoothed_aggregation_solver(A,B=B,BH=BH, 
-        strength=('symmetric', {'theta': 0.0}),
-        smooth="jacobi",
-        improve_candidates=None,
-        aggregate="standard",
-        presmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-        postsmoother=('block_gauss_seidel', {'sweep': 'symmetric', 'iterations': 1}),
-        max_levels=15,
-        max_coarse=300,
-        coarse_solver="pinv")
-    x = ml.solve(b, x0=x0, tol=tol, residuals=res, accel="cg", maxiter=maxiter, cycle="W")
-
-
-
-def load_A_b(postfix):
-    print(f"loading data {postfix} in {to_read_dir}...")
-    path = to_read_dir+f"A_{postfix}"
-    if  Path(path+".npz").exists():
-        binary = True
-    elif Path(path+".mtx").exists():
-        binary = False
-    else:
-        raise FileNotFoundError(f"File not found: {path}")
-    tic = perf_counter()
-    if binary:
-        # https://stackoverflow.com/a/8980156/19253199
-        A = scipy.sparse.load_npz(to_read_dir+f"A_{postfix}.npz")
-        b = np.load(to_read_dir+f"b_{postfix}.npy")
-        A = A.astype(np.float64)
-        b = b.astype(np.float64)
-        A = A.tocsr()
-    else:
-        A = scipy.io.mmread(to_read_dir+f"A_{postfix}.mtx")
-        A = A.tocsr()
-        A = A.astype(np.float64)
-        b = np.loadtxt(to_read_dir+f"b_{postfix}.txt", dtype=np.float64)
-    print(f"loading data {postfix} done in {perf_counter()-tic:.2f}s")
-    return A, b
 
 
 def prepare_A_b(mat_size = 10, case_num = 0, postfix=""):
@@ -548,6 +99,7 @@ def prepare_A_b(mat_size = 10, case_num = 0, postfix=""):
         scipy.io.mmwrite(to_read_dir + f"A{case_num}.mtx", A)
         np.savetxt(to_read_dir + f"b{case_num}.txt", b)
     else:
+        from script.utils.load_A_b import  load_A_b
         A,b = load_A_b(postfix)
     return A,b
 
@@ -1216,32 +768,6 @@ def test_6():
         concatenate_png.concatenate_png(case_name, prefix)
 
 
-def draw_residuals(allres):
-    if draw_plot:
-        colors = ['blue', 'orange', 'red', 'purple', 'green', 'black', 'brown', 'pink', 'gray', 'olive', 'cyan', 'lime', 'teal', 'brown', 'pink']
-        markers = ['o', 'x', 's', 'd', '^', 'v', '>', '<', '1', '2', '3', '4', '+', 'X']
-        markers = ['' for _ in range(len(allres)-1)]
-        markers.append('o')
-
-        # https://matplotlib.org/stable/api/markers_api.html for different markers
-        # https://matplotlib.org/stable/users/explain/colors/colors.html#colors-def for different colors
-        # https://matplotlib.org/stable/gallery/color/named_colors.html
-        fig, axs = plt.subplots(1, figsize=(8, 9))
-        for i in range(len(allres)):
-            if allres[i].label == 'SA+CG' or\
-               allres[i].label == 'UA+CG':
-                plot_residuals(a2r(allres[i].r), axs,  label=allres[i].label, marker=markers[i], color=colors[i])
-
-        global plot_title
-        plot_title = postfix
-        fig.canvas.manager.set_window_title(plot_title)
-        plt.tight_layout()
-        if save_fig:
-            dir = os.path.dirname(os.path.dirname(to_read_dir)) + '/png/'
-            mkdir_if_not_exist(dir)
-            plt.savefig(dir+f"/residuals_{plot_title}.png")
-        if show_fig:
-            plt.show()
 
 def draw_saved_data(postfix="F1"):
     allres = load_data(postfix)
@@ -1249,16 +775,44 @@ def draw_saved_data(postfix="F1"):
     plot_residuals_all_new(allres)
 
 
+def generate_data_from_sim():
+    import subprocess,os
+    # go to the root dir of the project
+
+    print("generating data...")
+    mu = 1e7
+    dt = 15e-3
+    # for mu in [1e6, 1e7, 1e8]:
+    #     for dt in [1e-3, 1e-4]:
+    args = ["python",
+            "engine/soft/soft3d.py",
+            f"-out_dir=result/test_A",
+            "-model_path=data/model/bunny_small/bunny_small.node",
+            f"-tol=1e-4",
+            f"-delta_t={dt}",
+            "-solver_type=AMG",
+            "-arch=cpu",
+            "-maxiter=2",
+            "-smoother_niter=2",
+            "-build_P_method=strength0.1",
+            "-end_frame=1",
+            f"-export_matrix=1",
+            f"-mu={mu}"
+            ]
+    subprocess.check_call(args)
+        
+
+
 if __name__ == "__main__":
     # draw_saved_data()
+    generate_data_from_sim()
+
     print("first run python run.py -A soft  to generate data!")
 
-    frames = [1]
-    for frame in frames:
-        postfix=f"F{frame}"
+    for postfix in ["F1"]:
         print(f"\n\n\n{postfix}")
         A,b = prepare_A_b(postfix=postfix)
         test_amg(A,b,postfix=postfix)
 
-    import script.utils.concatenate_png as concatenate_png
-    concatenate_png.concatenate_png(case_name, prefix='residuals', frames=frames)
+    # import script.utils.concatenate_png as concatenate_png
+    # concatenate_png.concatenate_png(case_name, prefix='residuals', frames=frames)

@@ -171,8 +171,10 @@ float avg(std::vector<float> &v)
         axpy(x_new, alpha, save_p);
         // r -= alpha*q
         axpy(r, -alpha, save_q);
-        float normr = vnorm(r);
-        residuals[iteration + 1] = normr;
+        if (this->calc_r_every_iter || iteration == maxiter - 1) {
+            float normr = vnorm(r);
+            residuals[iteration+1] = normr;
+        }
     }
 
     void  FastMG::compute_RAP(size_t lv) {
@@ -319,6 +321,26 @@ float avg(std::vector<float> &v)
 
     }
 
+
+    void  FastMG::solve_only_PCG()
+    {
+        cout<<"Only PCG! "<<endl;
+        get_Aoff_and_Dinv(levels.at(0).A, levels.at(0).Dinv, levels.at(0).Aoff);
+        float bnrm2 = init_cg_iter0(residuals.data());
+        float atol = bnrm2 * rtol;
+        for (size_t iter=0; iter<maxiter; iter++)
+        {   
+            if (residuals[iter] < atol)
+            {
+                niter = iter;
+                break;
+            }
+            copy(z, outer_x);
+            spmv(z, 1, levels.at(0).Dinv, r, 0, buff); // z = D^-1 r
+            do_cg_itern(residuals.data(), iter); 
+            niter = iter;
+        }
+    }
 
 void FastMG::get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff)
 {
@@ -478,5 +500,13 @@ extern "C" DLLEXPORT void fastmg_solve_only_directsolver() {
     fastmg->solve_only_directsolver();
 }
 
+
+extern "C" DLLEXPORT void fastmg_solve_only_PCG() {
+    fastmg->solve_only_PCG();
+}
+
+extern "C" DLLEXPORT void fastmg_calc_rnorm_every_iter(int flag) {
+    fastmg->calc_r_every_iter = bool(flag);
+}
 
 } // namespace

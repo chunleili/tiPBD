@@ -1,9 +1,7 @@
-
-
-def amg_cuda_easy(matA, b, smoother_type="jacobi", tol=1e-6,maxiter=100, build_P_method="UA"):
+def amg_cuda_easy(matA, b, tol=1e-6,maxiter=100, build_P_method="UA", smoother_type="jacobi"):
     """Easy to use version of AMG-CUDA for a given A and b.
     Performance may be not optimal, but it is useful for testing and debugging.
-    Usage: x,r_Axb = amg_cuda_easy(matA, b, smoother_type="jacobi", tol=1e-6,maxiter=100)
+
     Except the given args, the args defined in common_args also works!
     """
     from scipy.sparse import csr_matrix
@@ -19,7 +17,6 @@ def amg_cuda_easy(matA, b, smoother_type="jacobi", tol=1e-6,maxiter=100, build_P
     args.tol_Axb=tol
     args.maxiter_Axb=maxiter
     args.build_P_method = build_P_method
-    print(args)
 
     from engine.init_extlib import init_extlib
     extlib = init_extlib(args,"")
@@ -37,8 +34,10 @@ def amg_cuda_easy(matA, b, smoother_type="jacobi", tol=1e-6,maxiter=100, build_P
         A = get_A0()
         extlib.fastmg_set_A0(A.data, A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
 
-
-    amg = AmgCuda(args, extlib, get_A0=get_A0, fill_A_in_cuda=AMG_A, should_setup=should_setup)
+    if build_P_method == "PCG":
+        amg = AmgCuda(args, extlib, get_A0=get_A0, fill_A_in_cuda=AMG_A, should_setup=should_setup, only_PCG=True)
+    else:
+        amg = AmgCuda(args, extlib, get_A0=get_A0, fill_A_in_cuda=AMG_A, should_setup=should_setup)
     x, r_Axb = amg.run(b)
     print(f"AmgCuda: {r_Axb[0]:.2e}->{r_Axb[-1]:.2e}")
     # print(r_Axb)

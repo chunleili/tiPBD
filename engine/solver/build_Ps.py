@@ -22,6 +22,17 @@ def build_Ps(A,args,extlib=None, verbose=False):
         logging.info(f"B shape: {B.shape}")
         logging.info(f"B: {B}")
         ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, symmetry='symmetric', B=B)
+    elif method == 'nullspace_amg':
+        B = calc_near_nullspace_amg(A)
+        logging.info(f"B shape: {B.shape}")
+        logging.info(f"B: {B}")
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, symmetry='symmetric', B=B)
+    elif method == 'rbm':
+        B_in = np.load("rbm.npy")
+        B = B_in
+        logging.info(f"B shape: {B.shape}")
+        logging.info(f"B: {B}")
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, symmetry='symmetric', B=B)
     elif method == 'algebraic3.0':
         ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('algebraic_distance', {'epsilon': 3.0}))
     elif method == 'affinity4.0':
@@ -122,6 +133,25 @@ def calc_near_nullspace_GS(A):
     toc = perf_counter()
     print("Calculating near nullspace Time:", toc-tic)
     return B
+
+
+def calc_near_nullspace_amg(A):
+    n=6
+    print("Calculating near nullspace")
+    tic = perf_counter()
+    B = np.zeros((A.shape[0],n), dtype=np.float64)
+    from engine.solver.amg_cuda_easy import amg_cuda_easy
+    for i in range(n):
+        x,_ = amg_cuda_easy(A, np.ones(A.shape[0]))
+        x = (1.0/np.max(np.abs(x))) * x
+        # x = (1.0/np.linalg.norm(x)) * x
+        B[:,i] = x
+        print(f"norm B {i}: {np.linalg.norm(B[:,i])}")
+    toc = perf_counter()
+    print("Calculating near nullspace Time:", toc-tic)
+    return B
+
+
 
 
 def do_filter_P(P, theta=0.25):

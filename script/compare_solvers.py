@@ -64,6 +64,7 @@ def run_amg_solvers(A,b,allres,x0):
     # CAMG_CG(A,b,x0,allres,tol=tol,maxiter=maxiter)
     # nullspace_UA_CG(A,b,x0,allres,tol=tol,maxiter=maxiter)
     # adaptive_SA_CG(A,b,x0,allres, tol=tol, maxiter=maxiter)
+    amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"nullspace_amg","jacobi")
     amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"nullspace","jacobi")
     amg_cuda_PCG(A,b,x0,allres,tol,maxiter)
     amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"UA","jacobi")
@@ -797,7 +798,7 @@ def generate_data_from_sim():
             "-build_P_method=strength0.1",
             "-end_frame=1",
             f"-export_matrix=1",
-            f"-mu={mu}"
+            f"-mu={mu}",
             ]
     subprocess.check_call(args)
         

@@ -120,6 +120,11 @@ class SoftBody(PhysicalBase):
                 write_mesh(args.out_dir + f"/mesh/{0:04d}", self.pos.to_numpy(), self.model_tri)
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
         args.use_line_search = False
+
+        if args.calc_rbm:
+            # CAUTION: THIS IS ONLY WORK for the primal system with 3nx3n matrix, otherwise the shape of B will be wrong!
+            self.rbm = get_rbm(self.initial_pos)
+            np.save(f"rbm.npy", self.rbm)
         info(f"Creating instance done")
 
 
@@ -1361,6 +1366,14 @@ def init_linear_solver():
     else:
         linsol=None
     return linsol
+
+
+def get_rbm(pos): 
+    coo = pos.flatten().astype(np.float64)
+    rbm = np.zeros(coo.shape[0]*6, dtype=np.float64)
+    extlib.fastmg_calc_rbm(coo, coo.size, rbm)
+    rbm = rbm.reshape(-1,6)
+    return rbm
 
 
 def init():

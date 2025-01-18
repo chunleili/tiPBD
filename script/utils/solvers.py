@@ -338,8 +338,9 @@ def nullspace_UA_CG(A, b, x0, allres, tol=1e-6, maxiter=100):
 
 
 
-def amg_cuda_solvers(A, b, x0, allres, tol=1e-6, maxiter=100, build_P_method="UA", smoother_type="jacobi"):
-    label = f"{build_P_method}-{smoother_type}"
+def amg_cuda_solvers(A, b, x0, allres, tol=1e-6, maxiter=100, build_P_method="UA", smoother_type="jacobi", label=None):
+    if label is None:
+        label = f"{build_P_method}"
     print(f"Calculating {label}...")
     tic = perf_counter()
     from script.amg_cuda_easy import amg_cuda_easy

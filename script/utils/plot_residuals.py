@@ -45,12 +45,14 @@ def plot_residuals(data, ax, *args, **kwargs):
     linestyle = kwargs.pop("linestyle", "-")
     label = kwargs.pop("label", "")
     x = np.arange(len(data))
-    ax.plot(x, data, label=label, linestyle=linestyle, *args, **kwargs)
-    ax.set_title(title)
+    ax.plot(x, data, label=label, linestyle=linestyle, linewidth=2, *args, **kwargs)  # 加粗线条
+    ax.set_title(title, fontsize=15)  # 增大字体大小
     ax.set_yscale("log")
-    ax.set_xlabel("iteration")
-    ax.set_ylabel("relative residual")
-    ax.legend(loc="upper right")
+    ax.set_xlabel("iteration", fontsize=15)  # 增大字体大小
+    ax.set_ylabel("relative residual", fontsize=15)  # 增大字体大小
+    ax.legend(loc="upper right", fontsize=15)  # 增大字体大小
+    ax.tick_params(axis='both', which='major', labelsize=15)  # 加大 tick 的字体
+
 
 
 
@@ -64,8 +66,9 @@ def draw_convergence_factors(convs, labels):
     fig, ax = plt.subplots()
     ax.barh(range(len(convs)), convs, color='blue')
     ax.set_yticks(range(len(convs)))
-    ax.set_yticklabels(labels)
-    ax.set_title("Convergence factor of each solver")
+    ax.set_yticklabels(labels, fontsize=15)  # 增大字体大小
+    ax.set_title("Convergence factor of each solver", fontsize=15)  # 增大字体大小
+
 
 
 
@@ -79,8 +82,8 @@ def draw_times(times, labels):
     fig, ax = plt.subplots()
     ax.barh(range(len(times)), times, color='red')
     ax.set_yticks(range(len(times)))
-    ax.set_yticklabels(labels)
-    ax.set_title("Time taken for each solver")
+    ax.set_yticklabels(labels, fontsize=15)  # 增大字体大小
+    ax.set_title("Time taken for each solver", fontsize=15)  # 增大字体大小
 
 
 def draw_times_new(df):
@@ -95,8 +98,8 @@ def draw_times_new(df):
     fig, ax = plt.subplots()
     ax.barh(range(len(times)), times, color='red')
     ax.set_yticks(range(len(times)))
-    ax.set_yticklabels(labels)
-    ax.set_title("Time taken for each solver")
+    ax.set_yticklabels(labels, fontsize=15)  # 增大字体大小
+    ax.set_title("Time taken for each solver", fontsize=15)  # 增大字体大小
 
 def plot_full_residual(data, title=""):
     from matplotlib import cm
@@ -114,7 +117,7 @@ def plot_full_residual(data, title=""):
     fig, ax = plt.subplots(1, 1, subplot_kw={"projection": "3d"})
     surf0 = ax.plot_surface(X, Y, d0, cmap=cm.coolwarm, label="residual0")
     # ax.set_zlim(-.03, .03)
-    fig.text(0.5, 0.9, title, ha='center')
+    fig.text(0.5, 0.9, title, ha='center', fontsize=15)  # 增大字体大小
     fig.canvas.manager.set_window_title(title)
     # ax.zaxis.set_major_locator(LinearLocator(10))
     # ax.zaxis.set_major_formatter('{x:.02f}')

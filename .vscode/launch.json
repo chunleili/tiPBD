@@ -72,10 +72,10 @@
               "-calc_energy=1",
               "-use_cuda=1",
               "-export_state=1",
-              "-N=64",
-              "-end_frame=100",
-              "-setup_num=0"
-
+              "-N=256",
+              "-delta_t=5e-3",
+              "-compliance=1e-8",
+              "-setup_num=1"
             ]
           }   
     ]

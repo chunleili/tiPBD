@@ -856,7 +856,7 @@ class CompareNewtonMethod(NewtonMethod):
         s = np.max(strain.to_numpy())
         return s
     
-        
+
 
     def compare_oneiter_newton_mgpbd(self):
         from engine.ti_kernels import init_scale
@@ -921,43 +921,52 @@ class CompareNewtonMethod(NewtonMethod):
             calc_res(newton_strains, newton_C, newton_energies, self.pos, self.predict_pos)
             
 
-        logging.info(f"Newton vs mgpbd vs xpbd")
-        logging.info("energy-------------------")
-        for i in range(maxiter):
-            logging.info(f"{i}: {newton_energies[i]:.6e} vs {mgpbd_energies[i]:.6e} vs {xpbd_energies[i]:.6e}")
-
-        logging.info("strain-------------------")
-        for i in range(maxiter):
-            logging.info(f"{i}: {newton_strains[i]:.6e} vs {mgpbd_strains[i]:.6e} vs {xpbd_strains[i]:.6e}")
+        newton_energies = np.array(newton_energies)
+        mgpbd_energies = np.array(mgpbd_energies)
+        xpbd_energies = np.array(xpbd_energies)
+        import pandas as pd
+        df = pd.DataFrame({"newton":newton_energies, "mgpbd":mgpbd_energies, "xpbd":xpbd_energies})
+        print(df)
+        df.to_csv("energy.csv")
+        df.to_pickle("energy.pkl")
         
-        logging.info("C-------------------")
-        for i in range(maxiter):
-            logging.info(f"{i}: {newton_C[i]:.6e} vs {mgpbd_C[i]:.6e} vs {xpbd_C[i]:.6e}")
+
+        draw(df)
+
+
+def draw(df):
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    newton_energies, mgpbd_energies, xpbd_energies = df["newton"], df["mgpbd"], df["xpbd"]
+
+    fig,axs = plt.subplots(1,1)
+    plot_residuals(newton_energies/newton_energies[0], axs, label="newton", linestyle="-", linewidth=2)
+    plot_residuals(mgpbd_energies/newton_energies[0], axs, label="mgpbd", linestyle="--", linewidth=2)
+    plot_residuals(xpbd_energies/newton_energies[0], axs, label="xpbd", linestyle="-.", linewidth=2)
+    plt.rc('font', size=7)
+    plt.show()
+    plt.savefig("Energy.png")
+    import pickle
+    pickle.dump(fig, open('Energy.fig.pkl', 'wb'))
 
 
 
-        import matplotlib.pyplot as plt
-        fig,axs = plt.subplots(1,1)
-        axs.plot(newton_strains, label="newton")
-        axs.plot(mgpbd_strains, label="mgpbd")
-        axs.plot(xpbd_strains, label="xpbd")
-        axs.legend()
-        axs.set_title("strain")
-        # plt.show()
+def plot_residuals(data, ax, *args, **kwargs):
+    import numpy as np
+    title = kwargs.pop("title", "")
+    linestyle = kwargs.pop("linestyle", "-")
+    label = kwargs.pop("label", "")
+    x = np.arange(len(data))
+    ax.plot(x, data, label=label, linestyle=linestyle, *args, **kwargs)
+    ax.set_title(title)
+    ax.set_xlabel("Iteration",fontsize=15)
+    ax.set_ylabel("Relative Energy",fontsize=15)
+    ax.tick_params(axis='both', which='major', labelsize=15)
+    # sci 
+    # ax.ticklabel_format(axis="y", style="sci", scilimits=(0,0))
+    ax.legend(loc="upper right", fontsize=15)
 
-        fig,axs = plt.subplots(1,1)
-        axs.plot(newton_energies, label="newton")
-        axs.plot(mgpbd_energies, label="mgpbd")
-        axs.plot(xpbd_energies, label="xpbd")
-        axs.legend()
-        axs.set_title("energy")
-        # plt.show()
-
-
-        fig,axs = plt.subplots(1,1)
-        axs.plot(newton_C, label="newton")
-        axs.plot(mgpbd_C, label="mgpbd")
-        axs.plot(xpbd_C, label="xpbd")
-        axs.legend()
-        axs.set_title("constraint")
-        plt.show()
+if __name__ == "__main__":
+    import pandas as pd
+    df = pd.read_pickle("energy.pkl")
+    draw(df)

@@ -102,7 +102,7 @@ class Cloth(PhysicalBase):
 
         if args.setup_num == 1:
             from engine.ti_kernels import init_scale
-            init_scale(self.NV, self.pos, 1.5)
+            init_scale(self.pos, 1.5)
 
         if args.solver_type == "AMG":
             self.args.use_initFill = True

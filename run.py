@@ -2021,9 +2021,12 @@ allargs.append(args)
 
 
 
-# case184-186: ball for different size
-for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]):
-    solver = "AMG"
+# case184-189: ball for different size
+for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]*2):
+    if i<=2:
+        solver = "AMG"
+    else:
+        solver = "XPBD"
     dt = 10e-3
     model = config.split("/")[0]
     casenames[len(allargs)] = f"{model}-{solver}"
@@ -2033,8 +2036,8 @@ for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/
             f"-model_path=data/model/{config}",
             "-tol=1e-3",
             "-delta_t=10e-3",
-            "-solver_type=AMG",
-            "-arch=cpu",
+           f"-solver_type={solver}",
+            "-arch=gpu",
             "-maxiter=100",
             "-end_frame=300",
             "-mu=1e9",
@@ -2045,27 +2048,6 @@ for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/
     allargs.append(args)
 
 
-# case187-189: ball for different size
-for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]):
-    solver = "XPBD"
-    dt = 10e-3
-    model = config.split("/")[0]
-    casenames[len(allargs)] = f"{model}-{solver}"
-    args = ["engine/soft/soft3d.py",
-            f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
-            f"-auto_another_outdir={auto_another_outdir}",
-            f"-model_path=data/model/{config}",
-            "-tol=1e-3",
-            "-delta_t=10e-3",
-            "-solver_type=XPBD",
-            "-arch=gpu",
-            "-maxiter=10000",
-            "-end_frame=300",
-            "-mu=1e9",
-            "-reinit=freefall",
-            f"-time_budget={0.1}"
-            ]
-    allargs.append(args)
 
 
 

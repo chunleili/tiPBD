@@ -2103,6 +2103,10 @@ for i, config in enumerate(["30"]*2):
 
 
 
+
+
+
+
 # case198 199 200: ball for different size with local 10 
 for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]):
     solver = "AMG"
@@ -2152,6 +2156,23 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
     
+
+# case201: XPBD
+casenames[len(allargs)] = "capybara-XPBD"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/{casenames[len(allargs)]}",
+        "-end_frame=300",
+        "-solver_type=XPBD",
+        "-use_pintotarget=1",
+        "-maxiter=10000",
+        "-mu=1e9",
+        "-time_budget=2.3",
+        "-use_gravity=1",
+        "-geo_dir=data/model/capybara-full",
+        "-delta_t=3e-3",
+        ]
+allargs.append(args)
+
 def export_cases_to_json(allargs):
     import json
     for i in range(len(allargs)):

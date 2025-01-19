@@ -687,6 +687,7 @@ class SoftBody(PhysicalBase):
         r=[]
         for self.ite in range(args.maxiter):
             tic = time.perf_counter()
+            self.do_external_constraints()
             project_constraints(
                 self.pos_mid,
                 self.tet_indices,

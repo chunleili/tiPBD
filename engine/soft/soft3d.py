@@ -650,6 +650,25 @@ class SoftBody(PhysicalBase):
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
             self.do_external_constraints()
+            if args.local_interval>0:
+                for i in range(0, args.local_interval):
+                    project_constraints(
+                    self.pos_mid,
+                    self.tet_indices,
+                    self.inv_mass,
+                    self.lagrangian,
+                    self.B,
+                    self.pos,
+                    self.alpha_tilde,
+                    self.constraints,
+                    self.residual,
+                    self.gradC,
+                    self.dlambda,
+                    self.dpos,
+                    args.omega
+                    )
+                    dualr = np.linalg.norm(self.residual.to_numpy())
+                    print(f"{self.frame}-{self.ite}-local{i} loacl-step dual:{dualr:.2e}")
             self.solveSoft()
             if self.has_no_time_budget():
                 break
@@ -687,6 +706,7 @@ class SoftBody(PhysicalBase):
         r=[]
         for self.ite in range(args.maxiter):
             tic = time.perf_counter()
+            self.do_external_constraints()
             project_constraints(
                 self.pos_mid,
                 self.tet_indices,

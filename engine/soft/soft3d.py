@@ -37,7 +37,6 @@ def init_args():
     parser = add_common_args(parser)
     parser.add_argument("-mu", type=float, default=1e6)
     parser.add_argument("-damping_coeff", type=float, default=1.0)
-    parser.add_argument("-total_mass", type=float, default=16000.0)
     parser.add_argument("-model_path", type=str, default=f"data/model/bunny_small/bunny_small.node")
     # "data/model/cube/minicube.node"
     # "data/model/bunny1k2k/coarse.node"
@@ -448,8 +447,8 @@ class SoftBody(PhysicalBase):
             # find the end particles where x is within the region
             self.fixed_particles = np.where((p[:, 0] > endregion[0]) & (p[:, 0] < endregion[1]))[0]
             # set those particles inv_mass to 0
-            # self.inv_mass_np = self.inv_mass.to_numpy()
-            self.inv_mass_np = args.pmass * np.ones(self.NV, dtype=np.float32)
+            self.inv_mass_np = self.inv_mass.to_numpy()
+            # self.inv_mass_np = args.pmass * np.ones(self.NV, dtype=np.float32)
             self.inv_mass_np[self.fixed_particles] = 0.0
             self.inv_mass.from_numpy(self.inv_mass_np)
             args.use_gravity = True
@@ -661,6 +660,26 @@ class SoftBody(PhysicalBase):
             self.dualr = np.linalg.norm(self.residual.to_numpy())
             print(f"{self.frame}-{self.ite}-local{i} loacl-step dual:{self.dualr:.2e}")
 
+    
+    def rayleigh_damping(self):
+        for i in range(0, args.damping_steps):
+            project_constraints(
+            self.pos_mid,
+            self.tet_indices,
+            self.inv_mass,
+            self.lagrangian,
+            self.B,
+            self.pos,
+            self.alpha_tilde,
+            self.constraints,
+            self.residual,
+            self.gradC,
+            self.dlambda,
+            self.dpos,
+            args.omega
+            )
+            
+
     def substep_all_solver(self):
         self.tic_frame = time.perf_counter()
         self.semi_euler()
@@ -679,6 +698,9 @@ class SoftBody(PhysicalBase):
             self.dualr=self.AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, get_A0_cuda)
             # export_all_levels_A(self)
+            if self.dualr >1e10:
+                logging.error(f"Diverge! dualr >1e10")
+                raise ValueError("Diverge! dualr >1e10")
             if self.dualr < args.tol:
                 logging.info("Converge: tol")
                 break
@@ -739,6 +761,9 @@ class SoftBody(PhysicalBase):
                 break
             logging.info(f"{self.frame}-{self.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s FramePastTime:{self.frame_past_time*1000:.0f} ms")
             # r.append(self.ResidualData(dualr, 0, toc-tic))
+            if dualr >1e10:
+                logging.error(f"Diverge! dualr >1e10")
+                raise ValueError("Diverge! dualr >1e10")
             if dualr < args.tol:
                 logging.info("Converge: tol")
                 break
@@ -828,6 +853,90 @@ def project_constraints(
             dpos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
             dpos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
             dpos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+
+
+
+
+@ti.kernel
+def rayleigh_damping_kernel(
+    pos_mid: ti.template(),
+    tet_indices: ti.template(),
+    inv_mass: ti.template(),
+    lagrangian: ti.template(),
+    B: ti.template(),
+    pos: ti.template(),
+    alpha_tilde: ti.template(),
+    constraint: ti.template(),
+    residual: ti.template(),
+    gradC: ti.template(),
+    dlambda: ti.template(),
+    dpos: ti.template(),
+    omega: ti.f32,
+    predict_pos: ti.template(),
+    delta_t: ti.f32,
+    beta_tilde: ti.template(),
+):
+    for i in pos:
+        pos_mid[i] = pos[i]
+
+    # ti.loop_config(serialize=meta.serialize)
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+        px0, px1, px2, px3 = predict_pos[p0], predict_pos[p1], predict_pos[p2], predict_pos[p3]
+        px0diff, px1diff, px2diff, px3diff = px0 - x0, px1 - x1, px2 - x2, px3 - x3
+
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        if constraint[t] > 1e-6:
+            g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
+            gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
+            # denorminator = (
+            #     inv_mass[p0] * g0.norm_sqr()
+            #     + inv_mass[p1] * g1.norm_sqr()
+            #     + inv_mass[p2] * g2.norm_sqr()
+            #     + inv_mass[p3] * g3.norm_sqr()
+            # )
+
+            # from https://pybullet.org/Bullet/phpBB3/viewtopic.php?t=13009
+            ldiv = 0.0
+            damp = 0.0
+            ldiv += inv_mass[p0] * ti.math.dot(g0, g0)
+            ldiv += inv_mass[p1] * ti.math.dot(g1, g1)
+            ldiv += inv_mass[p2] * ti.math.dot(g2, g2)
+            ldiv += inv_mass[p3] * ti.math.dot(g3, g3)
+            damp += ti.math.dot((px0diff), g0)
+            damp += ti.math.dot((px1diff), g1)
+            damp += ti.math.dot((px2diff), g2)
+            damp += ti.math.dot((px3diff), g3)
+            gamma = alpha_tilde[t] * beta_tilde[t] / delta_t
+            ldiv = ldiv * (1.0 + gamma) + alpha_tilde[t]
+            dlambda[t] = (-constraint[t]- alpha_tilde[i]*lagrangian[i] - gamma * damp ) / ldiv
+            residual[t] = -(constraint[t] + alpha_tilde[t] * lagrangian[t]) 
+
+            lagrangian[t] += dlambda[t]
+
+    for t in range(tet_indices.shape[0]):
+        if constraint[t] > 1e-6:
+            p0 = tet_indices[t][0]
+            p1 = tet_indices[t][1]
+            p2 = tet_indices[t][2]
+            p3 = tet_indices[t][3]
+            pos[p0] += omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+            pos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+            pos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+            pos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+            dpos[p0] += omega * inv_mass[p0] * dlambda[t] * gradC[t, 0]
+            dpos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
+            dpos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
+            dpos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+
 
 @ti.kernel
 def semi_euler(
@@ -950,17 +1059,25 @@ def init_physics_kernel(
         total_volume += rest_volume[i]
 
     # init mass
-    # for i in tet_indices:
-    #     ia, ib, ic, id = tet_indices[i]
-    #     mass_density = args.total_mass / total_volume
-    #     tet_mass = mass_density * rest_volume[i]
-    #     avg_mass = tet_mass / 4.0
-    #     mass[ia] += avg_mass
-    #     mass[ib] += avg_mass
-    #     mass[ic] += avg_mass
-    #     mass[id] += avg_mass
-    for i in inv_mass:
-        inv_mass[i] = 1.0 
+    if args.total_mass > 0.0:
+        for i in tet_indices:
+            ia, ib, ic, id = tet_indices[i]
+            mass_density = args.total_mass / total_volume
+            tet_mass = mass_density * rest_volume[i]
+            avg_mass = tet_mass / 4.0
+            mass[ia] += avg_mass
+            mass[ib] += avg_mass
+            mass[ic] += avg_mass
+            mass[id] += avg_mass
+        for i in range(inv_mass.shape[0]):
+            inv_mass[i] = 1.0 / mass[i]
+            inv_mass[i] = 1.0 / mass[i]
+    elif args.pmass > 0.0:
+        for i in inv_mass:
+            inv_mass[i] = 1.0/args.pmass
+    else:
+        for i in inv_mass:
+            inv_mass[i] = 1.0
 
     for i in alpha_tilde:
         alpha_tilde[i] = inv_h2 * inv_mu * inv_V[i]

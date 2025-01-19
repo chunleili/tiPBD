@@ -1855,7 +1855,7 @@ for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node"
 
 
 # case169-172: cloth for different size
-for config in [64,128,256,1024]:
+for config in [64,128,256,512]:
     args = ["engine/cloth/cloth3d.py",
             "-solver_type=AMG",
             f"-end_frame=100",
@@ -1863,18 +1863,17 @@ for config in [64,128,256,1024]:
             f"-auto_another_outdir={auto_another_outdir}",
             "-arch=cpu",
             f"-N={config}",
-            "-maxiter=20",
-            "-delta_t=1e-3",
+            "-maxiter=3000",
+            "-delta_t=3e-3",
             "-tol=1e-4",
-            "-end_frame=30",
+            "-end_frame=500",
             "-compliance=1e-9",
-            "-build_P_method=strength0.1",
-            "-time_budget=3.0"
+            "-time_budget=200.0",
             ]
     allargs.append(args)
 
 # case173-176: cloth for different size
-for config in [64,128,256,1024]:
+for config in [64,128,256,512]:
     args = ["engine/cloth/cloth3d.py",
             "-solver_type=XPBD",
             f"-end_frame=100",
@@ -1882,12 +1881,12 @@ for config in [64,128,256,1024]:
             f"-auto_another_outdir={auto_another_outdir}",
             "-arch=gpu",
             f"-N={config}",
-            "-maxiter=10000",
-            "-delta_t=1e-3",
+            "-maxiter=100000",
+            "-delta_t=3e-3",
             "-tol=1e-4",
-            "-end_frame=30",
+            "-end_frame=500",
             "-compliance=1e-9",
-            "-time_budget=3.0"
+            "-time_budget=200.0"
             ]
     allargs.append(args)
 

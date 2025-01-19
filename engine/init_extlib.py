@@ -83,8 +83,9 @@ def init_extlib(args, sim=""):
         extlib.fastFillSoft_new()
         # extlib.solveSoft_new()
 
-    arr_double = ctl.ndpointer(dtype=np.float64, ndim=1, flags='aligned, c_contiguous')
-    extlib.fastmg_calc_rbm.argtypes = [arr_double, c_int, arr_double]
+    if args.calc_rbm:
+        arr_double = ctl.ndpointer(dtype=np.float64, ndim=1, flags='aligned, c_contiguous')
+        extlib.fastmg_calc_rbm.argtypes = [arr_double, c_int, arr_double]
     
     return extlib
 

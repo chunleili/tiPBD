@@ -11,7 +11,7 @@ Run multiple cases with 200 frames: `python run.py -case=2 4 -end_frame=200`
 
 You can modify the cases in the script to add more cases.
 
-last_run_batch.txt and last_run_case.text in result/meta folder will record the last run command, which is useful for reproducing the result.
+last_run_batch.txt and last_run_case.text root folder will record the last run command, which is useful for reproducing the result. batch_run_detail.log will record the detailed run information.
 """
 
 
@@ -2115,7 +2115,7 @@ for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/
             "-tol=1e-3",
             "-delta_t=10e-3",
             "-solver_type=AMG",
-            "-arch=cpu",
+            "-arch=gpu",
             "-maxiter=100",
             "-end_frame=300",
             "-mu=1e9",
@@ -2125,6 +2125,31 @@ for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/
              "-local_interval=10"
             ]
     allargs.append(args)
+
+
+# case201 ball 99k XPBD 10ms timebudget=1
+config="ball99k/ball99k.node"
+solver = "XPBD"
+dt = 10e-3
+model = config.split("/")[0]
+casenames[len(allargs)] = f"{model}-{solver}"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        f"-model_path=data/model/{config}",
+        "-tol=1e-3",
+        "-delta_t=10e-3",
+        f"-solver_type={solver}",
+        "-arch=gpu",
+        "-maxiter=100",
+        "-end_frame=300",
+        "-mu=1e9",
+        "-use_gravity=1",
+        "-reinit=freefall",
+        f"-time_budget={1}"
+        ]
+allargs.append(args)
+
     
 def export_cases_to_json(allargs):
     import json
@@ -2167,7 +2192,7 @@ def run_case(case_num:int):
 def log_args(args:list):
     args1 = " ".join(args) # 将ARGS转换为字符串
     print(f"\nArguments:\n{args1}\n")
-    with open("result/meta/last_run_case.txt", "w") as f:
+    with open("last_run_case.txt", "w") as f:
         f.write(f"{args1}\n")
 
 def get_date():
@@ -2176,17 +2201,16 @@ def get_date():
 
 # python run.py -end_frame=10 -cases  63 64 65 66 67 68 | Tee-Object -FilePath "output.log"
 if __name__=='__main__':
-    Path("result/meta/").mkdir(parents=True, exist_ok=True)
-    if os.path.exists(f'result/meta/batch_run.log'):
-        os.remove(f'result/meta/batch_run.log')
-    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=f'result/meta/batch_run.log',filemode='a')
+    if os.path.exists(f'batch_run_detail.log'):
+        os.remove(f'batch_run_detail.log')
+    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=f'batch_run_detail.log',filemode='w')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
     date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
     last_run = " ".join(sys.argv)
     logging.info(f"Date:{date}\nCommand:\n{last_run}\n\n")
-    with open("result/meta/last_run_batch.txt", "w") as f:
+    with open("last_run_batch.txt", "w") as f:
         f.write(f"{last_run}\n")
 
     cli_args = parser.parse_args()
@@ -2206,6 +2230,8 @@ if __name__=='__main__':
         try:
             for case_num in cli_args.case:
                 logging.info(f"Running case {case_num}...\nDate={get_date()}\n")
+                if case_num in casenames:
+                    logging.info(f"Case name: {casenames[case_num]}\n")
                 tic1 = perf_counter()
                 run_case(case_num)
                 tic2 = perf_counter()

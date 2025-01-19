@@ -640,6 +640,27 @@ class SoftBody(PhysicalBase):
                 self.m2mCons.aos.lam.fill(0.0)
             self.m2mCons.solve_one_iter(self.pos, args.delta_t)
 
+
+    def  do_local_steps(self):
+        for i in range(0, args.local_interval):
+            project_constraints(
+            self.pos_mid,
+            self.tet_indices,
+            self.inv_mass,
+            self.lagrangian,
+            self.B,
+            self.pos,
+            self.alpha_tilde,
+            self.constraints,
+            self.residual,
+            self.gradC,
+            self.dlambda,
+            self.dpos,
+            args.omega
+            )
+            self.dualr = np.linalg.norm(self.residual.to_numpy())
+            print(f"{self.frame}-{self.ite}-local{i} loacl-step dual:{self.dualr:.2e}")
+
     def substep_all_solver(self):
         self.tic_frame = time.perf_counter()
         self.semi_euler()
@@ -651,24 +672,7 @@ class SoftBody(PhysicalBase):
             self.r_iter.tic_iter = perf_counter()
             self.do_external_constraints()
             if args.local_interval>0:
-                for i in range(0, args.local_interval):
-                    project_constraints(
-                    self.pos_mid,
-                    self.tet_indices,
-                    self.inv_mass,
-                    self.lagrangian,
-                    self.B,
-                    self.pos,
-                    self.alpha_tilde,
-                    self.constraints,
-                    self.residual,
-                    self.gradC,
-                    self.dlambda,
-                    self.dpos,
-                    args.omega
-                    )
-                    dualr = np.linalg.norm(self.residual.to_numpy())
-                    print(f"{self.frame}-{self.ite}-local{i} loacl-step dual:{dualr:.2e}")
+                self.do_local_steps()
             self.solveSoft()
             if self.has_no_time_budget():
                 break

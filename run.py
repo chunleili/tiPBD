@@ -2155,7 +2155,7 @@ allargs.append(args)
 
     
 
-# case201: XPBD
+# case202: XPBD
 casenames[len(allargs)] = "capybara-XPBD"
 args = ["engine/soft/soft3d.py",
         f"-out_dir=result/{casenames[len(allargs)]}",
@@ -2170,6 +2170,33 @@ args = ["engine/soft/soft3d.py",
         "-delta_t=3e-3",
         ]
 allargs.append(args)
+
+
+# case203-205: ball for different size rerun 184-186 with local 10
+for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]):
+    solver = "AMG"
+    dt = 10e-3
+    model = config.split("/")[0]
+    casenames[len(allargs)] = f"{model}-{solver}-local10"
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+           f"-solver_type={solver}",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            f"-time_budget={0.1}",
+                "-local_interval=10"
+            ]
+    allargs.append(args)
+
+
 
 def export_cases_to_json(allargs):
     import json

@@ -265,18 +265,19 @@
             "cwd": "${workspaceFolder}",
             "args": [
             "-out_dir=result/beam",
-            "-model_path=data/model/beam9k/beam9k.geo",
+            "-model_path=data/model/beam2.8k/beam2.8k.geo",
             "-tol=1e-3",
-            "-delta_t=10e-3",
-            "-solver_type=XPBD",
+            "-delta_t=30e-3",
+            "-solver_type=AMG",
             "-arch=gpu",
             "-maxiter=10000",
-            "-end_frame=100",
-            "-pmass=1",
-            "-mu=1e6",
+            "-end_frame=50",
+            "-mu=1e9",
             "-use_gravity=1",
             "-reinit=beam",
-            "-time_budget=1"
+            "-time_budget=0.5",
+            "-total_mass=1e5",
+            "-local_interval=10"
             ]
           }, 
           {
@@ -309,6 +310,6 @@
             "cwd": "${workspaceFolder}",
             "args": [
             ]
-          }, 
+          }
     ]
 }

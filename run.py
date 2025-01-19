@@ -2052,28 +2052,30 @@ for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/
 
 
 
-#case 190-195: beam for different mu=1e5 1e7 1e9, timebudget=0.1, dt=10ms 
-for i, config in enumerate(["1e5","1e7","1e9"]*2):
+#case 190-195: beam for dt = 10ms 20ms 30ms
+for i, config in enumerate(["10","20","30"]*2):
     if i<=2:
         solver = "AMG"
     else:
         solver = "XPBD"
-    model = "beam9k"
+    model = "beam2.8k"
     casenames[len(allargs)] = f"{model}-{config}-{solver}"
     args = ["engine/soft/soft3d.py",
         f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-model_path=data/model/{model}/{model}.geo",
         "-tol=1e-3",
-        "-delta_t=10e-3",
+        f"-delta_t={dt}e-3",
         f"-solver_type={solver}",
         "-arch=gpu",
         "-maxiter=10000",
         "-end_frame=100",
-        "-pmass=1",
-        f"-mu={config}",
+        f"-mu=1e9",
+        f"-total_mass=1e5",
         "-use_gravity=1",
         "-reinit=beam",
-        "-time_budget=0.1"
+        "-time_budget=0.5",
+        "-total_mass=1e5",
+        "-local_interval=10"
         ]
     allargs.append(args)
 

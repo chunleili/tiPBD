@@ -50,3 +50,4 @@ cloth3d.spec
 *.npy
 *.geo
 *.vtk
+*.pkl

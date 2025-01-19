@@ -47,16 +47,17 @@ def test_amg(A, b, postfix=""):
     x0 = np.zeros_like(b)
     allres = []
 
-    run_amg_solvers(A,b,allres,x0)
+    run_amg_solvers(A,b,allres,x0, tocompare="smoother")
 
     from script.utils.postprocess_residual import postprocess_allres
     df = postprocess_allres(allres)
+    df.to_pickle("CompareSolver.pkl")
 
     from script.utils.plot_residuals import plot_residuals_all
-    plot_residuals_all(df, postfix=postfix)
+    plot_residuals_all(df, postfix=postfix, fontsize=25)
     plt.show()
 
-def run_amg_solvers(A,b,allres,x0):
+def run_amg_solvers(A,b,allres,x0,tocompare="setup"):
     from script.utils.solvers import UA_CG_jacobi, diagCG, SA_from_diagnostic, UA_CG_jacobi, SA_CG, adaptive_SA_CG, CAMG_CG, amg_cuda_solvers, nullspace_UA_CG, amg_cuda_PCG
     # diagCG(A,b,x0,allres,tol=tol,maxiter=maxiter)
     # UA_CG_jacobi(A,b,x0,allres, tol=tol, maxiter=maxiter)
@@ -64,12 +65,19 @@ def run_amg_solvers(A,b,allres,x0):
     # CAMG_CG(A,b,x0,allres,tol=tol,maxiter=maxiter)
     # nullspace_UA_CG(A,b,x0,allres,tol=tol,maxiter=maxiter)
     # adaptive_SA_CG(A,b,x0,allres, tol=tol, maxiter=maxiter)
-    amg_cuda_PCG(A,b,x0,allres,tol,maxiter)
-    amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"nullspace","jacobi")
-    amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"UA","jacobi")
-    amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"SA","jacobi")
-    amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"CAMG","jacobi")
-    # amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"adaptive_SA","jacobi")
+
+    if tocompare=="setup":
+        amg_cuda_PCG(A,b,x0,allres,tol,maxiter)
+        amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"nullspace","jacobi", label="nullspace")
+        amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"UA","jacobi", label="UA")
+        amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"SA","jacobi", label="SA")
+        amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"CAMG","jacobi", label="CAMG")
+    elif tocompare=="smoother":
+        amg_cuda_PCG(A,b,x0,allres,tol,maxiter)
+        amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"nullspace","jacobi",label="w-Jacobi")
+        amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"nullspace","chebyshev",label="Chebyshev")
+        amg_cuda_solvers(A,b,x0,allres,tol,maxiter,"nullspace","gauss_seidel",label="GS")
+
 
 
 
@@ -805,7 +813,7 @@ def generate_data_from_sim():
 
 if __name__ == "__main__":
     # draw_saved_data()
-    generate_data_from_sim()
+    # generate_data_from_sim()
 
     print("first run python run.py -A soft  to generate data!")
 

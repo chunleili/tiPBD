@@ -30,12 +30,27 @@ def amg_cuda_easy(matA, b, tol=1e-6,maxiter=100, build_P_method="UA", smoother_t
     def should_setup():
         return True
     
+    from engine.soft.graph_coloring import graph_coloring_v2
+    def gc():
+        return graph_coloring_v2(get_A0, 1, extlib)
+    
+    
     def AMG_A():
         A = get_A0()
         extlib.fastmg_set_A0(A.data, A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
 
     if build_P_method == "PCG":
         amg = AmgCuda(args, extlib, get_A0=get_A0, fill_A_in_cuda=AMG_A, should_setup=should_setup, only_PCG=True)
+    elif smoother_type == "gauss_seidel":
+        amg = AmgCuda(
+            args=args,
+            extlib=extlib,
+            get_A0=get_A0,
+            should_setup=should_setup,
+            fill_A_in_cuda=AMG_A,
+            graph_coloring=gc,
+            copy_A=True,
+        )
     else:
         amg = AmgCuda(args, extlib, get_A0=get_A0, fill_A_in_cuda=AMG_A, should_setup=should_setup)
     x, r_Axb = amg.run(b)

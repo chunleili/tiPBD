@@ -383,8 +383,16 @@ void Smoother::smooth(int lv, Vec<float> &x, Vec<float> const &b)
     }
     else if (smoother_type == 3)
     {
-        for (int i = 0; i < smoother_niter; i++)
-            multi_color_gauss_seidel(lv, x, b);
+        // TODO: For now we only set the first level to use gauss_seidel
+        if (lv == 0)
+        {
+            for (int i = 0; i < smoother_niter; i++)
+                multi_color_gauss_seidel(lv, x, b);
+        }
+        else
+        {
+            jacobi_v2(lv, x, b);
+        }
     }
 }
 

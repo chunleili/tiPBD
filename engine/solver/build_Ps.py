@@ -80,6 +80,7 @@ def build_Ps(A,args,extlib=None, verbose=False):
     
     # if(verbose):
     logging.info(ml)
+    print(ml)
 
     Ps = []
     for i in range(len(ml.levels)-1):

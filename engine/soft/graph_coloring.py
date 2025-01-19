@@ -14,7 +14,7 @@ import numpy.ctypeslib as ctl
 # version 2, use pyamg.
 # Input: CSR matrix(symmetric)
 # This is called in AMG_setup_phase()
-def graph_coloring_v2(fetch_A_from_cuda, num_levels, extlib=None, model_path=None):
+def graph_coloring_v2(fetch_A_from_cuda, num_levels=1, extlib=None, model_path=None):
     # For caching the coloring result
     has_colored_L = [False]*num_levels
     if model_path is None:
@@ -34,7 +34,10 @@ def graph_coloring_v2(fetch_A_from_cuda, num_levels, extlib=None, model_path=Non
     tic = perf_counter()
     for i in range(num_levels):
         print(f"level {i}")
-        Ai = fetch_A_from_cuda(i)
+        if num_levels == 1:
+            Ai = fetch_A_from_cuda()
+        else:
+            Ai = fetch_A_from_cuda(i)
         colors = vertex_coloring(Ai)
         ncolor = np.max(colors)+1
         print(f"ncolor: {ncolor}")

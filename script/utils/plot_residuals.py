@@ -1,4 +1,4 @@
-def plot_residuals_all(df,show_fig=True,save_fig=True,postfix='', use_markers=False):
+def plot_residuals_all(df,show_fig=True,save_fig=True,postfix='', use_markers=False, fontsize=15):
     import matplotlib.pyplot as plt
     import os
     import numpy as np
@@ -13,7 +13,7 @@ def plot_residuals_all(df,show_fig=True,save_fig=True,postfix='', use_markers=Fa
     # https://matplotlib.org/stable/api/markers_api.html for different markers
     # https://matplotlib.org/stable/users/explain/colors/colors.html#colors-def for different colors
     # https://matplotlib.org/stable/gallery/color/named_colors.html
-    fig, axs = plt.subplots(1, figsize=(8, 9))
+    fig, axs = plt.subplots(1, figsize=(8, 8))
     
     def a2r(r): #absolute to relative
         r = np.array(r)
@@ -26,16 +26,16 @@ def plot_residuals_all(df,show_fig=True,save_fig=True,postfix='', use_markers=Fa
         label =df.iloc[i].loc['label']
 
         print(label)
-        plot_residuals(a2r(res), axs,  label=label, marker=markers[i], color=colors[i])
+        plot_residuals(a2r(res), axs,  label=label, marker=markers[i], color=colors[i],fontsize=fontsize)
 
     fig.canvas.manager.set_window_title(postfix)
     plt.tight_layout()
     if save_fig:
-        dir = os.path.dirname(os.path.dirname(to_read_dir)) + '/png/'
-        mkdir_if_not_exist(dir)
-        plt.savefig(dir+f"/residuals_{postfix}.png")
+        plt.savefig(f"residuals_{postfix}.png")
     if show_fig:
         plt.show()
+    import pickle
+    pickle.dump(fig, open('fig.pkl', 'wb'))
 
 
 
@@ -44,14 +44,15 @@ def plot_residuals(data, ax, *args, **kwargs):
     title = kwargs.pop("title", "")
     linestyle = kwargs.pop("linestyle", "-")
     label = kwargs.pop("label", "")
+    fontsize = kwargs.pop("fontsize", 15)
     x = np.arange(len(data))
     ax.plot(x, data, label=label, linestyle=linestyle, linewidth=2, *args, **kwargs)  # 加粗线条
-    ax.set_title(title, fontsize=15)  # 增大字体大小
+    ax.set_title(title, fontsize=fontsize)  
     ax.set_yscale("log")
-    ax.set_xlabel("iteration", fontsize=15)  # 增大字体大小
-    ax.set_ylabel("relative residual", fontsize=15)  # 增大字体大小
-    ax.legend(loc="upper right", fontsize=15)  # 增大字体大小
-    ax.tick_params(axis='both', which='major', labelsize=15)  # 加大 tick 的字体
+    ax.set_xlabel("Iteration", fontsize=fontsize)  
+    ax.set_ylabel("Relative Residual", fontsize=fontsize)  
+    ax.legend(loc="upper right", fontsize=fontsize)  
+    ax.tick_params(axis='both', which='major', labelsize=fontsize)  # 加大 tick 的字体
 
 
 

@@ -313,15 +313,22 @@ class Cloth(PhysicalBase):
 
         return dual_r
     
+    def do_local_steps(self):
+        for i in range(args.local_interval):
+            solve_distance_constraints_and_update_xpbd_kernel(self.dual_residual, self.inv_mass, self.edge, self.rest_len, self.lagrangian, self.dpos, self.pos, self.alpha_tilde, args.omega)
+            self.dualr = np.linalg.norm(self.dual_residual.to_numpy())
+            print(f"{self.frame}-{self.ite}-local{i} loacl-step dual:{self.dualr:.2e}")
+    
 
     def substep_all_solver(self):
         self.semi_euler()
         self.lagrangian.fill(0)
         self.dual0 = self.r_iter.calc_r0()
-        # self.dual0 = self.calc_dual()
         r=[]
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
+            if args.local_interval>0:
+                self.do_local_steps()
             self.compute_C_and_gradC()
             self.b = self.compute_b()
             dlambda, self.r_iter.r_Axb = self.linsol.run(self.b)
@@ -695,6 +702,42 @@ def solve_distance_constraints_xpbd(
             dpos[idx0] += invM0 * delta_lagrangian * gradient
         if invM1 != 0.0:
             dpos[idx1] -= invM1 * delta_lagrangian * gradient
+
+
+
+@ti.kernel
+def solve_distance_constraints_and_update_xpbd_kernel(
+    dual_residual: ti.template(),
+    inv_mass:ti.template(),
+    edge:ti.template(),
+    rest_len:ti.template(),
+    lagrangian:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+    alpha_tilde:ti.template(),
+    omega:ti.f32,
+):
+    for i in range(edge.shape[0]):
+        idx0, idx1 = edge[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        dis = pos[idx0] - pos[idx1]
+        constraint = dis.norm() - rest_len[i]
+        gradient = dis.normalized()
+        l = -constraint / (invM0 + invM1)
+        delta_lagrangian = -(constraint + lagrangian[i] * alpha_tilde[i]) / (invM0 + invM1 + alpha_tilde[i])
+        lagrangian[i] += delta_lagrangian
+
+        # residual
+        dual_residual[i] = -(constraint + alpha_tilde[i] * lagrangian[i])
+        
+        if invM0 != 0.0:
+            dpos[idx0] += invM0 * delta_lagrangian * gradient
+        if invM1 != 0.0:
+            dpos[idx1] -= invM1 * delta_lagrangian * gradient
+    ti.sync()
+    for i in range(pos.shape[0]):
+        if inv_mass[i] != 0.0:
+            pos[i] += omega * dpos[i]
 
 
 

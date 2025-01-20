@@ -2225,6 +2225,24 @@ for i,config in enumerate(["ball99k/ball99k.node"]):
             ]
     allargs.append(args)
 
+# case207
+casenames[len(allargs)] = "bunny85w-pardiso"
+args=[        "engine/soft/soft3d.py",
+        "-out_dir=result/bunny-direct",
+            "-model_path=data/model/bunny85w/bunny85w.node",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=DIRECT",
+            "-direct_solver_type=pardiso",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            "-time_budget=1",]
+allargs.append(args)
+
 
 def export_cases_to_json(allargs):
     import json

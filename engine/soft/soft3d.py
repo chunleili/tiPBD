@@ -1501,7 +1501,10 @@ def init_linear_solver():
     elif args.solver_type == "AMGX":
         linsol = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
     elif args.solver_type == "DIRECT":
-        if args.use_cuda:
+        if args.direct_solver_type=="pardiso":
+            from engine.solver.direct_solver import DirectSolverPardiso
+            linsol = DirectSolverPardiso(get_A0_cuda)
+        elif args.use_cuda:
             linsol = AmgCuda(
                     args=args,
                     extlib=extlib,

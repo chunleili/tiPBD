@@ -62,4 +62,5 @@ def add_common_args(parser):
     parser.add_argument("-pmass", type=float, default=1.0)
     parser.add_argument("-use_totalmass", type=int, default=0)
     parser.add_argument("-total_mass", type=float, default=-1)#16000.0
+    parser.add_argument("-direct_solver_type", type=str, default="cusolver", choices= ["cusolver", "scipy", "pardiso"])
     return parser

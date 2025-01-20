@@ -65,11 +65,11 @@ class AmgCuda:
             self.fill_A_in_cuda = get_A0 #default to get_A0
         if self.only_smoother is None:
             self.only_smoother = self.args.only_smoother
-        if self.only_jacobi is None:
+        elif self.only_jacobi is None:
             self.only_jacobi = False
-        if self.only_direct is None:
+        elif self.only_direct is None:
             self.only_direct = False
-        if self.only_PCG is None:
+        elif self.only_PCG is None:
             self.only_PCG = False
 
 

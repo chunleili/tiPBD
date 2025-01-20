@@ -310,6 +310,30 @@
             "cwd": "${workspaceFolder}",
             "args": [
             ]
-          }
+          },
+          {
+            "name": "ball direct",
+            "type": "debugpy",
+            "request": "launch",
+            "justMyCode": false,
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+            "-out_dir=result/ball-direct",
+            "-model_path=data/model/ball/ball.node",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=DIRECT",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            "-time_budget=1",
+            ]
+          },
+          
     ]
 }

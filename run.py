@@ -2200,6 +2200,32 @@ for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/
 
 
 
+
+# case206(186-rerun with Direct): ball for different size
+for i,config in enumerate(["ball99k/ball99k.node"]):
+    solver = "AMG"
+    dt = 10e-3
+    model = config.split("/")[0]
+    casenames[len(allargs)] = f"{model}-{solver}-direct"
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+           f"-solver_type={solver}",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            f"-time_budget={1}",
+            "-use_only_direct=1"
+            ]
+    allargs.append(args)
+
+
 def export_cases_to_json(allargs):
     import json
     for i in range(len(allargs)):

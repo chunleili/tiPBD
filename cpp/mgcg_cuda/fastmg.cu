@@ -283,10 +283,18 @@ float avg(std::vector<float> &v)
     void  FastMG::solve_only_directsolver()
     {
         timer1.start();
+        niter=1;
+
+        // r = b - A@(x)
+        levels.at(0).A.ncols = levels.at(0).A.nrows; 
+        residuals[0] = calc_residual(levels.at(0).A, outer_x, outer_b, r);
 
         spsolve(outer_x, levels.at(0).A, outer_b);
         copy(x_new, outer_x);
         
+        residuals[1] =  calc_residual(levels.at(0).A, outer_x, outer_b, r);
+
+
         timer1.stop();
         elapsed1.push_back(timer1.elapsed());
         // if (verbose)

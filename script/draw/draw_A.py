@@ -55,10 +55,13 @@ def draw(to_read_dir="result/sparsityUA/"):
     # axs[1].ticklabel_format(style='sci', axis='both', scilimits=(0,0),useMathText=True,useOffset=True)
     # axs[2].ticklabel_format(style='sci', axis='both', scilimits=(2,20),useMathText=True,useOffset=True)
 
+    case = str(Path(to_read_dir).parent.stem)[-2:]
+
     titles = ["Level 0", "Level 1", "Level 2"]
     sparsity = [As[0].nnz/As[0].shape[0]**2, As[1].nnz/As[1].shape[0]**2, As[2].nnz/As[2].shape[0]**2]
     nnz = [As[0].nnz, As[1].nnz, As[2].nnz]
-    titles = [f"Sparsity of level {i}: {sparsity[i]*100:.1f}%" for i in range(3)]
+    titles = [f"Sparsity of level {i}: {sparsity[i]*100:.1f}% ({case})" for i in range(3)]
+    titles[0] = f"Sparsity of level 0: {sparsity[0]:.1e} ({case})"
     # titles = [f"{titles[i]}: {sparsity[i]:.0e}" for i in range(3)]
     # titles=[f"Level 0: sparsity" ]
     # titles = [f"{titles[i]}: {nnz[i]:.1e} nnz" for i in range(3)]
@@ -92,7 +95,7 @@ def draw(to_read_dir="result/sparsityUA/"):
     #     axs[i].axhline(y=axs[i].get_ylim()[1], color='black', linewidth=1)
 
     # plt.show()
-    fig.savefig(f"{to_read_dir}/sparsity.png", dpi=300)
+    fig.savefig(f"sparsity{case}.png", dpi=300)
 
 def generate_data_from_sim():
     import subprocess,os

@@ -73,7 +73,10 @@ def semi_euler_kernel(
     for i in pos:
         if inv_mass[i] != 0.0:
             old_pos[i] = pos[i]
-            vel[i] += damping_coeff* delta_t * (gravity + force[i])
+            # vel[i] += damping_coeff* delta_t * (gravity + force[i])
+            vel[i] += delta_t * (gravity + force[i])
+            vel[i] *= damping_coeff
+
             pos[i] += delta_t * vel[i]
             predict_pos[i] = pos[i]
 

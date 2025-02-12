@@ -2058,23 +2058,25 @@ for i, config in enumerate(["10e-3","20e-3","30e-3"]*2):
         solver = "AMG"
     else:
         solver = "XPBD"
-    model = "beam9k"
-    casenames[len(allargs)] = f"{model}-{config}-{solver}"
+    model = "beam2.8k"
+    casenames[len(allargs)] = f"{config}-{solver}"
     args = ["engine/soft/soft3d.py",
         f"-out_dir=result/beamdt-rerun/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
-        f"-model_path=data/model/{model}/{model}.geo",
+        "-model_path=data/model/beam2.8k/beam2.8k.geo",
         "-tol=1e-3",
-        f"-delta_t={dt}",
+        f"-delta_t={config}",
         f"-solver_type={solver}",
         "-arch=gpu",
         "-maxiter=10000",
         "-end_frame=100",
-        f"-mu=1e9",
-        f"-total_mass=1e4",
+        "-mu=1e12",
         "-use_gravity=1",
         "-reinit=beam",
-        "-time_budget=0.2",
-        "-clean"
+        "-time_budget=0.5",
+        "-total_mass=1e3",
+        "-clean_dir=1",
+        "-damping_coeff=0.95",
+        "-local_interval=10"
         ]
     allargs.append(args)
 
@@ -2225,35 +2227,23 @@ for i,config in enumerate(["ball99k/ball99k.node"]):
             ]
     allargs.append(args)
 
-
-
-    
-
-# case207-208: ball12k rerun
-for i,config in enumerate(["ball12k/ball12k.node"]*2):
-    if i<=0:
-        solver = "AMG"
-    else:
-        solver = "XPBD"
-    dt = 10e-3
-    model = config.split("/")[0]
-    casenames[len(allargs)] = f"{model}-{solver}"
-    args = ["engine/soft/soft3d.py",
-            f"-out_dir=result/ball12k-rerun/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
-            f"-auto_another_outdir={auto_another_outdir}",
-            f"-model_path=data/model/{config}",
+# case207
+casenames[len(allargs)] = "bunny85w-pardiso"
+args=[        "engine/soft/soft3d.py",
+        "-out_dir=result/bunny-direct",
+            "-model_path=data/model/bunny85w/bunny85w.node",
             "-tol=1e-3",
             "-delta_t=10e-3",
-           f"-solver_type={solver}",
+            "-solver_type=DIRECT",
+            "-direct_solver_type=pardiso",
             "-arch=gpu",
             "-maxiter=100",
             "-end_frame=300",
             "-mu=1e9",
             "-use_gravity=1",
             "-reinit=freefall",
-            f"-time_budget={1}",
-            ]
-    allargs.append(args)
+            "-time_budget=1",]
+allargs.append(args)
 
 
 def export_cases_to_json(allargs):

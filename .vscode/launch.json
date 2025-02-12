@@ -358,5 +358,54 @@
             "-time_budget=1",
             ]
           },
+          {
+            "name": "damp velocities",
+            "type": "debugpy",
+            "request": "launch",
+            "justMyCode": true,
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+            "-out_dir=result/ball-damp-vel",
+            "-model_path=data/model/ball99k/ball99k.node",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=AMG",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=100",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            "-time_budget=1",
+            "-damping_coeff=0.99",
+            "-local_interval=0"
+            ]
+          },
+          {
+            "name": "bunny850K direct pardiso",
+            "type": "debugpy",
+            "request": "launch",
+            "justMyCode": true,
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+            "-out_dir=result/bunny-direct",
+            "-model_path=data/model/bunny85w/bunny85w.node",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=DIRECT",
+            "-direct_solver_type=pardiso",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            "-time_budget=1",
+            ]
+          },
     ]
 }

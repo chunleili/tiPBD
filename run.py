@@ -1866,7 +1866,7 @@ for config in [64,128,256,512]:
             "-maxiter=3000",
             "-delta_t=3e-3",
             "-tol=1e-4",
-            "-end_frame=500",
+            "-end_frame=240",
             "-compliance=1e-9",
             "-time_budget=200.0",
             ]
@@ -1884,7 +1884,7 @@ for config in [64,128,256,512]:
             "-maxiter=100000",
             "-delta_t=3e-3",
             "-tol=1e-4",
-            "-end_frame=500",
+            "-end_frame=180",
             "-compliance=1e-9",
             "-time_budget=200.0"
             ]
@@ -2030,7 +2030,7 @@ for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/
     model = config.split("/")[0]
     casenames[len(allargs)] = f"{model}-{solver}"
     args = ["engine/soft/soft3d.py",
-            f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-out_dir=result/ball-rere-damped/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
             f"-auto_another_outdir={auto_another_outdir}",
             f"-model_path=data/model/{config}",
             "-tol=1e-3",
@@ -2042,7 +2042,8 @@ for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/
             "-mu=1e9",
             "-use_gravity=1",
             "-reinit=freefall",
-            f"-time_budget={1}"
+            f"-time_budget={1}",
+            "-damping_coeff=0.9",
             ]
     allargs.append(args)
 
@@ -2052,29 +2053,28 @@ for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/
 
 
 #case 190-195: beam for dt = 10ms 20ms 30ms
-for i, config in enumerate(["10","20","30"]*2):
+for i, config in enumerate(["10e-3","20e-3","30e-3"]*2):
     if i<=2:
         solver = "AMG"
     else:
         solver = "XPBD"
-    model = "beam2.8k"
+    model = "beam9k"
     casenames[len(allargs)] = f"{model}-{config}-{solver}"
     args = ["engine/soft/soft3d.py",
-        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-out_dir=result/beamdt-rerun/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-model_path=data/model/{model}/{model}.geo",
         "-tol=1e-3",
-        f"-delta_t={dt}e-3",
+        f"-delta_t={dt}",
         f"-solver_type={solver}",
         "-arch=gpu",
         "-maxiter=10000",
         "-end_frame=100",
         f"-mu=1e9",
-        f"-total_mass=1e5",
+        f"-total_mass=1e4",
         "-use_gravity=1",
         "-reinit=beam",
-        "-time_budget=0.5",
-        "-total_mass=1e5",
-        "-local_interval=10"
+        "-time_budget=0.2",
+        "-clean"
         ]
     allargs.append(args)
 
@@ -2222,6 +2222,36 @@ for i,config in enumerate(["ball99k/ball99k.node"]):
             "-reinit=freefall",
             f"-time_budget={1}",
             "-use_only_direct=1"
+            ]
+    allargs.append(args)
+
+
+
+    
+
+# case207-208: ball12k rerun
+for i,config in enumerate(["ball12k/ball12k.node"]*2):
+    if i<=0:
+        solver = "AMG"
+    else:
+        solver = "XPBD"
+    dt = 10e-3
+    model = config.split("/")[0]
+    casenames[len(allargs)] = f"{model}-{solver}"
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/ball12k-rerun/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+           f"-solver_type={solver}",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            f"-time_budget={1}",
             ]
     allargs.append(args)
 

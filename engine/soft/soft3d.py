@@ -728,12 +728,14 @@ class SoftBody(PhysicalBase):
     def substep_xpbd(self):
         # semi_euler(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
         self.semi_euler()
-        reset_lagrangian(self.lagrangian)
+        # reset_lagrangian(self.lagrangian)
+        self.lagrangian.fill(0)
         r=[]
         for self.ite in range(args.maxiter):
             tic = time.perf_counter()
-            self.do_external_constraints()
-            project_constraints(
+            if args.use_external_constraints:
+                self.do_external_constraints()
+            project_constraints_v2(
                 self.pos_mid,
                 self.tet_indices,
                 self.inv_mass,
@@ -741,38 +743,58 @@ class SoftBody(PhysicalBase):
                 self.B,
                 self.pos,
                 self.alpha_tilde,
-                self.constraints,
+                # self.constraints,
                 self.residual,
-                self.gradC,
-                self.dlambda,
-                self.dpos,
+                # self.gradC,
+                # self.dlambda,
+                # self.dpos,
                 args.omega
             )
+            # project_constraints(
+            #     self.pos_mid,
+            #     self.tet_indices,
+            #     self.inv_mass,
+            #     self.lagrangian,
+            #     self.B,
+            #     self.pos,
+            #     self.alpha_tilde,
+            #     self.constraints,
+            #     self.residual,
+            #     self.gradC,
+            #     self.dlambda,
+            #     self.dpos,
+            #     args.omega
+            # )
             # collsion_response(self.pos)
-            calc_dual_residual(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
-            dualr = np.linalg.norm(self.residual.to_numpy())
-            if args.export_fulldual:
-                if self.ite==0 or self.ite==args.maxiter-1:
-                    np.save(args.out_dir+f"/r/fulldual-{self.frame}-{self.ite}.npy",self.dual_residual.to_numpy())
-            if self.ite == 0:
-                dualr0 = dualr.copy()
+            if args.calc_dual:
+                calc_dual_residual(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
+                dualr = np.linalg.norm(self.residual.to_numpy())
+                if args.export_fulldual:
+                    if self.ite==0 or self.ite==args.maxiter-1:
+                        np.save(args.out_dir+f"/r/fulldual-{self.frame}-{self.ite}.npy",self.dual_residual.to_numpy())
+                if self.ite == 0:
+                    dualr0 = dualr.copy()
             toc = time.perf_counter()
-            if self.has_no_time_budget():
-                break
-            logging.info(f"{self.frame}-{self.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s FramePastTime:{self.frame_past_time*1000:.0f} ms")
+            if args.use_time_budget:
+                if self.has_no_time_budget():
+                    break
             # r.append(self.ResidualData(dualr, 0, toc-tic))
-            if dualr >1e10:
-                logging.error(f"Diverge! dualr >1e10")
-                raise ValueError("Diverge! dualr >1e10")
-            if dualr < args.tol:
-                logging.info("Converge: tol")
-                break
-            if dualr / dualr0 < args.rtol:
-                logging.info("Converge: rtol")
-                break
-            # if is_stall(r):
-            #     logging.warning("Stall detected, break")
-            #     break
+            if args.calc_dual:
+                logging.info(f"{self.frame}-{self.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s FramePastTime:{self.frame_past_time*1000:.0f} ms")
+                if dualr >1e10:
+                    logging.error(f"Diverge! dualr >1e10")
+                    raise ValueError("Diverge! dualr >1e10")
+                if dualr < args.tol:
+                    logging.info("Converge: tol")
+                    break
+                if dualr / dualr0 < args.rtol:
+                    logging.info("Converge: rtol")
+                    break
+                # if is_stall(r):
+                #     logging.warning("Stall detected, break")
+                #     break
+            else:
+                logging.info(f"{self.frame}-{self.ite} t:{toc-tic:.2e}s")
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         update_vel(args.delta_t, self.pos, self.old_pos, self.vel)
@@ -853,6 +875,62 @@ def project_constraints(
             dpos[p1] += omega * inv_mass[p1] * dlambda[t] * gradC[t, 1]
             dpos[p2] += omega * inv_mass[p2] * dlambda[t] * gradC[t, 2]
             dpos[p3] += omega * inv_mass[p3] * dlambda[t] * gradC[t, 3]
+
+
+
+# use global memory variables as less as possible
+# %14 speed up compared to the previous version
+# 0.5ms per iter for 12K ele bunny small dt=3ms mu=1e6
+@ti.kernel
+def project_constraints_v2(
+    pos_mid: ti.template(),
+    tet_indices: ti.template(),
+    inv_mass: ti.template(),
+    lagrangian: ti.template(),
+    B: ti.template(),
+    pos: ti.template(),
+    alpha_tilde: ti.template(),
+    # constraint: ti.template(),
+    residual: ti.template(),
+    # gradC: ti.template(),
+    # dlambda: ti.template(),
+    # dpos: ti.template(),
+    omega: ti.f32
+):
+    for i in pos:
+        pos_mid[i] = pos[i]
+
+    # ti.loop_config(serialize=meta.serialize)
+    for t in range(tet_indices.shape[0]):
+        p0 = tet_indices[t][0]
+        p1 = tet_indices[t][1]
+        p2 = tet_indices[t][2]
+        p3 = tet_indices[t][3]
+
+        x0, x1, x2, x3 = pos_mid[p0], pos_mid[p1], pos_mid[p2], pos_mid[p3]
+        
+
+        D_s = ti.Matrix.cols([x1 - x0, x2 - x0, x3 - x0])
+        F = D_s @ B[t]
+        U, S, V = ti.svd(F)
+        constraint1 = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        if constraint1 > 1e-6:
+            g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
+            # gradC[t, 0], gradC[t, 1], gradC[t, 2], gradC[t, 3] = g0, g1, g2, g3
+            denorminator = (
+                inv_mass[p0] * g0.norm_sqr()
+                + inv_mass[p1] * g1.norm_sqr()
+                + inv_mass[p2] * g2.norm_sqr()
+                + inv_mass[p3] * g3.norm_sqr()
+            )
+            residual[t] = -(constraint1 + alpha_tilde[t] * lagrangian[t])
+            dlambda1 =  -(constraint1 + alpha_tilde[t] * lagrangian[t]) / (denorminator + alpha_tilde[t])
+
+            lagrangian[t] += dlambda1
+            pos[p0] += omega * inv_mass[p0] * dlambda1 * g0
+            pos[p1] += omega * inv_mass[p1] * dlambda1 * g1
+            pos[p2] += omega * inv_mass[p2] * dlambda1 * g2
+            pos[p3] += omega * inv_mass[p3] * dlambda1 * g3
 
 
 

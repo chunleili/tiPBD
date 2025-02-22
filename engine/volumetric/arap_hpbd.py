@@ -11,8 +11,12 @@ import scipy.io as sio
 from scipy.sparse import coo_matrix, spdiags, kron
 from scipy.io import mmwrite
 import sys, os, argparse
+from time import perf_counter
+from pathlib import Path
 
 sys.path.append(os.getcwd())
+from compute_R_acc import compute_mapping_v2, compute_mapping
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-l", "--load_at", type=int, default=-1)
@@ -22,14 +26,18 @@ parser.add_argument("-e", "--log_energy_range", nargs=2, type=int, default=(-1, 
 parser.add_argument("-r", "--log_residual_range", nargs=2, type=int, default=(-1, -1))
 parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
-parser.add_argument("-f", "--fine_iterations", type=int, default=5)
-parser.add_argument("--model", type=str, default="cube")
+parser.add_argument("-f", "--fine_iterations", type=int, default=2)
+parser.add_argument("--model", type=str, default="bunny", choices=["bunny", "cube"])
+parser.add_argument("--fine_model_path", type=str, default="")
+parser.add_argument("--coarse_model_path", type=str, default="")
 parser.add_argument("--omega", type=float, default=0.1)
-parser.add_argument("--mu", type=float, default=1e6)
-parser.add_argument("--dt", type=float, default=3e-3)
+parser.add_argument("--mu", type=float, default=1e20)
+parser.add_argument("--dt", type=float, default=33e-3)
 parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
+parser.add_argument("--use_multigrid", type=int, default=False)
+parser.add_argument("--init_style", type=str, default="random", choices=["random", "enlarge"])
 
 
 ti.init(arch=ti.gpu)
@@ -44,13 +52,13 @@ meta = Meta()
 # control parameters
 meta.args = parser.parse_args()
 meta.frame = 0
-meta.use_multigrid = True
+meta.use_multigrid = meta.args.use_multigrid
 meta.max_frame = meta.args.max_frame
 meta.log_energy_range = range(*meta.args.log_energy_range)
 meta.log_residual_range = range(*meta.args.log_residual_range)
 meta.frame_to_save = meta.args.save_at
 meta.load_at = meta.args.load_at
-meta.pause = False
+meta.pause = True
 meta.pause_at = meta.args.pause_at
 meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
 if meta.coarse_iterations == 0 or meta.use_multigrid == False:
@@ -67,6 +75,16 @@ meta.gravity = ti.Vector(meta.args.gravity)  # gravity, default (0, 0, 0)
 meta.damping_coeff = meta.args.damping_coeff  # damping coefficient, default 1.0
 meta.total_mass = meta.args.total_mass  # total mass, default 16000.0
 # meta.mass_density = 2000.0
+
+
+def timeit(method):
+    def timed(*args, **kw):
+        ts = perf_counter()
+        result = method(*args, **kw)
+        te = perf_counter()
+        logging.info(f"    {method.__name__} took: {(te-ts)*1000:.1f}ms")
+        return result
+    return timed
 
 
 def read_tetgen(filename):
@@ -159,8 +177,11 @@ class ArapHpbd:
             self.residual,
         ]
 
-
-if meta.args.model == "bunny":
+if meta.args.fine_model_path != "":
+    meta.fine_model_path = meta.args.fine_model_path
+    meta.coarse_model_path = meta.args.coarse_model_path
+    meta.model_path = str(Path(meta.fine_model_path).parent)
+elif meta.args.model == "bunny":
     meta.model_path = "data/model/bunny1k2k/"
     meta.fine_model_path = meta.model_path + "fine"
     meta.coarse_model_path = meta.model_path + "coarse"
@@ -173,20 +194,72 @@ fine = ArapHpbd(meta.fine_model_path)
 coarse = ArapHpbd(meta.coarse_model_path)
 
 
+# extra variable for prolongation and restriction
+cage_idx = ti.field(int, fine.NV) # cage index(coarse tet index) for each vertex in fine mesh
+uvw = ti.Vector.field(3, float, fine.NV) # barycentric coordinate  for each fine vertex 
+# c2f_nearest = ti.field(int, coarse.NV) # nearest vertex in fine mesh for each vertex in coarse mesh
+
+cage_idx_c2f = ti.field(int, coarse.NV) 
+uvw_c2f = ti.Vector.field(3, float, coarse.NV) 
+
+# print(">> Start to compute coarse and fine mapping...")
+# (
+#     coarse2fine_nearest_vert,
+#     fine_in_coarse_tet_indx,
+#     fine_in_coarse_tet_coord,
+# ) = compute_mapping_v2(coarse.model_pos, coarse.model_tet, fine.model_pos)
+print(">> Start to compute coarse and fine mapping...")
+(
+    coarse_in_fine_tet_indx,
+    coarse_in_fine_tet_coord,
+    fine_in_coarse_tet_indx,
+    fine_in_coarse_tet_coord,
+) = compute_mapping(coarse.model_pos, coarse.model_tet, fine.model_pos, fine.model_tet)
+
+cage_idx.from_numpy(fine_in_coarse_tet_indx)
+uvw.from_numpy(fine_in_coarse_tet_coord)
+# c2f_nearest.from_numpy(coarse2fine_nearest_vert) #this way momentum will be not conserved, causing rotation
+
 P = sio.mmread(meta.model_path + "P.mtx")
 R = sio.mmread(meta.model_path + "R.mtx")
 
 
-def update_fine_mesh():
-    cpos_np = coarse.pos.to_numpy()
-    fpos_np = P @ cpos_np
-    fine.pos.from_numpy(fpos_np)
+# @timeit
+# def update_fine_mesh():
+#     cpos_np = coarse.pos.to_numpy()
+#     fpos_np = P @ cpos_np
+#     fine.pos.from_numpy(fpos_np)
 
 
+@timeit
+def update_fine_mesh_mfree_ti():
+    update_fine_mesh_mfree_kernel()
+
+# xf = P@ xc in matrix free version
+@ti.kernel
+def update_fine_mesh_mfree_kernel():
+    for i in range(fine.NV):
+        c1,c2,c3,c4 = coarse.tet_indices[cage_idx[i]]
+        u,v,w = uvw[i]
+        fine.pos[i] = (1-u-v-w)*coarse.pos[c1] + u*coarse.pos[c2] + v*coarse.pos[c3] + w*coarse.pos[c4]
+    
+@timeit
 def update_coarse_mesh():
     fpos_np = fine.pos.to_numpy()
     cpos_np = R @ fpos_np
     coarse.pos.from_numpy(cpos_np)
+
+# @timeit
+# def update_coarse_mesh_mfree_ti():
+#     update_coarse_mesh_mfree_kernel()
+
+# # xc = R@ xf in matrix free version
+# @ti.kernel
+# def update_coarse_mesh_mfree_kernel():
+#     for i in range(coarse.NV):
+#         c1,c2,c3,c4 = fine.tet_indices[cage_idx_c2f[i]]
+#         u,v,w = uvw_c2f[i]
+#         coarse.pos[i] = (1-u-v-w)*fine.pos[c1] + u*fine.pos[c2] + v*fine.pos[c3] + w*fine.pos[c4]
 
 
 def init_model(instance):
@@ -433,13 +506,13 @@ def log_energy(frame, filename_to_save):
         with open(filename_to_save, "a") as f:
             np.savetxt(f, np.array([te]), fmt="%.4e", delimiter="\t")
 
-
+@timeit
 def log_residual(frame, filename_to_save):
-    if frame in meta.log_residual_range:
+    # if frame in meta.log_residual_range:
         r_norm = np.linalg.norm(fine.residual.to_numpy())
         logging.info("residual:\t{}".format(r_norm))
-        with open(filename_to_save, "a") as f:
-            np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
+        # with open(filename_to_save, "a") as f:
+        #     np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
 
 
 def save_state(filename):
@@ -494,14 +567,13 @@ def main():
         coarse.par_2_tet,
     )
 
-    init_style = "enlarge"
 
-    if init_style == "random":
+    if meta.args.init_style == "random":
         # random init
         random_val = np.random.rand(fine.pos.shape[0], 3)
         fine.pos.from_numpy(random_val)
         coarse.pos.from_numpy(random_val)
-    elif init_style == "enlarge":
+    elif meta.args.init_style == "enlarge":
         # init by enlarge 1.5x
         fine.pos.from_numpy(fine.model_pos * 1.5)
         coarse.pos.from_numpy(coarse.model_pos * 1.5)
@@ -540,7 +612,10 @@ def main():
     if meta.load_at != -1:
         meta.filename_to_load = save_state_filename + str(meta.load_at) + ".npz"
         load_state(meta.filename_to_load)
-
+    
+    timer_frame = []
+    timer_coarse = []
+    timer_fine = []
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -567,32 +642,39 @@ def main():
             save_state(save_state_filename + str(meta.frame))
 
         if not meta.pause:
-            info(f"######## frame {meta.frame} ########")
+            # info(f"######## frame {meta.frame} ########")
+            s = ""
+            tic = perf_counter()
             semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
             if meta.use_multigrid:
                 update_coarse_mesh()
-            reset_lagrangian(coarse.lagrangian)
-            for ite in range(meta.coarse_iterations):
-                log_energy(meta.frame, energy_filename)
-                project_constraints(
-                    coarse.pos_mid,
-                    coarse.tet_indices,
-                    coarse.inv_mass,
-                    coarse.lagrangian,
-                    coarse.B,
-                    coarse.pos,
-                    coarse.alpha_tilde,
-                    coarse.constraint,
-                    coarse.residual,
-                )
-                log_residual(meta.frame, residual_filename)
-                collsion_response(coarse.pos)
-                update_fine_mesh()
+                reset_lagrangian(coarse.lagrangian)
+                tic_coarse = perf_counter()
+                for ite in range(meta.coarse_iterations):
+                    log_energy(meta.frame, energy_filename)
+                    project_constraints(
+                        coarse.pos_mid,
+                        coarse.tet_indices,
+                        coarse.inv_mass,
+                        coarse.lagrangian,
+                        coarse.B,
+                        coarse.pos,
+                        coarse.alpha_tilde,
+                        coarse.constraint,
+                        coarse.residual,
+                    )
+                    # log_residual(meta.frame, residual_filename)
+                    # collsion_response(coarse.pos)
+                toc_coarse = perf_counter()
+                update_fine_mesh_mfree_ti()
+                timer_coarse.append(toc_coarse - tic_coarse)
+                s+= f"coarse: {(timer_coarse[-1])*1000:.1f}ms "
+            tic_fine = perf_counter()
             reset_lagrangian(fine.lagrangian)
             for ite in range(meta.fine_iterations):
-                if ite == 0:
-                    log_residual(meta.frame, residual_filename)
-                log_energy(meta.frame, energy_filename)
+                # if ite == 0:
+                #     log_residual(meta.frame, residual_filename)
+                # log_energy(meta.frame, energy_filename)
                 project_constraints(
                     fine.pos_mid,
                     fine.tet_indices,
@@ -605,13 +687,20 @@ def main():
                     fine.residual,
                 )
                 log_residual(meta.frame, residual_filename)
-                collsion_response(fine.pos)
-                update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
-
+                # collsion_response(fine.pos)
+            update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+            toc_fine = perf_counter()
+            timer_fine.append(toc_fine - tic_fine)
+            s+= f"fine: {(timer_fine[-1])*1000:.1f}ms "
+            toc = perf_counter()
+            timer_frame.append(toc - tic)
+            s+=f"frame {meta.frame} t: {(timer_frame[-1])*1000:.1f}ms "
+            logging.info(s)
             meta.frame += 1
 
         if meta.frame == meta.max_frame:
             window.running = False
+            break
 
         if show_fine_mesh:
             scene.mesh(fine.pos, fine.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
@@ -621,6 +710,8 @@ def main():
 
         canvas.scene(scene)
         window.show()
+    timer_frame = np.array(timer_frame)
+    logging.info(f"average frame time: {np.mean(timer_frame)*1000:.1f}ms")
 
 
 if __name__ == "__main__":

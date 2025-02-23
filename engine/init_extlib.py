@@ -12,8 +12,8 @@ def init_extlib(args, sim=""):
     prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
     if args.debug:
-        os.chdir(prj_path+'/cpp/mgcg_cuda')
-        retcode = subprocess.call(["cmake", "--build", "build", "--config", "Debug", "--parallel", "8"])
+        os.chdir(prj_path)
+        retcode = subprocess.call(["buildcuda_debug.bat"])
         if retcode != 0:
             raise Exception("Failed to build the project")
         os.chdir(prj_path)

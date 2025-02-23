@@ -12,6 +12,20 @@
           ]
         },  
         {
+          "name": "araph_hpbd",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "engine/volumetric/arap_hpbd.py",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "--log_residual=0",
+            "--log_energy=0",
+            "--fine_model_path=data/model/bunny85w/bunny85w",
+            "--coarse_model_path=data/model/bunny85w/bunny5k",
+          ]
+        }, 
+        {
             "name": "profile",
             "type": "debugpy",
             "request": "launch",

@@ -27,8 +27,8 @@ parser.add_argument("-r", "--log_residual", type=int, default=0)
 parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
 parser.add_argument("-f", "--fine_iterations", type=int, default=2)
-parser.add_argument("-it", "--mg_maxiter", type=int, default=1)
-parser.add_argument("--model", type=str, default="bunny", choices=["bunny", "cube"])
+parser.add_argument("-it", "--mg_maxiter", type=int, default=5)
+parser.add_argument("--model", type=str, default="bunny", choices=["bunny", "cube","beam"])
 parser.add_argument("--fine_model_path", type=str, default="")
 parser.add_argument("--coarse_model_path", type=str, default="")
 parser.add_argument("--omega", type=float, default=0.1)
@@ -37,8 +37,8 @@ parser.add_argument("--dt", type=float, default=33e-3)
 parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
-parser.add_argument("--use_multigrid", type=int, default=False)
-parser.add_argument("--init_style", type=str, default="random", choices=["random", "enlarge"])
+parser.add_argument("--use_multigrid", type=int, default=True)
+parser.add_argument("--init_style", type=str, default="", choices=["","random", "enlarge","squash","zero","freefall"])
 parser.add_argument("--silence", type=int, default=1)
 parser.add_argument("--out_dir", type=str, default="result/latest")
 parser.add_argument("--export_mesh", type=int, default=False)
@@ -178,18 +178,22 @@ class ArapHpbd:
             # self.residual,
         ]
 
-if meta.args.fine_model_path != "":
+if meta.args.fine_model_path != "" and meta.args.coarse_model_path != "":
     meta.fine_model_path = meta.args.fine_model_path
     meta.coarse_model_path = meta.args.coarse_model_path
     meta.model_path = str(Path(meta.fine_model_path).parent)
 elif meta.args.model == "bunny":
-    meta.model_path = "data/model/bunny1k2k/"
-    meta.fine_model_path = meta.model_path + "fine"
-    meta.coarse_model_path = meta.model_path + "coarse"
+    meta.model_path = "data/model/bunny85w/"
+    meta.fine_model_path = meta.model_path + "bunny85w"
+    meta.coarse_model_path = meta.model_path + "bunny5k"
 elif meta.args.model == "cube":
-    meta.model_path = "data/model/cube/"
+    meta.model_path = "data/model/cube_64k/"
     meta.fine_model_path = meta.model_path + "fine"
     meta.coarse_model_path = meta.model_path + "coarse"
+elif meta.args.model == "beam":
+    meta.model_path = "data/model/beam458k/"
+    meta.fine_model_path = meta.model_path + "beam458k"
+    meta.coarse_model_path = meta.model_path + "beam0.6k"
 
 fine = ArapHpbd(meta.fine_model_path)
 coarse = ArapHpbd(meta.coarse_model_path)
@@ -316,6 +320,7 @@ def rescale(pos):
     print("scale", scale)
     pos -= center
     pos *= scale
+    return pos
     
 
 def init_model(instance):
@@ -326,7 +331,7 @@ def init_model(instance):
     print("\nbbox\n", instance.bbox)
     instance.lowest_y = instance.bbox[0, 1]
     print("lowest_y", instance.lowest_y)
-    rescale(instance.model_pos)
+    instance.model_pos = rescale(instance.model_pos)
     instance.pos.from_numpy(instance.model_pos)
 
 
@@ -568,15 +573,16 @@ def log_energy(frame, filename_to_save=""):
         info(f"energy:\t{te}")
         if filename_to_save != "":
             with open(filename_to_save, "a") as f:
-                np.savetxt(f, np.array([frame, te]), fmt="%.4e", delimiter="\t")
+                f.write(f"{frame}\t{te:.2e}\n")
+        return te
 
 @timeit
 def log_residual(frame, filename_to_save):
     if meta.args.log_residual:
         r_norm = np.linalg.norm(fine.residual.to_numpy())
         logging.info("residual:\t{}".format(r_norm))
-        # with open(filename_to_save, "a") as f:
-        #     np.savetxt(f, np.array([r_norm]), fmt="%.4e", delimiter="\t")
+        with open(filename_to_save, "a") as f:
+            f.write(f"{frame}\t{r_norm:.2e}\n")
         return r_norm
 
 
@@ -598,7 +604,6 @@ def load_state(filename):
 
 
 def reinit(init_style=""):
-
     if init_style == "random":
         # random init
         random_val = np.random.rand(fine.pos.shape[0], 3)
@@ -607,6 +612,14 @@ def reinit(init_style=""):
     elif init_style == "enlarge":
         # init by enlarge 1.5x
         fine.pos.from_numpy(fine.model_pos * 1.5)
+        # coarse.pos.from_numpy(coarse.model_pos * 1.5)
+    elif init_style == "squeeze":
+        # init by enlarge 1.5x
+        fine.pos.from_numpy(fine.model_pos * 1.5)
+        # coarse.pos.from_numpy(coarse.model_pos * 1.5)
+    elif init_style == "zero":
+        # init by enlarge 1.5x
+        fine.pos.from_numpy(fine.model_pos * 0)
         # coarse.pos.from_numpy(coarse.model_pos * 1.5)
     update_coarse_mesh()
     print(f"reinit {init_style}")
@@ -634,6 +647,7 @@ def main():
     Path(meta.out_dir/"state").mkdir(parents=True, exist_ok=True)
     Path(meta.out_dir/"A").mkdir(parents=True, exist_ok=True)
     Path(meta.out_dir/"mesh").mkdir(parents=True, exist_ok=True)
+    Path(meta.out_dir/"r").mkdir(parents=True, exist_ok=True)
 
     init_model(fine)
     init_model(coarse)
@@ -691,14 +705,13 @@ def main():
         info("#############################################")
         info("########## Using Only Fine Solver ###########")
         info("#############################################")
-    energy_filename = "result/log/totalEnergy_" + (suffix) + ".txt"
-    residual_filename = "result/log/residual_" + (suffix) + ".txt"
-    if os.path.exists(energy_filename):
-        os.remove(energy_filename)
-    if os.path.exists(residual_filename):
-        os.remove(residual_filename)
+    energy_filename = f"{meta.out_dir}/r/energy_{suffix}" + ".txt"
+    residual_filename = f"{meta.out_dir}/r/residual_{suffix}" + ".txt"
+    Path(energy_filename).write_text(f"")
+    Path(energy_filename).write_text(f"")
 
-    save_state_filename = "result/save/frame_"
+
+    save_state_filename = f"{meta.out_dir}/state/"
     if meta.load_at != -1:
         meta.filename_to_load = save_state_filename + str(meta.load_at) + ".npz"
         load_state(meta.filename_to_load)
@@ -706,6 +719,8 @@ def main():
     timer_frame = []
     timer_coarse = []
     timer_fine = []
+    timer_restrict = []
+    timer_prolong = []
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -721,11 +736,13 @@ def main():
         gui.text("frame {}".format(meta.frame))
         wire_frame = gui.checkbox("wireframe", wire_frame)
         show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
-        meta.args.log_residual = gui.checkbox("residual", meta.args.log_residual)
+        meta.args.log_residual = gui.checkbox("log residual", meta.args.log_residual)
+        meta.args.log_energy = gui.checkbox("log energy", meta.args.log_energy)
         should_reset = gui.button("reset")
         meta.use_multigrid = gui.checkbox("multigrid", meta.use_multigrid)
         meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 0, 50)
         meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 0, 50)
+        meta.args.mg_maxiter = gui.slider_int("mg_maxiter", meta.args.mg_maxiter, 0, 20)
         gui.text(f"F #tets: {fine.NT} #verts: {fine.NV}")
         gui.text(f"C #tets: {coarse.NT} #verts: {coarse.NV}")
         gui.text(f"dt={meta.h*1000:.1f}ms mu={meta.mu:.2e} omega={meta.omega:.2f} ")
@@ -743,12 +760,17 @@ def main():
             s = f"frame {meta.frame} "
             tic_frame = perf_counter()
             semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
-            for mgIter in range(meta.args.mg_maxiter):
-                if mgIter == 0:
-                    log_residual(meta.frame, residual_filename)
-                    # log_energy(meta.frame, energy_filename)
+            for meta.mgIter in range(meta.args.mg_maxiter):
+                if meta.mgIter == 0:
+                    if meta.args.log_residual:
+                        log_residual(meta.frame, residual_filename)
+                    if meta.args.log_energy:
+                        log_energy(meta.frame, energy_filename)
                 if meta.use_multigrid:
+                    tic_restrict = perf_counter()
                     update_coarse_mesh() # Restriction
+                    toc_restrict = perf_counter()
+                    timer_restrict.append(toc_restrict - tic_restrict)
                     reset_lagrangian(coarse.lagrangian) # coarse xpbd(coarse solve)
                     tic_coarse = perf_counter()
                     for ite in range(meta.coarse_iterations):
@@ -764,8 +786,11 @@ def main():
                             coarse.residual,
                         )
                     toc_coarse = perf_counter()
-                    update_fine_mesh() # Prolongation
                     timer_coarse.append(toc_coarse - tic_coarse)
+                    tic_prolong = perf_counter()
+                    update_fine_mesh() # Prolongation
+                    toc_prolong = perf_counter()
+                    timer_prolong.append(toc_prolong - tic_prolong)
                     s+= f"coarse: {(timer_coarse[-1])*1000:.1f}ms "
                 tic_fine = perf_counter()
                 reset_lagrangian(fine.lagrangian) # fine xpbd(postsmoother)
@@ -781,12 +806,14 @@ def main():
                         fine.constraint,
                         fine.residual,
                     )
+
                 if meta.args.log_residual:
                     dualr=log_residual(meta.frame, residual_filename)
                     gui.text(f"residual: {dualr:.1e}")
-
                 if meta.args.log_energy:
-                    log_energy(meta.frame, energy_filename)
+                    energy = log_energy(meta.frame, energy_filename)
+                    gui.text(f"energy: {energy:.1e}")
+
             # collsion_response(fine.pos, fine.old_pos, 0.0, fine.inv_mass)
             update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
             toc_fine = perf_counter()
@@ -801,6 +828,14 @@ def main():
 
         if timer_frame:
             gui.text(f"{timer_frame[-1] * 1000:.1f} ms/frame")
+            if meta.use_multigrid:
+                if timer_coarse :
+                    gui.text(f"C:{timer_coarse[-1] * 1000:.1f} ms")
+                if timer_restrict:
+                    gui.text(f"R:{timer_restrict[-1] * 1000:.1f} ms")
+                if timer_prolong:
+                    gui.text(f"P:{timer_prolong[-1] * 1000:.1f} ms")
+            gui.text(f"F:{timer_fine[-1] * 1000:.1f} ms")
             gui.text(f"FPS(physics): {1.0/timer_frame[-1]:.1f}")
 
         if meta.frame == meta.max_frame:

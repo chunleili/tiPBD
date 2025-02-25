@@ -734,6 +734,9 @@ def main():
         meta.args.log_residual = gui.checkbox("log residual", meta.args.log_residual)
         meta.args.log_energy = gui.checkbox("log energy", meta.args.log_energy)
         should_reset = gui.button("reset")
+        squash = gui.button("squash")
+        zero = gui.button("zero")
+        random = gui.button("random")
         meta.use_multigrid = gui.checkbox("multigrid", meta.use_multigrid)
         meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 0, 50)
         meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 0, 50)
@@ -750,6 +753,15 @@ def main():
             load_state(f"{meta.out_dir}/state/rest.npz")
             reinit(meta.args.init_style)
             should_reset = False
+        if squash:
+            reinit("squash")
+            squash = False
+        if zero:
+            reinit("zero")
+            zero = False
+        if random:
+            reinit("random")
+            random = False
 
         if not meta.pause:
             s = f"frame {meta.frame} "

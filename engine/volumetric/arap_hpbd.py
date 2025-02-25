@@ -350,10 +350,12 @@ def init_physics(
         rest_volume[i] = 1.0 / 6.0 * ti.abs(D_m.determinant())
         total_volume += rest_volume[i]
 
+    mass_density = meta.total_mass / total_volume
+    # mass_density = 1
+    print("mass_density", mass_density)
     # init mass
     for i in tet_indices:
         ia, ib, ic, id = tet_indices[i]
-        mass_density = meta.total_mass / total_volume
         tet_mass = mass_density * rest_volume[i]
         avg_mass = tet_mass / 4.0
         mass[ia] += avg_mass
@@ -617,21 +619,28 @@ def reinit(init_style=""):
     if init_style == "random":
         random_val = np.random.rand(fine.pos.shape[0], 3)
         fine.pos.from_numpy(random_val)
+        coarse.pos.from_numpy(random_val)
     elif init_style == "enlarge":
         # init by enlarge 1.5x
         fine.pos.from_numpy(fine.model_pos * 1.5)
+        coarse.pos.from_numpy(coarse.model_pos * 1.5)
     elif init_style == "squash":
         p = fine.model_pos.copy()
         p[:, 1] *= 0
         fine.pos.from_numpy(p)
+        p = coarse.model_pos.copy()
+        p[:, 1] *= 0
+        coarse.pos.from_numpy(p)
     elif init_style == "zero":
         fine.pos.from_numpy(fine.model_pos * 0)
+        coarse.pos.from_numpy(coarse.model_pos * 0)
     elif init_style == "rest":
         fine.pos.from_numpy(fine.model_pos)
+        coarse.pos.from_numpy(coarse.model_pos)
     elif init_style == "fixleft":
         fixleft(fine)
         fixleft(coarse)
-    update_coarse_mesh()
+    # update_coarse_mesh()
     print(f"reinit {init_style}")
 
 

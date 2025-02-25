@@ -23,8 +23,8 @@
             "--log_energy=0",
             // "--fine_model_path=data/model/bunny85w/bunny85w",
             // "--coarse_model_path=data/model/bunny85w/bunny5k",
-            "--model=beam",
-            "--init_style=fixleft",
+            "--model=bunny",
+            "--init_style=squash",
           ]
         }, 
         {

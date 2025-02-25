@@ -27,7 +27,7 @@ parser.add_argument("-r", "--log_residual", type=int, default=0)
 parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
 parser.add_argument("-f", "--fine_iterations", type=int, default=2)
-parser.add_argument("-it", "--mg_maxiter", type=int, default=5)
+parser.add_argument("-it", "--mg_maxiter", type=int, default=1)
 parser.add_argument("--model", type=str, default="bunny", choices=["bunny", "cube","beam"])
 parser.add_argument("--fine_model_path", type=str, default="")
 parser.add_argument("--coarse_model_path", type=str, default="")
@@ -38,7 +38,7 @@ parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
 parser.add_argument("--use_multigrid", type=int, default=False)
-parser.add_argument("--init_style", type=str, default="squash", choices=["","random", "enlarge","squash","zero","freefall"])
+parser.add_argument("--init_style", type=str, default="", choices=["","random", "enlarge","squash","zero","freefall","rest","fixleft"])
 parser.add_argument("--silence", type=int, default=1)
 parser.add_argument("--out_dir", type=str, default="result/latest")
 parser.add_argument("--export_mesh", type=int, default=False)
@@ -152,48 +152,33 @@ class ArapHpbd:
         self.alpha_tilde = ti.field(float, self.NT)
 
         self.par_2_tet = ti.field(int, self.NV)
-        self.gradC = ti.Vector.field(3, ti.f32, shape=(self.NT, 4))
         self.constraint = ti.field(ti.f32, shape=(self.NT))
-        self.dpos = ti.Vector.field(3, ti.f32, shape=(self.NV))
         self.residual = ti.field(ti.f32, shape=self.NT)
 
         self.state = [
             self.pos,
-            # self.pos_mid,
-            # self.predict_pos,
-            self.old_pos,
             self.vel,
-            # self.mass,
-            # self.inv_mass,
-            # self.tet_indices,
-            # self.display_indices,
-            # self.B,
-            # self.lagrangian,
-            # self.rest_volume,
-            # self.alpha_tilde,
-            # self.par_2_tet,
-            # self.gradC,
-            # self.constraint,
-            # self.dpos,
-            # self.residual,
         ]
 
-if meta.args.fine_model_path != "" and meta.args.coarse_model_path != "":
-    meta.fine_model_path = meta.args.fine_model_path
-    meta.coarse_model_path = meta.args.coarse_model_path
-    meta.model_path = str(Path(meta.fine_model_path).parent)
-elif meta.args.model == "bunny":
-    meta.model_path = "data/model/bunny85w/"
-    meta.fine_model_path = meta.model_path + "bunny85w"
-    meta.coarse_model_path = meta.model_path + "bunny5k"
-elif meta.args.model == "cube":
-    meta.model_path = "data/model/cube_64k/"
-    meta.fine_model_path = meta.model_path + "fine"
-    meta.coarse_model_path = meta.model_path + "coarse"
-elif meta.args.model == "beam":
-    meta.model_path = "data/model/beam458k/"
-    meta.fine_model_path = meta.model_path + "beam458k"
-    meta.coarse_model_path = meta.model_path + "beam0.6k"
+def load_model():
+    if meta.args.fine_model_path != "" and meta.args.coarse_model_path != "":
+        meta.fine_model_path = meta.args.fine_model_path
+        meta.coarse_model_path = meta.args.coarse_model_path
+        meta.model_path = str(Path(meta.fine_model_path).parent)
+    elif meta.args.model == "bunny":
+        meta.model_path = "data/model/bunny85w/"
+        meta.fine_model_path = meta.model_path + "bunny85w"
+        meta.coarse_model_path = meta.model_path + "bunny5k"
+    elif meta.args.model == "cube":
+        meta.model_path = "data/model/cube_64k/"
+        meta.fine_model_path = meta.model_path + "fine"
+        meta.coarse_model_path = meta.model_path + "coarse"
+    elif meta.args.model == "beam":
+        meta.model_path = "data/model/beam458k/"
+        meta.fine_model_path = meta.model_path + "beam458k"
+        meta.coarse_model_path = meta.model_path + "beam0.6k"
+
+load_model()
 
 fine = ArapHpbd(meta.fine_model_path)
 coarse = ArapHpbd(meta.coarse_model_path)
@@ -461,19 +446,22 @@ def semi_euler(
     old_pos: ti.template(),
     vel: ti.template(),
     damping_coeff: ti.f32,
+    inv_mass: ti.template(),
 ):
     for i in pos:
-        vel[i] += h * meta.gravity
-        vel[i] *= damping_coeff
-        old_pos[i] = pos[i]
-        pos[i] += h * vel[i]
-        predict_pos[i] = pos[i]
+        if inv_mass[i] != 0.0:
+            vel[i] += h * meta.gravity
+            vel[i] *= damping_coeff
+            old_pos[i] = pos[i]
+            pos[i] += h * vel[i]
+            predict_pos[i] = pos[i]
 
 
 @ti.kernel
-def update_velocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template()):
+def update_velocity(h: ti.f32, pos: ti.template(), old_pos: ti.template(), vel: ti.template(), inv_mass: ti.template()):
     for i in pos:
-        vel[i] = (pos[i] - old_pos[i]) / h
+        if inv_mass[i] != 0.0:
+            vel[i] = (pos[i] - old_pos[i]) / h
 
 
 @ti.kernel
@@ -599,11 +587,33 @@ def load_state(filename):
     state = fine.state + coarse.state
     for i in range(0, len(state)):
         state[i].from_numpy(npzfile["arr_" + str(i)])
-
+    fine.lagrangian.fill(0.0)
+    coarse.lagrangian.fill(0.0)
     logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
 
 
+
+def fixleft(ist):
+    p = ist.model_pos
+    # fix the beam at the left end
+    # find the left end postion
+    xmin = np.min(p, axis=0)[0]
+    xmax = np.max(p, axis=0)[0]
+    xsize = xmax - xmin 
+    # a small region within the left end
+    endregion = (xmin - xsize*0.01, xmin + xsize*0.01)
+    # find the end particles where x is within the region
+    ist.fixed_particles = np.where((p[:, 0] > endregion[0]) & (p[:, 0] < endregion[1]))[0]
+    # set those particles inv_mass to 0
+    ist.inv_mass_np = ist.inv_mass.to_numpy()
+    # ist.inv_mass_np = args.pmass * np.ones(ist.NV, dtype=np.float32)
+    ist.inv_mass_np[ist.fixed_particles] = 0.0
+    ist.inv_mass.from_numpy(ist.inv_mass_np)
+    meta.gravity = ti.Vector([0, -9.8, 0])
+
+
 def reinit(init_style=""):
+    meta.frame=0
     if init_style == "random":
         random_val = np.random.rand(fine.pos.shape[0], 3)
         fine.pos.from_numpy(random_val)
@@ -616,6 +626,11 @@ def reinit(init_style=""):
         fine.pos.from_numpy(p)
     elif init_style == "zero":
         fine.pos.from_numpy(fine.model_pos * 0)
+    elif init_style == "rest":
+        fine.pos.from_numpy(fine.model_pos)
+    elif init_style == "fixleft":
+        fixleft(fine)
+        fixleft(coarse)
     update_coarse_mesh()
     print(f"reinit {init_style}")
 
@@ -688,7 +703,6 @@ def main():
     gui = window.get_gui()
     wire_frame = True
     should_reset = False
-    show_coarse_mesh = meta.args.use_multigrid
 
     if meta.use_multigrid:
         suffix = "mg"
@@ -730,7 +744,7 @@ def main():
 
         gui.text("frame {}".format(meta.frame))
         wire_frame = gui.checkbox("wireframe", wire_frame)
-        show_coarse_mesh = gui.checkbox("show coarse mesh", show_coarse_mesh)
+        meta.args.export_mesh = gui.checkbox("export mesh", meta.args.export_mesh)
         meta.args.log_residual = gui.checkbox("log residual", meta.args.log_residual)
         meta.args.log_energy = gui.checkbox("log energy", meta.args.log_energy)
         should_reset = gui.button("reset")
@@ -740,7 +754,7 @@ def main():
         meta.use_multigrid = gui.checkbox("multigrid", meta.use_multigrid)
         meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 0, 50)
         meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 0, 50)
-        meta.args.mg_maxiter = gui.slider_int("mg_maxiter", meta.args.mg_maxiter, 0, 20)
+        meta.args.mg_maxiter = gui.slider_int("mg_maxiter", meta.args.mg_maxiter, 0, 50)
         gui.text(f"F #tets: {fine.NT} #verts: {fine.NV}")
         gui.text(f"C #tets: {coarse.NT} #verts: {coarse.NV}")
         gui.text(f"dt={meta.h*1000:.1f}ms mu={meta.mu:.2e} omega={meta.omega:.2f} ")
@@ -766,7 +780,7 @@ def main():
         if not meta.pause:
             s = f"frame {meta.frame} "
             tic_frame = perf_counter()
-            semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff)
+            semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff, fine.inv_mass)
             for meta.mgIter in range(meta.args.mg_maxiter):
                 if meta.mgIter == 0:
                     if meta.args.log_residual:
@@ -822,7 +836,7 @@ def main():
                     gui.text(f"energy: {energy:.1e}")
 
             # collsion_response(fine.pos, fine.old_pos, 0.0, fine.inv_mass)
-            update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel)
+            update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel, fine.inv_mass)
             toc_fine = perf_counter()
             timer_fine.append(toc_fine - tic_fine)
             s+= f"fine: {(timer_fine[-1])*1000:.1f}ms "
@@ -849,12 +863,13 @@ def main():
             window.running = False
             break
 
-        if meta.args.export_mesh:
-            write_mesh(meta.out_dir + f"{meta.frame:04d}.ply", fine.pos.to_numpy(), fine.model_tri)
+        if meta.args.export_mesh and not meta.pause:
+            logging.info(f"exporting {meta.frame:04d}.ply")
+            write_mesh(meta.out_dir / f"mesh/{meta.frame:04d}.ply", fine.pos.to_numpy(), fine.model_tri)
 
         scene.mesh(fine.pos, fine.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
 
-        if show_coarse_mesh:
+        if meta.use_multigrid:
             scene.mesh(coarse.pos, coarse.display_indices, color=(0.0, 0.5, 1.0), show_wireframe=wire_frame)
 
         canvas.scene(scene)

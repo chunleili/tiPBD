@@ -37,8 +37,8 @@ parser.add_argument("--dt", type=float, default=33e-3)
 parser.add_argument("--damping_coeff", type=float, default=1.0)
 parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
-parser.add_argument("--use_multigrid", type=int, default=True)
-parser.add_argument("--init_style", type=str, default="", choices=["","random", "enlarge","squash","zero","freefall"])
+parser.add_argument("--use_multigrid", type=int, default=False)
+parser.add_argument("--init_style", type=str, default="squash", choices=["","random", "enlarge","squash","zero","freefall"])
 parser.add_argument("--silence", type=int, default=1)
 parser.add_argument("--out_dir", type=str, default="result/latest")
 parser.add_argument("--export_mesh", type=int, default=False)
@@ -220,18 +220,18 @@ cage_idx_c2f.from_numpy(coarse_in_fine_tet_indx)
 uvw_c2f.from_numpy(coarse_in_fine_tet_coord)
 
 
-print(">> Start to compute coarse and fine mapping...")
-(
-    coarse2fine_nearest_vert,
-    fine_in_coarse_tet_indx,
-    fine_in_coarse_tet_coord,
-) = compute_mapping_v2(coarse.model_pos, coarse.model_tet, fine.model_pos)
+# print(">> Start to compute coarse and fine mapping...")
+# (
+#     coarse2fine_nearest_vert,
+#     fine_in_coarse_tet_indx,
+#     fine_in_coarse_tet_coord,
+# ) = compute_mapping_v2(coarse.model_pos, coarse.model_tet, fine.model_pos)
 
-c2f_nearest = ti.field(int, coarse.NV) # nearest vertex in fine mesh for each vertex in coarse mesh
-c2f_nearest.from_numpy(coarse2fine_nearest_vert) #this way momentum will be not conserved, causing rotation
+# c2f_nearest = ti.field(int, coarse.NV) # nearest vertex in fine mesh for each vertex in coarse mesh
+# c2f_nearest.from_numpy(coarse2fine_nearest_vert) #this way momentum will be not conserved, causing rotation
 
-P = sio.mmread(meta.model_path + "P.mtx")
-R = sio.mmread(meta.model_path + "R.mtx")
+# P = sio.mmread(meta.model_path + "P.mtx")
+# R = sio.mmread(meta.model_path + "R.mtx")
 
 
 # @timeit
@@ -605,22 +605,17 @@ def load_state(filename):
 
 def reinit(init_style=""):
     if init_style == "random":
-        # random init
         random_val = np.random.rand(fine.pos.shape[0], 3)
         fine.pos.from_numpy(random_val)
-        # coarse.pos.from_numpy(random_val)
     elif init_style == "enlarge":
         # init by enlarge 1.5x
         fine.pos.from_numpy(fine.model_pos * 1.5)
-        # coarse.pos.from_numpy(coarse.model_pos * 1.5)
-    elif init_style == "squeeze":
-        # init by enlarge 1.5x
-        fine.pos.from_numpy(fine.model_pos * 1.5)
-        # coarse.pos.from_numpy(coarse.model_pos * 1.5)
+    elif init_style == "squash":
+        p = fine.model_pos.copy()
+        p[:, 1] *= 0
+        fine.pos.from_numpy(p)
     elif init_style == "zero":
-        # init by enlarge 1.5x
         fine.pos.from_numpy(fine.model_pos * 0)
-        # coarse.pos.from_numpy(coarse.model_pos * 1.5)
     update_coarse_mesh()
     print(f"reinit {init_style}")
 

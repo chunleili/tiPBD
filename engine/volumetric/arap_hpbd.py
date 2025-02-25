@@ -79,6 +79,8 @@ meta.damping_coeff = meta.args.damping_coeff  # damping coefficient, default 1.0
 meta.total_mass = meta.args.total_mass  # total mass, default 16000.0
 # meta.mass_density = 2000.0
 
+meta.framePastTime = 0
+meta.sim_time = 0
 
 def timeit(method):
     def timed(*args, **kw):
@@ -560,19 +562,21 @@ def compute_energy(mass, pos, predict_pos, tet_indices, B, alpha_tilde):
 def log_energy(frame, filename_to_save=""):
     if meta.args.log_energy:
         te, it, pe = compute_energy(fine.mass, fine.pos, fine.predict_pos, fine.tet_indices, fine.B, fine.alpha_tilde)
-        info(f"energy:\t{te}")
+        s=f"{frame}\t{te:.2e}\t{meta.framePastTime*1000:.1f}ms\n"
+        # meta.s+=s
         if filename_to_save != "":
             with open(filename_to_save, "a") as f:
-                f.write(f"{frame}\t{te:.2e}\n")
+                f.write(s)
         return te
 
 @timeit
 def log_residual(frame, filename_to_save):
     if meta.args.log_residual:
         r_norm = np.linalg.norm(fine.residual.to_numpy())
-        logging.info("residual:\t{}".format(r_norm))
+        s =f"{frame}\t{r_norm:.2e}\t{meta.framePastTime*1000:.1f}ms\n"
+        # meta.s+=s
         with open(filename_to_save, "a") as f:
-            f.write(f"{frame}\t{r_norm:.2e}\n")
+            f.write(s)
         return r_norm
 
 
@@ -581,7 +585,7 @@ def save_state(filename):
     for i in range(0, len(state)):
         state[i] = state[i].to_numpy()
     np.savez(filename, *state)
-    logging.info(f"saved state to '{filename}', totally saved {len(state)} variables")
+    print(f"saved state to {filename}")
 
 
 def load_state(filename):
@@ -591,7 +595,7 @@ def load_state(filename):
         state[i].from_numpy(npzfile["arr_" + str(i)])
     fine.lagrangian.fill(0.0)
     coarse.lagrangian.fill(0.0)
-    logging.info(f"loaded state from '{filename}', totally loaded {len(state)} variables")
+    print(f"loaded state from {filename}")
 
 
 
@@ -616,6 +620,10 @@ def fixleft(ist):
 
 def reinit(init_style=""):
     meta.frame=0
+    meta.energy_filename = f"{meta.out_dir}/r/energy" + ".txt"
+    meta.residual_filename = f"{meta.out_dir}/r/residual" + ".txt"
+    Path(meta.energy_filename).write_text(f"")
+    Path(meta.residual_filename).write_text(f"")
     if init_style == "random":
         random_val = np.random.rand(fine.pos.shape[0], 3)
         fine.pos.from_numpy(random_val)
@@ -713,20 +721,8 @@ def main():
     wire_frame = True
     should_reset = False
 
-    if meta.use_multigrid:
-        suffix = "mg"
-        info("#############################################")
-        info("########## Using Multi-Grid Solver ##########")
-        info("#############################################")
-    else:
-        suffix = "onlyfine"
-        info("#############################################")
-        info("########## Using Only Fine Solver ###########")
-        info("#############################################")
-    energy_filename = f"{meta.out_dir}/r/energy_{suffix}" + ".txt"
-    residual_filename = f"{meta.out_dir}/r/residual_{suffix}" + ".txt"
-    Path(energy_filename).write_text(f"")
-    Path(energy_filename).write_text(f"")
+
+
 
 
     save_state_filename = f"{meta.out_dir}/state/"
@@ -756,14 +752,16 @@ def main():
         meta.args.export_mesh = gui.checkbox("export mesh", meta.args.export_mesh)
         meta.args.log_residual = gui.checkbox("log residual", meta.args.log_residual)
         meta.args.log_energy = gui.checkbox("log energy", meta.args.log_energy)
-        should_reset = gui.button("reset")
-        squash = gui.button("squash")
-        zero = gui.button("zero")
-        random = gui.button("random")
+        Bshould_reset = gui.button("reset")
+        Bsquash = gui.button("squash")
+        Bzero = gui.button("zero")
+        Brandom = gui.button("random")
+        Bsave = gui.button("save state")
+        Bload = gui.button("load state")
         meta.use_multigrid = gui.checkbox("multigrid", meta.use_multigrid)
         meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 0, 50)
         meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 0, 50)
-        meta.args.mg_maxiter = gui.slider_int("mg_maxiter", meta.args.mg_maxiter, 0, 50)
+        meta.args.mg_maxiter = gui.slider_int("mg_maxiter", meta.args.mg_maxiter, 0, 100)
         gui.text(f"F #tets: {fine.NT} #verts: {fine.NV}")
         gui.text(f"C #tets: {coarse.NT} #verts: {coarse.NV}")
         gui.text(f"dt={meta.h*1000:.1f}ms mu={meta.mu:.2e} omega={meta.omega:.2f} ")
@@ -772,30 +770,36 @@ def main():
         if meta.frame == meta.frame_to_save:
             save_state(save_state_filename + str(meta.frame))
         
-        if should_reset:
+        if Bshould_reset:
             load_state(f"{meta.out_dir}/state/rest.npz")
             reinit(meta.args.init_style)
-            should_reset = False
-        if squash:
+            Bshould_reset = False
+        if Bsquash:
             reinit("squash")
-            squash = False
-        if zero:
+            Bsquash = False
+        if Bzero:
             reinit("zero")
-            zero = False
-        if random:
+            Bzero = False
+        if Brandom:
             reinit("random")
-            random = False
+            Brandom = False
+        if Bsave:
+            save_state(f"{meta.out_dir}/state/last.npz")
+            Bsave = False
+        if Bload:
+            load_state(f"{meta.out_dir}/state/last.npz")
+            Bload = False
 
+        meta.s = f"frame {meta.frame} "
         if not meta.pause:
-            s = f"frame {meta.frame} "
             tic_frame = perf_counter()
             semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff, fine.inv_mass)
             for meta.mgIter in range(meta.args.mg_maxiter):
                 if meta.mgIter == 0:
                     if meta.args.log_residual:
-                        log_residual(meta.frame, residual_filename)
+                        log_residual(meta.frame, meta.residual_filename)
                     if meta.args.log_energy:
-                        log_energy(meta.frame, energy_filename)
+                        log_energy(meta.frame, meta.energy_filename)
                 if meta.use_multigrid:
                     tic_restrict = perf_counter()
                     update_coarse_mesh() # Restriction
@@ -821,7 +825,6 @@ def main():
                     update_fine_mesh() # Prolongation
                     toc_prolong = perf_counter()
                     timer_prolong.append(toc_prolong - tic_prolong)
-                    s+= f"coarse: {(timer_coarse[-1])*1000:.1f}ms "
                 tic_fine = perf_counter()
                 reset_lagrangian(fine.lagrangian) # fine xpbd(postsmoother)
                 for ite in range(meta.fine_iterations):
@@ -836,37 +839,32 @@ def main():
                         fine.constraint,
                         fine.residual,
                     )
-
+                meta.framePastTime = perf_counter() - tic_frame
                 if meta.args.log_residual:
-                    dualr=log_residual(meta.frame, residual_filename)
-                    gui.text(f"residual: {dualr:.1e}")
+                    dualr=log_residual(meta.frame, meta.residual_filename)
                 if meta.args.log_energy:
-                    energy = log_energy(meta.frame, energy_filename)
-                    gui.text(f"energy: {energy:.1e}")
+                    energy = log_energy(meta.frame, meta.energy_filename)
+                toc_fine = perf_counter()
+                timer_fine.append(toc_fine - tic_fine)
 
             # collsion_response(fine.pos, fine.old_pos, 0.0, fine.inv_mass)
             update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel, fine.inv_mass)
-            toc_fine = perf_counter()
-            timer_fine.append(toc_fine - tic_fine)
-            s+= f"fine: {(timer_fine[-1])*1000:.1f}ms "
             toc_frame = perf_counter()
             timer_frame.append(toc_frame - tic_frame)
-            s+=f"t: {(timer_frame[-1])*1000:.1f}ms"
             if not meta.args.silence:
-                logging.info(s)
+                logging.info(meta.s)
             meta.frame += 1
 
         if timer_frame:
-            gui.text(f"{timer_frame[-1] * 1000:.1f} ms/frame")
             if meta.use_multigrid:
-                if timer_coarse :
-                    gui.text(f"C:{timer_coarse[-1] * 1000:.1f} ms")
-                if timer_restrict:
-                    gui.text(f"R:{timer_restrict[-1] * 1000:.1f} ms")
-                if timer_prolong:
-                    gui.text(f"P:{timer_prolong[-1] * 1000:.1f} ms")
-            gui.text(f"F:{timer_fine[-1] * 1000:.1f} ms")
-            gui.text(f"FPS(physics): {1.0/timer_frame[-1]:.1f}")
+                meta.s+=f"C:{np.mean(timer_coarse[:meta.coarse_iterations]) * 1000:.1f} ms\n"
+                meta.s+=(f"R:{timer_restrict[-1] * 1000:.1f} ms\n")
+                meta.s+=(f"P:{timer_prolong[-1] * 1000:.1f} ms\n")
+                meta.s+=(f"F:{np.mean(timer_fine[:meta.fine_iterations]) * 1000:.1f} ms\n")
+            meta.s+=(f"{timer_frame[-1] * 1000:.1f} ms/frame\n")
+            meta.s+=(f"FPS(physics): {1.0/timer_frame[-1]:.1f}\n")
+            gui.text(meta.s)
+            meta.s =""
 
         if meta.frame == meta.max_frame:
             window.running = False

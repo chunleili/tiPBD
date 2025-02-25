@@ -73,7 +73,6 @@ meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta
 meta.omega = meta.args.omega  # SOR factor, default 0.1
 meta.mu = meta.args.mu  # Lame's second parameter, default 1e6
 meta.h = meta.args.dt  # time step size, default 3e-3
-meta.inv_h2 = 1.0 / meta.h / meta.h
 meta.gravity = ti.Vector(meta.args.gravity)  # gravity, default (0, 0, 0)
 meta.damping_coeff = meta.args.damping_coeff  # damping coefficient, default 1.0
 meta.total_mass = meta.args.total_mass  # total mass, default 16000.0
@@ -151,7 +150,7 @@ class ArapHpbd:
         self.B = ti.Matrix.field(3, 3, float, self.NT)  # D_m^{-1}
         self.lagrangian = ti.field(float, self.NT)  # lagrangian multipliers
         self.rest_volume = ti.field(float, self.NT)  # rest volume of each tet
-        self.alpha_tilde = ti.field(float, self.NT)
+        self.alpha = ti.field(float, self.NT)
 
         self.par_2_tet = ti.field(int, self.NV)
         self.constraint = ti.field(ti.f32, shape=(self.NT))
@@ -333,7 +332,7 @@ def init_physics(
     rest_volume: ti.template(),
     mass: ti.template(),
     inv_mass: ti.template(),
-    alpha_tilde: ti.template(),
+    alpha: ti.template(),
     par_2_tet: ti.template(),
 ):
     # init pos, old_pos, vel
@@ -367,9 +366,8 @@ def init_physics(
     for i in inv_mass:
         inv_mass[i] = 1.0 / mass[i]
 
-    # init alpha_tilde
-    for i in alpha_tilde:
-        alpha_tilde[i] = meta.inv_h2 / meta.mu / rest_volume[i]
+    for i in alpha:
+        alpha[i] = 1.0/meta.mu / rest_volume[i]
 
     # init par_2_tet
     for i in tet_indices:
@@ -476,9 +474,10 @@ def project_constraints(
     lagrangian: ti.template(),
     B: ti.template(),
     pos: ti.template(),
-    alpha_tilde: ti.template(),
+    alpha: ti.template(),
     constraint: ti.template(),
     residual: ti.template(),
+    dt: ti.f32,
 ):
     for i in pos:
         pos_mid[i] = pos[i]
@@ -503,7 +502,8 @@ def project_constraints(
             + inv_mass[p2] * g2.norm_sqr()
             + inv_mass[p3] * g3.norm_sqr()
         )
-        dlambda = -(constraint[t] + alpha_tilde[t] * lagrangian[t]) / (denorminator + alpha_tilde[t])
+        alpha_tilde = alpha[t] / (dt * dt)
+        dlambda = -(constraint[t] + alpha_tilde * lagrangian[t]) / (denorminator + alpha_tilde)
 
         lagrangian[t] += dlambda
 
@@ -512,7 +512,7 @@ def project_constraints(
         pos[p2] += meta.omega * inv_mass[p2] * dlambda * g2
         pos[p3] += meta.omega * inv_mass[p3] * dlambda * g3
 
-        residual[t] = constraint[t] + alpha_tilde[t] * lagrangian[t]
+        residual[t] = constraint[t] + alpha_tilde * lagrangian[t]
 
 
 @ti.kernel
@@ -537,7 +537,7 @@ def compute_potential_energy(
     pos: ti.template(),
     tet_indices: ti.template(),
     B: ti.template(),
-    alpha_tilde: ti.template(),
+    alpha: ti.template(),
 ) -> ti.f32:
     pe = 0.0
     for i in tet_indices:
@@ -549,19 +549,19 @@ def compute_potential_energy(
         if S[2, 2] < 0.0:  # S[2, 2] is the smallest singular value
             S[2, 2] *= -1.0
         constraint_squared = (S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2
-        pe += (1.0 / alpha_tilde[i]) * constraint_squared
+        pe += (1.0 / (alpha[i]/meta.h/meta.h)) * constraint_squared
     return pe * 0.5
 
 
-def compute_energy(mass, pos, predict_pos, tet_indices, B, alpha_tilde):
+def compute_energy(mass, pos, predict_pos, tet_indices, B, alpha):
     it = compute_inertial(mass, pos, predict_pos)
-    pe = compute_potential_energy(pos, tet_indices, B, alpha_tilde)
+    pe = compute_potential_energy(pos, tet_indices, B, alpha)
     return it + pe, it, pe
 
 
 def log_energy(frame, filename_to_save=""):
     if meta.args.log_energy:
-        te, it, pe = compute_energy(fine.mass, fine.pos, fine.predict_pos, fine.tet_indices, fine.B, fine.alpha_tilde)
+        te, it, pe = compute_energy(fine.mass, fine.pos, fine.predict_pos, fine.tet_indices, fine.B, fine.alpha)
         s=f"{frame}\t{te:.2e}\t{meta.framePastTime*1000:.1f}ms\n"
         # meta.s+=s
         if filename_to_save != "":
@@ -688,7 +688,7 @@ def main():
         fine.rest_volume,
         fine.mass,
         fine.inv_mass,
-        fine.alpha_tilde,
+        fine.alpha,
         fine.par_2_tet,
     )
     init_physics(
@@ -700,7 +700,7 @@ def main():
         coarse.rest_volume,
         coarse.mass,
         coarse.inv_mass,
-        coarse.alpha_tilde,
+        coarse.alpha,
         coarse.par_2_tet,
     )
 
@@ -815,9 +815,10 @@ def main():
                             coarse.lagrangian,
                             coarse.B,
                             coarse.pos,
-                            coarse.alpha_tilde,
+                            coarse.alpha,
                             coarse.constraint,
                             coarse.residual,
+                            meta.h
                         )
                     toc_coarse = perf_counter()
                     timer_coarse.append(toc_coarse - tic_coarse)
@@ -835,9 +836,10 @@ def main():
                         fine.lagrangian,
                         fine.B,
                         fine.pos,
-                        fine.alpha_tilde,
+                        fine.alpha,
                         fine.constraint,
                         fine.residual,
+                        meta.h
                     )
                 meta.framePastTime = perf_counter() - tic_frame
                 if meta.args.log_residual:

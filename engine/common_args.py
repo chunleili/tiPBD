@@ -15,7 +15,7 @@ def add_common_args(parser):
     parser.add_argument("-amgx_lib_dir", type=str, default="D:/Dev/AMGX/build/Release")
     parser.add_argument("-build_P_method", type=str, default="UA")
     parser.add_argument("-arch", type=str, default="cpu")
-    parser.add_argument("-setup_interval", type=int, default=20)
+    parser.add_argument("-setup_interval", type=int, default=10000)
     parser.add_argument("-maxiter_Axb", type=int, default=100)
     parser.add_argument("-export_log", type=int, default=True)
     parser.add_argument("-export_residual", type=int, default=False)
@@ -83,9 +83,9 @@ def parse_json_args(args,json_path):
     for key, value in config.items():
         if hasattr(args,key):
             if getattr(args,key) != value:
-                print(f"overwriting {key} from {getattr(args,key)} to {value}")
+                # print(f"overwriting {key} from {getattr(args,key)} to {value}")
                 setattr(args,key,value)
         else:
-            print(f"Add new json key {key}:{value} to args")
+            # print(f"Add new json key {key}:{value} to args")
             setattr(args,key,value)
     return args

@@ -15,33 +15,38 @@ from time import perf_counter
 from pathlib import Path
 
 sys.path.append(os.getcwd())
-from compute_R_acc import compute_mapping, compute_mapping_v2
+from compute_R_acc import compute_mapping
+from engine.energy import compute_energy
+from engine.mesh_io import read_tet
+
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-l", "--load_at", type=int, default=-1)
-parser.add_argument("-s", "--save_at", type=int, default=-1)
 parser.add_argument("-m", "--max_frame", type=int, default=-1)
 parser.add_argument("-e", "--log_energy",  type=int, default=0)
 parser.add_argument("-r", "--log_residual", type=int, default=0)
 parser.add_argument("-p", "--pause_at", type=int, default=-1)
 parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
 parser.add_argument("-f", "--fine_iterations", type=int, default=2)
-parser.add_argument("-it", "--mg_maxiter", type=int, default=1)
-parser.add_argument("--model", type=str, default="bunny", choices=["bunny", "cube","beam"])
-parser.add_argument("--fine_model_path", type=str, default="")
+parser.add_argument("-it", "--maxiter", type=int, default=1)
+parser.add_argument("--model", type=str, default="", choices=["","bunny", "cube","beam"]) #preset model
+parser.add_argument("--model_path", type=str, default="", help="fine model path")
 parser.add_argument("--coarse_model_path", type=str, default="")
 parser.add_argument("--omega", type=float, default=0.1)
-parser.add_argument("--mu", type=float, default=1e20)
-parser.add_argument("--dt", type=float, default=33e-3)
+parser.add_argument("--mu", type=float, default=2.33e6)
+parser.add_argument("--dt", type=float, default=10e-3)
 parser.add_argument("--damping_coeff", type=float, default=1.0)
-parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0, 0.0))
+parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, -9.8, 0.0))
 parser.add_argument("--total_mass", type=float, default=16000.0)
+parser.add_argument("--mass_density", type=float, default=1000.0)
 parser.add_argument("--use_multigrid", type=int, default=False)
 parser.add_argument("--init_style", type=str, default="", choices=["","random", "enlarge","squash","zero","freefall","rest","fixleft"])
-parser.add_argument("--silence", type=int, default=1)
+parser.add_argument("--silence", type=int, default=True)
 parser.add_argument("--out_dir", type=str, default="result/latest")
 parser.add_argument("--export_mesh", type=int, default=False)
+parser.add_argument("-use_json", type=int, default=True)
+parser.add_argument("-initial_load", type=int, default=False)
+parser.add_argument("-initial_pause", type=int, default=True)
 
 
 ti.init(arch=ti.gpu)
@@ -55,14 +60,19 @@ meta = Meta()
 
 # control parameters
 meta.args = parser.parse_args()
+
+
+from engine.common_args import parse_json_args
+with open("config") as f:
+    meta.args.json_path = f.read().strip()
+if meta.args.use_json and meta.args.json_path:
+    meta.args = parse_json_args(meta.args, meta.args.json_path)
+
+
 meta.frame = 0
 meta.use_multigrid = meta.args.use_multigrid
 meta.max_frame = meta.args.max_frame
-# meta.log_energy_range = range(*meta.args.log_energy_range)
-# meta.log_residual_range = range(*meta.args.log_residual_range)
-meta.frame_to_save = meta.args.save_at
-meta.load_at = meta.args.load_at
-meta.pause = True
+meta.pause = meta.args.initial_pause
 meta.pause_at = meta.args.pause_at
 meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
 # if meta.coarse_iterations == 0 or meta.use_multigrid == False:
@@ -92,44 +102,7 @@ def timeit(method):
 
 
 def read_tetgen(filename):
-    """
-    读取tetgen生成的网格文件，返回顶点坐标、单元索引、面索引
-
-    Args:
-        filename: 网格文件名，不包含后缀名
-
-    Returns:
-        pos: 顶点坐标，shape=(NV, 3)
-        tet_indices: 单元索引，shape=(NT, 4)
-        face_indices: 面索引，shape=(NF, 3)
-    """
-    ele_file_name = filename + ".ele"
-    node_file_name = filename + ".node"
-    face_file_name = filename + ".face"
-
-    with open(node_file_name, "r") as f:
-        lines = f.readlines()
-        NV = int(lines[0].split()[0])
-        pos = np.zeros((NV, 3), dtype=np.float32)
-        for i in range(NV):
-            pos[i] = np.array(lines[i + 1].split()[1:], dtype=np.float32)
-
-    with open(ele_file_name, "r") as f:
-        lines = f.readlines()
-        NT = int(lines[0].split()[0])
-        tet_indices = np.zeros((NT, 4), dtype=np.int32)
-        for i in range(NT):
-            tet_indices[i] = np.array(lines[i + 1].split()[1:], dtype=np.int32)
-
-    with open(face_file_name, "r") as f:
-        lines = f.readlines()
-        NF = int(lines[0].split()[0])
-        face_indices = np.zeros((NF, 3), dtype=np.int32)
-        for i in range(NF):
-            face_indices[i] = np.array(lines[i + 1].split()[1:-1], dtype=np.int32)
-
-    return pos, tet_indices, face_indices
-
+    return read_tet(filename,build_face_flag=True)
 
 class ArapHpbd:
     def __init__(self, path):
@@ -156,68 +129,75 @@ class ArapHpbd:
         self.constraint = ti.field(ti.f32, shape=(self.NT))
         self.residual = ti.field(ti.f32, shape=self.NT)
 
+        # fine.is_fixed, fine.fixed_stiffness, fine.fixed_pos
+        self.is_fixed = ti.field(int, self.NV)
+        self.fixed_stiffness = 1e8
+        self.fixed_pos = ti.Vector.field(3, float, self.NV)
+
         self.state = [
             self.pos,
             self.vel,
         ]
 
 def load_model():
-    if meta.args.fine_model_path != "" and meta.args.coarse_model_path != "":
-        meta.fine_model_path = meta.args.fine_model_path
-        meta.coarse_model_path = meta.args.coarse_model_path
-        meta.model_path = str(Path(meta.fine_model_path).parent)
-    elif meta.args.model == "bunny":
-        meta.model_path = "data/model/bunny85w/"
-        meta.fine_model_path = meta.model_path + "bunny85w"
-        meta.coarse_model_path = meta.model_path + "bunny5k"
+    if meta.args.model == "bunny":
+        dir = "data/model/bunny85w/"
+        meta.args.model_path = dir + "bunny85w"
+        meta.args.coarse_model_path = dir + "bunny5k"
     elif meta.args.model == "cube":
-        meta.model_path = "data/model/cube_64k/"
-        meta.fine_model_path = meta.model_path + "fine"
-        meta.coarse_model_path = meta.model_path + "coarse"
+        dir = "data/model/cube_64k/"
+        meta.args.model_path = dir + "fine"
+        meta.args.coarse_model_path = dir + "coarse"
     elif meta.args.model == "beam":
-        meta.model_path = "data/model/beam458k/"
-        meta.fine_model_path = meta.model_path + "beam458k"
-        meta.coarse_model_path = meta.model_path + "beam0.6k"
+        dir = "data/model/beam458k/"
+        meta.args.model_path = dir + "beam458k"
+        meta.args.coarse_model_path = dir + "beam0.6k"
+    elif meta.args.model == "bar":
+        dir = "data/model/bar/"
+        meta.args.model_path = dir + "bar-6"
+
 
 load_model()
 
-fine = ArapHpbd(meta.fine_model_path)
-coarse = ArapHpbd(meta.coarse_model_path)
+
+fine = ArapHpbd(meta.args.model_path)
+if meta.args.coarse_model_path:
+    coarse = ArapHpbd(meta.args.coarse_model_path)
 
 
-print(">> Start to compute coarse and fine mapping...")
-(
-    coarse_in_fine_tet_indx,
-    coarse_in_fine_tet_coord,
-    fine_in_coarse_tet_indx,
-    fine_in_coarse_tet_coord,
-) = compute_mapping(coarse.model_pos, coarse.model_tet, fine.model_pos, fine.model_tet)
+    print(">> Start to compute coarse and fine mapping...")
+    (
+        coarse_in_fine_tet_indx,
+        coarse_in_fine_tet_coord,
+        fine_in_coarse_tet_indx,
+        fine_in_coarse_tet_coord,
+    ) = compute_mapping(coarse.model_pos, coarse.model_tet, fine.model_pos, fine.model_tet)
 
-# extra variable for prolongation and restriction
-cage_idx = ti.field(int, fine.NV) # cage index(coarse tet index) for each vertex in fine mesh
-uvw = ti.Vector.field(3, float, fine.NV) # barycentric coordinate  for each fine vertex 
-cage_idx.from_numpy(fine_in_coarse_tet_indx)
-uvw.from_numpy(fine_in_coarse_tet_coord)
-
-
-cage_idx_c2f = ti.field(int, coarse.NV) #coarse_in_fine_tet_indx
-uvw_c2f = ti.Vector.field(3, float, coarse.NV) #coarse_in_fine_tet_coord
-cage_idx_c2f.from_numpy(coarse_in_fine_tet_indx)
-uvw_c2f.from_numpy(coarse_in_fine_tet_coord)
+    # extra variable for prolongation and restriction
+    cage_idx = ti.field(int, fine.NV) # cage index(coarse tet index) for each vertex in fine mesh
+    uvw = ti.Vector.field(3, float, fine.NV) # barycentric coordinate  for each fine vertex 
+    cage_idx.from_numpy(fine_in_coarse_tet_indx)
+    uvw.from_numpy(fine_in_coarse_tet_coord)
 
 
-# print(">> Start to compute coarse and fine mapping...")
-# (
-#     coarse2fine_nearest_vert,
-#     fine_in_coarse_tet_indx,
-#     fine_in_coarse_tet_coord,
-# ) = compute_mapping_v2(coarse.model_pos, coarse.model_tet, fine.model_pos)
+    cage_idx_c2f = ti.field(int, coarse.NV) #coarse_in_fine_tet_indx
+    uvw_c2f = ti.Vector.field(3, float, coarse.NV) #coarse_in_fine_tet_coord
+    cage_idx_c2f.from_numpy(coarse_in_fine_tet_indx)
+    uvw_c2f.from_numpy(coarse_in_fine_tet_coord)
 
-# c2f_nearest = ti.field(int, coarse.NV) # nearest vertex in fine mesh for each vertex in coarse mesh
-# c2f_nearest.from_numpy(coarse2fine_nearest_vert) #this way momentum will be not conserved, causing rotation
 
-# P = sio.mmread(meta.model_path + "P.mtx")
-# R = sio.mmread(meta.model_path + "R.mtx")
+    # print(">> Start to compute coarse and fine mapping...")
+    # (
+    #     coarse2fine_nearest_vert,
+    #     fine_in_coarse_tet_indx,
+    #     fine_in_coarse_tet_coord,
+    # ) = compute_mapping_v2(coarse.model_pos, coarse.model_tet, fine.model_pos)
+
+    # c2f_nearest = ti.field(int, coarse.NV) # nearest vertex in fine mesh for each vertex in coarse mesh
+    # c2f_nearest.from_numpy(coarse2fine_nearest_vert) #this way momentum will be not conserved, causing rotation
+
+    # P = sio.mmread(Path(meta.args.model_path).parent/"P.mtx")
+    # R = sio.mmread(Path(meta.args.model_path).parent/"R.mtx")
 
 
 # @timeit
@@ -313,12 +293,16 @@ def init_model(instance):
     instance.pos.from_numpy(instance.model_pos)
     instance.tet_indices.from_numpy(instance.model_tet)
     instance.display_indices.from_numpy(instance.model_tri.flatten())
+
+    # get bbox and lowest y(for ground collision)
     instance.bbox = get_bbox(instance.model_pos)
     print("\nbbox\n", instance.bbox)
     instance.lowest_y = instance.bbox[0, 1]
     print("lowest_y", instance.lowest_y)
-    instance.model_pos = rescale(instance.model_pos)
-    instance.pos.from_numpy(instance.model_pos)
+
+    # rescale the model to unit cube
+    # instance.model_pos = rescale(instance.model_pos)
+    # instance.pos.from_numpy(instance.model_pos)
 
 
 
@@ -351,8 +335,8 @@ def init_physics(
         rest_volume[i] = 1.0 / 6.0 * ti.abs(D_m.determinant())
         total_volume += rest_volume[i]
 
-    mass_density = meta.total_mass / total_volume
-    # mass_density = 1
+    # mass_density = meta.total_mass / total_volume
+    mass_density = meta.args.mass_density
     print("mass_density", mass_density)
     # init mass
     for i in tet_indices:
@@ -524,64 +508,36 @@ def collsion_response(pos: ti.template(), old_pos:ti.template(), ground_pos: ti.
                 pos[i][1] = meta.lowest_y-0.1
 
 
-@ti.kernel
-def compute_inertial(mass: ti.template(), pos: ti.template(), predict_pos: ti.template()) -> ti.f32:
-    it = 0.0
-    for i in pos:
-        it += mass[i] * (pos[i] - predict_pos[i]).norm_sqr()
-    return it * 0.5
-
-
-@ti.kernel
-def compute_potential_energy(
-    pos: ti.template(),
-    tet_indices: ti.template(),
-    B: ti.template(),
-    alpha: ti.template(),
-) -> ti.f32:
-    pe = 0.0
-    for i in tet_indices:
-        ia, ib, ic, id = tet_indices[i]
-        a, b, c, d = pos[ia], pos[ib], pos[ic], pos[id]
-        D_s = ti.Matrix.cols([b - a, c - a, d - a])
-        F = D_s @ B[i]
-        U, S, V = ti.svd(F)
-        if S[2, 2] < 0.0:  # S[2, 2] is the smallest singular value
-            S[2, 2] *= -1.0
-        constraint_squared = (S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2
-        pe += (1.0 / (alpha[i]/meta.h/meta.h)) * constraint_squared
-    return pe * 0.5
-
-
-def compute_energy(mass, pos, predict_pos, tet_indices, B, alpha):
-    it = compute_inertial(mass, pos, predict_pos)
-    pe = compute_potential_energy(pos, tet_indices, B, alpha)
-    return it + pe, it, pe
-
-
-def log_energy(frame, filename_to_save=""):
+def log_energy(frame, iter, filename_to_save=""):
+    # if meta.args.log_energy and meta.iter % 100 == 0:
     if meta.args.log_energy:
-        te, it, pe = compute_energy(fine.mass, fine.pos, fine.predict_pos, fine.tet_indices, fine.B, fine.alpha)
-        s=f"{frame}\t{te:.2e}\t{meta.framePastTime*1000:.1f}ms\n"
+        te = compute_energy(fine.inv_mass, fine.pos, fine.predict_pos, fine.tet_indices, fine.B, fine.alpha, meta.h, fine.is_fixed, fine.fixed_stiffness, fine.fixed_pos)
+        s=f"Frame:{frame} Iter:{iter} Energy:{te:.8e}"
         # meta.s+=s
+        print(s)
         if filename_to_save != "":
             with open(filename_to_save, "a") as f:
                 f.write(s)
         return te
 
 @timeit
-def log_residual(frame, filename_to_save):
+def log_residual(frame,iter, filename_to_save):
+    # if meta.args.log_residual and meta.iter % 100 == 0:
     if meta.args.log_residual:
         r_norm = np.linalg.norm(fine.residual.to_numpy())
-        s =f"{frame}\t{r_norm:.2e}\t{meta.framePastTime*1000:.1f}ms\n"
+        s=f"Frame:{frame} Iter:{iter} Dualr:{r_norm:.2e}\n"
         # meta.s+=s
+        print(s)
         with open(filename_to_save, "a") as f:
             f.write(s)
         return r_norm
 
 
 def save_state(filename):
-    state = fine.state + coarse.state
+    if meta.args.coarse_model_path:
+        state = (fine.state + coarse.state).copy()
+    else:
+        state = fine.state.copy() 
     for i in range(0, len(state)):
         state[i] = state[i].to_numpy()
     np.savez(filename, *state)
@@ -590,13 +546,46 @@ def save_state(filename):
 
 def load_state(filename):
     npzfile = np.load(filename)
-    state = fine.state + coarse.state
+    if meta.use_multigrid:
+        state = (fine.state + coarse.state)
+    else:
+        state = fine.state
     for i in range(0, len(state)):
         state[i].from_numpy(npzfile["arr_" + str(i)])
-    fine.lagrangian.fill(0.0)
-    coarse.lagrangian.fill(0.0)
     print(f"loaded state from {filename}")
 
+
+def  load_pos_from_node(filename):
+    with open(filename, "r") as f:
+        lines = f.readlines()
+        NV = int(lines[0].split()[0])
+        pos = np.zeros((NV, 3), dtype=np.float32)
+        for i in range(NV):
+            pos[i] = np.array(lines[i + 1].split()[1:], dtype=np.float32)
+    return pos
+
+
+def load_pos_from_txt(filename):
+    pos = np.loadtxt(filename,dtype=np.float32).reshape(-1, 3)
+    return pos
+
+
+def load(filename):
+    if Path(filename).suffix == ".txt":
+        pos = load_pos_from_txt(filename)
+        fine.pos.from_numpy(pos)
+        fine.vel.fill(0)
+        # coarse.vel.fill(0)
+    elif Path(filename).suffix == ".node":
+        pos = load_pos_from_node(filename)
+        fine.pos.from_numpy(pos)
+        fine.vel.fill(0)
+        # coarse.vel.fill(0)
+    elif Path(filename).suffix == ".npz":
+        load_state(filename)
+    else:
+        logging.warning("unknown file format")
+    print(f"loaded pos from {filename}")
 
 
 def fixleft(ist):
@@ -620,10 +609,16 @@ def fixleft(ist):
 
 def reinit(init_style=""):
     meta.frame=0
+
+    # refresh txt files
     meta.energy_filename = f"{meta.out_dir}/r/energy" + ".txt"
     meta.residual_filename = f"{meta.out_dir}/r/residual" + ".txt"
     Path(meta.energy_filename).write_text(f"")
     Path(meta.residual_filename).write_text(f"")
+    
+    fine.fixed_pos.from_numpy(fine.model_pos)
+    coarse.fixed_pos.from_numpy(coarse.model_pos)
+
     if init_style == "random":
         random_val = np.random.rand(fine.pos.shape[0], 3)
         fine.pos.from_numpy(random_val)
@@ -647,7 +642,8 @@ def reinit(init_style=""):
         coarse.pos.from_numpy(coarse.model_pos)
     elif init_style == "fixleft":
         fixleft(fine)
-        fixleft(coarse)
+        if meta.args.coarse_model_path:
+            fixleft(coarse)
     # update_coarse_mesh()
     print(f"reinit {init_style}")
 
@@ -677,8 +673,6 @@ def main():
     Path(meta.out_dir/"r").mkdir(parents=True, exist_ok=True)
 
     init_model(fine)
-    init_model(coarse)
-
     init_physics(
         fine.pos,
         fine.old_pos,
@@ -691,23 +685,29 @@ def main():
         fine.alpha,
         fine.par_2_tet,
     )
-    init_physics(
-        coarse.pos,
-        coarse.old_pos,
-        coarse.vel,
-        coarse.tet_indices,
-        coarse.B,
-        coarse.rest_volume,
-        coarse.mass,
-        coarse.inv_mass,
-        coarse.alpha,
-        coarse.par_2_tet,
-    )
+    if meta.args.coarse_model_path:
+        init_model(coarse)
+
+        init_physics(
+            coarse.pos,
+            coarse.old_pos,
+            coarse.vel,
+            coarse.tet_indices,
+            coarse.B,
+            coarse.rest_volume,
+            coarse.mass,
+            coarse.inv_mass,
+            coarse.alpha,
+            coarse.par_2_tet,
+        )
 
     print("saving rest state and 0 state(deformed)")
-    save_state("result/latest/state/rest.npz") #rest state
+    save_state(f"{meta.out_dir}/state/rest.npz") #rest state
     reinit(meta.args.init_style)#initial deform 
-    save_state("result/latest/state/0.npz") # initial state
+    save_state(f"{meta.out_dir}/state/0.npz") # initial state
+
+    if meta.args.initial_load:
+        load(meta.args.load_file)
 
     window = ti.ui.Window("3D ARAP FEM XPBD", (1024, 1024), vsync=True)
     canvas = window.get_canvas()
@@ -719,16 +719,7 @@ def main():
     scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
     gui = window.get_gui()
     wire_frame = True
-    should_reset = False
 
-
-
-
-
-    save_state_filename = f"{meta.out_dir}/state/"
-    if meta.load_at != -1:
-        meta.filename_to_load = save_state_filename + str(meta.load_at) + ".npz"
-        load_state(meta.filename_to_load)
     
     timer_frame = []
     timer_coarse = []
@@ -757,18 +748,18 @@ def main():
         Bzero = gui.button("zero")
         Brandom = gui.button("random")
         Bsave = gui.button("save state")
-        Bload = gui.button("load state")
+        BloadLast = gui.button("load last state")
+        BloadFile = gui.button("load from file")
         meta.use_multigrid = gui.checkbox("multigrid", meta.use_multigrid)
         meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 0, 50)
         meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 0, 50)
-        meta.args.mg_maxiter = gui.slider_int("mg_maxiter", meta.args.mg_maxiter, 0, 100)
+        meta.args.maxiter = gui.slider_int("maxiter", meta.args.maxiter, 0, 100)
         gui.text(f"F #tets: {fine.NT} #verts: {fine.NV}")
-        gui.text(f"C #tets: {coarse.NT} #verts: {coarse.NV}")
-        gui.text(f"dt={meta.h*1000:.1f}ms mu={meta.mu:.2e} omega={meta.omega:.2f} ")
+        if meta.args.coarse_model_path:
+            gui.text(f"C #tets: {coarse.NT} #verts: {coarse.NV}")
+        gui.text(f"dt={meta.h*1000:.1f}ms mu={meta.mu:.2e} omega={meta.omega:.2f} density={meta.args.mass_density:.1f}")
         gui.text(f"camera: {camera.curr_lookat} {camera.curr_position}")
 
-        if meta.frame == meta.frame_to_save:
-            save_state(save_state_filename + str(meta.frame))
         
         if Bshould_reset:
             load_state(f"{meta.out_dir}/state/rest.npz")
@@ -786,20 +777,24 @@ def main():
         if Bsave:
             save_state(f"{meta.out_dir}/state/last.npz")
             Bsave = False
-        if Bload:
+        if BloadLast:
             load_state(f"{meta.out_dir}/state/last.npz")
-            Bload = False
+            BloadLast = False
+        if BloadFile:   
+            load(meta.args.load_file)
+            BloadFile = False
 
         meta.s = f"frame {meta.frame} "
         if not meta.pause:
             tic_frame = perf_counter()
             semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff, fine.inv_mass)
-            for meta.mgIter in range(meta.args.mg_maxiter):
-                if meta.mgIter == 0:
-                    if meta.args.log_residual:
-                        log_residual(meta.frame, meta.residual_filename)
-                    if meta.args.log_energy:
-                        log_energy(meta.frame, meta.energy_filename)
+
+            if meta.args.log_residual:
+                log_residual(meta.frame, 0, meta.residual_filename)
+            if meta.args.log_energy:
+                log_energy(meta.frame, 0, meta.energy_filename)
+
+            for meta.iter in range(meta.args.maxiter):
                 if meta.use_multigrid:
                     tic_restrict = perf_counter()
                     update_coarse_mesh() # Restriction
@@ -843,9 +838,9 @@ def main():
                     )
                 meta.framePastTime = perf_counter() - tic_frame
                 if meta.args.log_residual:
-                    dualr=log_residual(meta.frame, meta.residual_filename)
+                    dualr=log_residual(meta.frame, meta.iter+1, meta.residual_filename)
                 if meta.args.log_energy:
-                    energy = log_energy(meta.frame, meta.energy_filename)
+                    energy = log_energy(meta.frame, meta.iter+1, meta.energy_filename)
                 toc_fine = perf_counter()
                 timer_fine.append(toc_fine - tic_fine)
 

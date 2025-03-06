@@ -86,6 +86,26 @@ def init_extlib(args, sim=""):
     if args.calc_rbm:
         arr_double = ctl.ndpointer(dtype=np.float64, ndim=1, flags='aligned, c_contiguous')
         extlib.fastmg_calc_rbm.argtypes = [arr_double, c_int, arr_double]
+
+
+    # for energy.cu
+    # 定义各类数组的 ndpointer 类型
+    arr_VEC3 = ctl.ndpointer(dtype=np.float32, ndim=2, flags='aligned, c_contiguous')
+    arr_uint = ctl.ndpointer(dtype=np.uint32, ndim=1, flags='aligned, c_contiguous')
+    arr_MAT3 = ctl.ndpointer(dtype=np.float32, ndim=3, flags='aligned, c_contiguous')
+    arr_float = ctl.ndpointer(dtype=np.float32, ndim=1, flags='aligned, c_contiguous')
+
+    # 设置 compute_energy 的 argtypes
+    extlib.compute_energy.argtypes = [
+        arr_VEC3,         # const Vec3* X, shape (n_verts, 3)
+        ctypes.c_uint,    # const uint32_t n_verts_
+        arr_uint,         # const uint32_t* indices_
+        ctypes.c_uint,    # const uint32_t n_tet_
+        arr_MAT3,         # const Mat3 *Dm_inv_, shape (n_tet, 3, 3)
+        arr_float,        # const real *volumes_
+        ctypes.c_float,   # const real mu,
+        arr_float         # real *E
+    ]
     
     return extlib
 

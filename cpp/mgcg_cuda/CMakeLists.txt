@@ -18,7 +18,7 @@ SET( CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_LIST_DIR}/lib")
 
 project(fastmg LANGUAGES CXX CUDA)
 
-add_library(fastmg SHARED fastmg.cu cuda_utils.cu kernels.cu solve_soft.cu fastfill.cu cusparse_wrappers.cu smoother.cu vcycle.cu rbm.cpp)
+add_library(fastmg SHARED fastmg.cu cuda_utils.cu kernels.cu solve_soft.cu fastfill.cu cusparse_wrappers.cu smoother.cu vcycle.cu rbm.cpp energy.cu)
 target_link_libraries(fastmg PUBLIC cusparse cublas cusolver)
 target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen)
 set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON
@@ -59,7 +59,7 @@ if(graph_coloring)
 endif()
 
 
-option(use_binding "Build python binding" ON)
+option(use_binding "Build python binding" OFF)
 if(use_binding)
     add_subdirectory(extern/pybind)
     add_subdirectory(extern/eigen)

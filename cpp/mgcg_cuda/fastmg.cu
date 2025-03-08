@@ -80,6 +80,9 @@ float avg(std::vector<float> &v)
 
 
     void  FastMG::set_P(size_t lv, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz) {
+        if (levels.size() < lv+1) {
+            levels.resize(lv+1);
+        }
         levels.at(lv).P.assign(datap, ndat, indicesp, nind, indptrp, nptr, rows, cols, nnz);
     }
 
@@ -176,6 +179,9 @@ float avg(std::vector<float> &v)
     }
 
     void  FastMG::compute_RAP(size_t lv) {
+            if (levels.size() < lv+2) {
+                levels.resize(lv+2);
+            }
             CSR<float> &A = levels.at(lv).A;
             CSR<float> &R = levels.at(lv).R;
             CSR<float> &P = levels.at(lv).P;
@@ -229,7 +235,7 @@ float avg(std::vector<float> &v)
     void  FastMG::presolve()
     {
         // TODO: move fillA from python-end to here as well in the future refactoring
-        for(int lv=0; lv<nlvs; lv++)
+        for(int lv=0; lv<levels.size(); lv++)
         {
             // for jacobi_v2 (use cusparse etc.)
             if(smoother->smoother_type == 2)
@@ -237,7 +243,7 @@ float avg(std::vector<float> &v)
                 get_Aoff_and_Dinv(levels.at(lv).A, levels.at(lv).Dinv, levels.at(lv).Aoff);
             }
         }
-        for (size_t lv = 0; lv < nlvs-1; lv++)
+        for (size_t lv = 0; lv < levels.size()-1; lv++)
         {
             compute_RAP(lv);
         }

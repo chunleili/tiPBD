@@ -588,7 +588,8 @@ class SoftBody(PhysicalBase):
             do_post_iter(self, get_A0_cuda)
             if self.has_no_time_budget():
                 break
-            # export_all_levels_A(self)
+            if self.frame in  [1] and self.ite==0:
+                export_all_levels_A(self)
             if self.dualr < args.tol:
                 logging.info("Converge: tol")
                 break
@@ -1278,14 +1279,14 @@ def export_all_levels_A(ist):
     from engine.util import export_A_b
     AMG_A()
     nl = ist.linsol.get_nl()
-    for l in range(nl):
+    for l in range(1):
         print(f"exporting A of level {l}...")
         A = fetch_A_from_cuda(l)
         print(f"A.shape={A.shape}")
-        export_A_b(A, None, dir=args.out_dir+"/A/", postfix=f"L{l}")
+        export_A_b(A, ist.b, dir=args.out_dir+"/A/", postfix=f"F{ist.frame}")
         print(f"exported A of level {l}...")
-    print("exported all levels A and exit..")
-    exit(0)
+    # print("exported all levels A and exit..")
+    # exit(0)
 
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #

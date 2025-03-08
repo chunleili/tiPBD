@@ -2,7 +2,7 @@ import numpy as np
 from scipy.sparse import csr_matrix
 import scipy
 
-def test_amg_cuda():
+def test_amg_cuda(label="F1",use_outer_Ps=False):
     import argparse
     import sys,os
     sys.path.append(os.getcwd())
@@ -35,8 +35,13 @@ def test_amg_cuda():
         A = get_A0()
         extlib.fastmg_set_A0(A.data, A.indices, A.indptr, A.shape[0], A.shape[1], A.nnz)
 
+    if use_outer_Ps:
+        Ps = scipy.sparse.load_npz(dir+f"/P_{label}.npz")
+        Ps = [Ps]
+    else :
+        Ps = None
 
-    amg = AmgCuda(args, extlib, get_A0=get_A0, fill_A_in_cuda=AMG_A, should_setup=should_setup)
+    amg = AmgCuda(args, extlib, get_A0=get_A0, fill_A_in_cuda=AMG_A, should_setup=should_setup, outer_Ps=Ps)
     x, r_Axb = amg.run(b)
     print(r_Axb)
     print("x", x)   

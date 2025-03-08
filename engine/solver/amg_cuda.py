@@ -24,6 +24,7 @@ class AmgCuda:
         only_smoother=None,
         only_jacobi=None,
         only_direct=None,
+        outer_Ps=None,
     ):
         """
         Initialize an instance of the AmgCuda class.
@@ -67,6 +68,8 @@ class AmgCuda:
             self.only_jacobi = False
         if self.only_direct is None:
             self.only_direct = False
+        
+        self.outer_Ps = outer_Ps
 
 
     def run(self, b):
@@ -103,6 +106,9 @@ class AmgCuda:
         niter = self.extlib.fastmg_get_data(x, residuals)
         niter += 1
         residuals = residuals[:niter]
+
+        # np.savetxt("residuals.txt", residuals)
+        # print(f"residual has been saved to residuals.txt")
         logging.info(f"    inner iter: {niter}")
         logging.info(f"    solve time: {(time.perf_counter()-tic4)*1000:.0f}ms")
         logging.info(f"    residual: {residuals[0]:.6e} -> {residuals[-1]:.6e}")
@@ -123,8 +129,8 @@ class AmgCuda:
         self.extlib.fastmg_set_A0(A0.data.astype(np.float32), A0.indices, A0.indptr, A0.shape[0], A0.shape[1], A0.nnz)
 
     def AMG_setup_phase(self, A=None):
-        if self.only_direct:
-            return None
+        # if self.only_direct:
+        #     return None
         
         tic = time.perf_counter()
         if A is None:
@@ -144,10 +150,15 @@ class AmgCuda:
             self.setup_smoothers()
             return A
         
-        from engine.solver.build_Ps import build_Ps
-        self.Ps = build_Ps(A, self.args, self.extlib)
-        self.num_levels = len(self.Ps)+1
-        logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+        if self.outer_Ps is None:
+            from engine.solver.build_Ps import build_Ps
+            self.Ps = build_Ps(A, self.args, self.extlib)
+            self.num_levels = len(self.Ps)+1
+            logging.info(f"    build_Ps time:{time.perf_counter()-tic}")
+        else:
+            self.Ps = self.outer_Ps
+            self.num_levels = len(self.Ps)+1
+            logging.info(f"    Use outer Ps")
 
         if self.num_levels == 1:
             # fallback to smoother only

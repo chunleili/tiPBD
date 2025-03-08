@@ -13,6 +13,17 @@
           ]
         },  
         {
+          "name": "run 180",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "run.py",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "-case=180"
+          ]
+        }, 
+        {
             "name": "profile",
             "type": "debugpy",
             "request": "launch",

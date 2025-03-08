@@ -39,7 +39,7 @@ parser.add_argument("-case", type=int, nargs='*',help=f"case numbers(can be mult
 parser.add_argument("-end_frame", type=int, default=10, help=f"end frame")
 parser.add_argument("-overwrite", action="store_true")
 parser.add_argument("-A", type=str, help="export a matrix file for testing")
-parser.add_argument("-timeBudget", type=float, default=30.0, help="time budget for each case")
+# parser.add_argument("-timeBudget", type=float, default=30.0, help="time budget for each case")
 
 end_frame = parser.parse_args().end_frame
 
@@ -1939,6 +1939,27 @@ args = ["engine/soft/soft3d.py",
         ]
 allargs.append(args)
 
+
+
+# case180-revise162: bunny for setup interval
+for config in [300]:
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-bunny-interval{config}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/bunny_small/bunny_small.node",
+            "-tol=1e-3",
+            "-delta_t=1e-3",
+            "-solver_type=AMG",
+            "-arch=cpu",
+            "-maxiter=20",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=0",
+            "-reinit=squash",
+            f"-setup_interval={config}"
+            ]
+    allargs.append(args)
+
 def run_case(case_num:int):
     if case_num < 1 or case_num >= len(allargs):
         print(f'Invalid case number {case_num}. Exiting...')
@@ -1946,8 +1967,8 @@ def run_case(case_num:int):
     
     args = allargs[case_num]
     
-    if parser.parse_args().timeBudget:
-        args = ["-timeBudget", str(parser.parse_args().timeBudget), *args]
+#     if parser.parse_args().timeBudget:
+#         args = ["-timeBudget", str(parser.parse_args().timeBudget), *args]
 
     if parser.parse_args().profile:
         logging.info(f"Running with cProfile. Output to '{case_num}.profile' file. Use 'snakeviz {case_num}.profile' to view the result.")

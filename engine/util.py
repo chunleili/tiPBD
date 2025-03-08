@@ -226,14 +226,14 @@ def ending(args, ist):
     np.savetxt(args.out_dir+"/r/n_outer.txt", n_outer_all_np, fmt="%d")
 
     sim_time_with_export = time.perf_counter() - ist.timer_loop
-    sim_time = sim_time_with_export - ist.r_all.t_export
+    sim_time = sim_time_with_export - ist.t_export
     nframes = (args.end_frame - ist.initial_frame + 1) if args.end_frame > ist.initial_frame else 1
     avg_sim_time = sim_time / nframes
 
     s = f"\n-------\n"+\
     f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
     f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
-    f"Time of exporting: {ist.r_all.t_export:.3f}s\n" + \
+    f"Time of exporting: {ist.t_export:.3f}s\n" + \
     f"Frame {ist.initial_frame}-{args.end_frame}({nframes} frames)."+\
     f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{ist.start_date},\nEnd\t{end_date}."+\
@@ -284,10 +284,8 @@ def export_after_substep(ist, args, **kwargs):
     
     if args.export_state:
         save_state(args.out_dir+'/state/' + f"{ist.frame:04d}.npz", ist)
-    ist.r_all.t_export += time.perf_counter()-tic_export
-    t_frame = time.perf_counter()-ist.tic_frame
-    if args.export_log:
-        logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s")
+    ist.t_export += time.perf_counter()-tic_export
+
 
 
 def init_logger(args):
@@ -360,16 +358,6 @@ def export_A_b(A, b, dir, postfix=f"", binary=True):
     print(f"    export_A_b time: {perf_counter()-tic:.3f}s")
 
 
-def do_post_iter(ist, get_A0_cuda=None):
-    # ist.update_constraints() #CAUTION that this should be called before calc_r
-    # ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
-    export_mat(ist, get_A0_cuda, ist.b)
-    ist.r_all.t_export += ist.r_iter.t_export
-    ist.r_iter.t_export = 0.0
-    logging.info(f"iter time(with export): {(perf_counter()-ist.r_iter.tic_iter)*1000:.0f}ms")
-
-
-
 
 
 def main_loop(ist,args):
@@ -379,7 +367,7 @@ def main_loop(ist,args):
     ist.timer_loop = time.perf_counter()
     ist.initial_frame = ist.frame
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
-    ist.r_all.t_export = 0.0
+    ist.t_export = 0.0
 
     try:
         for ist.frame in range(ist.initial_frame, args.end_frame+1):
@@ -393,6 +381,9 @@ def main_loop(ist,args):
                 ist.substep_all_solver()
 
             export_after_substep(ist,args)
+            
+            ist.toc_frame = perf_counter()
+            logging.info(f"Time of frame-{ist.frame}: {ist.toc_frame-ist.tic_frame:.3f}s")
 
             logging.info("\n")
             step_pbar.update(1)

@@ -617,7 +617,7 @@ def reinit(init_style=""):
     Path(meta.residual_filename).write_text(f"")
     
     fine.fixed_pos.from_numpy(fine.model_pos)
-    coarse.fixed_pos.from_numpy(coarse.model_pos)
+    # coarse.fixed_pos.from_numpy(coarse.model_pos)
 
     if init_style == "random":
         random_val = np.random.rand(fine.pos.shape[0], 3)

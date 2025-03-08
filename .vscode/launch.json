@@ -32,24 +32,7 @@
           "args": [
             "-use_json=1",
           ]
-        }, 
-        {
-          "name": "araph_hpbd",
-          "type": "debugpy",
-          "request": "launch",
-          "program": "engine/volumetric/arap_hpbd.py",
-          "console": "integratedTerminal",
-          "cwd": "${workspaceFolder}",
-          "args": [
-            "--log_residual=0",
-            "--log_energy=1",
-            "--model=beam",
-            "--init_style=fixleft",
-            "--mg_maxiter=1000",
-            "--mu=2.33e6",
-            "--dt=33e-3",
-          ]
-        }, 
+        },
         {
             "name": "profile",
             "type": "debugpy",

@@ -42,7 +42,7 @@ def amg_cuda_easy(matA, b, tol=1e-6,maxiter=100, build_P_method="UA", smoother_t
     print(f"AmgCuda: {r_Axb[0]:.2e}->{r_Axb[-1]:.2e}")
     # print(r_Axb)
     # print("x", x)   
-    # print("niter:", len(r_Axb))
+    print("niter:", len(r_Axb))
     return x, r_Axb
 
 
@@ -51,4 +51,8 @@ if __name__ == "__main__":
     import numpy as np
     A = scipy.sparse.load_npz("result/test_A/A/A_F1.npz") 
     b = np.load("result/test_A/A/b_F1.npy")
-    amg_cuda_easy(A,b)
+    x,r_Axb=amg_cuda_easy(A,b)
+    import matplotlib.pyplot as plt
+    plt.plot(r_Axb)
+    plt.yscale('log')
+    plt.show()

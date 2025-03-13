@@ -11,7 +11,7 @@ struct MGLevel {
     CSR<float> A;
     CSR<float> R;
     CSR<float> P;
-    Vec<float> residual;
+    Vec<float> r;
     Vec<float> b;
     Vec<float> x;
     Vec<float> h;

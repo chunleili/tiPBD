@@ -29,9 +29,9 @@ def test_amg_python(matA,b):
     amg = AmgPython(args, get_A0=get_A0_1, should_setup=should_setup)
     x, r_Axb = amg.run(b)
 
-    print(r_Axb)
+    print(f"AmgPython: {r_Axb[0]:.2e}->{r_Axb[-1]:.2e}")
     print("niter:", len(r_Axb))
-    print("x", x)   
+    # print("x", x)   
     # assert r_Axb[-1] < args.tol_Axb * r_Axb[0]
     return x, r_Axb
 

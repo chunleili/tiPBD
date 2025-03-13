@@ -278,6 +278,12 @@ void CusparseWrappers::spmv(Vec<float> &out, float const &alpha, CSR<float> cons
                                 CUSPARSE_SPMV_ALG_DEFAULT, buffer.data()));
 }
 
+// r = b - A@x
+void  CusparseWrappers::b_Ax(const CSR<float>&A, const Vec<float> &x, const Vec<float> &b, Vec<float> &r) {
+    copy(r, b);
+    spmv(r, -1, A, x, 1, buff); 
+}
+
 // C = A * B
 void CusparseWrappers::spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_) 
 {
@@ -479,7 +485,7 @@ float CusparseWrappers::computeMaxEigenvaluePowerMethodOptimized(CSR<float>& M, 
 }
 
 
-void CusparseWrappers::spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b) {
+void CusparseWrappers::spsolve(Vec<float> &x, const CSR<float> const &A, const Vec<float> &b) {
     cusparseMatDescr_t descrA = NULL;
     CHECK_CUSPARSE(cusparseCreateMatDescr(&descrA));
     CHECK_CUSPARSE(cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL));

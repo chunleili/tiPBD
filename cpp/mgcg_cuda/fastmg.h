@@ -110,6 +110,7 @@ struct FastMG : CusparseWrappers {
     void set_data(const float* x, size_t nx, const float* b, size_t nb, float rtol_, size_t maxiter_);
     size_t get_data(float* x_out, float* r_out);
     void presolve();
+    void build_levels();
 
     void solve();
     void solve_only_jacobi();

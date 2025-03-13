@@ -59,7 +59,7 @@ if(graph_coloring)
 endif()
 
 
-option(use_binding "Build python binding" ON)
+option(use_binding "Build python binding" OFF)
 if(use_binding)
     add_subdirectory(extern/pybind)
     add_subdirectory(extern/eigen)

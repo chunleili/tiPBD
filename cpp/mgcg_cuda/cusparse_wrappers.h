@@ -74,6 +74,7 @@ struct CusparseWrappers {
 
     // out = alpha * A@x + beta * out
     void spmv(Vec<float> &out, float const &alpha, CSR<float> const &A, Vec<float> const &x, float const &beta, Buffer &buffer);
+    void b_Ax(const CSR<float>&A, const Vec<float> &x, const Vec<float> &b, Vec<float> &r);
     void spgemm(CSR<float> const &matA_,  CSR<float> const &matB_, CSR<float> &matC_);
     // dst = src + alpha * dst
     void axpy(Vec<float> &dst, float const &alpha, Vec<float> const &src);
@@ -88,7 +89,7 @@ struct CusparseWrappers {
 
     // x = A^{-1} b by cusolver cholesky
     // https://docs.nvidia.com/cuda/cusolver/index.html#cusolversp-t-csrlsvchol
-    void spsolve(Vec<float> &x, CSR<float> const &A, Vec<float> &b);
+    void spsolve(Vec<float> &x, const CSR<float> const &A, const Vec<float> &b);
 
     // transpose csr matrix A to AT
     // https://docs.nvidia.com/cuda/cusparse/index.html?highlight=cusparseCsr2cscEx2#cusparsecsr2cscex2

@@ -48,9 +48,8 @@ class AmgPython:
 
 
     # https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/relaxation/relaxation.py#L586
-    def chebyshev(self, A, x, b):
+    def chebyshev(self, A, x, b, iterations=1):
         coefficients = self.chebyshev_coeff
-        iterations = 1
         x = np.ravel(x)
         b = np.ravel(b)
         for _i in range(iterations):
@@ -123,19 +122,19 @@ class AmgPython:
     def presmoother(self, A,x,b):
         from pyamg.relaxation.relaxation import gauss_seidel, jacobi, sor, polynomial
         if self.args.smoother_type == 'gauss_seidel':
-            gauss_seidel(A,x,b,iterations=1, sweep='symmetric')
+            gauss_seidel(A,x,b,iterations=self.args.smoother_niter, sweep='symmetric')
         elif self.args.smoother_type == 'jacobi':
-            jacobi(A,x,b,iterations=10, omega=self.jacobi_omega)
+            jacobi(A,x,b,iterations=self.args.smoother_niter, omega=self.jacobi_omega)
         elif self.args.smoother_type == 'sor_vanek':
-            for _ in range(1):
+            for _ in range(self.args.smoother_niter):
                 sor(A,x,b,omega=1.0,iterations=1,sweep='forward')
                 sor(A,x,b,omega=1.85,iterations=1,sweep='backward')
         elif self.args.smoother_type == 'sor':
-            sor(A,x,b,omega=1.33,sweep='symmetric',iterations=1)
+            sor(A,x,b,omega=1.33,sweep='symmetric',iterations=self.args.smoother_niter)
         elif self.args.smoother_type == 'diag_sweep':
-            self.diag_sweep(A,x,b,iterations=1)
+            self.diag_sweep(A,x,b,iterations=self.args.smoother_niter)
         elif self.args.smoother_type == 'chebyshev':
-            self.chebyshev(A,x,b)
+            self.chebyshev(A,x,b,iterations=self.args.smoother_niter)
 
 
     def postsmoother(self,A,x,b):
@@ -167,7 +166,7 @@ class AmgPython:
 
         for l in range(nl - 1):
             A = levels[l].A
-            levels[l].x = np.zeros(shape=A.shape[0])
+            levels[l].x = np.zeros(shape=A.shape[0], dtype=A.dtype)
             self.presmoother(A, levels[l].x, levels[l].r)
             levels[l+1].r = levels[l].R @ (levels[l].r - A @ levels[l].x)
 
@@ -187,7 +186,8 @@ class AmgPython:
         residuals = np.zeros(maxiter+1)
         def psolve(b):
             x = x0.copy()
-            self.old_V_cycle(levels, 0, x, b)
+            # self.old_V_cycle(levels, 0, x, b)
+            x = self.V_cycle_v2(levels, x0.copy(), b)
             return x
         bnrm2 = np.linalg.norm(b)
         atol = tol * bnrm2

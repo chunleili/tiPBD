@@ -106,14 +106,14 @@ void Smoother::chebyshev_polynomial_coefficients(float a, float b)
 
 void Smoother::chebyshev(int lv, Vec<float> &x, Vec<float> const &b)
 {
-    copy(levels.at(lv).residual, b);
-    spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff);         // residual = b - A@x
-    scal2(levels.at(lv).h, chebyshev_coeff.at(0), levels.at(lv).residual); // h = c0 * residual
+    copy(levels.at(lv).r, b);
+    spmv(levels.at(lv).r, -1, levels.at(lv).A, x, 1, buff);         // r = b - A@x
+    scal2(levels.at(lv).h, chebyshev_coeff.at(0), levels.at(lv).r); // h = c0 * r
 
     for (int i = 1; i < chebyshev_coeff.size(); ++i)
     {
-        // h' = ci * residual + A@h
-        copy(levels.at(lv).outh, levels.at(lv).residual);
+        // h' = ci * r + A@h
+        copy(levels.at(lv).outh, levels.at(lv).r);
         spmv(levels.at(lv).outh, 1, levels.at(lv).A, levels.at(lv).h, chebyshev_coeff.at(i), buff);
 
         // copy(levels.at(lv).h, levels.at(lv).outh);

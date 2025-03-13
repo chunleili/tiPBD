@@ -6,53 +6,51 @@
 
 namespace fastmg
 {
-    void  VCycle::run() {
-        vcycle_down();
-        coarse_solve();
-        vcycle_up();
-    }
-
-    void  VCycle::vcycle_down() {
-        int nlvs = levels.size();
-        for (int lv = 0; lv < nlvs-1; ++lv) {
-            Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : z;
-            Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : r;
-
-            smoother->smooth(lv, x, b);
-
-            copy(levels.at(lv).residual, b);
-            spmv(levels.at(lv).residual, -1, levels.at(lv).A, x, 1, buff); // residual = b - A@x
-
-            levels.at(lv).b.resize(levels.at(lv).R.nrows);
-            spmv(levels.at(lv).b, 1, levels.at(lv).R, levels.at(lv).residual, 0, buff); // coarse_b = R@residual
-
-            levels.at(lv).x.resize(levels.at(lv).b.size());
-            zero(levels.at(lv).x);
+    /// @brief Run a V-cycle
+    /// Input: levels must have all As, Ps, Rs , xf and bf. Especially xf and bf are finest solution and finest right-hand side. 
+    /// Output: xf will be the solution of the linear system.
+    /// Az=r Ax=b
+    void  VCycle::run(Vec<float> &x0, Vec<float> &bf)
+    {
+        int nl = levels.size();
+        x0.resize(levels[0].A.ncols);
+        zero(x0);
+        copy(levels[0].r, bf);
+        copy(levels[0].x, x0);
+        for (int l = 0; l < nl - 1; ++l)
+        {
+            zero(levels[l].x);
+      
+            smoother->smooth(l, levels[l].x, levels[l].r); 
+            
+            // r_l+1 = Rl @ (r_l - A_l @ x_l)
+            b_Ax(levels[l].A, levels[l].x, levels[l].r, levels[l].r); 
+            spmv(levels[l + 1].r, 1, levels[l].R, levels[l].r, 0, buff); // r_{l+1} = R@r_l
         }
-    }
 
-    void  VCycle::vcycle_up() {
-        int nlvs = levels.size();
-        for (int lv = nlvs-2; lv >= 0; --lv) {
-            Vec<float> &x = lv != 0 ? levels.at(lv - 1).x : z;
-            Vec<float> &b = lv != 0 ? levels.at(lv - 1).b : r;
-            spmv(x, 1, levels.at(lv).P, levels.at(lv).x, 1, buff); // x += P@coarse_x
-            smoother->smooth(lv, x, b);
+        coarse_solve(levels[nl - 1].A, levels[nl - 1].x, levels[nl - 1].r);
+
+        for (int l = nl - 2; l >= 0; --l)
+        {
+            spmv(levels[l].x, 1, levels[l].P, levels[l + 1].x, 1, buff); // xl += Pl@x_{l+1}
+            smoother->smooth(l, levels[l].x, levels[l].r);
         }
+
+        copy(x0, levels[0].x);
     }
 
-    void  VCycle::coarse_solve() {
-        int nlvs = levels.size();
-        auto const &A = levels.at(nlvs - 1).A;
-        auto &x = levels.at(nlvs - 2).x;
-        auto &b = levels.at(nlvs - 2).b;
+
+    void  VCycle::coarse_solve(const CSR<float> &A, Vec<float> &x, const Vec<float> &b) {
+        int nl = levels.size();
+        x.resize(A.ncols);
+        zero(x);
         if (coarse_solver_type==0)
         {
             spsolve(x, A, b);
         }
         else if (coarse_solver_type==1)
         {
-            smoother->smooth(nlvs-1, x, b);
+            smoother->smooth(nl-1, x, b);
         }
     }
 

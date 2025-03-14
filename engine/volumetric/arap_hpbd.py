@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.append(os.getcwd())
 from compute_R_acc import compute_mapping
-from engine.energy import compute_energy_ARAP as compute_energy
+from engine.energy import compute_energy 
 
 
 parser = argparse.ArgumentParser()

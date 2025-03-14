@@ -541,9 +541,9 @@ def log_energy(frame, iter, filename_to_save=""):
     # if meta.args.log_energy and meta.iter % 100 == 0:
     if meta.args.log_energy:
         te = compute_energy(fine.inv_mass, fine.pos, fine.predict_pos, fine.tet_indices, fine.B, fine.alpha, meta.h, fine.is_fixed, fine.fixed_stiffness, fine.fixed_pos)
-        s=f"Frame:{frame} Iter:{iter} Energy:{te:.8e}"
+        s=f"Frame:{frame} Iter:{iter} Energy:{te:.8e}\n"
         # meta.s+=s
-        print(s)
+        print(s,end="")
         if filename_to_save != "":
             with open(filename_to_save, "a") as f:
                 f.write(s)
@@ -553,9 +553,9 @@ def log_energy(frame, iter, filename_to_save=""):
 def log_residual(frame, iter, filename_to_save=""):
     if meta.args.log_residual:
         r_norm = np.linalg.norm(fine.residual.to_numpy())
-        s=f"Frame:{frame} Iter:{iter} Residual:{r_norm:.8e}"
+        s=f"Frame:{frame} Iter:{iter} Residual:{r_norm:.8e}\n"
         # meta.s+=s
-        print(s)
+        print(s,end="")
         with open(filename_to_save, "a") as f:
             f.write(s)
         return r_norm
@@ -669,6 +669,68 @@ def write_mesh(filename, pos, tri):
     )
     mesh.write(filename, binary=True)
     return mesh
+
+
+
+def substep(dt):
+    if not meta.args.quasi_static:
+        semi_euler(dt, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff, fine.inv_mass)
+    if meta.args.log_residual:
+        log_residual(meta.frame, meta.ss, meta.residual_filename)
+    if meta.args.log_energy:
+        log_energy(meta.frame, meta.ss, meta.energy_filename)
+    # if meta.use_multigrid:
+    # tic_restrict = perf_counter()
+    update_coarse_mesh() # Restriction
+    # toc_restrict = perf_counter()
+    # timer_restrict=(toc_restrict - tic_restrict)
+    # coarse xpbd(coarse solve)
+    # tic_coarse = perf_counter()
+    reset_lagrangian(fine.lagrangian) 
+    for meta.cite in range(meta.coarse_iterations):
+        project_constraints(
+            coarse.pos_mid,
+            coarse.tet_indices,
+            coarse.inv_mass,
+            coarse.lagrangian,
+            coarse.B,
+            coarse.pos,
+            coarse.alpha,
+            coarse.constraint,
+            coarse.residual,
+            dt,
+        )
+    # toc_coarse = perf_counter()
+    # timer_coarse=(toc_coarse - tic_coarse)
+    # tic_prolong = perf_counter()
+    update_fine_mesh() # Prolongation
+    # toc_prolong = perf_counter()
+    # timer_prolong=(toc_prolong - tic_prolong)
+    # tic_fine = perf_counter()
+    # fine xpbd(postsmoother)
+    reset_lagrangian(coarse.lagrangian) 
+    for meta.fite in range(meta.fine_iterations):
+        project_constraints(
+            fine.pos_mid,
+            fine.tet_indices,
+            fine.inv_mass,
+            fine.lagrangian,
+            fine.B,
+            fine.pos,
+            fine.alpha,
+            fine.constraint,
+            fine.residual,
+            dt
+        )
+    if meta.args.log_residual:
+        dualr = log_residual(meta.frame, meta.ss+1, meta.residual_filename)
+    if meta.args.log_energy:
+        energy = log_energy(meta.frame, meta.ss+1, meta.energy_filename)
+    # toc_fine = perf_counter()
+    # timer_fine=(toc_fine - tic_fine)
+    if not meta.args.quasi_static:
+        update_velocity(dt, fine.pos, fine.old_pos, fine.vel, fine.inv_mass)
+
 
 
 def main():
@@ -794,64 +856,8 @@ def main():
         if not meta.pause or Bstep_one_frame:
             Bstep_one_frame = False
             tic_frame = perf_counter()
-            for meta.substep in range(meta.args.nsubsteps):
-                if not meta.args.quasi_static:
-                    semi_euler(dt, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff, fine.inv_mass)
-                # if meta.args.log_residual:
-                #     log_residual(meta.frame, meta.substep, meta.residual_filename)
-                # if meta.args.log_energy:
-                #     log_energy(meta.frame, meta.substep, meta.energy_filename)
-                if meta.use_multigrid:
-                    # tic_restrict = perf_counter()
-                    update_coarse_mesh() # Restriction
-                    # toc_restrict = perf_counter()
-                    # timer_restrict=(toc_restrict - tic_restrict)
-                    # coarse xpbd(coarse solve)
-                    # tic_coarse = perf_counter()
-                    reset_lagrangian(fine.lagrangian) 
-                    for meta.cite in range(meta.coarse_iterations):
-                        project_constraints(
-                            coarse.pos_mid,
-                            coarse.tet_indices,
-                            coarse.inv_mass,
-                            coarse.lagrangian,
-                            coarse.B,
-                            coarse.pos,
-                            coarse.alpha,
-                            coarse.constraint,
-                            coarse.residual,
-                            dt,
-                        )
-                    # toc_coarse = perf_counter()
-                    # timer_coarse=(toc_coarse - tic_coarse)
-                    # tic_prolong = perf_counter()
-                    update_fine_mesh() # Prolongation
-                    # toc_prolong = perf_counter()
-                    # timer_prolong=(toc_prolong - tic_prolong)
-                    # tic_fine = perf_counter()
-                # fine xpbd(postsmoother)
-                reset_lagrangian(coarse.lagrangian) 
-                for meta.fite in range(meta.fine_iterations):
-                    project_constraints(
-                        fine.pos_mid,
-                        fine.tet_indices,
-                        fine.inv_mass,
-                        fine.lagrangian,
-                        fine.B,
-                        fine.pos,
-                        fine.alpha,
-                        fine.constraint,
-                        fine.residual,
-                        dt
-                    )
-                # if meta.args.log_residual:
-                #     dualr = log_residual(meta.frame, meta.substep, meta.residual_filename)
-                # if meta.args.log_energy:
-                #     energy = log_energy(meta.frame, meta.substep, meta.energy_filename)
-                # toc_fine = perf_counter()
-                # timer_fine=(toc_fine - tic_fine)
-                if not meta.args.quasi_static:
-                    update_velocity(dt, fine.pos, fine.old_pos, fine.vel, fine.inv_mass)
+            for meta.ss in range(meta.args.nsubsteps):
+                substep(dt)
             # collsion_response(fine.pos, fine.old_pos, 0.0, fine.inv_mass)
             toc_frame = perf_counter()
             timer_frame=toc_frame - tic_frame

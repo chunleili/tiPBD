@@ -10,7 +10,19 @@
           "cwd": "${workspaceFolder}",
           "args": [
           ]
-        },  
+        }, 
+          {
+            "name": "arap_hpbd twist bar full", 
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/volumetric/arap_hpbd_twist.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "-use_json=1",
+              "-json_path=data/scene/twist_bar_full.json"
+            ]
+          },   
         {
           "name": "soft3d twist_bar",
           "type": "debugpy",

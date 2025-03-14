@@ -723,7 +723,7 @@ class SoftBody(PhysicalBase):
 
 
     def log_energy(self,frame, iter, filename_to_save=""):
-        if args.log_energy:
+        if args.calc_energy:
             te = compute_energy(self.inv_mass, self.pos, self.predict_pos, self.tet_indices, self.B, self.alpha, self.delta_t, self.is_fixed, self.fixed_stiffness, self.fixed_pos)
             s=f"Frame:{frame} Iter:{iter} Energy:{te:.8e}"
             print(s)

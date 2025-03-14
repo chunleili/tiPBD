@@ -7,12 +7,12 @@ import scipy
 import tqdm
 import argparse
 import taichi as ti
-from taichi.math import vec3, vec4
+from taichi.math import vec3,ivec4
 from time import perf_counter
 from pathlib import Path
 
 
-ti.init(default_fp=ti.f64)
+# ti.init(default_fp=ti.f64)
 
 
 @ti.func
@@ -25,11 +25,11 @@ def is_in_tet_func(p, p0, p1, p2, p3):
 
 @ti.kernel
 def compute_barycentric_kernel(
-    p_pos: ti.types.ndarray(dtype=vec3),
-    cage_vert_pos: ti.types.ndarray(dtype=vec3),
-    cage_indx: ti.types.ndarray(dtype=vec4),
-    which_cage: ti.types.ndarray(),
-    bary_coord: ti.types.ndarray(dtype=vec3),
+    p_pos: ti.template(),
+    cage_vert_pos: ti.template(),
+    cage_indx: ti.template(),
+    which_cage: ti.template(),
+    bary_coord: ti.template()
 ):
     n_p = p_pos.shape[0]
     n_cage = cage_indx.shape[0]
@@ -89,22 +89,31 @@ def compute_mapping(coarse_pos, coarse_tet_indices, fine_pos, fine_tet_indices):
     coarse_nv = coarse_pos.shape[0]
     fine_nv = fine_pos.shape[0]
 
-    coarse_in_fine_tet_indx = np.empty(coarse_nv, dtype=np.int32)
-    coarse_in_fine_tet_coord = np.zeros((coarse_nv, 3), dtype=np.float64)
-    fine_in_coarse_tet_indx = np.empty(fine_nv, dtype=np.int32)
-    fine_in_coarse_tet_coord = np.zeros((fine_nv, 3), dtype=np.float64)
+    coarse_in_fine_tet_indx = ti.field(dtype=ti.i32, shape=coarse_nv)
+    coarse_in_fine_tet_coord = ti.Vector.field(3, dtype=ti.f32, shape=coarse_nv)
+    fine_in_coarse_tet_indx = ti.field(dtype=ti.i32, shape=fine_nv)
+    fine_in_coarse_tet_coord = ti.Vector.field(3, dtype=ti.f32, shape=fine_nv)
 
     fine_in_coarse_tet_indx.fill(-1)
     coarse_in_fine_tet_indx.fill(-1)
 
+    cpos = ti.Vector.field(3, dtype=ti.f32, shape=coarse_nv)
+    fpos = ti.Vector.field(3, dtype=ti.f32, shape=fine_nv)
+    ctet = ti.Vector.field(4, dtype=ti.i32, shape=coarse_tet_indices.shape[0])
+    ftet = ti.Vector.field(4, dtype=ti.i32, shape=fine_tet_indices.shape[0])
+    cpos.from_numpy(coarse_pos)
+    fpos.from_numpy(fine_pos)
+    ctet.from_numpy(coarse_tet_indices)
+    ftet.from_numpy(fine_tet_indices)
+
     print(">> Computing fine vert in which coarse cage...")
     compute_barycentric_kernel(
-        fine_pos, coarse_pos, coarse_tet_indices, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord
+        fpos, cpos, ctet, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord
     )
 
     print(">> Computing coarse vert in which fine cage...")
     compute_barycentric_kernel(
-        coarse_pos, fine_pos, fine_tet_indices, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord
+        cpos, fpos, ftet, coarse_in_fine_tet_indx, coarse_in_fine_tet_coord
     )
 
     return coarse_in_fine_tet_indx, coarse_in_fine_tet_coord, fine_in_coarse_tet_indx, fine_in_coarse_tet_coord

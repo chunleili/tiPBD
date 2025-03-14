@@ -12,14 +12,15 @@
           ]
         },  
         {
-          "name": "soft3d json config",
+          "name": "soft3d twist_bar",
           "type": "debugpy",
           "request": "launch",
-          "program": "engine/soft/soft3d.py",
+          "program": "engine/soft/soft3d_twist.py",
           "console": "integratedTerminal",
           "cwd": "${workspaceFolder}",
           "args": [
             "-use_json=1",
+            "-json_path=data/scene/twist_bar.json"
           ]
         },  
         {

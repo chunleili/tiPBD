@@ -1,8 +1,7 @@
 #pragma once
 #include <cuda_runtime.h>
 #include <chrono>
-#include <thrust/random.h>  
-#include <thrust/device_vector.h>  
+
 /* -------------------------------------------------------------------------- */
 /*                                 erro check                                 */
 /* -------------------------------------------------------------------------- */

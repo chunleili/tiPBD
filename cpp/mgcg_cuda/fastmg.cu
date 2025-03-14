@@ -74,7 +74,7 @@ float avg(std::vector<float> &v)
         nlvs = numlvs;
 
         smoother = std::make_shared<Smoother>(levels);
-        vcycle = std::make_unique<VCycle>(levels, smoother,z,r,buff);
+        vcycle = std::make_unique<VCycle>(levels, smoother);
 
     }
 
@@ -159,8 +159,7 @@ float avg(std::vector<float> &v)
             scal(save_p, beta);
             axpy(save_p, 1, z);
         } else {
-            // p = move(z)
-            save_p.swap(z);
+            copy(save_p, z);
         }
         // q = A@(p)
         save_q.resize(levels.at(0).A.nrows);
@@ -243,7 +242,19 @@ float avg(std::vector<float> &v)
         {
             compute_RAP(lv);
         }
-        
+        build_levels();
+    }
+
+    // resize the levels after RAP
+    void FastMG::build_levels()
+    {
+        int nl = levels.size();
+        for(int l=0;l<nl;l++)
+        {
+            int size = levels[l].A.ncols;
+            levels[l].x.resize(size);
+            levels[l].r.resize(size);
+        }
     }
 
     void  FastMG::solve()
@@ -251,6 +262,8 @@ float avg(std::vector<float> &v)
         presolve();
         float bnrm2 = init_cg_iter0(residuals.data());
         float atol = bnrm2 * rtol;
+        copy(z, outer_x); // initial x0 copy to z (for Az=r)
+        copy(r, outer_b); // initial b copy to r (for r = b - A@x)
         for (size_t iter=0; iter<maxiter; iter++)
         {   
             if (residuals[iter] < atol)
@@ -258,9 +271,11 @@ float avg(std::vector<float> &v)
                 niter = iter;
                 break;
             }
-            copy(z, outer_x);
-            vcycle -> run();
-            do_cg_itern(residuals.data(), iter); 
+            
+            vcycle -> run(z,r); // solve Az=r with V-cycle
+
+            do_cg_itern(residuals.data(), iter);
+
             niter = iter;
         }
     }

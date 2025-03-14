@@ -57,20 +57,18 @@ def process_data(filename):
 
 
 
-config="twist_bar"
+
 fig,axs = plt.subplots(1,squeeze=True)
-# df_ruan = process_data(f'energy_{config}_ruan.txt')
-df_xian = process_data(f'energy_{config}_xian.txt')
-df_amg = process_data(f'energy_{config}_amg.txt')
-df_xpbd = process_data(f'energy_{config}_xpbd.txt')
-df_direct = process_data(f'energy_{config}_direct.txt')
+df_ruan = process_data('energy_twist_bar_ruan.txt')
+df_xian = process_data('energy_twist_bar_xian.txt')
+df_amg = process_data('energy_twist_bar_amg.txt')
+df_xpbd = process_data('energy_twist_bar_xpbd.txt')
 # axs.plot(df_ruan['Iter'], df_ruan['Value'],label='ruan')
 axs.plot(df_xian['Iter'], df_xian['Value'],label='xian')
-axs.plot(df_amg['Iter'], df_amg['Value'],label='amg')
+# axs.plot(df_amg['Iter'], df_amg['Value'],label='amg')
 axs.plot(df_xpbd['Iter'], df_xpbd['Value'],label='xpbd')
-axs.plot(df_direct['Iter'], df_direct['Value'],label='direct',linestyle='-.')
 plt.yscale('log')
-plt.title(f'{config}')
+plt.title('Energy')
 plt.legend()
 plt.xlabel('Iter')
 plt.ylabel('Energy')

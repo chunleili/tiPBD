@@ -19,17 +19,18 @@ prj_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 sys.path.append(prj_path)
 from engine.file_utils import process_dirs
 from engine.mesh_io import write_mesh, read_tet, read_geo
-from engine.common_args import add_common_args, parse_json_args
+from engine.common_args import add_common_args
 from engine.init_extlib import init_extlib
 from engine.solver.amg_python import AmgPython
 from engine.solver.amg_cuda import AmgCuda
 from engine.solver.amgx_solver import AmgxSolver
 from engine.solver.direct_solver import DirectSolver
-from engine.util import calc_norm,  ResidualDataOneIter, init_logger, timeit, python_list_to_ti_field
+from engine.util import calc_norm,  ResidualDataOneIter, do_post_iter, init_logger, timeit, python_list_to_ti_field
 from engine.util import vec_is_equal
 from engine.physical_base import PhysicalBase
 from script.convert.geo import Geo
-from engine.energy import compute_energy
+
+
 
 def init_args():
     parser = argparse.ArgumentParser()
@@ -43,7 +44,7 @@ def init_args():
     # "data/model/bunnyBig/bunnyBig.node"
     # "data/model/bunny85w/bunny85w.node"
     # "data/model/ball/ball.node"
-    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall","beam","twist_bar"])
+    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall","beam"])
     parser.add_argument("-large", action="store_true")
     parser.add_argument("-small", action="store_true")
     parser.add_argument("-omega", type=float, default=0.1)
@@ -51,13 +52,6 @@ def init_args():
 
 
     args = parser.parse_args()
-
-    args.use_json=True
-
-    with open("config") as f:
-        args.json_path = f.read().strip()
-    if args.use_json and args.json_path:
-        args = parse_json_args(args, args.json_path)
 
     if args.large:
         args.model_path = f"data/model/bunny85w/bunny85w.node"
@@ -120,6 +114,7 @@ class SoftBody(PhysicalBase):
             self.NCONS = self.NT
             self.allocate_fields(self.NV, self.NT)
             self.initialize()
+            self.reinit()
             if args.export_mesh:
                 write_mesh(args.out_dir + f"/mesh/{0:04d}", self.pos.to_numpy(), self.model_tri)
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
@@ -130,20 +125,6 @@ class SoftBody(PhysicalBase):
             self.rbm = get_rbm(self.initial_pos)
             np.save(f"rbm.npy", self.rbm)
         info(f"Creating instance done")
-
-    
-    def load(self, filename):
-        if Path(filename).suffix == ".txt":
-            pos = load_pos_from_txt(filename)
-            self.pos.from_numpy(pos)
-            self.vel.fill(0)
-        elif Path(filename).suffix == ".node":
-            pos = load_pos_from_node(filename)
-            self.pos.from_numpy(pos)
-            self.vel.fill(0)
-        else:
-            logging.warning("unknown file format")
-        print(f"loaded pos from {filename}")
 
 
     def line_search(self, x, dpos, ls_beta=0.5, EPSILON=1e-9,):
@@ -379,11 +360,9 @@ class SoftBody(PhysicalBase):
         self.tet_indices = ti.Vector.field(4, int, NT)
         self.B = ti.Matrix.field(3, 3, float, NT)  # D_m^{-1}
         self.lagrangian = ti.field(float, NT)  # lagrangian multipliers
-        self.lagrangian_D = ti.field(float, NT)  # lagrangian multipliers for stable neohooken
         self.rest_volume = ti.field(float, NT)  # rest volume of each tet
         self.inv_V = ti.field(float, NT)  # inverse volume of each tet
         self.alpha_tilde = ti.field(float, NT)
-        self.alpha = ti.field(float, NT)
 
         self.par_2_tet = ti.field(int, NV)
         self.gradC = ti.Vector.field(3, ti.f32, shape=(NT, 4))
@@ -396,8 +375,6 @@ class SoftBody(PhysicalBase):
         self.potential_energy = ti.field(ti.f32, shape=())
         self.inertial_energy = ti.field(ti.f32, shape=())
         self.ele = self.tet_indices
-        self.is_fixed = ti.field(int, self.NV)
-        self.fixed_pos = ti.Vector.field(3, float, self.NV)
 
     def initialize(self):
         info(f"Initializing mesh")
@@ -426,11 +403,7 @@ class SoftBody(PhysicalBase):
             inv_mu,
             inv_h2,
         )
-        init_alpha_kernel(self.rest_volume, self.args.mu, self.alpha)
-        self.alpha_tilde_np = self.alpha_tilde.to_numpy()\
-        
-        self.reinit()
-
+        self.alpha_tilde_np = self.alpha_tilde.to_numpy()
 
 
     def reinit(self):
@@ -438,8 +411,6 @@ class SoftBody(PhysicalBase):
         # FIXME: no reinit will cause bug, why? FIXED: because when there is no deformation, the gradient will be in any direction! Sigma=(1,1,1) There will be singularity issue! We need to jump the constraint=0 case.
         # reinit pos
         self.initial_pos = self.pos.to_numpy()
-        self.fixed_pos.copy_from(self.pos)
-        self.fixed_stiffness = self.args.fixed_stiffness
         if args.reinit == "random":
             random_val = np.random.rand(self.pos.shape[0], 3)
             self.pos.from_numpy(random_val)
@@ -475,25 +446,12 @@ class SoftBody(PhysicalBase):
             endregion = (xmin - xsize*0.01, xmin + xsize*0.01)
             # find the end particles where x is within the region
             self.fixed_particles = np.where((p[:, 0] > endregion[0]) & (p[:, 0] < endregion[1]))[0]
-
-            # # # # set those particles inv_mass to 0
-            # self.inv_mass_np = self.inv_mass.to_numpy()
-            # self.inv_mass_np[self.fixed_particles] = 0.0
-            # self.inv_mass.from_numpy(self.inv_mass_np)
-
-            args.gravity = [0, -9.8, 0]
-            self.gravity = ti.Vector(args.gravity)
-            self.fixed_particles = np.array([873, 874, 875, 876, 877, 878, 879, 880, 881, 882, 883, 884, 885, 886, 887, 888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 898, 899, 900, 901, 902, 903, 904, 905, 907, 911, 912, 914, 916, 918, 919, 922, 924, 928, 930, 932, 933, 935, 938, 940, 942, 943, 946, 947, 949, 950, 951, 952, 954, 955, 958, 960, 962, 963, 964, 965, 1993, 1996, 1997, 2000, 2001, 2004, 2005, 2009, 2010, 2012, 2015, 2017, 2019, 2021, 2022, 2024, 2028, 2029, 2030, 2033, 2036, 2038, 2039, 2040, 2043, 2044, 2045, 2050, 2051, 2052, 2053, 2054, 2057, 2062, 2063, 2064, 2067, 2068, 2069, 2070, 3797, 3813, 3815, 3817, 3819, 3821, 3826, 3830, 3833, 3835, 3837, 3838, 3842, 3846, 3847, 3853, 3855, 3857, 3860, 3862, 3866, 3901, 3905, 3906, 3907, 3908, 3909, 3910, 3911, 3912, 3913, 3914, 3915, 3916, 3917, 3918, 3919, 3920, 3921, 3922, 3923, 3924, 3929, 4011, 4016, 4018, 4019, 4020, 4021, 4024, 4027, 4029, 4032, 4033, 4034, 4035, 4040, 4041, 4042, 4044, 4045, 4048, 4049, 4052, 4056, 4058, 4060, 4062, 4064, 4065, 4066, 4067, 4071, 4074, 4075, 4076, 4077, 4079, 4080, 4081, 4082, 4083, 4084, 4087, 4089, 4090, 4093, 4094, 4095, 5126, 5164, 5167, 5170, 5178, 5186, 5211, 5216, 5224, 5251, 5258, 5259, 5265, 5275, 5285, 5286, 5288, 5290, 5293, 5294, 5296, 5297, 5298, 5299, 5301, 5302, 5303, 5306, 5308, 5311, 5323, 5330, 5331, 5425, 5431, 5434, 5435, 5437, 5438, 5439, 5441, 5442, 5444, 5445, 5446, 5447, 5449, 5453, 5473, 5475, 5476, 5480, 5602, 5651, 5669, 5746, 5754, 5793, 5856, 5876, 5889, 5903, 5939, 5987, 5999, 6090, 6092, 6180, 6346, 6367, 6453, 6735, 6788, 6807, 6847, 6861, 6912, 6951, 6971, 6997, 7124, 7155, 7156, 7266, 7300, 7311, 7375, 7402, 7539, 7647, 7655, 7694, 7712, 7802, 7837, 7879, 7925, 7931, 7941, 7962, 8106, 8113, 8143, 8165, 8170, 8172, 8191, 8226, 8284, 8291, 8321, 8322],dtype=np.int32) # set from args
-
-            self.fixed_pos.from_numpy(self.pos.to_numpy())
-            set_is_fixed_kernel(self.fixed_particles, self.is_fixed)
-            # print(f"fixed particles: {self.fixed_particles}")
-        
-        elif args.reinit=="twist_bar":
-            self.gravity = ti.Vector([0,0,0])
-            deformed_pos = load_pos_from_node("data/model/twist_bar/twist_bar_deformed.node")
-            self.pos.from_numpy(deformed_pos)
-
+            # set those particles inv_mass to 0
+            self.inv_mass_np = self.inv_mass.to_numpy()
+            # self.inv_mass_np = args.pmass * np.ones(self.NV, dtype=np.float32)
+            self.inv_mass_np[self.fixed_particles] = 0.0
+            self.inv_mass.from_numpy(self.inv_mass_np)
+            args.use_gravity = True
 
 
     # calc_dual use the base class's
@@ -506,7 +464,7 @@ class SoftBody(PhysicalBase):
             primary_residual = np.delete(primary_residual, where_zeros)
             return primary_residual
         G = fill_G()
-        primary_residual = calc_primal_imply(G, self.M_inv)
+        primary_residual = self.calc_primal_imply(G, self.M_inv)
         primal_r = np.linalg.norm(primary_residual).astype(float)
         Newton_r = np.linalg.norm(np.concatenate((self.dual_residual.to_numpy(), primary_residual))).astype(float)
         return primal_r, Newton_r
@@ -608,9 +566,9 @@ class SoftBody(PhysicalBase):
         self.dlam2dpos(dlam)
 
 
-    # @timeit
+    @timeit
     def solveSoft_python(self):
-        self.pos_mid.copy_from(self.pos)
+        self.pos_mid.from_numpy(self.pos.to_numpy())
         self.compute_C_and_gradC()
         self.b = self.compute_b()
         dlam, self.r_iter.r_Axb = self.linsol.run(self.b)
@@ -633,21 +591,39 @@ class SoftBody(PhysicalBase):
 
     def has_no_time_budget(self):
         self.frame_past_time = perf_counter() - self.tic_frame
-        logging.info(f"FramePastTime: {self.frame_past_time*1000:.0f}ms")
+        self.timeBudget_left = args.time_budget - self.frame_past_time
+        # logging.info(f"FramePastTime: {self.frame_past_time*1000:.0f}ms")
+        logging.info(f"Time budget left: {self.timeBudget_left*1000:.0f}ms")
         if args.solver_type=="AMG":
             if self.should_setup(): 
-                self.frame_past_time = 0.0
-        if self.frame_past_time > args.time_budget:
+                self.timeBudget_left = args.time_budget
+                logging.info("refresh time budget for setup iter")
+        if self.timeBudget_left < 0:
             logging.info(f"Time budget exceeded, break: frame past time: {self.frame_past_time:.2f}s, iter:{self.ite}")
             return True
         return False
     
     
-    def AMG_calc_r(self):
+    def AMG_calc_r(self, r,dual0, tic_iter, r_Axb):
         from engine.ti_kernels import calc_dual_kernel
-        d  = calc_dual_kernel(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
-        return d
-    
+        t_iter = perf_counter()-tic_iter
+        tic_calcr = perf_counter()
+        calc_dual_kernel(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
+        dual_r = calc_norm(self.dual_residual)
+        self.dualr = dual_r
+        r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
+        logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
+
+        if args.export_fulldual:
+            if self.ite==0 or self.ite==args.maxiter-1:
+                np.save(args.out_dir+f"/r/fulldual-{self.frame}-{self.ite}.npy",self.dual_residual.to_numpy())
+
+        if args.export_log:
+            logging.info(f"    iter total time: {t_iter*1000:.0f}ms")
+            logging.info(f"{self.frame}-{self.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)} FramePastTime:{self.frame_past_time*1000:.0f} ms")
+        r.append(dual_r)
+
+        return dual_r
 
     # @timeit
     def do_external_constraints(self):
@@ -706,88 +682,122 @@ class SoftBody(PhysicalBase):
 
     def substep_all_solver(self):
         self.tic_frame = time.perf_counter()
-        semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
+        self.semi_euler()
+        self.read_external_pos()
         self.lagrangian.fill(0)
-        self.log_energy(self.frame,0,f"{args.out_dir}/r/energy.txt")
-        if args.use_external_constraints:
-            self.read_external_pos()
-            self.do_external_constraints()
+        self.dual0 = self.do_pre_iter0()
+        r = []
         for self.ite in range(args.maxiter):
-            # if self.has_no_time_budget():
-            #     break
-            self.tic_iter = perf_counter()
+            self.r_iter.tic_iter = perf_counter()
+            self.do_external_constraints()
+            if args.local_interval>0:
+                self.do_local_steps()
             self.solveSoft()
-            self.log_energy(self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
-            self.toc_iter = perf_counter()
-            
+            if self.has_no_time_budget():
+                break
+            self.dualr=self.AMG_calc_r(r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
+            do_post_iter(self, get_A0_cuda)
+            # export_all_levels_A(self)
+            if self.dualr >1e10:
+                logging.error(f"Diverge! dualr >1e10")
+                raise ValueError("Diverge! dualr >1e10")
+            if self.dualr < args.tol:
+                logging.info("Converge: tol")
+                break
+            if self.dualr / self.dual0 < args.rtol:
+                logging.info("Converge: rtol")
+                break
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
 
-
-    def log_energy(self,frame, iter, filename_to_save=""):
-        if args.log_energy:
-            te = compute_energy(self.inv_mass, self.pos, self.predict_pos, self.tet_indices, self.B, self.alpha, self.delta_t, self.is_fixed, self.fixed_stiffness, self.fixed_pos)
-            s=f"Frame:{frame} Iter:{iter} Energy:{te:.8e}"
-            print(s)
-            if filename_to_save != "":
-                with open(filename_to_save, "a") as f:
-                    f.write(s)
-            return te
-
-
-    def do_post_iter(self):
-        if self.args.export_matrix:
-            export_all_levels_A(self)
-
+    # def substep_xpbd(self):
+    #     self.semi_euler()
+    #     self.lagrangian.fill(0)
+    #     self.do_pre_iter0()
+    #     for self.ite in range(args.maxiter):
+    #         self.r_iter.tic_iter = perf_counter()
+    #         self.project_arap_xpbd()
+    #         self.do_post_iter_xpbd()
+    #         if self.r_iter.check():
+    #             break
+    #     self.collision_response()
+    #     self.n_outer_all.append(self.ite+1)
+    #     self.update_vel()
         
     def substep_xpbd(self):
-        semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
-        # self.semi_euler()
+        # semi_euler(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
+        self.semi_euler()
+        # reset_lagrangian(self.lagrangian)
         self.lagrangian.fill(0)
-        self.lagrangian_D.fill(0)
-        self.log_energy(self.frame,0,f"{args.out_dir}/r/energy.txt")
-        if args.use_external_constraints:
-            self.do_external_constraints()
+        r=[]
         for self.ite in range(args.maxiter):
-            if  args.constuitive_model == "StableNeoHookean":
-                project_constraints_stableNeohookean_kernel(
-                    self.tet_indices,
-                    self.B,
-                    self.inv_mass,
-                    self.lagrangian,
-                    self.lagrangian_D,
-                    self.pos,
-                    args.omega,
-                    args.mu,
-                    args.lame_lambda,
-                    args.delta_t,
-                    self.rest_volume
-                )
+            tic = time.perf_counter()
+            if args.use_external_constraints:
+                self.do_external_constraints()
+            project_constraints_v2(
+                self.pos_mid,
+                self.tet_indices,
+                self.inv_mass,
+                self.lagrangian,
+                self.B,
+                self.pos,
+                self.alpha_tilde,
+                # self.constraints,
+                self.residual,
+                # self.gradC,
+                # self.dlambda,
+                # self.dpos,
+                args.omega
+            )
+            # project_constraints(
+            #     self.pos_mid,
+            #     self.tet_indices,
+            #     self.inv_mass,
+            #     self.lagrangian,
+            #     self.B,
+            #     self.pos,
+            #     self.alpha_tilde,
+            #     self.constraints,
+            #     self.residual,
+            #     self.gradC,
+            #     self.dlambda,
+            #     self.dpos,
+            #     args.omega
+            # )
+            # collsion_response(self.pos)
+            if args.calc_dual:
+                calc_dual_residual(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
+                dualr = np.linalg.norm(self.residual.to_numpy())
+                if args.export_fulldual:
+                    if self.ite==0 or self.ite==args.maxiter-1:
+                        np.save(args.out_dir+f"/r/fulldual-{self.frame}-{self.ite}.npy",self.dual_residual.to_numpy())
+                if self.ite == 0:
+                    dualr0 = dualr.copy()
+            toc = time.perf_counter()
+            if args.use_time_budget:
+                if self.has_no_time_budget():
+                    break
+            # r.append(self.ResidualData(dualr, 0, toc-tic))
+            if args.calc_dual:
+                logging.info(f"{self.frame}-{self.ite} dual0:{dualr0:.2e} dual:{dualr:.2e} t:{toc-tic:.2e}s FramePastTime:{self.frame_past_time*1000:.0f} ms")
+                if dualr >1e10:
+                    logging.error(f"Diverge! dualr >1e10")
+                    raise ValueError("Diverge! dualr >1e10")
+                if dualr < args.tol:
+                    logging.info("Converge: tol")
+                    break
+                if dualr / dualr0 < args.rtol:
+                    logging.info("Converge: rtol")
+                    break
+                # if is_stall(r):
+                #     logging.warning("Stall detected, break")
+                #     break
             else:
-                project_constraints_arap_v2_kernel(
-                    self.pos_mid,
-                    self.tet_indices,
-                    self.inv_mass,
-                    self.lagrangian,
-                    self.B,
-                    self.pos,
-                    self.alpha_tilde,
-                    self.residual,
-                    args.omega
-                )
-            self.log_energy(self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
-
+                logging.info(f"{self.frame}-{self.ite} t:{toc-tic:.2e}s")
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         update_vel(args.delta_t, self.pos, self.old_pos, self.vel)
-
-
-
-@ti.kernel
-def set_is_fixed_kernel(fixed_particles: ti.types.ndarray(dtype=ti.i32), is_fixed: ti.template()):
-    for i in range(fixed_particles.shape[0]):
-        is_fixed[fixed_particles[i]] = 1
 
 
 @ti.kernel
@@ -872,7 +882,7 @@ def project_constraints(
 # %14 speed up compared to the previous version
 # 0.5ms per iter for 12K ele bunny small dt=3ms mu=1e6
 @ti.kernel
-def project_constraints_arap_v2_kernel(
+def project_constraints_v2(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
     inv_mass: ti.template(),
@@ -923,77 +933,6 @@ def project_constraints_arap_v2_kernel(
             pos[p3] += omega * inv_mass[p3] * dlambda1 * g3
 
 
-
-@ti.kernel
-def project_constraints_stableNeohookean_kernel(
-        tet_indices: ti.template(),
-        B: ti.template(),
-        inv_mass: ti.template(),
-        lagrangian_H: ti.template(),
-        lagrangian_D: ti.template(),
-        pos: ti.template(),
-        omega: ti.f32,
-        mu: ti.f32,
-        lame_lambda: ti.f32,
-        dt: ti.f32,
-        rest_volume: ti.template(),
-    ):
-        gamma = 1 + mu/lame_lambda  # stable neo-hookean
-
-        for i in tet_indices:
-            alpha_tilde_H = 1.0/(dt*dt*lame_lambda*rest_volume[i])
-            alpha_tilde_D = 1.0/(dt*dt*mu*rest_volume[i])
-
-
-            ia, ib, ic, id = tet_indices[i]
-            a, b, c, d = pos[ia], pos[ib], pos[ic], pos[id]
-            invM0, invM1, invM2, invM3 = inv_mass[ia], inv_mass[ib], inv_mass[ic], inv_mass[id]
-            D_s = ti.Matrix.cols([b - a, c - a, d - a])
-            F = D_s @ B[i]
-
-            # Constraint 1
-            C_H = F.determinant() - gamma
-            f1 = ti.Vector([F[0, 0], F[1, 0], F[2, 0]])
-            f2 = ti.Vector([F[0, 1], F[1, 1], F[2, 1]])
-            f3 = ti.Vector([F[0, 2], F[1, 2], F[2, 2]])
-
-            f23 = f2.cross(f3)
-            f31 = f3.cross(f1)
-            f12 = f1.cross(f2)
-            f = ti.Vector([f23[0], f23[1], f23[2], f31[0], f31[1], f31[2], f12[0], f12[1], f12[2]])
-            dFdp1T = make_matrix(B[i][0, 0], B[i][0, 1], B[i][0, 2])
-            dFdp2T = make_matrix(B[i][1, 0], B[i][1, 1], B[i][1, 2])
-            dFdp3T = make_matrix(B[i][2, 0], B[i][2, 1], B[i][2, 2])
-
-            g1 = dFdp1T @ f
-            g2 = dFdp2T @ f
-            g3 = dFdp3T @ f
-            g0 = -g1 - g2 - g3
-            l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr() + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
-            dLambda = (-C_H - alpha_tilde_H * lagrangian_H[i]) / (l + alpha_tilde_H)
-            lagrangian_H[i] += dLambda
-            pos[ia] += omega * invM0 * dLambda * g0
-            pos[ib] += omega * invM1 * dLambda * g1
-            pos[ic] += omega * invM2 * dLambda * g2
-            pos[id] += omega * invM3 * dLambda * g3
-
-            # Constraint 2
-            C_D = sqrt(f1.norm_sqr() + f2.norm_sqr() + f3.norm_sqr())
-            if C_D < 1e-6:
-                continue
-            r_s = 1.0 / C_D
-            f = ti.Vector([f1[0], f1[1], f1[2], f2[0], f2[1], f2[2], f3[0], f3[1], f3[2]])
-            g1 = r_s * (dFdp1T @ f)
-            g2 = r_s * (dFdp2T @ f)
-            g3 = r_s * (dFdp3T @ f)
-            g0 = r_s * (-g1 - g2 - g3)
-            l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr() + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
-            dLambda = (-C_D - alpha_tilde_D * lagrangian_D[i]) / (l + alpha_tilde_D)
-            lagrangian_D[i] += dLambda
-            pos[ia] += omega * invM0 * dLambda * g0
-            pos[ib] += omega * invM1 * dLambda * g1
-            pos[ic] += omega * invM2 * dLambda * g2
-            pos[id] += omega * invM3 * dLambda * g3
 
 
 @ti.kernel
@@ -1078,7 +1017,7 @@ def rayleigh_damping_kernel(
 
 
 @ti.kernel
-def semi_euler_kernel(
+def semi_euler(
     delta_t: ti.f32,
     pos: ti.template(),
     predict_pos: ti.template(),
@@ -1131,7 +1070,7 @@ def set_pinpos_kernel(pin:ti.types.ndarray(), pos:ti.template(), pinpos:ti.types
     for i in range(pos.shape[0]):
         if pin[i]:
             pos[i] = pinpos[i]
-
+            
 
 @ti.kernel
 def init_B(
@@ -1162,16 +1101,6 @@ def init_alpha_tilde(
         D_m = ti.Matrix.cols([p1 - p0, p2 - p0, p3 - p0])
         rest_volume[i] = 1.0 / 6.0 * ti.abs(D_m.determinant())
         alpha_tilde[i] = inv_h2 * inv_mu  / rest_volume[i]
-
-
-@ti.kernel
-def init_alpha_kernel(
-    rest_volume: ti.template(),
-    mu: ti.f32,
-    alpha: ti.template(),
-):
-    for i in alpha:
-        alpha[i] =  1.0/mu /rest_volume[i]
 
 
 @ti.kernel
@@ -1208,19 +1137,7 @@ def init_physics_kernel(
         total_volume += rest_volume[i]
 
     # init mass
-    if args.mass_density > 0.0:
-        print("Using mass density: ", args.mass_density)
-        for i in tet_indices:
-            ia, ib, ic, id = tet_indices[i]
-            tet_mass = args.mass_density * rest_volume[i]
-            avg_mass = tet_mass / 4.0
-            mass[ia] += avg_mass
-            mass[ib] += avg_mass
-            mass[ic] += avg_mass
-            mass[id] += avg_mass
-        for i in inv_mass:
-            inv_mass[i] = 1.0/mass[i]
-    elif args.total_mass > 0.0:
+    if args.total_mass > 0.0:
         for i in tet_indices:
             ia, ib, ic, id = tet_indices[i]
             mass_density = args.total_mass / total_volume
@@ -1690,25 +1607,6 @@ def get_rbm(pos):
     extlib.fastmg_calc_rbm(coo, coo.size, rbm)
     rbm = rbm.reshape(-1,6)
     return rbm
-
-
-
-
-
-
-def load_pos_from_txt(filename):
-    pos = np.loadtxt(filename,dtype=np.float32).reshape(-1, 3)
-    return pos
-
-def  load_pos_from_node(filename):
-    with open(filename, "r") as f:
-        lines = f.readlines()
-        NV = int(lines[0].split()[0])
-        pos = np.zeros((NV, 3), dtype=np.float32)
-        for i in range(NV):
-            pos[i] = np.array(lines[i + 1].split()[1:], dtype=np.float32)
-    return pos
-
 
 
 def init():

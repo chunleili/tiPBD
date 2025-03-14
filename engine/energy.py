@@ -3,21 +3,12 @@ import numpy as np
 from pathlib import Path
 
 
-def compute_energy_ARAP(inv_mass, pos, predict_pos, tet_indices, B, alpha, dt, is_fixed, fixed_stiffness, fixed_pos):
+def compute_energy(inv_mass, pos, predict_pos, tet_indices, B, alpha, dt, is_fixed, fixed_stiffness, fixed_pos):
     pe = compute_ARAP_potential_energy_kernel(pos, tet_indices, B, alpha)
     fe = compute_fixed_energy_kernel(is_fixed, fixed_pos, pos, fixed_stiffness)
     it = compute_inertial_kernel(inv_mass, pos, predict_pos,dt)
     total = pe  + it + fe
     return total
-
-
-def compute_energy_Neohooken(inv_mass, pos, predict_pos, tet_indices, B, mu,lame_lambda,rest_volume, dt, is_fixed, fixed_stiffness, fixed_pos):
-    pe = compute_NeoHookean_potential_energy_kernel(pos, tet_indices, B, mu, lame_lambda, rest_volume)
-    fe = compute_fixed_energy_kernel(is_fixed, fixed_pos, pos, fixed_stiffness)
-    it = compute_inertial_kernel(inv_mass, pos, predict_pos,dt)
-    total = pe  + it + fe
-    return total
-
 
 def compute_energy_cuda(extlib,pos, tet_indices, B, rest_volume, mu):
     E = np.array([0.0],dtype=np.float32)
@@ -61,38 +52,6 @@ def compute_ARAP_potential_energy_kernel(
                 e += (F[j, k] - R[j, k]) ** 2
 
         e*=1.0/alpha[i]
-        pe += e
-    return pe
-
-
-@ti.kernel
-def compute_NeoHookean_potential_energy_kernel(
-    pos: ti.template(),
-    tet_indices: ti.template(),
-    B: ti.template(),
-    mu: ti.template(),
-    lame_lambda: ti.template(),
-    rest_volume: ti.template(),
-) -> ti.f32:
-    pe = 0.0
-    for i in tet_indices:
-        ia, ib, ic, id = tet_indices[i]
-        a, b, c, d = pos[ia], pos[ib], pos[ic], pos[id]
-        D_s = ti.Matrix.cols([b-a, c-a, d-a])
-        F = D_s @ B[i]
-
-        e = 0.0
-        Ic = 0.0
-        for j in ti.static(range(3)):
-            for k in ti.static(range(3)):
-                Ic += (F[j, k]) ** 2
-
-        e = mu/2.0 *(Ic-3.0)
-        J = F.determinant()
-        alpha = 1+mu/lame_lambda
-        e += lame_lambda/2.0 * (J-alpha) * (J-alpha)
-        e *= rest_volume[i]
-
         pe += e
     return pe
 

@@ -64,8 +64,8 @@ meta.args = parser.parse_args()
 
 
 from engine.common_args import parse_json_args
-with open("config") as f:
-    meta.args.json_path = f.read().strip()
+# with open("config") as f:
+#     meta.args.json_path = f.read().strip()
 if meta.args.use_json and meta.args.json_path:
     meta.args = parse_json_args(meta.args, meta.args.json_path)
 

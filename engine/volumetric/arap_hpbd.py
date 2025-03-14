@@ -794,8 +794,6 @@ def main():
         if not meta.pause or Bstep_one_frame:
             Bstep_one_frame = False
             tic_frame = perf_counter()
-            reset_lagrangian(fine.lagrangian) 
-            reset_lagrangian(coarse.lagrangian) 
             for meta.substep in range(meta.args.nsubsteps):
                 if not meta.args.quasi_static:
                     semi_euler(dt, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff, fine.inv_mass)
@@ -810,6 +808,7 @@ def main():
                     # timer_restrict=(toc_restrict - tic_restrict)
                     # coarse xpbd(coarse solve)
                     # tic_coarse = perf_counter()
+                    reset_lagrangian(fine.lagrangian) 
                     for meta.cite in range(meta.coarse_iterations):
                         project_constraints(
                             coarse.pos_mid,
@@ -831,6 +830,7 @@ def main():
                     # timer_prolong=(toc_prolong - tic_prolong)
                     # tic_fine = perf_counter()
                 # fine xpbd(postsmoother)
+                reset_lagrangian(coarse.lagrangian) 
                 for meta.fite in range(meta.fine_iterations):
                     project_constraints(
                         fine.pos_mid,

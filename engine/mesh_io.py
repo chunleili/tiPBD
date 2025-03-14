@@ -388,6 +388,9 @@ def write_edge_data(filename, data):
 
 
 def read_tet(filename, build_face_flag=False):
+    from pathlib import Path
+    if Path(filename).suffix == "":
+        filename += ".node"
     mesh = meshio.read(filename)
     pos = mesh.points
     tet_indices = mesh.cells_dict["tetra"]

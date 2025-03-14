@@ -44,6 +44,8 @@ parser.add_argument("-use_json", type=int, default=True)
 parser.add_argument("-json_path", type=str, default="")
 parser.add_argument("-initial_load", type=int, default=False)
 parser.add_argument("-initial_pause", type=int, default=True)
+parser.add_argument("-nsubsteps", type=int, default=1)
+parser.add_argument("-quasi_static", type=int, default=False)
 
 
 ti.init(arch=ti.gpu)
@@ -726,7 +728,6 @@ def main():
     scene.point_light(pos=(2,2,6.5), color=(1.0, 1.0, 1.0))
     gui = window.get_gui()
     wire_frame = True
-
     
     timer_frame = 0.0
     timer_coarse = 0.0
@@ -743,7 +744,6 @@ def main():
 
         meta.pause = gui.checkbox("pause", meta.pause)
 
-
         gui.text("frame {}".format(meta.frame))
         wire_frame = gui.checkbox("wireframe", wire_frame)
         meta.args.export_mesh = gui.checkbox("export mesh", meta.args.export_mesh)
@@ -756,15 +756,16 @@ def main():
         Bsave = gui.button("save state")
         Bload = gui.button("load state")
         BloadPos = gui.button("load pos from file")
+        Bstep_one_frame = gui.button("step one frame")
         meta.use_multigrid = gui.checkbox("multigrid", meta.use_multigrid)
-        meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 0, 50)
-        meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 0, 50)
-        meta.args.maxiter = gui.slider_int("maxiter", meta.args.maxiter, 0, 100)
+        meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 1, 50)
+        meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 1, 50)
+        meta.args.nsubsteps = gui.slider_int("nsubsteps", meta.args.nsubsteps, 1, 100)
         gui.text(f"F #tets: {fine.NT} #verts: {fine.NV}")
         gui.text(f"C #tets: {coarse.NT} #verts: {coarse.NV}")
-        gui.text(f"dt={meta.h*1000:.1f}ms mu={meta.mu:.2e} omega={meta.omega:.2f} ")
+        dt = meta.h / meta.args.nsubsteps
+        gui.text(f"dt={dt*1000:.1f}ms mu={meta.mu:.2e} omega={meta.omega:.2f} ")
         gui.text(f"camera: {camera.curr_lookat} {camera.curr_position}")
-
  
         if Bshould_reset:
             load_state(f"{meta.out_dir}/state/rest.npz")
@@ -790,22 +791,26 @@ def main():
             BloadPos = False
 
         meta.s = f"frame {meta.frame} "
-        if not meta.pause:
+        if not meta.pause or Bstep_one_frame:
+            Bstep_one_frame = False
             tic_frame = perf_counter()
-            semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff, fine.inv_mass)
-            if meta.args.log_residual:
-                log_residual(meta.frame, 0, meta.residual_filename)
-            if meta.args.log_energy:
-                log_energy(meta.frame, 0, meta.energy_filename)
-            for meta.iter in range(meta.args.maxiter):
+            reset_lagrangian(fine.lagrangian) 
+            reset_lagrangian(coarse.lagrangian) 
+            for meta.substep in range(meta.args.nsubsteps):
+                if not meta.args.quasi_static:
+                    semi_euler(dt, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff, fine.inv_mass)
+                # if meta.args.log_residual:
+                #     log_residual(meta.frame, meta.substep, meta.residual_filename)
+                # if meta.args.log_energy:
+                #     log_energy(meta.frame, meta.substep, meta.energy_filename)
                 if meta.use_multigrid:
-                    tic_restrict = perf_counter()
+                    # tic_restrict = perf_counter()
                     update_coarse_mesh() # Restriction
-                    toc_restrict = perf_counter()
-                    timer_restrict=(toc_restrict - tic_restrict)
-                    reset_lagrangian(coarse.lagrangian) # coarse xpbd(coarse solve)
-                    tic_coarse = perf_counter()
-                    for ite in range(meta.coarse_iterations):
+                    # toc_restrict = perf_counter()
+                    # timer_restrict=(toc_restrict - tic_restrict)
+                    # coarse xpbd(coarse solve)
+                    # tic_coarse = perf_counter()
+                    for meta.cite in range(meta.coarse_iterations):
                         project_constraints(
                             coarse.pos_mid,
                             coarse.tet_indices,
@@ -816,17 +821,17 @@ def main():
                             coarse.alpha,
                             coarse.constraint,
                             coarse.residual,
-                            meta.h
+                            dt,
                         )
-                    toc_coarse = perf_counter()
-                    timer_coarse=(toc_coarse - tic_coarse)
-                    tic_prolong = perf_counter()
+                    # toc_coarse = perf_counter()
+                    # timer_coarse=(toc_coarse - tic_coarse)
+                    # tic_prolong = perf_counter()
                     update_fine_mesh() # Prolongation
-                    toc_prolong = perf_counter()
-                    timer_prolong=(toc_prolong - tic_prolong)
-                tic_fine = perf_counter()
-                reset_lagrangian(fine.lagrangian) # fine xpbd(postsmoother)
-                for ite in range(meta.fine_iterations):
+                    # toc_prolong = perf_counter()
+                    # timer_prolong=(toc_prolong - tic_prolong)
+                    # tic_fine = perf_counter()
+                # fine xpbd(postsmoother)
+                for meta.fite in range(meta.fine_iterations):
                     project_constraints(
                         fine.pos_mid,
                         fine.tet_indices,
@@ -837,29 +842,27 @@ def main():
                         fine.alpha,
                         fine.constraint,
                         fine.residual,
-                        meta.h
+                        dt
                     )
-                meta.framePastTime = perf_counter() - tic_frame
-                if meta.args.log_residual:
-                    dualr=log_residual(meta.frame, meta.iter, meta.residual_filename)
-                if meta.args.log_energy:
-                    energy = log_energy(meta.frame, meta.iter, meta.energy_filename)
-                toc_fine = perf_counter()
-                timer_fine=(toc_fine - tic_fine)
-
+                # if meta.args.log_residual:
+                #     dualr = log_residual(meta.frame, meta.substep, meta.residual_filename)
+                # if meta.args.log_energy:
+                #     energy = log_energy(meta.frame, meta.substep, meta.energy_filename)
+                # toc_fine = perf_counter()
+                # timer_fine=(toc_fine - tic_fine)
+                if not meta.args.quasi_static:
+                    update_velocity(dt, fine.pos, fine.old_pos, fine.vel, fine.inv_mass)
             # collsion_response(fine.pos, fine.old_pos, 0.0, fine.inv_mass)
-            update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel, fine.inv_mass)
             toc_frame = perf_counter()
             timer_frame=toc_frame - tic_frame
-            if meta.args.export_log:
-                logging.info(meta.s)
+            # logging.info(meta.s)
             meta.frame += 1
 
-        if meta.use_multigrid:
-            meta.s+=(f"C:{timer_coarse * 1000:.1f} ms\n")
-            meta.s+=(f"R:{timer_restrict * 1000:.1f} ms\n")
-            meta.s+=(f"P:{timer_prolong * 1000:.1f} ms\n")
-            meta.s+=(f"F:{timer_fine * 1000:.1f} ms\n")
+        # if meta.use_multigrid:
+        #     meta.s+=(f"C:{timer_coarse * 1000:.1f} ms\n")
+        #     meta.s+=(f"R:{timer_restrict * 1000:.1f} ms\n")
+        #     meta.s+=(f"P:{timer_prolong * 1000:.1f} ms\n")
+        #     meta.s+=(f"F:{timer_fine * 1000:.1f} ms\n")
         meta.s+=(f"{timer_frame* 1000:.1f} ms/frame\n")
         if timer_frame:
             meta.s+=(f"FPS(physics): {1.0/timer_frame:.1f}\n")

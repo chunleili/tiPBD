@@ -20,31 +20,30 @@ from engine.energy import compute_energy
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-m", "--max_frame", type=int, default=-1)
-parser.add_argument("-e", "--log_energy",  type=int, default=0)
-parser.add_argument("-r", "--log_residual", type=int, default=0)
-parser.add_argument("-p", "--pause_at", type=int, default=-1)
-parser.add_argument("-c", "--coarse_iterations", type=int, default=5)
-parser.add_argument("-f", "--fine_iterations", type=int, default=2)
-parser.add_argument("-it", "--mg_maxiter", type=int, default=1)
-parser.add_argument("--model", type=str, default="", choices=["bunny", "cube","beam"])
-parser.add_argument("--fine_model_path", type=str, default="")
-parser.add_argument("--coarse_model_path", type=str, default="")
-parser.add_argument("--omega", type=float, default=0.1)
-parser.add_argument("--mu", type=float, default=1e20)
-parser.add_argument("--dt", type=float, default=33e-3)
-parser.add_argument("--damping_coeff", type=float, default=1.0)
-parser.add_argument("--gravity", type=float, nargs=3, default=(0.0, 0, 0.0))
-parser.add_argument("--total_mass", type=float, default=16000.0)
-parser.add_argument("--use_multigrid", type=int, default=False)
-parser.add_argument("--init_style", type=str, default="", choices=["","random", "enlarge","squash","zero","freefall","rest","fixleft"])
-parser.add_argument("--silence", type=int, default=1)
-parser.add_argument("--out_dir", type=str, default="result/latest")
-parser.add_argument("--export_mesh", type=int, default=False)
-parser.add_argument("-use_json","--use_json", type=int, default=True)
-parser.add_argument("-json_path","--json_path", type=str, default="")
-parser.add_argument("--initial_load", type=int, default=False)
-parser.add_argument("--initial_pause", type=int, default=True)
+parser.add_argument("-end_frame", type=int, default=-1)
+parser.add_argument("-log_energy",  type=int, default=0)
+parser.add_argument("-log_residual", type=int, default=0)
+parser.add_argument("-coarse_iterations", type=int, default=5)
+parser.add_argument("-fine_iterations", type=int, default=2)
+parser.add_argument("-maxiter", type=int, default=1)
+parser.add_argument("-model", type=str, default="", choices=["bunny", "cube","beam"])
+parser.add_argument("-fine_model_path", type=str, default="")
+parser.add_argument("-coarse_model_path", type=str, default="")
+parser.add_argument("-omega", type=float, default=0.1)
+parser.add_argument("-mu", type=float, default=1e20)
+parser.add_argument("-delta_t", type=float, default=33e-3)
+parser.add_argument("-damping_coeff", type=float, default=1.0)
+parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0, 0.0))
+parser.add_argument("-total_mass", type=float, default=16000.0)
+parser.add_argument("-use_multigrid", type=int, default=False)
+parser.add_argument("-init_style", type=str, default="", choices=["","random", "enlarge","squash","zero","freefall","rest","fixleft"])
+parser.add_argument("-export_log", type=int, default=False)
+parser.add_argument("-out_dir", type=str, default="result/latest")
+parser.add_argument("-export_mesh", type=int, default=False)
+parser.add_argument("-use_json", type=int, default=True)
+parser.add_argument("-json_path", type=str, default="")
+parser.add_argument("-initial_load", type=int, default=False)
+parser.add_argument("-initial_pause", type=int, default=True)
 
 
 ti.init(arch=ti.gpu)
@@ -69,18 +68,13 @@ if meta.args.use_json and meta.args.json_path:
 
 meta.frame = 0
 meta.use_multigrid = meta.args.use_multigrid
-meta.max_frame = meta.args.max_frame
 meta.pause = meta.args.initial_pause
-meta.pause_at = meta.args.pause_at
 meta.coarse_iterations, meta.fine_iterations = meta.args.coarse_iterations, meta.args.fine_iterations
-# if meta.coarse_iterations == 0 or meta.use_multigrid == False:
-#     meta.use_multigrid = False
-#     meta.coarse_iterations = 0
 
 # physical parameters
 meta.omega = meta.args.omega  # SOR factor, default 0.1
 meta.mu = meta.args.mu  # Lame's second parameter, default 1e6
-meta.h = meta.args.dt  # time step size, default 3e-3
+meta.h = meta.args.delta_t  # time step size, default 3e-3
 meta.gravity = ti.Vector(meta.args.gravity)  # gravity, default (0, 0, 0)
 meta.damping_coeff = meta.args.damping_coeff  # damping coefficient, default 1.0
 meta.total_mass = meta.args.total_mass  # total mass, default 16000.0
@@ -554,11 +548,12 @@ def log_energy(frame, iter, filename_to_save=""):
         return te
 
 @timeit
-def log_residual(frame, filename_to_save):
+def log_residual(frame, iter, filename_to_save=""):
     if meta.args.log_residual:
         r_norm = np.linalg.norm(fine.residual.to_numpy())
-        s =f"{frame}\t{r_norm:.2e}\t{meta.framePastTime*1000:.1f}ms\n"
+        s=f"Frame:{frame} Iter:{iter} Residual:{r_norm:.8e}"
         # meta.s+=s
+        print(s)
         with open(filename_to_save, "a") as f:
             f.write(s)
         return r_norm
@@ -676,7 +671,7 @@ def write_mesh(filename, pos, tri):
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    if(meta.args.silence):
+    if(not meta.args.export_log):
         logging.getLogger().setLevel(logging.ERROR)
     meta.out_dir = Path(meta.args.out_dir)
     Path(meta.out_dir).mkdir(parents=True, exist_ok=True)
@@ -764,7 +759,7 @@ def main():
         meta.use_multigrid = gui.checkbox("multigrid", meta.use_multigrid)
         meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 0, 50)
         meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 0, 50)
-        meta.args.mg_maxiter = gui.slider_int("mg_maxiter", meta.args.mg_maxiter, 0, 100)
+        meta.args.maxiter = gui.slider_int("maxiter", meta.args.maxiter, 0, 100)
         gui.text(f"F #tets: {fine.NT} #verts: {fine.NV}")
         gui.text(f"C #tets: {coarse.NT} #verts: {coarse.NV}")
         gui.text(f"dt={meta.h*1000:.1f}ms mu={meta.mu:.2e} omega={meta.omega:.2f} ")
@@ -798,12 +793,11 @@ def main():
         if not meta.pause:
             tic_frame = perf_counter()
             semi_euler(meta.h, fine.pos, fine.predict_pos, fine.old_pos, fine.vel, meta.damping_coeff, fine.inv_mass)
-            for meta.mgIter in range(meta.args.mg_maxiter):
-                if meta.mgIter == 0:
-                    if meta.args.log_residual:
-                        log_residual(meta.frame, meta.residual_filename)
-                    if meta.args.log_energy:
-                        log_energy(meta.frame, meta.energy_filename)
+            if meta.args.log_residual:
+                log_residual(meta.frame, 0, meta.residual_filename)
+            if meta.args.log_energy:
+                log_energy(meta.frame, 0, meta.energy_filename)
+            for meta.iter in range(meta.args.maxiter):
                 if meta.use_multigrid:
                     tic_restrict = perf_counter()
                     update_coarse_mesh() # Restriction
@@ -847,9 +841,9 @@ def main():
                     )
                 meta.framePastTime = perf_counter() - tic_frame
                 if meta.args.log_residual:
-                    dualr=log_residual(meta.frame, meta.residual_filename)
+                    dualr=log_residual(meta.frame, meta.iter, meta.residual_filename)
                 if meta.args.log_energy:
-                    energy = log_energy(meta.frame, meta.energy_filename)
+                    energy = log_energy(meta.frame, meta.iter, meta.energy_filename)
                 toc_fine = perf_counter()
                 timer_fine=(toc_fine - tic_fine)
 
@@ -857,7 +851,7 @@ def main():
             update_velocity(meta.h, fine.pos, fine.old_pos, fine.vel, fine.inv_mass)
             toc_frame = perf_counter()
             timer_frame=toc_frame - tic_frame
-            if not meta.args.silence:
+            if meta.args.export_log:
                 logging.info(meta.s)
             meta.frame += 1
 
@@ -872,7 +866,7 @@ def main():
         gui.text(meta.s)
         meta.s =""
 
-        if meta.frame == meta.max_frame:
+        if meta.frame == meta.args.end_frame:
             window.running = False
             break
 

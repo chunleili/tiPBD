@@ -725,10 +725,10 @@ def main():
     canvas = window.get_canvas()
     scene = ti.ui.Scene()
     camera = ti.ui.Camera()
-    camera.lookat(0.5,0.5,1)
-    camera.position(0.5, 0.5, 4)
+    camera.lookat(*fine.bbox[1])
+    camera.position(*(fine.bbox[1]-fine.bbox[0])*2)
     camera.fov(45)
-    scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
+    scene.point_light(pos=(2,2,6.5), color=(1.0, 1.0, 1.0))
     gui = window.get_gui()
     wire_frame = True
 

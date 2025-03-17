@@ -223,3 +223,33 @@ class NeoHooken:
 @ti.func
 def make_matrix(x, y, z):
     return ti.Matrix([[x, 0, 0, y, 0, 0, z, 0, 0], [0, x, 0, 0, y, 0, 0, z, 0], [0, 0, x, 0, 0, y, 0, 0, z]])
+
+
+if __name__ == "__main__":
+    ti.init(arch=ti.gpu)
+    nh = NeoHooken()
+    nh.init_phsics(nh.tet_indices, nh.pos, nh.mass, nh.B, nh.inv_vol, nh.inv_mass)
+
+    window = ti.ui.Window("Sim", (1024, 1024), vsync=True)
+    canvas = window.get_canvas()
+    scene = ti.ui.Scene()
+    camera = ti.ui.Camera()
+    camera.lookat(0.5,0.5,1)
+    camera.position(0.5, 0.5, 4)
+    camera.fov(45)
+    scene.point_light(pos=(0.5, 1.5, 1.5), color=(1.0, 1.0, 1.0))
+    gui = window.get_gui()
+    wire_frame = True
+    pause = True
+
+    while window.running:
+        scene.ambient_light((0.8, 0.8, 0.8))
+        camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
+        scene.set_camera(camera)
+        pause = gui.checkbox("pause", pause)
+        if not pause:
+            nh.substep()
+        scene.mesh(nh.pos, nh.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
+        canvas.scene(scene)
+        window.show()
+    print("Done.")

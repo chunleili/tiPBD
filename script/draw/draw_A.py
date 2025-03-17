@@ -94,6 +94,27 @@ def draw(to_read_dir="result/sparsityUA/"):
     # plt.show()
     fig.savefig(f"{to_read_dir}/sparsity.png", dpi=300)
 
+    
+def draw_once(file):
+    fig, ax = plt.subplots(1, figsize=(7, 7))
+    A = load_A(file)
+    print("A:", A.shape)
+    print("nnz:", A.nnz)
+    ax.spy(A, markersize=1e-1, markevery=1)#L0
+
+    sparsity = A.nnz/A.shape[0]**2
+    titles = f"Sparsity: {sparsity*100:.1f}%" 
+
+    ax.set_title(titles, loc="center", fontsize=15)
+
+    for label in (ax.get_xticklabels() + ax.get_yticklabels()):
+        label.set_fontsize(13)
+    ax.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
+    ax.xaxis.set_major_locator(plt.MaxNLocator(3))
+    ax.yaxis.set_major_locator(plt.MaxNLocator(3))
+
+
+
 def generate_data_from_sim():
     import subprocess,os
     # go to the root dir of the project
@@ -134,8 +155,26 @@ def generate_data_from_sim():
     subprocess.check_call(args)
 
 
+def draw_heatmap(file):
+    A = load_A(file)
+    A = A.todense()
+    plt.imshow(A, cmap="hot", interpolation='nearest')
+    plt.colorbar()
+    plt.title("A")
+
+def draw_row0(file):
+    A = load_A(file)
+    A = A.todense()
+    row0=np.asarray(A[0, :]).reshape(-1)
+    print(row0)
+    plt.plot(row0)
+    plt.title("row0")
+
 if __name__ == "__main__":
     # generate_data_from_sim()
-    draw("result/sparsityUA/A/")
-    draw("result/sparsitySA/A/")
+    # draw("result/sparsityUA/A/")
+    # draw("result/sparsitySA/A/")
+    # draw_once("A.mtx")
+    draw_heatmap("A.mtx")
+    # draw_row0("A.mtx")
     plt.show()

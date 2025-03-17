@@ -10,7 +10,43 @@
           "cwd": "${workspaceFolder}",
           "args": [
           ]
+        }, 
+          {
+            "name": "arap_hpbd twist bar full", 
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/volumetric/arap_hpbd_twist.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "-use_json=1",
+              "-json_path=data/scene/twist_bar_full.json"
+            ]
+          },   
+        {
+          "name": "soft3d twist_bar",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "engine/soft/soft3d_twist.py",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "-use_json=1",
+            "-json_path=data/scene/twist_bar.json"
+          ]
         },  
+        {
+          "name": "arap hpbd bunny",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "engine/volumetric/arap_hpbd.py",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "-use_json=1",
+            "-json_path=data/scene/bunny_hpbd.json"
+          ]
+        }, 
         {
             "name": "profile",
             "type": "debugpy",
@@ -265,21 +301,69 @@
             "cwd": "${workspaceFolder}",
             "args": [
             "-out_dir=result/beam",
-            "-model_path=data/model/beam2.8k/beam2.8k.geo",
-            "-tol=1e-3",
-            "-delta_t=30e-3",
+            "-model_path=data/model/beam9k/beam9k.geo",
+            "-delta_t=10e-3",
             "-solver_type=AMG",
             "-arch=gpu",
-            "-maxiter=10000",
+            "-maxiter=1000",
             "-end_frame=50",
             "-mu=1e9",
             "-use_gravity=1",
             "-reinit=beam",
             "-time_budget=0.5",
-            "-total_mass=1e5",
-            "-local_interval=10"
+            "-mass_density=1e3",
+            "-local_interval=0",
+            "-calc_energy=1"
             ]
           }, 
+          {
+            "name": "bar",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+            "-out_dir=result/bar",
+            "-model_path=data/model/bar/bar-6.node",
+            "-delta_t=10e-3",
+            "-solver_type=AMG",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=1",
+            "-mu=2.33e6",
+            "-use_gravity=1",
+            "-reinit=beam",
+            "-mass_density=1e3",
+            "-local_interval=0",
+            "-calc_energy=1",
+            "-export_log=0",
+            ]
+          }, 
+          {
+            "name": "Twist Bar",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "engine/soft/soft3d.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "-out_dir=result/bar",
+                "-model_path=data/model/bar/bar-6.node",
+                "-delta_t=10e-3",
+                "-solver_type=AMG",
+                "-arch=gpu",
+                "-maxiter=100",
+                "-end_frame=1",
+                "-mu=2.33e6",
+                "-use_gravity=1",
+                "-reinit=twist_bar",
+                "-mass_density=1e3",
+                "-local_interval=0",
+                "-calc_energy=1",
+                "-export_log=0",
+                ],
+          },  
           {
             "name": "chain",
             "type": "debugpy",

@@ -52,7 +52,8 @@ def init_args():
 
     args = parser.parse_args()
 
-    if args.use_json:
+
+    if args.use_json and args.json_path:
         args = parse_json_args(args, args.json_path)
 
     if args.large:
@@ -375,6 +376,7 @@ class SoftBody(PhysicalBase):
         self.tet_indices = ti.Vector.field(4, int, NT)
         self.B = ti.Matrix.field(3, 3, float, NT)  # D_m^{-1}
         self.lagrangian = ti.field(float, NT)  # lagrangian multipliers
+        self.lagrangian_D = ti.field(float, NT)  # lagrangian multipliers for stable neohooken
         self.rest_volume = ti.field(float, NT)  # rest volume of each tet
         self.inv_V = ti.field(float, NT)  # inverse volume of each tet
         self.alpha_tilde = ti.field(float, NT)
@@ -422,7 +424,7 @@ class SoftBody(PhysicalBase):
             inv_h2,
         )
         init_alpha_kernel(self.rest_volume, self.args.mu, self.alpha)
-        self.alpha_tilde_np = self.alpha_tilde.to_numpy()
+        self.alpha_tilde_np = self.alpha_tilde.to_numpy()\
         
         self.reinit()
 
@@ -470,16 +472,25 @@ class SoftBody(PhysicalBase):
             endregion = (xmin - xsize*0.01, xmin + xsize*0.01)
             # find the end particles where x is within the region
             self.fixed_particles = np.where((p[:, 0] > endregion[0]) & (p[:, 0] < endregion[1]))[0]
-            # set those particles inv_mass to 0
-            self.inv_mass_np = self.inv_mass.to_numpy()
-            # self.inv_mass_np = args.pmass * np.ones(self.NV, dtype=np.float32)
-            self.inv_mass_np[self.fixed_particles] = 0.0
-            self.inv_mass.from_numpy(self.inv_mass_np)
-            args.use_gravity = True
+
+            # # # # set those particles inv_mass to 0
+            # self.inv_mass_np = self.inv_mass.to_numpy()
+            # self.inv_mass_np[self.fixed_particles] = 0.0
+            # self.inv_mass.from_numpy(self.inv_mass_np)
+
+            args.gravity = [0, -9.8, 0]
+            self.gravity = ti.Vector(args.gravity)
+            self.fixed_particles = np.array([873, 874, 875, 876, 877, 878, 879, 880, 881, 882, 883, 884, 885, 886, 887, 888, 889, 890, 891, 892, 893, 894, 895, 896, 897, 898, 899, 900, 901, 902, 903, 904, 905, 907, 911, 912, 914, 916, 918, 919, 922, 924, 928, 930, 932, 933, 935, 938, 940, 942, 943, 946, 947, 949, 950, 951, 952, 954, 955, 958, 960, 962, 963, 964, 965, 1993, 1996, 1997, 2000, 2001, 2004, 2005, 2009, 2010, 2012, 2015, 2017, 2019, 2021, 2022, 2024, 2028, 2029, 2030, 2033, 2036, 2038, 2039, 2040, 2043, 2044, 2045, 2050, 2051, 2052, 2053, 2054, 2057, 2062, 2063, 2064, 2067, 2068, 2069, 2070, 3797, 3813, 3815, 3817, 3819, 3821, 3826, 3830, 3833, 3835, 3837, 3838, 3842, 3846, 3847, 3853, 3855, 3857, 3860, 3862, 3866, 3901, 3905, 3906, 3907, 3908, 3909, 3910, 3911, 3912, 3913, 3914, 3915, 3916, 3917, 3918, 3919, 3920, 3921, 3922, 3923, 3924, 3929, 4011, 4016, 4018, 4019, 4020, 4021, 4024, 4027, 4029, 4032, 4033, 4034, 4035, 4040, 4041, 4042, 4044, 4045, 4048, 4049, 4052, 4056, 4058, 4060, 4062, 4064, 4065, 4066, 4067, 4071, 4074, 4075, 4076, 4077, 4079, 4080, 4081, 4082, 4083, 4084, 4087, 4089, 4090, 4093, 4094, 4095, 5126, 5164, 5167, 5170, 5178, 5186, 5211, 5216, 5224, 5251, 5258, 5259, 5265, 5275, 5285, 5286, 5288, 5290, 5293, 5294, 5296, 5297, 5298, 5299, 5301, 5302, 5303, 5306, 5308, 5311, 5323, 5330, 5331, 5425, 5431, 5434, 5435, 5437, 5438, 5439, 5441, 5442, 5444, 5445, 5446, 5447, 5449, 5453, 5473, 5475, 5476, 5480, 5602, 5651, 5669, 5746, 5754, 5793, 5856, 5876, 5889, 5903, 5939, 5987, 5999, 6090, 6092, 6180, 6346, 6367, 6453, 6735, 6788, 6807, 6847, 6861, 6912, 6951, 6971, 6997, 7124, 7155, 7156, 7266, 7300, 7311, 7375, 7402, 7539, 7647, 7655, 7694, 7712, 7802, 7837, 7879, 7925, 7931, 7941, 7962, 8106, 8113, 8143, 8165, 8170, 8172, 8191, 8226, 8284, 8291, 8321, 8322],dtype=np.int32) # set from args
+
+            self.fixed_pos.from_numpy(self.pos.to_numpy())
+            set_is_fixed_kernel(self.fixed_particles, self.is_fixed)
+            # print(f"fixed particles: {self.fixed_particles}")
+        
         elif args.reinit=="twist_bar":
             self.gravity = ti.Vector([0,0,0])
             deformed_pos = load_pos_from_node("data/model/twist_bar/twist_bar_deformed.node")
             self.pos.from_numpy(deformed_pos)
+
 
 
     # calc_dual use the base class's
@@ -720,16 +731,6 @@ class SoftBody(PhysicalBase):
                 with open(filename_to_save, "a") as f:
                     f.write(s)
             return te
-        
-
-    def log_residual(self, frame, iter, filename_to_save):
-        if args.calc_dual:
-            r_norm = calc_dual_residual(self.alpha_tilde,self.lagrangian,self.constraints,self.dual_residual)
-            s=f"Frame:{frame} Iter:{iter} Residual:{r_norm:.8e}"
-            print(s)
-            with open(filename_to_save, "a") as f:
-                f.write(s)
-            return r_norm
 
 
     def do_post_iter(self):
@@ -738,35 +739,45 @@ class SoftBody(PhysicalBase):
 
         
     def substep_xpbd(self):
-        self.tic_frame = 0.0
         semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
+        # self.semi_euler()
         self.lagrangian.fill(0)
+        self.lagrangian_D.fill(0)
         self.log_energy(self.frame,0,f"{args.out_dir}/r/energy.txt")
-        # self.log_residual(self.frame,0,f"{args.out_dir}/r/residual.txt")
         if args.use_external_constraints:
-            self.read_external_pos()
             self.do_external_constraints()
         for self.ite in range(args.maxiter):
-            project_constraints_v2(
-                self.pos_mid,
-                self.tet_indices,
-                self.inv_mass,
-                self.lagrangian,
-                self.B,
-                self.pos,
-                self.alpha_tilde,
-                self.residual,
-                args.omega
-            )
-            # if self.has_no_time_budget(): 
-            #     break
-            self.log_energy(  self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
-            # self.log_residual(self.frame,self.ite+1,f"{args.out_dir}/r/residual.txt")
+            if  args.constuitive_model == "StableNeoHookean":
+                project_constraints_stableNeohookean_kernel(
+                    self.tet_indices,
+                    self.B,
+                    self.inv_mass,
+                    self.lagrangian,
+                    self.lagrangian_D,
+                    self.pos,
+                    args.omega,
+                    args.mu,
+                    args.lame_lambda,
+                    args.delta_t,
+                    self.rest_volume
+                )
+            else:
+                project_constraints_arap_v2_kernel(
+                    self.pos_mid,
+                    self.tet_indices,
+                    self.inv_mass,
+                    self.lagrangian,
+                    self.B,
+                    self.pos,
+                    self.alpha_tilde,
+                    self.residual,
+                    args.omega
+                )
+            self.log_energy(self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
 
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         update_vel(args.delta_t, self.pos, self.old_pos, self.vel)
-
 
 
 
@@ -786,14 +797,9 @@ def update_vel(delta_t: ti.f32, pos: ti.template(), old_pos: ti.template(), vel:
 def calc_dual_residual(alpha_tilde:ti.template(),
                        lagrangian:ti.template(),
                        constraint:ti.template(),
-                       dual_residual:ti.template())->ti.f32:
+                       dual_residual:ti.template()):
     for i in range(dual_residual.shape[0]):
         dual_residual[i] = -(constraint[i] + alpha_tilde[i] * lagrangian[i])
-
-    res = 0.0
-    ti.loop_config(serialize=True)
-    for i in range(dual_residual.shape[0]):
-        res += dual_residual[i]
 
 
 @ti.kernel
@@ -863,7 +869,7 @@ def project_constraints(
 # %14 speed up compared to the previous version
 # 0.5ms per iter for 12K ele bunny small dt=3ms mu=1e6
 @ti.kernel
-def project_constraints_v2(
+def project_constraints_arap_v2_kernel(
     pos_mid: ti.template(),
     tet_indices: ti.template(),
     inv_mass: ti.template(),
@@ -914,6 +920,77 @@ def project_constraints_v2(
             pos[p3] += omega * inv_mass[p3] * dlambda1 * g3
 
 
+
+@ti.kernel
+def project_constraints_stableNeohookean_kernel(
+        tet_indices: ti.template(),
+        B: ti.template(),
+        inv_mass: ti.template(),
+        lagrangian_H: ti.template(),
+        lagrangian_D: ti.template(),
+        pos: ti.template(),
+        omega: ti.f32,
+        mu: ti.f32,
+        lame_lambda: ti.f32,
+        dt: ti.f32,
+        rest_volume: ti.template(),
+    ):
+        gamma = 1 + mu/lame_lambda  # stable neo-hookean
+
+        for i in tet_indices:
+            alpha_tilde_H = 1.0/(dt*dt*lame_lambda*rest_volume[i])
+            alpha_tilde_D = 1.0/(dt*dt*mu*rest_volume[i])
+
+
+            ia, ib, ic, id = tet_indices[i]
+            a, b, c, d = pos[ia], pos[ib], pos[ic], pos[id]
+            invM0, invM1, invM2, invM3 = inv_mass[ia], inv_mass[ib], inv_mass[ic], inv_mass[id]
+            D_s = ti.Matrix.cols([b - a, c - a, d - a])
+            F = D_s @ B[i]
+
+            # Constraint 1
+            C_H = F.determinant() - gamma
+            f1 = ti.Vector([F[0, 0], F[1, 0], F[2, 0]])
+            f2 = ti.Vector([F[0, 1], F[1, 1], F[2, 1]])
+            f3 = ti.Vector([F[0, 2], F[1, 2], F[2, 2]])
+
+            f23 = f2.cross(f3)
+            f31 = f3.cross(f1)
+            f12 = f1.cross(f2)
+            f = ti.Vector([f23[0], f23[1], f23[2], f31[0], f31[1], f31[2], f12[0], f12[1], f12[2]])
+            dFdp1T = make_matrix(B[i][0, 0], B[i][0, 1], B[i][0, 2])
+            dFdp2T = make_matrix(B[i][1, 0], B[i][1, 1], B[i][1, 2])
+            dFdp3T = make_matrix(B[i][2, 0], B[i][2, 1], B[i][2, 2])
+
+            g1 = dFdp1T @ f
+            g2 = dFdp2T @ f
+            g3 = dFdp3T @ f
+            g0 = -g1 - g2 - g3
+            l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr() + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
+            dLambda = (-C_H - alpha_tilde_H * lagrangian_H[i]) / (l + alpha_tilde_H)
+            lagrangian_H[i] += dLambda
+            pos[ia] += omega * invM0 * dLambda * g0
+            pos[ib] += omega * invM1 * dLambda * g1
+            pos[ic] += omega * invM2 * dLambda * g2
+            pos[id] += omega * invM3 * dLambda * g3
+
+            # Constraint 2
+            C_D = sqrt(f1.norm_sqr() + f2.norm_sqr() + f3.norm_sqr())
+            if C_D < 1e-6:
+                continue
+            r_s = 1.0 / C_D
+            f = ti.Vector([f1[0], f1[1], f1[2], f2[0], f2[1], f2[2], f3[0], f3[1], f3[2]])
+            g1 = r_s * (dFdp1T @ f)
+            g2 = r_s * (dFdp2T @ f)
+            g3 = r_s * (dFdp3T @ f)
+            g0 = r_s * (-g1 - g2 - g3)
+            l = invM0 * g0.norm_sqr() + invM1 * g1.norm_sqr() + invM2 * g2.norm_sqr() + invM3 * g3.norm_sqr()
+            dLambda = (-C_D - alpha_tilde_D * lagrangian_D[i]) / (l + alpha_tilde_D)
+            lagrangian_D[i] += dLambda
+            pos[ia] += omega * invM0 * dLambda * g0
+            pos[ib] += omega * invM1 * dLambda * g1
+            pos[ic] += omega * invM2 * dLambda * g2
+            pos[id] += omega * invM3 * dLambda * g3
 
 
 @ti.kernel
@@ -1051,7 +1128,7 @@ def set_pinpos_kernel(pin:ti.types.ndarray(), pos:ti.template(), pinpos:ti.types
     for i in range(pos.shape[0]):
         if pin[i]:
             pos[i] = pinpos[i]
-            
+
 
 @ti.kernel
 def init_B(

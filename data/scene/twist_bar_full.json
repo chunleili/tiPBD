@@ -1,0 +1,23 @@
+{
+    "out_dir": "result/bar",
+    "model_path": "data/model/twist_bar/twist_bar.node",
+    "fine_model_path": "data/model/twist_bar/twist_bar.node",
+    "coarse_model_path": "data/model/twist_bar/twist_bar_1K.node",
+    "load_file": "data/model/twist_bar/twist_bar_deformed.node",
+    "delta_t": 1e-2,
+    "solver_type": "AMG",
+    "use_multigrid": false,
+    "arch": "gpu",
+    "maxiter": 1,
+    "end_frame": -1,
+    "mu": 2334889.75,
+    "reinit": "twist_bar",
+    "mass_density": 1e3,
+    "calc_energy": 1,
+    "export_log": 0,
+    "gravity": [0, 0, 0],
+    "log_energy": false,
+    "log_residual": false,
+    "initial_load": false,
+    "initial_pause": true
+}

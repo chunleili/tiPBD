@@ -16,12 +16,23 @@ def build_Ps(A,args,extlib=None, verbose=False):
     elif method == 'CAMG':
         ml = pyamg.ruge_stuben_solver(A, max_coarse=400)
     elif method == 'adaptive_SA':
-        ml = pyamg.aggregation.adaptive_sa_solver(A.astype(np.float64), max_coarse=400, smooth=None, num_candidates=6)[0]
+        ml = pyamg.aggregation.adaptive_sa_solver(A.astype(np.float64), max_coarse=400,  num_candidates=6)[0]
     elif method == 'nullspace':
         B = calc_near_nullspace_GS(A)
         logging.info(f"B shape: {B.shape}")
         logging.info(f"B: {B}")
-        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, smooth=None,symmetry='symmetric', B=B)
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, symmetry='symmetric', B=B)
+    elif method == 'nullspace_amg':
+        B = calc_near_nullspace_amg(A)
+        logging.info(f"B shape: {B.shape}")
+        logging.info(f"B: {B}")
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, symmetry='symmetric', B=B)
+    elif method == 'rbm':
+        B_in = np.load("rbm.npy")
+        B = B_in
+        logging.info(f"B shape: {B.shape}")
+        logging.info(f"B: {B}")
+        ml = pyamg.smoothed_aggregation_solver(A, max_coarse=400, symmetry='symmetric', B=B)
     elif method == 'algebraic3.0':
         ml = pyamg.smoothed_aggregation_solver(A.astype(np.float64), max_coarse=400, smooth=None,symmetry='symmetric', strength=('algebraic_distance', {'epsilon': 3.0}))
     elif method == 'affinity4.0':
@@ -67,8 +78,8 @@ def build_Ps(A,args,extlib=None, verbose=False):
         extlib.fastmg_setup_nl.argtypes = [ctypes.c_size_t]
         extlib.fastmg_setup_nl(num_levels)
     
-    if(verbose):
-        logging.info(ml)
+    # if(verbose):
+    logging.info(ml)
 
     Ps = []
     for i in range(len(ml.levels)-1):
@@ -104,16 +115,43 @@ def calc_near_nullspace_GS(A):
     print("Calculating near nullspace")
     tic = perf_counter()
     B = np.zeros((A.shape[0],n), dtype=np.float64)
-    from pyamg.relaxation.relaxation import gauss_seidel
+    # from pyamg.relaxation.relaxation import gauss_seidel
+    from engine.solver.iterative_solver import GaussSeidelSolver
+    def get_A0():
+        return A
+    gs = GaussSeidelSolver(get_A0)
+    Amax = np.max(np.abs(A.data))
+    print(f"Amax: {Amax}")
+    x0_rand = np.random.rand(A.shape[0],6) * Amax
     for i in range(n):
-        x = np.ones(A.shape[0]) + 1e-2*np.random.rand(A.shape[0])
         b = np.zeros(A.shape[0]) 
-        gauss_seidel(A,x.astype(np.float32),b.astype(np.float32),iterations=20, sweep='forward')
+        x,_ = gs.run(b, x0_rand[:,i], maxiter=30)
+        x = (1.0/np.max(np.abs(x))) * x
+        # x = (1.0/np.linalg.norm(x)) * x
         B[:,i] = x
         print(f"norm B {i}: {np.linalg.norm(B[:,i])}")
     toc = perf_counter()
     print("Calculating near nullspace Time:", toc-tic)
     return B
+
+
+def calc_near_nullspace_amg(A):
+    n=6
+    print("Calculating near nullspace")
+    tic = perf_counter()
+    B = np.zeros((A.shape[0],n), dtype=np.float64)
+    from engine.solver.amg_cuda_easy import amg_cuda_easy
+    for i in range(n):
+        x,_ = amg_cuda_easy(A, np.ones(A.shape[0]))
+        x = (1.0/np.max(np.abs(x))) * x
+        # x = (1.0/np.linalg.norm(x)) * x
+        B[:,i] = x
+        print(f"norm B {i}: {np.linalg.norm(B[:,i])}")
+    toc = perf_counter()
+    print("Calculating near nullspace Time:", toc-tic)
+    return B
+
+
 
 
 def do_filter_P(P, theta=0.25):

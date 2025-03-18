@@ -58,3 +58,25 @@ class DirectSolver:
         r_Axb.append(np.linalg.norm(b-A@x))
         logging.info(f"    direct_solver time: {(perf_counter()-tic)*1000:.0f}ms")
         return x, r_Axb
+    
+
+class DirectSolverPardiso:
+    """Requires pypardiso"""
+    def __init__(self, get_A0):
+        import pypardiso
+        self.get_A0 = get_A0
+
+    def run(self, b):
+        import pypardiso
+        tic = perf_counter()
+        A = self.get_A0()
+        r_Axb = []
+        r_Axb.append(np.linalg.norm(b))
+        x = pypardiso.spsolve(A.astype(np.float64), b.astype(np.float64))
+        if np.isnan(x).any():
+            raise ValueError("DirectSolver: nan in x")
+        r_Axb.append(np.linalg.norm(b-A@x))
+        toc = perf_counter()
+        logging.info(f"    pardiso direct_solver time: {(toc-tic)*1000:.0f}ms")
+        return x, r_Axb
+           

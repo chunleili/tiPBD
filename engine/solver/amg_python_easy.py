@@ -2,7 +2,7 @@ import numpy as np
 from scipy.sparse import csr_matrix
 import scipy
 
-def test_amg_python():
+def test_amg_python(matA,b):
     import argparse
     import sys,os
     sys.path.append(os.getcwd())
@@ -19,11 +19,8 @@ def test_amg_python():
 
     from engine.solver.amg_python import AmgPython
 
-    b = np.loadtxt("result/AForTest/b.txt")
-
     def get_A0_1():
-        A = scipy.io.mmread("result/AForTest/A.mtx") 
-        A = csr_matrix(A)
+        A = csr_matrix(matA).astype(np.float32)
         return A
     
     def should_setup():
@@ -31,20 +28,23 @@ def test_amg_python():
 
     amg = AmgPython(args, get_A0=get_A0_1, should_setup=should_setup)
     x, r_Axb = amg.run(b)
-    Ps = amg.Ps
-    for i in range(len(Ps)):
-        scipy.io.mmwrite(f"result/AForTest/P_{i}.mtx", Ps[i])
-    print(r_Axb)
-    print("niter:", len(r_Axb))
-    print("x", x)   
-    assert r_Axb[-1] < args.tol_Axb * r_Axb[0]
 
-    import matplotlib.pyplot as plt
-    plt.plot(r_Axb)
-    plt.yscale('log')
-    plt.show()
+    print(f"AmgPython: {r_Axb[0]:.2e}->{r_Axb[-1]:.2e}")
+    print("niter:", len(r_Axb))
+    # print("x", x)   
+    # assert r_Axb[-1] < args.tol_Axb * r_Axb[0]
+    return x, r_Axb
+
+
     
 
 
 if __name__ == "__main__":
-    test_amg_python()
+    A = scipy.sparse.load_npz("result/test_A/A/A_F1.npz") 
+    b = np.load("result/test_A/A/b_F1.npy")
+    print("read done")
+    x,r_Axb=test_amg_python(A,b)
+    import matplotlib.pyplot as plt
+    plt.plot(r_Axb)
+    plt.yscale('log')
+    plt.show()

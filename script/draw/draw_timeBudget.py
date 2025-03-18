@@ -35,16 +35,13 @@ def read_from_log(log_file, frame, r_type, with0=False):
             FramePastTime[i] = float(l.split(f"FramePastTime:")[1].split()[0])
     return r, r0, FramePastTime
 
-def run_and_draw(log_file, ax, r0):
-    r, r0, FramePastTime= read_from_log(log_file, frame, r_type, with0)
-    r = np.array(r)
-    r = np.concatenate([r0, r])
-    print(r[:5])
-    ax.plot(FramePastTime, r)
-    ax.set_xlabel(f"Frame Past Time(ms)")
-    ax.set_ylabel(f"{r_type}")
+def draw(x,y,ax):
+    ax.plot(x, y)
+    ax.set_xlabel(f"Wall Time(ms)", fontsize=15)
+    ax.set_ylabel(f"Dual Residual", fontsize=15)
     ax.set_yscale("log")
-    return r
+    ax.tick_params(axis='both', which='major', labelsize=15)  # 加大 tick 的字体
+    return ax
 
 frame = 2
 r_type = "dual"
@@ -55,10 +52,15 @@ r, r0, FramePastTime= read_from_log(log_file, frame, r_type, with0)
 r = np.array(r)
 print(r[:5])
 r0__ = r[0]
-axs.plot(FramePastTime, r)
-axs.set_xlabel(f"Frame Past Time(ms)")
-axs.set_ylabel("dual residual")
+print(r.shape)
+
+# 加粗线条
+axs.plot(FramePastTime, r, linewidth=2)
+axs.set_xlabel(f"Wall Time(ms)", fontsize=15)
+axs.set_ylabel(f"Dual Residual", fontsize=15)
 axs.set_yscale("log")
+axs.tick_params(axis='both', which='major', labelsize=15)  # 加大 tick 的字体
+
 
 log_file = "result/case162-0116-bunny/latest.log"
 r, r0, FramePastTime= read_from_log(log_file, frame, r_type, with0)
@@ -67,7 +69,9 @@ r.insert(0, r0__)
 FramePastTime.insert(0, 0)
 r = np.array(r)
 axs.plot(FramePastTime, r)
-axs.legend(["XPBD", "MGPBD"])
+# axs.legend(["XPBD", "MGPBD"],font)
+axs.legend(["XPBD", "MGPBD"], fontsize=15)
+print(r.shape)
 # r_type = "Newton"
 # run_and_draw(log_file, axs[1], r_type)
 # r_type = "energy"
@@ -75,5 +79,3 @@ axs.legend(["XPBD", "MGPBD"])
 # r_type = "strain"
 # run_and_draw(log_file, axs[3], r_type)
 plt.show()
-
-Path("result/case166-0116-bunny/latest.log").mkdir(parents=True, exist_ok=True)

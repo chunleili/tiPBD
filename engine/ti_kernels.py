@@ -38,6 +38,7 @@ def calc_dual_kernel(alpha_tilde:ti.template(),
                        constraints:ti.template(),
                        dual_residual:ti.template())->ti.f32:
     dual = 0.0
+    ti.loop_config(serialize=True)
     for i in range(dual_residual.shape[0]):
         dual_residual[i] = -(constraints[i] + alpha_tilde[i] * lagrangian[i])
         dual += dual_residual[i] * dual_residual[i]
@@ -73,7 +74,10 @@ def semi_euler_kernel(
     for i in pos:
         if inv_mass[i] != 0.0:
             old_pos[i] = pos[i]
-            vel[i] += damping_coeff* delta_t * (gravity + force[i])
+            # vel[i] += damping_coeff* delta_t * (gravity + force[i])
+            vel[i] += delta_t * (gravity + force[i])
+            vel[i] *= damping_coeff
+
             pos[i] += delta_t * vel[i]
             predict_pos[i] = pos[i]
 

@@ -206,6 +206,8 @@ class Geo:
                 self.pts = a.values[5][0]
             if a.name == "target_pos":
                 self.target_pos = a.values[5]
+            if a.name == "target_pts":
+                self.target_pts = a.values
             allPointAttr.append(a)
         return self.positions
 
@@ -251,6 +253,10 @@ class Geo:
     
     def get_target_pt(self):
         return self.target_pt
+    
+    def get_target_pts(self):
+        """for muscle2muscle"""
+        return self.target_pts
     
     def get_target_pos(self):
         return self.target_pos

@@ -70,9 +70,10 @@ class ResidualDataOneIter:
             self.use_calc_strain = args.calc_strain
         self.choose_mode(converge_condition)
 
-    def check(self):
+    def check(self,r=None):
         '''Check Convergence'''
-        self.set_r() # set r and r0 according to mode
+        self.r = r
+        # self.set_r() # set r and r0 according to mode
         if self.is_diverge():
             raise Exception("diverge")
         if self.is_converge():
@@ -183,6 +184,7 @@ def calc_conv(r):
 @ti.kernel
 def calc_norm(a:ti.template())->ti.f32:
     sum = 0.0
+    ti.loop_config(serialize=True)
     for i in range(a.shape[0]):
         sum += a[i] * a[i]
     sum = ti.sqrt(sum)
@@ -226,14 +228,14 @@ def ending(args, ist):
 
     sim_time_with_export = time.perf_counter() - ist.timer_loop
     sim_time = sim_time_with_export - ist.r_all.t_export
-    nframes = (args.end_frame - ist.initial_frame) if args.end_frame > ist.initial_frame else 1
+    nframes = (args.end_frame - ist.initial_frame + 1) if args.end_frame > ist.initial_frame else 1
     avg_sim_time = sim_time / nframes
 
     s = f"\n-------\n"+\
     f"Time: {(sim_time):.2f}s = {(sim_time)/60:.2f}min.\n" + \
     f"Time with exporting: {(sim_time_with_export):.2f}s = {sim_time_with_export/60:.2f}min.\n" + \
     f"Time of exporting: {ist.r_all.t_export:.3f}s\n" + \
-    f"Frame {ist.initial_frame}-{args.end_frame}({args.end_frame-ist.initial_frame} frames)."+\
+    f"Frame {ist.initial_frame}-{args.end_frame}({nframes} frames)."+\
     f"\nAvg: {avg_sim_time}s/frame."+\
     f"\nStart\t{ist.start_date},\nEnd\t{end_date}."+\
     f"\nSum n_outer: {sum_n_outer} \nAvg n_outer: {avg_n_outer:.1f}"+\
@@ -323,8 +325,6 @@ def export_mat(ist,get_A,b):
     tic = perf_counter()
     if not args.export_matrix or get_A is None:
         return
-    if ist.frame != args.export_matrix_frame:
-        return
     if hasattr(args, "export_matrix_ite"):
         if ist.ite != args.export_matrix_ite:
             return
@@ -362,8 +362,8 @@ def export_A_b(A, b, dir, postfix=f"", binary=True):
 
 
 def do_post_iter(ist, get_A0_cuda=None):
-    ist.update_constraints() #CAUTION that this should be called before calc_r
-    ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
+    # ist.update_constraints() #CAUTION that this should be called before calc_r
+    # ist.r_iter.calc_r(ist.frame,ist.ite, ist.r_iter.tic_iter, ist.r_iter.r_Axb)
     export_mat(ist, get_A0_cuda, ist.b)
     ist.r_all.t_export += ist.r_iter.t_export
     ist.r_iter.t_export = 0.0
@@ -383,7 +383,7 @@ def main_loop(ist,args):
     ist.r_all.t_export = 0.0
 
     try:
-        for f in range(ist.initial_frame, args.end_frame+1):
+        for ist.frame in range(ist.initial_frame, args.end_frame+1):
             ist.tic_frame = time.perf_counter()
 
             if args.solver_type == "XPBD":
@@ -394,7 +394,6 @@ def main_loop(ist,args):
                 ist.substep_all_solver()
 
             export_after_substep(ist,args)
-            ist.frame += 1
 
             logging.info("\n")
             step_pbar.update(1)
@@ -634,5 +633,11 @@ def python_list_to_ti_field(l:list):
         ndarr = np.array(l, dtype = tt)
         f = ti.Vector.field(len(l[0]), dtype=tt, shape=len(l))
     f.from_numpy(ndarr)
+    return f
+        
+
+def ndarray_to_ti_field(l:np.ndarray):
+    l_ = l.tolist()
+    f = python_list_to_ti_field(l_)
     return f
         

@@ -11,7 +11,7 @@ Run multiple cases with 200 frames: `python run.py -case=2 4 -end_frame=200`
 
 You can modify the cases in the script to add more cases.
 
-last_run_batch.txt and last_run_case.text in result/meta folder will record the last run command, which is useful for reproducing the result.
+last_run_batch.txt and last_run_case.text root folder will record the last run command, which is useful for reproducing the result. batch_run_detail.log will record the detailed run information.
 """
 
 
@@ -39,6 +39,7 @@ parser.add_argument("-case", type=int, nargs='*',help=f"case numbers(can be mult
 parser.add_argument("-end_frame", type=int, default=10, help=f"end frame")
 parser.add_argument("-overwrite", action="store_true")
 parser.add_argument("-A", type=str, help="export a matrix file for testing")
+parser.add_argument("-exportCases", action="store_true", help="export the cases to json file")
 
 end_frame = parser.parse_args().end_frame
 
@@ -53,20 +54,20 @@ def export_A(cli_args):
         # output a matrix for testing
         if cli_args.A == "soft":
                 args = ["engine/soft/soft3d.py",
-                        f"-end_frame={end_frame}",
                         f"-out_dir=result/test_A",
                         f"-auto_another_outdir={auto_another_outdir}",
-                        "-model_path=data/model/bunny85w/bunny85w.node",
+                        "-model_path=data/model/bunnyBig/bunnyBig.node",
                         "-rtol=1e-2",
                         "-tol=1e-4",
-                        "-delta_t=3e-3",
+                        "-delta_t=1e-3",
                         "-solver_type=AMG",
                         "-arch=cpu",
                         "-maxiter=100",
                         "-smoother_niter=2",
                         "-build_P_method=strength0.1",
-                        "-end_frame=1",
+                        "-end_frame=2",
                         "-export_matrix=1",
+                        "-mu=1e9"
                         ]
                 subprocess.check_call([pythonExe] + args)
         
@@ -89,36 +90,38 @@ casenames= {}
 
 # naming convention: case{case_num}-{date:4 digits}-{object_type:cloth or soft}{resolution}-{solver_type:AMG or XPBD}
 
-# case1: cloth 1024 AMG 3ms
-case_num = len(allargs)
-casenames[case_num] = "cloth-1024-AMG-3ms"
+# case1: cloth   AMG 
+casenames[len(allargs)] = "cloth-AMG"
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=AMG",
         f"-end_frame=100",
-        f"-out_dir=result/case{case_num}-{day}-{casenames[case_num]}",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-arch=cpu",
-        "-N=64",
-        "-maxiter=50",
-        "-delta_t=10e-3",
-        "-rtol=1e-2",
+        "-N=256",
+        "-maxiter=20",
+        "-delta_t=1e-3",
         "-tol=1e-4",
-        "-end_frame=100",
+        "-end_frame=2000",
+        "-compliance=1e-9",
+        "-build_P_method=strength0.1"
         ]
 allargs.append(args)
 
-# case2: cloth 64 XPBD gpu 5ms
+# case2: cloth  XPBD gpu
+casenames[len(allargs)] = "cloth-xpbd"
 args = ["engine/cloth/cloth3d.py",
         "-solver_type=XPBD",
         f"-end_frame=100",
-        f"-out_dir=result/case{len(allargs)}-{day}-XPBD",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
         f"-auto_another_outdir={auto_another_outdir}",
         "-arch=gpu",
-        "-N=1024",
+        "-N=256",
         "-maxiter=10000",
-        "-delta_t=3e-3",
+        "-delta_t=1e-3",
         "-tol=1e-4",
         "-end_frame=100",
+        "-compliance=1e-9"
         ]
 allargs.append(args)
 
@@ -1739,7 +1742,7 @@ args = ["engine/soft/soft3d.py",
         "-maxiter=20",
         "-mu=1e9",
         "-use_gravity=1",
-        "-geo_dir=data/model/extraSpring",
+        "-geo_dir=data/model/capybara-full",
         "-delta_t=3e-3",
         ]
 allargs.append(args)
@@ -1774,6 +1777,486 @@ args = ["engine/soft/soft3d.py",
         ]
 allargs.append(args)
 
+# case159: bunny squash small
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-soft85w-squash",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-end_frame=100",
+        "-maxiter=20",
+        "-mu=1e9",
+        "-use_gravity=0",
+        "-reinit=squash",
+        ]
+allargs.append(args)
+ 
+# case160: bunny squash large
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-bunny-squash",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunnyBig/bunnyBig.node",
+        "-tol=1e-4",
+        "-delta_t=1e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=150",
+        "-end_frame=300",
+        "-mu=1e9",
+        "-use_gravity=0",
+        "-reinit=squash",
+        # "-smoother_niter=2",
+        # "-build_P_method=strength0.1",
+        ]
+allargs.append(args)
+
+
+# case161-164: bunny for different size
+timeBudget=[0.5,1,5,10]
+for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]):
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-bunny",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=AMG",
+            "-arch=cpu",
+            "-maxiter=10000",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=0",
+            "-reinit=squash",
+            f"-time_budget={timeBudget[i]}"
+            ]
+    allargs.append(args)
+
+
+# case165-168: bunny for different size
+timeBudget=[0.5,1,5,10]
+for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]):
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-bunny",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=XPBD",
+            "-arch=gpu",
+            "-maxiter=10000",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=0",
+            "-reinit=squash",
+            f"-time_budget={timeBudget[i]}"
+            ]
+    allargs.append(args)
+
+
+
+
+# case169-172: cloth for different size
+for config in [64,128,256,512]:
+    args = ["engine/cloth/cloth3d.py",
+            "-solver_type=AMG",
+            f"-end_frame=100",
+            f"-out_dir=result/case{len(allargs)}-{day}-cloth{config}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            "-arch=cpu",
+            f"-N={config}",
+            "-maxiter=3000",
+            "-delta_t=3e-3",
+            "-tol=1e-4",
+            "-end_frame=240",
+            "-compliance=1e-9",
+            "-time_budget=200.0",
+            ]
+    allargs.append(args)
+
+# case173-176: cloth for different size
+for config in [64,128,256,512]:
+    args = ["engine/cloth/cloth3d.py",
+            "-solver_type=XPBD",
+            f"-end_frame=100",
+            f"-out_dir=result/case{len(allargs)}-{day}-cloth{config}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            "-arch=gpu",
+            f"-N={config}",
+            "-maxiter=100000",
+            "-delta_t=3e-3",
+            "-tol=1e-4",
+            "-end_frame=180",
+            "-compliance=1e-9",
+            "-time_budget=200.0"
+            ]
+    allargs.append(args)
+
+
+    
+# case177: 
+casenames[len(allargs)] = "human"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/{casenames[len(allargs)]}",
+        "-start_frame=1300",
+        "-end_frame=1305",
+        "-use_pintotarget=1",
+        "-maxiter=20",
+        "-mu=1e9",
+        "-use_gravity=1",
+        "-geo_dir=data/model/human",
+        "-delta_t=3e-3",
+        ]
+allargs.append(args)
+
+
+# case178(from case 98): for draw sparsity partten soft85w AMG niter3 3ms SA
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-sparsity_SA",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=20",
+        "-smoother_niter=3",
+        "-build_P_method=SA",
+        "-export_matrix=1",
+        ]
+allargs.append(args)
+
+# case179(from case 98): for draw sparsity partten UA
+args = ["engine/soft/soft3d.py",
+        f"-end_frame={end_frame}",
+        f"-out_dir=result/case{len(allargs)}-{day}-sparsity_UA",
+        f"-auto_another_outdir={auto_another_outdir}",
+        "-model_path=data/model/bunny85w/bunny85w.node",
+        "-rtol=1e-2",
+        "-tol=1e-4",
+        "-delta_t=3e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=20",
+        "-smoother_niter=3",
+        "-build_P_method=UA",
+        "-export_matrix=1",
+        ]
+allargs.append(args)
+
+
+#case 180: timeBudgetSoftSmall 10ms AMG
+casenames[len(allargs)] = "timeBudgetSoftSmallMG"
+args = ["engine/soft/soft3d.py",
+    f"-out_dir=result/case{len(allargs)}-{day}-timeBudgetSoftSmallMG",
+        "-model_path=data/model/bunny_small/bunny_small.node",
+        "-tol=1e-3",
+        "-delta_t=10e-3",
+        "-solver_type=AMG",
+        "-arch=cpu",
+        "-maxiter=20",
+        "-end_frame=300",
+        "-mu=1e9",
+        "-use_gravity=0",
+        "-reinit=squash",
+        "-time_budget=1.0"
+]
+allargs.append(args)
+
+
+#case 181: timeBudgetSoftSmall 10ms XPBD
+casenames[len(allargs)] = "timeBudgetSoftSmallXPBD"
+args=["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-timeBudgetSoftSmallXPBD",
+        "-model_path=data/model/bunny_small/bunny_small.node",
+        "-tol=1e-3",
+        "-delta_t=10e-3",
+        "-solver_type=XPBD",
+        "-arch=gpu",
+        "-maxiter=10000",
+        "-end_frame=300",
+        "-mu=1e9",
+        "-use_gravity=0",
+        "-reinit=squash",
+        "-time_budget=1.0"
+        ]
+allargs.append(args)
+
+#case 182: timeBudgetCloth256 10ms AMG
+casenames[len(allargs)] = "timeBudgetCloth256MG"
+args=["engine/soft/soft3d.py",
+        "-solver_type=AMG",
+        "-end_frame=300",
+        "-out_dir=result/timeBudget-cloth-MGPBD",
+        "-arch=gpu",
+        "-N=256",
+        "-maxiter=10000",
+        "-delta_t=10e-3",
+        "-tol=1e-4",
+        "-compliance=1e-9",
+        "-use_gravity=1",
+        "-time_budget=1.0"
+        ]
+allargs.append(args)
+
+
+#case 183: timeBudgetCloth256 10ms XPBD
+casenames[len(allargs)] = "timeBudgetCloth256XPBD"
+args = ["engine/soft/soft3d.py",
+            "-solver_type=XPBD",
+            "-end_frame=300",
+            "-out_dir=result/case{len(allargs)}-{day}-timeBudget-cloth-XPBD",
+            "-arch=gpu",
+            "-N=256",
+            "-maxiter=10000",
+            "-delta_t=10e-3",
+            "-tol=1e-4",
+            "-compliance=1e-9",
+            "-use_gravity=1",
+            "-time_budget=1.0"
+            ]
+allargs.append(args)
+
+
+
+
+# case184-189: ball for different size
+for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]*2):
+    if i<=2:
+        solver = "AMG"
+    else:
+        solver = "XPBD"
+    dt = 10e-3
+    model = config.split("/")[0]
+    casenames[len(allargs)] = f"{model}-{solver}"
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/ball-rere-damped/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+           f"-solver_type={solver}",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            f"-time_budget={1}",
+            "-damping_coeff=0.9",
+            ]
+    allargs.append(args)
+
+
+
+
+
+
+#case 190-195: beam for dt = 10ms 20ms 30ms
+for i, config in enumerate(["10e-3","20e-3","30e-3"]*2):
+    if i<=2:
+        solver = "AMG"
+    else:
+        solver = "XPBD"
+    model = "beam2.8k"
+    casenames[len(allargs)] = f"{config}-{solver}"
+    args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/beamdt-rerun/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        "-model_path=data/model/beam2.8k/beam2.8k.geo",
+        "-tol=1e-3",
+        f"-delta_t={config}",
+        f"-solver_type={solver}",
+        "-arch=gpu",
+        "-maxiter=10000",
+        "-end_frame=100",
+        "-mu=1e12",
+        "-use_gravity=1",
+        "-reinit=beam",
+        "-time_budget=0.5",
+        "-total_mass=1e3",
+        "-clean_dir=1",
+        "-damping_coeff=0.95",
+        "-local_interval=10"
+        ]
+    allargs.append(args)
+
+# case196-197 chain
+timeBudget = [1]*2
+for i, config in enumerate(["30"]*2):
+    if i<=0:
+        solver = "AMG"
+    else:
+        solver = "XPBD"
+    casenames[len(allargs)] = f"chain-N{config}-{solver}"
+    args = ["engine/cloth/cloth3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-solver_type={solver}",
+            "-tol=1e-9",
+            "-arch=gpu",
+            f"-time_budget={timeBudget[i]}",
+            "-setup_num=2",
+            "-maxiter=10000",
+            f"-N={config}",
+            "-end_frame=100",
+            "-delta_t=10e-3",
+        ]
+    allargs.append(args)
+
+
+
+
+
+
+
+
+# case198 199 200: ball for different size with local 10 
+for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]):
+    solver = "AMG"
+    dt = 10e-3
+    model = config.split("/")[0]
+    casenames[len(allargs)] = f"{model}-{solver}"
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=AMG",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            f"-time_budget={1}",
+             "-local_interval=10"
+            ]
+    allargs.append(args)
+
+
+# case201 ball 99k XPBD 10ms timebudget=1
+config="ball99k/ball99k.node"
+solver = "XPBD"
+dt = 10e-3
+model = config.split("/")[0]
+casenames[len(allargs)] = f"{model}-{solver}"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+        f"-auto_another_outdir={auto_another_outdir}",
+        f"-model_path=data/model/{config}",
+        "-tol=1e-3",
+        "-delta_t=10e-3",
+        f"-solver_type={solver}",
+        "-arch=gpu",
+        "-maxiter=100",
+        "-end_frame=300",
+        "-mu=1e9",
+        "-use_gravity=1",
+        "-reinit=freefall",
+        f"-time_budget={1}"
+        ]
+allargs.append(args)
+
+    
+
+# case202: XPBD
+casenames[len(allargs)] = "capybara-XPBD"
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/{casenames[len(allargs)]}",
+        "-end_frame=300",
+        "-solver_type=XPBD",
+        "-use_pintotarget=1",
+        "-maxiter=10000",
+        "-mu=1e9",
+        "-time_budget=2.3",
+        "-use_gravity=1",
+        "-geo_dir=data/model/capybara-full",
+        "-delta_t=3e-3",
+        ]
+allargs.append(args)
+
+
+# case203-205: ball for different size rerun 184-186 with local 10
+for i,config in enumerate(["ball1k/ball1k.node","ball22k/ball22k.node","ball99k/ball99k.node"]):
+    solver = "AMG"
+    dt = 10e-3
+    model = config.split("/")[0]
+    casenames[len(allargs)] = f"{model}-{solver}-local10"
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+           f"-solver_type={solver}",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            f"-time_budget={0.1}",
+                "-local_interval=10"
+            ]
+    allargs.append(args)
+
+
+
+
+# case206(186-rerun with Direct): ball for different size
+for i,config in enumerate(["ball99k/ball99k.node"]):
+    solver = "AMG"
+    dt = 10e-3
+    model = config.split("/")[0]
+    casenames[len(allargs)] = f"{model}-{solver}-direct"
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-{casenames[len(allargs)]}",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+           f"-solver_type={solver}",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            f"-time_budget={1}",
+            "-use_only_direct=1"
+            ]
+    allargs.append(args)
+
+# case207
+casenames[len(allargs)] = "bunny85w-pardiso"
+args=[        "engine/soft/soft3d.py",
+        "-out_dir=result/bunny-direct",
+            "-model_path=data/model/bunny85w/bunny85w.node",
+            "-tol=1e-3",
+            "-delta_t=10e-3",
+            "-solver_type=DIRECT",
+            "-direct_solver_type=pardiso",
+            "-arch=gpu",
+            "-maxiter=100",
+            "-end_frame=300",
+            "-mu=1e9",
+            "-use_gravity=1",
+            "-reinit=freefall",
+            "-time_budget=1",]
+allargs.append(args)
+
+
+def export_cases_to_json(allargs):
+    import json
+    for i in range(len(allargs)):
+        if i in casenames:
+            casename = f"data/config/generated/case{i}-{casenames[i]}.json"
+        else:
+            casename = f"data/config/generated/case{i}.json"
+        print(f"Exporting {casename}")
+        Path(casename).parent.mkdir(parents=True, exist_ok=True)
+        with open(casename, "w") as f:
+            json.dump(allargs[i], f, indent=4)
 
 
 def run_case(case_num:int):
@@ -1782,6 +2265,8 @@ def run_case(case_num:int):
         sys.exit(1)
     
     args = allargs[case_num]
+    
+
     if parser.parse_args().profile:
         logging.info(f"Running with cProfile. Output to '{case_num}.profile' file. Use 'snakeviz {case_num}.profile' to view the result.")
         args = [pythonExe,"-m","cProfile", "-o", "profile", *args]
@@ -1802,7 +2287,7 @@ def run_case(case_num:int):
 def log_args(args:list):
     args1 = " ".join(args) # 将ARGS转换为字符串
     print(f"\nArguments:\n{args1}\n")
-    with open("result/meta/last_run_case.txt", "w") as f:
+    with open("last_run_case.txt", "w") as f:
         f.write(f"{args1}\n")
 
 def get_date():
@@ -1811,21 +2296,26 @@ def get_date():
 
 # python run.py -end_frame=10 -cases  63 64 65 66 67 68 | Tee-Object -FilePath "output.log"
 if __name__=='__main__':
-    Path("result/meta/").mkdir(parents=True, exist_ok=True)
-    if os.path.exists(f'result/meta/batch_run.log'):
-        os.remove(f'result/meta/batch_run.log')
-    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=f'result/meta/batch_run.log',filemode='a')
+    if os.path.exists(f'batch_run_detail.log'):
+        os.remove(f'batch_run_detail.log')
+    logging.basicConfig(level=logging.INFO, format="%(message)s",filename=f'batch_run_detail.log',filemode='w')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
     date = datetime.datetime.now().strftime("%y-%m-%d %H:%M:%S")
     last_run = " ".join(sys.argv)
     logging.info(f"Date:{date}\nCommand:\n{last_run}\n\n")
-    with open("result/meta/last_run_batch.txt", "w") as f:
+    with open("last_run_batch.txt", "w") as f:
         f.write(f"{last_run}\n")
 
     cli_args = parser.parse_args()
 
+
+    if cli_args.exportCases:
+        print("Exporting cases to json (data/config/generated/)...")
+        export_cases_to_json(allargs)
+        print("Export done.")
+        exit(0)
 
     if cli_args.A is not None:
         export_A(cli_args)
@@ -1835,6 +2325,8 @@ if __name__=='__main__':
         try:
             for case_num in cli_args.case:
                 logging.info(f"Running case {case_num}...\nDate={get_date()}\n")
+                if case_num in casenames:
+                    logging.info(f"Case name: {casenames[case_num]}\n")
                 tic1 = perf_counter()
                 run_case(case_num)
                 tic2 = perf_counter()

@@ -31,7 +31,6 @@ from engine.line_search import LineSearch
 from engine.physical_data import PhysicalData
 
 
-
 def init_args():
     #parse arguments to change default values
     from engine.common_args import add_common_args
@@ -41,7 +40,8 @@ def init_args():
     parser.add_argument("-N", type=int, default=64)
     parser.add_argument("-compliance", type=float, default=1.0e-8)
     parser.add_argument("-compliance_bending", type=float, default=1.0e-8)
-    parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1")
+    parser.add_argument("-setup_num", type=int, default=0, help="attach:0, scale:1 2:chain")
+    parser.add_argument("-reinit", type=str, default=None,choices=["attach","scale","chain"]) # we just to keep consitent with soft3d. If None, this will not work and use setup_num.
     parser.add_argument("-omega", type=float, default=0.25)
     parser.add_argument("-smoother_type", type=str, default="chebyshev")
     parser.add_argument("-use_bending", type=int, default=False)
@@ -70,32 +70,52 @@ class Cloth(PhysicalBase):
         self.args = args
         self.extlib = extlib
         self.sim_type = "cloth"
+        self.initial_frame = args.start_frame
+        self.frame = args.start_frame
 
         # ---------------------------------------------------------------------------- #
         #                               mesh and topology                              #
         # ---------------------------------------------------------------------------- #
+        self.transfer_reinit_to_setup_num()
         self.build_mesh()
         self.init_constraints(self.edge, self.pos,self.tri)
         self.init_dynamics(self.NV)
         self.init_physics(args.N, args.setup_num, self.NV)
+        self.write_topo()
+        self.reinit()
+        self.linsol = self.init_linear_solver(args, extlib)
 
+        self.init_fill()
+    
+    def transfer_reinit_to_setup_num(self):
+        if args.reinit == "attach":
+            args.setup_num = 0
+        elif args.reinit == "scale":
+            args.setup_num = 1
+        elif args.reinit == "chain":
+            args.setup_num = 2
+
+
+    def reinit(self):
+        if args.setup_num == 0:
+            self.set_pin(self.NV, args.N, 0)
+            self.set_mass(self.NV, self.pin)
+        if args.setup_num == 1:
+            from engine.ti_kernels import init_scale
+            init_scale(self.NV, self.pos, 1.5)
+        if args.setup_num == 2:
+            self.pin = np.zeros(self.NV, dtype=np.int32)
+            self.pin[0] = 1
+            self.set_mass_chain(self.NV, self.pin)
+
+
+    def write_topo(self):
         if args.export_strain:
             self.max_strain = 0.0
             self.strain = ti.field(ti.f32, shape=self.NCONS)
             from engine.cloth.build_cloth_mesh import write_and_rebuild_topology
             self.v2e, self.v2t, self.e2t = write_and_rebuild_topology(self.edge.to_numpy(),self.tri,args.out_dir)
-
-        self.linsol = self.init_linear_solver(args, extlib)
-
-        if args.setup_num == 1:
-            from engine.ti_kernels import init_scale
-            init_scale(self.NV, self.pos, 1.5)
-
-        if args.solver_type == "AMG":
-            self.args.use_initFill = True
-        if self.args.use_initFill:
-            self.init_fill()
-
+        
 
     def set_pin(self, NV, N, setup_num):
         pin = np.zeros(NV, dtype=np.int32)
@@ -124,16 +144,37 @@ class Cloth(PhysicalBase):
         self.inv_mass.from_numpy(inv_mass_np)
 
 
+    def set_mass_chain(self, NV, pin):
+        mass = np.zeros(NV, dtype=np.float32)
+        inv_mass_np = np.zeros(NV, dtype=np.float32)
+        # increasingly heavier, 0 1 4.. NV^2
+        mass[:] = np.arange(0,NV)**2
+        mass[pin!=0] = 0.0 
+        inv_mass_np[:] = 1.0/mass
+        inv_mass_np[pin!=0] = 0.0 
+        
+        inv_mass3 = np.repeat(inv_mass_np, 3, axis=0)
+        M_inv = scipy.sparse.diags(inv_mass3)
+        mass3 = np.repeat(mass, 3, axis=0)
+        MASS = scipy.sparse.diags(mass3, format="csr")
+        self.MASS = MASS
+        self.M_inv = M_inv
+        self.inv_mass    = ti.field(dtype=float, shape=(NV))
+        self.inv_mass.from_numpy(inv_mass_np)
+
+
     def init_physics(self, N, setup_num, NV):
         pin = self.set_pin(NV,N,setup_num)
         self.set_mass(NV,pin)
 
         
     def build_mesh(self,):
+        if args.setup_num == 2:
+            args.cloth_mesh_type = "chain"
         # cloth_type = "quad" or
         # cloth_type = "tri"
         # args.cloth_mesh_file = "data/model/tri_cloth/N64.ply"
-        from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth, TriMeshClothTxt
+        from engine.cloth.build_cloth_mesh import TriMeshCloth, QuadMeshCloth, TriMeshClothTxt, ChainMeshCloth
         if args.cloth_mesh_type=="tri":
             mesh = TriMeshCloth(args.cloth_mesh_file)
             name = Path(args.cloth_mesh_file).name
@@ -141,9 +182,12 @@ class Cloth(PhysicalBase):
         elif args.cloth_mesh_type=="quad":
             mesh = QuadMeshCloth(args.N)
             self.sim_name=f"cloth-N{args.N}"
-        if args.cloth_mesh_type=="txt":
+        elif args.cloth_mesh_type=="txt":
             mesh = TriMeshClothTxt(args.pos_file, args.edge_file, args.tri_file)
             self.sim_name=f"cloth-txt"
+        elif args.cloth_mesh_type=="chain": # caution
+            mesh = ChainMeshCloth(args.N)
+            self.sim_name=f"chain-{args.N}"
         pos, edge, tri = mesh.build()
 
         self.NV, self.NE, self.NT = mesh.NV, mesh.NE, mesh.NT
@@ -233,19 +277,63 @@ class Cloth(PhysicalBase):
         self.G = G
         return G
 
+
+    def has_no_time_budget(self):
+        self.frame_past_time = perf_counter() - self.tic_frame
+        self.timeBudget_left = args.time_budget - self.frame_past_time
+        logging.info(f"Time budget left: {self.timeBudget_left*1000:.0f}ms")
+        if args.solver_type=="AMG":
+            if self.should_setup(): 
+                self.timeBudget_left = args.time_budget
+                logging.info("refresh time budget for setup iter")
+                return False
+        if self.timeBudget_left < 0:
+            logging.info(f"Time budget exceeded, break: frame past time: {self.frame_past_time:.2f}s, iter:{self.ite}")
+            return True
+        return False
+    
+    
+    def AMG_calc_r(self, r,dual0, tic_iter, r_Axb):
+        from engine.ti_kernels import calc_dual_kernel
+        self.t_iter = perf_counter()-tic_iter
+        tic_calcr = perf_counter()
+        calc_dual_kernel(self.alpha_tilde, self.lagrangian, self.constraints, self.dual_residual)
+        dual_r = np.linalg.norm(self.dual_residual.to_numpy()).astype(float)
+        r_Axb = r_Axb.tolist() if isinstance(r_Axb,np.ndarray) else r_Axb
+        logging.info(f"    Calc r time: {(perf_counter()-tic_calcr)*1000:.0f}ms")
+
+        if args.export_fulldual:
+            if self.ite==0 or self.ite==args.maxiter-1:
+                np.save(args.out_dir+f"/r/fulldual-{self.frame}-{self.ite}.npy",self.dual_residual.to_numpy())
+
+        if args.export_log:
+            logging.info(f"    iter total time: {self.t_iter*1000:.0f}ms")
+            logging.info(f"{self.frame}-{self.ite} rsys:{r_Axb[0]:.2e} {r_Axb[-1]:.2e} dual0:{dual0:.2e} dual:{dual_r:.2e} iter:{len(r_Axb)}")
+        r.append(dual_r)
+
+        return dual_r
+    
+
     def substep_all_solver(self):
         self.semi_euler()
         self.lagrangian.fill(0)
-        self.r_iter.calc_r0()
+        self.dual0 = self.r_iter.calc_r0()
+        # self.dual0 = self.calc_dual()
+        r=[]
         for self.ite in range(args.maxiter):
             self.r_iter.tic_iter = perf_counter()
             self.compute_C_and_gradC()
             self.b = self.compute_b()
             dlambda, self.r_iter.r_Axb = self.linsol.run(self.b)
             self.dlam2dpos(dlambda)
-            self.update_pos()
+            self.update_pos()   
+            self.dualr = self.AMG_calc_r( r, self.r_iter.dual0, self.r_iter.tic_iter, self.r_iter.r_Axb)
             do_post_iter(self, self.get_A0_cuda)
-            if self.r_iter.check():
+            if self.has_no_time_budget():
+                break
+            if self.dualr<args.tol:
+                break
+            if self.dualr/self.dual0<args.rtol:
                 break
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
@@ -256,21 +344,46 @@ class Cloth(PhysicalBase):
             # TODO: should use seperate dual_residual_bending and lagrangian_bending
             solve_bending_constraints_xpbd(self.dual_residual, self.inv_mass, self.lagrangian, self.dpos, self.pos, self.bending_length, self.tri_pairs, self.alpha_bending)
         solve_distance_constraints_xpbd(self.dual_residual, self.inv_mass, self.edge, self.rest_len, self.lagrangian, self.dpos, self.pos, self.alpha_tilde)
+        
+    def substep_xpbd(ist):
+        semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos,args.delta_t)
+        reset_lagrangian(ist.lagrangian)
 
-    def substep_xpbd(self):
-        self.semi_euler()
-        self.lagrangian.fill(0)
-        self.do_pre_iter0()
-        for self.ite in range(args.maxiter):
-            self.r_iter.tic_iter = perf_counter()
-            self.project_constraints_xpbd()
-            self.update_pos()
-            self.do_post_iter_xpbd()
-            if self.r_iter.check():
+        ist.r_iter.calc_r0()
+        for ist.ite in range(args.maxiter):
+            tic_iter = perf_counter()
+
+            reset_dpos(ist.dpos)
+            if args.use_bending:
+                # TODO: should use seperate dual_residual_bending and lagrangian_bending
+                solve_bending_constraints_xpbd(ist.dual_residual, ist.inv_mass, ist.lagrangian, ist.dpos, ist.pos, ist.bending_length, ist.tri_pairs, ist.alpha_bending)
+            solve_distance_constraints_xpbd(ist.dual_residual, ist.inv_mass, ist.edge, ist.rest_len, ist.lagrangian, ist.dpos, ist.pos, ist.alpha_tilde)
+            update_pos(ist.inv_mass, ist.dpos, ist.pos,args.omega)
+
+            if ist.has_no_time_budget():
                 break
-        self.collision_response()
-        self.n_outer_all.append(self.ite+1)
-        self.update_vel()
+        
+            if args.calc_dual: #calc dual is expensive becuase of we have to calculate norm. which cost 3ms compared to 0.3ms for solve_constraints
+                ist.dualr=xpbd_calcr(ist, tic_iter, ist.r_iter.dual0)
+                if ist.dualr<args.tol:
+                    break
+        ist.n_outer_all.append(ist.ite+1)
+        update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
+
+    # def substep_xpbd(self):
+    #     self.semi_euler()
+    #     self.lagrangian.fill(0)
+    #     self.do_pre_iter0()
+    #     for self.ite in range(args.maxiter):
+    #         self.r_iter.tic_iter = perf_counter()
+    #         self.project_constraints_xpbd()
+    #         self.update_pos()
+    #         self.do_post_iter_xpbd()
+    #         if self.r_iter.check():
+    #             break
+    #     self.collision_response()
+    #     self.n_outer_all.append(self.ite+1)
+    #     self.update_vel()
 
 
     def step_one_iter_mgpbd(self):
@@ -368,6 +481,8 @@ class Cloth(PhysicalBase):
 
 
     def init_fill(self):
+        if args.solver_type == "AMG":
+            self.args.use_initFill = True
         if args.solver_type == "XPBD" :
             return
         tic = time.perf_counter()
@@ -487,6 +602,70 @@ def semi_euler_kernel(
             predict_pos[i] = pos[i]
 
 
+
+
+def xpbd_calcr(ist, tic_iter, dual0):
+    t_iter = perf_counter()-tic_iter
+    tic_calcr = perf_counter()
+    dualr = calc_norm(ist.dual_residual)
+    if args.export_fulldual:
+        if ist.ite==0 or ist.ite==args.maxiter-1:
+            np.save(args.out_dir+f"/r/fulldual-{ist.frame}-{ist.ite}.npy",ist.dual_residual.to_numpy())
+    t_calcr = perf_counter()-tic_calcr
+    tic_exportr = perf_counter()
+    if args.export_log:
+        logging.info(f"{ist.frame}-{ist.ite}  dual0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{t_calcr:.2e}s")
+    ist.r_iter.t_export += perf_counter() - tic_exportr
+    return dualr
+
+@ti.kernel
+def update_vel(
+    old_pos:ti.template(),
+    inv_mass:ti.template(),    
+    vel:ti.template(),
+    pos:ti.template(),
+):
+    for i in range(ist.NV):
+        if inv_mass[i] != 0.0:
+            vel[i] = (pos[i] - old_pos[i]) / args.delta_t
+
+@ti.kernel
+def semi_euler(
+    old_pos:ti.template(),
+    inv_mass:ti.template(),
+    vel:ti.template(),
+    pos:ti.template(),
+    predict_pos:ti.template(),
+    delta_t:ti.f32,
+):
+    g = ti.Vector(args.gravity)
+    for i in range(ist.NV):
+        if inv_mass[i] != 0.0:
+            vel[i] += delta_t * g
+            old_pos[i] = pos[i]
+            pos[i] += delta_t * vel[i]
+            predict_pos[i] = pos[i]
+
+@ti.kernel
+def reset_lagrangian(lagrangian: ti.template()):
+    for i in range(ist.NE):
+        lagrangian[i] = 0.0
+
+@ti.kernel 
+def reset_dpos(dpos:ti.template()):
+    for i in range(ist.NV):
+        dpos[i] = ti.Vector([0.0, 0.0, 0.0])
+
+@ti.kernel
+def update_pos(
+    inv_mass:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+    omega:ti.f32,
+):
+    for i in range(ist.NV):
+        if inv_mass[i] != 0.0:
+            pos[i] += omega * dpos[i]
 
 @ti.kernel
 def solve_distance_constraints_xpbd(

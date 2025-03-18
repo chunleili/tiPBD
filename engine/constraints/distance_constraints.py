@@ -142,7 +142,7 @@ def pintotarget_kernel(
 
 @ti.data_oriented
 class PinToTarget():
-    """Pin to target geometry"""
+    """Pin to target geometry: pos[pts] -> target_pos"""
     def __init__(self,  pts, pos, target_pos):
         self.pts = pts
 
@@ -156,4 +156,93 @@ class PinToTarget():
     def solve(self, pos, target_pos, maxiter):
         pintotarget_kernel(self.pts, pos, target_pos, self.restpos, self.rest_target_pos,   maxiter)
         ...
-        
+
+
+
+
+
+
+
+
+@ti.kernel
+def solve_distance_constraints_xpbd_kernel(
+    inv_mass:ti.template(),
+    p1:ti.template(),
+    p2:ti.template(),
+    rest_len:ti.template(),
+    lagrangian:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+    alpha:ti.template(),
+    delta_t:ti.f32
+):
+    for i in range(dpos.shape[0]):
+        dpos[i] = ti.Vector([0.0, 0.0, 0.0])
+
+    for i in range(p1.shape[0]):
+        idx0, idx1 = p1[i], p2[i]
+        invM0, invM1 = inv_mass[idx0], inv_mass[idx1]
+        dis = pos[idx0] - pos[idx1]
+        l = dis.norm()
+        constraint = l - rest_len[i]
+        if l == 0.0:
+            continue
+        gradient = dis/l
+        alpha_tilde = alpha[i] / delta_t / delta_t
+        delta_lagrangian = -(constraint + lagrangian[i] * alpha_tilde) / (invM0 + invM1 + alpha_tilde)
+        lagrangian[i] += delta_lagrangian
+
+        if invM0 != 0.0:
+            dpos[idx0] += invM0 * delta_lagrangian * gradient
+        if invM1 != 0.0:
+            dpos[idx1] -= invM1 * delta_lagrangian * gradient
+
+
+@ti.kernel
+def _init_restlen2_kernel(
+    p1:ti.template(),
+    p2:ti.template(),
+    pos:ti.template(),
+    rest_len:ti.template(),
+):
+    for i in range(rest_len.shape[0]):
+        rest_len[i] = (pos[p1[i]] - pos[p2[i]]).norm()
+
+@ti.data_oriented
+class DistanceConstraints():
+    """Distance constraints"""
+    def __init__(self,  p1, p2, pos, compliance=0.1, omega=0.25):
+        self.omega = omega
+        self.aos =  self.init_constraints(p1, p2, pos, compliance)
+        self.pos_mid = ti.Vector.field(3, dtype=ti.f32, shape=pos.shape[0])
+        self.dpos = ti.Vector.field(3, dtype=ti.f32, shape=pos.shape[0])
+        from engine.util import ndarray_to_ti_field
+        self.inv_mass = ndarray_to_ti_field(np.ones(p1.shape[0], dtype=np.float32))
+        ...
+
+
+    def set_alpha(self, stiffness:list[float]):
+        alpha = np.array(stiffness, dtype=np.float32)
+        alpha[:] = 1.0 / alpha[:]
+        self.aos.alpha.from_numpy(alpha)
+
+    def init_constraints(self, p1, p2, pos, compliance):
+        NCONS = p1.shape[0]
+        aos = DistanceConstraintAos.field(shape=NCONS)
+        aos.idx.from_numpy(np.arange(NCONS, dtype=np.int32))
+        aos.p1.copy_from(p1)
+        aos.p2.copy_from(p2)
+        aos.alpha.from_numpy(np.ones(NCONS, dtype=np.float32) * compliance)
+        _init_restlen2_kernel(aos.p1, aos.p2, pos, aos.rest_len)
+        return aos
+    
+    @timeit
+    def solve_one_iter(self, pos, delta_t):
+        """
+        Solve one iteration of the distance constraint
+
+        Usage: First build constraints.  Before the loop: Reset the aos.lam . During the loop: Call this function before solve other constraints.
+        """
+        self.pos_mid.copy_from(pos)
+        solve_distance_constraints_xpbd_kernel(self.inv_mass, self.aos.p1, self.aos.p2, self.aos.rest_len, self.aos.lam, self.dpos, self.pos_mid, self.aos.alpha, delta_t)
+        _update_pos_kernel(self.inv_mass, self.dpos, self.omega, pos)

@@ -2,57 +2,29 @@ def calc_conv(r):
     return (r[-1]/r[0])**(1.0/(len(r)-1))
 
 
-def print_df(labels, convs, times, verbose=False):
-    import pandas as pd
-    print("\n\nDataframe of convergence factor and time taken for each solver")
-    pd.set_option("display.precision", 3)
-    df = pd.DataFrame({"label":labels, "conv_fac":convs, "time":times})
-    print(df)
-    if verbose:
-        print("\nIn increasing order of conv_fac:")
-        df = df.sort_values(by="conv_fac", ascending=True)
-        print(df)
-        print("\nIn increasing order of time taken:")
-        df = df.sort_values(by="time", ascending=True)
-        print(df)
-    return df
-
-def print_df_new(df_in, verbose=False):
-    import pandas as pd
-    print("\n\nDataframe of convergence factor and time taken for each solver")
-    pd.set_option("display.precision", 3)
-    df = df_in.drop(labels='residual',axis=1)
-    print(df)
-    if verbose:
-        print("\nIn increasing order of conv_fac:")
-        df = df.sort_values(by="conv_fac", ascending=True)
-        print(df)
-        print("\nIn increasing order of time taken:")
-        df = df.sort_values(by="time", ascending=True)
-        print(df)
-
-
-def print_df_newnew(allres, verbose=False):
+def postprocess_allres(allres, saveto="", verbose=True):
     import numpy as np
     import pandas as pd
-    print("\n\nDataframe of convergence factor and time taken for each solver")
-    pd.set_option("display.precision", 3)
     df = pd.DataFrame(allres)
-
 
     #calculate convergence factor and time
     convs = np.zeros(len(allres))
     for i in range(len(allres)):
-        convs[i] = calc_conv(allres[i].r)
-    labels = [ri.label for ri in allres]
-    times = [ri.t for ri in allres]
+        convs[i] = calc_conv(allres[i]['r'])
+    labels = [ri['label'] for ri in allres]
+    times = [ri['t'] for ri in allres]
 
     # put data into dataframe
-    df = pd.DataFrame({"label":labels, "conv_fac":convs, "time":times, "residual": [ri.r for ri in allres]})
+    df = pd.DataFrame({"label":labels, "conv":convs, "t":times, "r": [ri['r'] for ri in allres]})
 
-    df = df.drop(labels='residual',axis=1)
-    
-    print(df)
+    if saveto:
+        df.to_csv(f"{saveto}.csv")
+    if verbose:
+        print("\n\nDataframe of convergence factor and time taken for each solver")
+        pd.set_option("display.precision", 3)
+        df_ = df.drop(labels='r',axis=1)
+        print(df_)
+    return df
 
 
 

@@ -24,6 +24,7 @@ class AmgCuda:
         only_smoother=None,
         only_jacobi=None,
         only_direct=None,
+        only_PCG=None
     ):
         """
         Initialize an instance of the AmgCuda class.
@@ -56,6 +57,7 @@ class AmgCuda:
         self.only_smoother = only_smoother
         self.only_jacobi = only_jacobi
         self.only_direct = only_direct
+        self.only_PCG = only_PCG
 
         if self.should_setup is None:
             self.should_setup = lambda: True #always setup
@@ -63,10 +65,12 @@ class AmgCuda:
             self.fill_A_in_cuda = get_A0 #default to get_A0
         if self.only_smoother is None:
             self.only_smoother = self.args.only_smoother
-        if self.only_jacobi is None:
+        elif self.only_jacobi is None:
             self.only_jacobi = False
-        if self.only_direct is None:
+        elif self.only_direct is None:
             self.only_direct = False
+        elif self.only_PCG is None:
+            self.only_PCG = False
 
 
     def run(self, b):
@@ -94,6 +98,8 @@ class AmgCuda:
             self.extlib.fastmg_solve_only_jacobi()
         elif self.only_direct:
             self.extlib.fastmg_solve_only_directsolver()
+        elif self.only_PCG:
+            self.extlib.fastmg_solve_only_PCG()
         else:
             self.extlib.fastmg_solve()
 
@@ -124,6 +130,8 @@ class AmgCuda:
 
     def AMG_setup_phase(self, A=None):
         if self.only_direct:
+            return None
+        if self.only_PCG:
             return None
         
         tic = time.perf_counter()
@@ -181,7 +189,8 @@ class AmgCuda:
         if self.args.smoother_type=="gauss_seidel":
             self.graph_coloring()    
 
-
+    def get_nl(self):
+        return self.num_levels
 
     def run_v2(self, A, b):
         def AMG_setup_phase_v2(self, A=None):

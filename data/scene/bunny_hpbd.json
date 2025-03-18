@@ -1,0 +1,16 @@
+{
+    "model": "bunny",
+    "model_path" : "data/model/bunny85w/bunny85w",
+    "fine_model_path" : "data/model/bunny85w/bunny85w",
+    "coarse_model_path" :"data/model/bunny85w/bunny5k",
+    "omega":0.1,
+    "mu":1e20,
+    "delta_t":33e-3,
+    "damping_coeff":1.0,
+    "gravity":[0.0, 0, 0.0],
+    "total_mass":16000.0,
+    "coarse_iterations":5,
+    "fine_iterations":2,
+    "maxiter":1,
+    "use_multigrid":true
+}

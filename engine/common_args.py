@@ -15,7 +15,7 @@ def add_common_args(parser):
     parser.add_argument("-amgx_lib_dir", type=str, default="D:/Dev/AMGX/build/Release")
     parser.add_argument("-build_P_method", type=str, default="UA")
     parser.add_argument("-arch", type=str, default="cpu")
-    parser.add_argument("-setup_interval", type=int, default=20)
+    parser.add_argument("-setup_interval", type=int, default=10000)
     parser.add_argument("-maxiter_Axb", type=int, default=100)
     parser.add_argument("-export_log", type=int, default=True)
     parser.add_argument("-export_residual", type=int, default=False)
@@ -30,12 +30,14 @@ def add_common_args(parser):
     parser.add_argument("-filter_P", type=str, default=None)
     parser.add_argument("-scale_RAP", type=int, default=False)
     parser.add_argument("-only_smoother", type=int, default=False)
+    parser.add_argument("-only_PCG", type=int, default=False)
     parser.add_argument("-debug", type=int, default=False)
     parser.add_argument("-coarse_solver_type", type=int, default=1, help="0: direct solver, 1: smoother")
     parser.add_argument("-amgx_config", type=str, default="data/config/FGMRES_CLASSICAL_AGGRESSIVE_PMIS.json")
     parser.add_argument("-export_state", type=int, default=False)
     parser.add_argument("-use_json", type=int, default=False, help="json configs will overwrite the command line args")
-    parser.add_argument("-json_path", type=str, default="data/scene/cloth/config.json", help="json configs will overwrite the command line args")
+    parser.add_argument("-json_path", type=str, default="", help="json configs will overwrite the command line args")
+    parser.add_argument("-yaml_path", type=str, default="", help="yaml configs")
     parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0.0, 0.0))
     parser.add_argument("-use_gravity", type=int, default=True)
     parser.add_argument("-converge_condition", type=str, default="dual", choices=["dual", "Newton", "strain"], help="dual: dual residual, Newton: sqrt(dual^2+primal^2), strain: strain limiting")
@@ -50,5 +52,50 @@ def add_common_args(parser):
     parser.add_argument("-use_ground_collision", type=int, default=False)
     parser.add_argument("-geo_dir", type=str, default=f"data/model/extraSpring/")
     parser.add_argument("-use_extra_spring", type=int, default=False)
+    parser.add_argument("-use_external_constraints", type=int, default=False)
     parser.add_argument("-use_pintotarget", type=int, default=False)
+    parser.add_argument("-use_muscle2muscle", type=int, default=False)
+    parser.add_argument("-start_frame", type=int, default=1)
+    parser.add_argument("-clean_dir", type=int, default=False)
+    parser.add_argument("-export_fulldual", type=int, default=False)
+    parser.add_argument("-time_budget", type=float, default=1000.0)
+    parser.add_argument("-use_time_budget", type=int, default=False)
+    parser.add_argument("-calc_rbm", type=int, default=False)
+    parser.add_argument("-local_interval", type=int, default=0)
+    parser.add_argument("-pmass", type=float, default=1.0)
+    parser.add_argument("-use_totalmass", type=int, default=0)
+    parser.add_argument("-total_mass", type=float, default=-1)#16000.0
+    parser.add_argument("-mass_density", type=float, default=-1)#1000.0
+    parser.add_argument("-direct_solver_type", type=str, default="cusolver", choices= ["cusolver", "scipy", "pardiso"])
+    parser.add_argument("-fixed_stiffness", type=float, default=1e8)
+    parser.add_argument("-fixed_particles", type=int, nargs="*", default=[])
     return parser
+
+
+def parse_json_args(args,json_path=""):
+    if not args.use_json:
+        return
+    import json
+    import os
+    if not os.path.exists(json_path):
+        assert False, f"json file {json_path} not exist!"
+    print(f"CAUTION: using json config file {json_path} to overwrite the command line args!")
+    if json_path=="" and os.path.exists("config"):
+        print("Using config file  to set json path")
+        with open("config") as f:
+            json_path = f.read().strip()
+            args.json_path = json_path
+    else:
+        Warning("No json")
+    print(f"use json_path: {json_path}")
+    with open(json_path, "r") as json_file:
+        config = json.load(json_file)
+    for key, value in config.items():
+        if hasattr(args,key):
+            if getattr(args,key) != value:
+                # print(f"overwriting {key} from {getattr(args,key)} to {value}")
+                setattr(args,key,value)
+        else:
+            # print(f"Add new json key {key}:{value} to args")
+            setattr(args,key,value)
+    return args

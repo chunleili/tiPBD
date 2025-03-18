@@ -12,8 +12,8 @@ def init_extlib(args, sim=""):
     prj_path = (os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
     if args.debug:
-        os.chdir(prj_path+'/cpp/mgcg_cuda')
-        retcode = subprocess.call(["cmake", "--build", "build", "--config", "Debug", "--parallel", "8"])
+        os.chdir(prj_path)
+        retcode = subprocess.call(["buildcuda_debug.bat"])
         if retcode != 0:
             raise Exception("Failed to build the project")
         os.chdir(prj_path)
@@ -83,7 +83,9 @@ def init_extlib(args, sim=""):
         extlib.fastFillSoft_new()
         # extlib.solveSoft_new()
 
-
+    if args.calc_rbm:
+        arr_double = ctl.ndpointer(dtype=np.float64, ndim=1, flags='aligned, c_contiguous')
+        extlib.fastmg_calc_rbm.argtypes = [arr_double, c_int, arr_double]
     
     return extlib
 

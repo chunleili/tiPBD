@@ -157,9 +157,10 @@ void Smoother::setup_weighted_jacobi()
     }
     else
     {
+        float omega = calc_weighted_jacobi_omega(levels[0].A, false);
         for (size_t lv = 0; lv < nlvs; lv++)
         {
-            levels.at(lv).jacobi_omega = calc_weighted_jacobi_omega(levels[lv].A, false);
+            levels.at(lv).jacobi_omega = omega;
         }
     }
 }
@@ -246,7 +247,7 @@ float Smoother::calc_weighted_jacobi_omega(CSR<float> &A, bool use_radical_omega
     {
         lambda_min = lambda_max;
     }
-    float jacobi_omega = 1.0 / (lambda_max + lambda_min);
+    float jacobi_omega = 2.0 / (lambda_max + lambda_min);
 
     timer.stop();
     if (verbose)

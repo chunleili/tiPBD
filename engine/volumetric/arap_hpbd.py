@@ -41,7 +41,7 @@ parser.add_argument("-export_log", type=int, default=False)
 parser.add_argument("-out_dir", type=str, default="result/latest")
 parser.add_argument("-export_mesh", type=int, default=False)
 parser.add_argument("-use_json", type=int, default=True)
-parser.add_argument("-json_path", type=str, default="")
+parser.add_argument("-json_path", type=str, default="data/scene/bunny_hpbd.json")
 parser.add_argument("-initial_load", type=int, default=False)
 parser.add_argument("-initial_pause", type=int, default=True)
 parser.add_argument("-nsubsteps", type=int, default=1)
@@ -212,14 +212,14 @@ print(">> Start to compute coarse and fine mapping...")
 # extra variable for prolongation and restriction
 cage_idx = ti.field(int, fine.NV) # cage index(coarse tet index) for each vertex in fine mesh
 uvw = ti.Vector.field(3, float, fine.NV) # barycentric coordinate  for each fine vertex 
-cage_idx.from_numpy(fine_in_coarse_tet_indx)
-uvw.from_numpy(fine_in_coarse_tet_coord)
+cage_idx.copy_from(fine_in_coarse_tet_indx)
+uvw.copy_from(fine_in_coarse_tet_coord)
 
 
 cage_idx_c2f = ti.field(int, coarse.NV) #coarse_in_fine_tet_indx
 uvw_c2f = ti.Vector.field(3, float, coarse.NV) #coarse_in_fine_tet_coord
-cage_idx_c2f.from_numpy(coarse_in_fine_tet_indx)
-uvw_c2f.from_numpy(coarse_in_fine_tet_coord)
+cage_idx_c2f.copy_from(coarse_in_fine_tet_indx)
+uvw_c2f.copy_from(coarse_in_fine_tet_coord)
 
 
 # print(">> Start to compute coarse and fine mapping...")
@@ -688,53 +688,54 @@ def substep(dt):
         log_residual(meta.frame, meta.ss, meta.residual_filename)
     if meta.args.log_energy:
         log_energy(meta.frame, meta.ss, meta.energy_filename)
-    # if meta.use_multigrid:
-    # tic_restrict = perf_counter()
-    update_coarse_mesh() # Restriction
-    # toc_restrict = perf_counter()
-    # timer_restrict=(toc_restrict - tic_restrict)
-    # coarse xpbd(coarse solve)
-    # tic_coarse = perf_counter()
-    reset_lagrangian(fine.lagrangian) 
-    for meta.cite in range(meta.coarse_iterations):
-        project_constraints(
-            coarse.pos_mid,
-            coarse.tet_indices,
-            coarse.inv_mass,
-            coarse.lagrangian,
-            coarse.B,
-            coarse.pos,
-            coarse.alpha,
-            coarse.constraint,
-            coarse.residual,
-            dt,
-        )
-    # toc_coarse = perf_counter()
-    # timer_coarse=(toc_coarse - tic_coarse)
-    # tic_prolong = perf_counter()
-    update_fine_mesh() # Prolongation
-    # toc_prolong = perf_counter()
-    # timer_prolong=(toc_prolong - tic_prolong)
-    # tic_fine = perf_counter()
-    # fine xpbd(postsmoother)
-    reset_lagrangian(coarse.lagrangian) 
-    for meta.fite in range(meta.fine_iterations):
-        project_constraints(
-            fine.pos_mid,
-            fine.tet_indices,
-            fine.inv_mass,
-            fine.lagrangian,
-            fine.B,
-            fine.pos,
-            fine.alpha,
-            fine.constraint,
-            fine.residual,
-            dt
-        )
-    if meta.args.log_residual:
-        dualr = log_residual(meta.frame, meta.ss+1, meta.residual_filename)
-    if meta.args.log_energy:
-        energy = log_energy(meta.frame, meta.ss+1, meta.energy_filename)
+    for meta.iter in range(meta.args.maxiter):
+        # if meta.use_multigrid:
+        # tic_restrict = perf_counter()
+        update_coarse_mesh() # Restriction
+        # toc_restrict = perf_counter()
+        # timer_restrict=(toc_restrict - tic_restrict)
+        # coarse xpbd(coarse solve)
+        # tic_coarse = perf_counter()
+        reset_lagrangian(fine.lagrangian) 
+        for meta.cite in range(meta.coarse_iterations):
+            project_constraints(
+                coarse.pos_mid,
+                coarse.tet_indices,
+                coarse.inv_mass,
+                coarse.lagrangian,
+                coarse.B,
+                coarse.pos,
+                coarse.alpha,
+                coarse.constraint,
+                coarse.residual,
+                dt,
+            )
+        # toc_coarse = perf_counter()
+        # timer_coarse=(toc_coarse - tic_coarse)
+        # tic_prolong = perf_counter()
+        update_fine_mesh() # Prolongation
+        # toc_prolong = perf_counter()
+        # timer_prolong=(toc_prolong - tic_prolong)
+        # tic_fine = perf_counter()
+        # fine xpbd(postsmoother)
+        reset_lagrangian(coarse.lagrangian) 
+        for meta.fite in range(meta.fine_iterations):
+            project_constraints(
+                fine.pos_mid,
+                fine.tet_indices,
+                fine.inv_mass,
+                fine.lagrangian,
+                fine.B,
+                fine.pos,
+                fine.alpha,
+                fine.constraint,
+                fine.residual,
+                dt
+            )
+        if meta.args.log_residual:
+            dualr = log_residual(meta.frame, meta.ss+1, meta.residual_filename)
+        if meta.args.log_energy:
+            energy = log_energy(meta.frame, meta.ss+1, meta.energy_filename)
     # toc_fine = perf_counter()
     # timer_fine=(toc_fine - tic_fine)
     if not meta.args.quasi_static:
@@ -833,6 +834,7 @@ def main():
         meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 1, 50)
         meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 1, 50)
         meta.args.nsubsteps = gui.slider_int("nsubsteps", meta.args.nsubsteps, 1, 100)
+        meta.args.maxiter = gui.slider_int("maxiter", meta.args.maxiter, 1, 100)
         gui.text(f"F #tets: {fine.NT} #verts: {fine.NV}")
         gui.text(f"C #tets: {coarse.NT} #verts: {coarse.NV}")
         dt = meta.h / meta.args.nsubsteps

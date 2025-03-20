@@ -211,12 +211,28 @@ float avg(std::vector<float> &v)
             compute_RAP(lv);
         }
         
+        // resize all level variables
+        for (size_t i = 0; i < levels.size(); i++)
+        {
+            int size = levels.at(i).A.nrows;
+            levels.at(i).x.resize(size);
+            levels.at(i).b.resize(size);
+            levels.at(i).residual.resize(size);
+            levels.at(i).temp.resize(size);
+            levels.at(i).temp2.resize(size);
+        }
+        
     }
 
     void  FastMG::solve()
     {
         presolve();
         mgpcg->solve(mgpcg->maxiter,mgpcg->rtol);
+        
+        // float avg_t = smoother->m_elapsed.size() > 0 ? avg(smoother->m_elapsed) : 0.0;
+        // float sum_t = smoother->m_elapsed.size() > 0 ? sum(smoother->m_elapsed) : 0.0;
+        // cout<<"sum smoother time: "<<sum_t<<" ms"<<endl;
+        // cout<<"average smoother time: "<<avg_t<<" ms"<<endl;
     }
 
     void  FastMG::solve_only_jacobi()

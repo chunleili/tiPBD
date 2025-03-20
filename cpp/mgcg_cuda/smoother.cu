@@ -258,49 +258,44 @@ float Smoother::calc_weighted_jacobi_omega(CSR<float> &A, bool use_radical_omega
 
 void Smoother::jacobi(int lv, Vec<float> &x, Vec<float> const &b)
 {
-    Vec<float> x_old;
-    x_old.resize(x.size());
-    copy(x_old, x);
+    Vec<float> &x_old = levels.at(lv).temp;
+    zero(x_old);
     auto jacobi_omega = levels.at(lv).jacobi_omega;
     for (int i = 0; i < smoother_niter; ++i)
     {
-        weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), x_old.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
         x.swap(x_old);
+        // copy(x_old, x); // FIXME: I don't know why copy x_old before the kernel call will have different but better results
+        weighted_jacobi_kernel<<<(levels.at(lv).A.nrows + 255) / 256, 256>>>(x.data(), x_old.data(), b.data(), levels.at(lv).A.data.data(), levels.at(lv).A.indices.data(), levels.at(lv).A.indptr.data(), levels.at(lv).A.nrows, jacobi_omega);
     }
+
 }
 
 // use cusparse instead of hand-written kernel
 void Smoother::jacobi_v2(int lv, Vec<float> &x, Vec<float> const &b)
 {
-    auto jacobi_omega = levels.at(lv).jacobi_omega;
+    float jacobi_omega = levels.at(lv).jacobi_omega;
 
-    Vec<float> x_old;
-    x_old.resize(x.size());
+    Vec<float> &x_old = levels.at(lv).temp2;
     copy(x_old, x);
 
-    Vec<float> b1, b2;
-    b1.resize(b.size());
-    b2.resize(b.size());
-    for (int i = 0; i < smoother_niter; ++i)
-    {
-        // x = omega * Dinv * (b - Aoff@x_old) + (1-omega)*x_old
+    Vec<float> &temp = levels.at(lv).temp;
+    zero(temp);
 
-        // 1. b1 = b-Aoff@x_old
-        copy(b1, b);
-        spmv(b1, -1, levels.at(lv).Aoff, x_old, 1, buff);
+    // x = omega * Dinv * (b - Aoff@x_old) + (1-omega)*x_old
 
-        // 2. b2 = omega*Dinv@b1
-        spmv(b2, jacobi_omega, levels.at(lv).Dinv, b1, 0, buff);
+    // 1. x = b-Aoff@x_old
+    copy(x, b);
+    spmv(x, -1, levels.at(lv).Aoff, x_old, 1, buff);
 
-        // 3. x = b2 + (1-omega)*x_old
-        copy(x, x_old);
-        axpy(x, 1 - jacobi_omega, b2);
+    // 2. x *= omega*Dinv
+    copy(temp, x);
+    spmv(x, jacobi_omega, levels.at(lv).Dinv, temp, 0, buff);
 
-        x.swap(x_old);
-    }
+    // 3. x += (1-omega)*x_old
+    scal(x_old, 1 - jacobi_omega);
+    axpy(x, 1, x_old);
+
 }
-
-
 
 
 // https://github.com/pyamg/pyamg/blob/5a51432782c8f96f796d7ae35ecc48f81b194433/pyamg/amg_core/relaxation.h#L45
@@ -373,6 +368,8 @@ void Smoother::multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const 
 
 void Smoother::smooth(int lv, Vec<float> &x, Vec<float> const &b)
 {
+    // m_timer.start();
+
     if (smoother_type == 1)
     {
         for (int i = 0; i < smoother_niter; i++)
@@ -380,15 +377,18 @@ void Smoother::smooth(int lv, Vec<float> &x, Vec<float> const &b)
     }
     else if (smoother_type == 2)
     {
-        // jacobi_cpu(lv, x, b);
         // jacobi(lv, x, b);
-        jacobi_v2(lv, x, b);
+        for (int i = 0; i < smoother_niter; i++)
+            jacobi_v2(lv, x, b);
     }
     else if (smoother_type == 3)
     {
         for (int i = 0; i < smoother_niter; i++)
             multi_color_gauss_seidel(lv, x, b);
     }
+
+    // m_timer.stop();
+    // m_elapsed.push_back(m_timer.elapsed());
 }
 
 float Smoother::calc_max_eig(CSR<float>& A)

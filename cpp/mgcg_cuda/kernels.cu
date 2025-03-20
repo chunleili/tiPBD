@@ -288,6 +288,8 @@ __global__ void fill_A_CSR_soft_lessmem_kernel(
 __global__ void weighted_jacobi_kernel(float *x, float *x_old, const float *b, float *data, int *indices, int *indptr, int nrows, float omega) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < nrows) {
+        // x_old[i] = x[i]; // FIXME: I don't know why copy x_old before the kernel call will have different but better results
+
         float rsum = 0.0;
         float diag = 0.0;
         for (size_t n = indptr[i]; n < indptr[i + 1]; ++n) {
@@ -299,7 +301,6 @@ __global__ void weighted_jacobi_kernel(float *x, float *x_old, const float *b, f
                 diag = data[n];
             }
         }
-        // FIXME: should use x_new to avoid race condition
         if (diag != 0.0)
         {
             x[i] =  omega / diag * (b[i] - rsum)  + (1.0 - omega) * x_old[i];

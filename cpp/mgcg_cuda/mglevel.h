@@ -15,6 +15,8 @@ struct MGLevel {
     Vec<float> residual;
     Vec<float> b;
     Vec<float> x;
+    Vec<float> temp;
+    Vec<float> temp2;
     Vec<float> h;
     Vec<float> outh;
     CSR<float> Dinv;

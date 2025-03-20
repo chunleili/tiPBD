@@ -1,6 +1,8 @@
-#include "cusparse_wrappers.h"
+#pragma once
 
+#include "cusparse_wrappers.h"
 #include "mglevel.h"
+#include "timer.h"
 
 namespace fastmg
 {
@@ -17,14 +19,22 @@ struct Smoother:CusparseWrappers{
     bool use_radical_omega=false;
     Buffer buff;
 
+    std::vector<float> m_elapsed;
+    GpuTimer m_timer;
+
 
     void setup_smoothers(int type);
     void set_smoother_niter(size_t const n);
     void smooth(int lv, Vec<float> &x, Vec<float> const &b);
-    void jacobi_v2(int lv, Vec<float> &x, Vec<float> const &b);
     void set_colors(const int* c, int n, int color_num_in, int lv);
+    
+    void jacobi(int lv, Vec<float> &x, Vec<float> const &b);
+    void jacobi_v2(int lv, Vec<float> &x, Vec<float> const &b);//  cusparse version
+    // void jacobi_cpu(int lv, Vec<float> &x, Vec<float> const &b);
+    void gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b);
+    void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b);
 
-private:
+    private:
     std::vector<MGLevel> &levels; // reference to the levels in fastmg
     
     void setup_chebyshev_cuda(CSR<float> &A);
@@ -33,10 +43,6 @@ private:
     void setup_weighted_jacobi();
     float calc_min_eig(CSR<float> &A, float mu0=0.1);
     float calc_weighted_jacobi_omega(CSR<float>&A, bool use_radical_omega=false);
-    void jacobi(int lv, Vec<float> &x, Vec<float> const &b);
-    // use cusparse instead of hand-written kernel
-    void gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b);
-    void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b);
     float calc_max_eig(CSR<float>& A);
 };
     

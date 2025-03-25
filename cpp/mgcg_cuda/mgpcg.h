@@ -28,7 +28,6 @@ struct MGPCG : CusparseWrappers {
     std::vector<float> residuals;
     float rtol;
     size_t maxiter;
-    bool converge_to_tol=false;
     
 private:
     float save_rho_prev;

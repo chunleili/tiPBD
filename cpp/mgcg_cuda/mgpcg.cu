@@ -24,28 +24,20 @@ namespace fastmg
 
 void  MGPCG::solve(int maxiter, float rtol)
 {
-    residuals.resize(maxiter + 1, 0.0);
+    residuals.resize(maxiter + 1);
     float bnrm2 = init_cg_iter0(residuals);
     float atol = bnrm2 * rtol;
     for (size_t iter=0; iter<maxiter; iter++)
     {   
-        if(converge_to_tol)
+        if (residuals[iter] < atol)
         {
-            if (residuals[iter] < atol)
-            {
-                niter = iter;
-                break;
-            }
+            niter = iter;
+            break;
         }
         copy(vcycle->z, outer_x);
         vcycle -> run();
         do_cg_itern(residuals, iter); 
         niter = iter;
-    }
-    if (!converge_to_tol)
-    {
-        niter = maxiter-1;
-        residuals[maxiter-1] = vnorm(vcycle->r);
     }
 }
 
@@ -99,11 +91,8 @@ void  MGPCG::do_cg_itern(std::vector<float> &residuals, size_t iteration) {
     axpy(x_new, alpha, save_p);
     // r -= alpha*q
     axpy(vcycle->r, -alpha, save_q);
-    if(converge_to_tol)
-    {
-        float normr = vnorm(vcycle->r);
-        residuals[iteration + 1] = normr;
-    }
+    float normr = vnorm(vcycle->r);
+    residuals[iteration + 1] = normr;
 }
 
 

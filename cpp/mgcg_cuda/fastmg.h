@@ -31,6 +31,9 @@ struct FastMG :CusparseWrappers{
     bool verbose = false;
     GpuTimer timer1,timer2,timer3;
     std::vector<float> elapsed1, elapsed2, elapsed3;
+    enum class SOLVER_TYPE {AMG, JACOBI, SMOOTHER, DIRECTSOLVER};
+    SOLVER_TYPE solver_type = SOLVER_TYPE::AMG;
+    void set_solver_type() ;
 
     void setup(SpMatData* P0); //setup P0 from outside
     void create_levels(size_t numlvs); // a factory function to create instances
@@ -52,6 +55,7 @@ struct FastMG :CusparseWrappers{
     void presolve();
 
     void solve();
+    void solve_mgpcg();
     void solve_only_jacobi();
     void solve_only_directsolver();
     void solve_only_smoother();
@@ -62,7 +66,6 @@ struct FastMG :CusparseWrappers{
         return &instance;
     }
 
-private:
     void get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff);
     void set_outer_x(float const *x, size_t n);
     void set_outer_b(float const *b, size_t n);

@@ -76,6 +76,7 @@ float avg(std::vector<float> &v)
         levels.at(0).P.assign_v2(P0->data.data(), P0->indices.data(), P0->indptr.data(), P0->nrows(), P0->ncols(), P0->nnz());
     }
 
+    
 
     void  FastMG::create_levels(size_t numlvs) {
         if (levels.size() < numlvs) {
@@ -83,9 +84,28 @@ float avg(std::vector<float> &v)
         }
 
         config = std::make_shared<ConfigManager>();
+        set_solver_type();
+
+
         smoother = std::make_shared<Smoother>(levels);
         vcycle = std::make_shared<VCycle>(levels, smoother);
         mgpcg = std::make_shared<MGPCG>(levels,smoother, vcycle, config);
+    }
+
+
+    void  FastMG::set_solver_type() {
+        std::string solver_type_s = config->data["solver"];
+        if (solver_type_s == "AMG") {
+            solver_type = SOLVER_TYPE::AMG;
+        } else if (solver_type_s == "jacobi") {
+            solver_type =  SOLVER_TYPE::JACOBI;
+        } else if (solver_type_s == "smoother") {
+            solver_type = SOLVER_TYPE::SMOOTHER;
+        } else if (solver_type_s == "directsolver") {
+            solver_type = SOLVER_TYPE::DIRECTSOLVER;
+        } else {
+            solver_type = SOLVER_TYPE::AMG;
+        }
     }
 
 
@@ -227,14 +247,32 @@ float avg(std::vector<float> &v)
 
     void  FastMG::solve()
     {
+        switch (solver_type) {
+            case SOLVER_TYPE::AMG:
+                solve_mgpcg();
+                break;
+            case SOLVER_TYPE::JACOBI:
+                solve_only_jacobi();
+                break;
+            case SOLVER_TYPE::SMOOTHER:
+                solve_only_smoother();
+                break;
+            case SOLVER_TYPE::DIRECTSOLVER:
+                solve_only_directsolver();
+                break;
+            default:
+                solve_mgpcg();
+                break;
+        }
+    }
+
+    
+    void FastMG::solve_mgpcg()
+    {
         presolve();
         mgpcg->solve(mgpcg->maxiter,mgpcg->rtol);
-        
-        // float avg_t = smoother->m_elapsed.size() > 0 ? avg(smoother->m_elapsed) : 0.0;
-        // float sum_t = smoother->m_elapsed.size() > 0 ? sum(smoother->m_elapsed) : 0.0;
-        // cout<<"sum smoother time: "<<sum_t<<" ms"<<endl;
-        // cout<<"average smoother time: "<<avg_t<<" ms"<<endl;
     }
+
 
     void  FastMG::solve_only_jacobi()
     {

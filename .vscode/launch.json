@@ -9,8 +9,16 @@
           "console": "integratedTerminal",
           "cwd": "${workspaceFolder}",
           "args": [
+            ""
           ]
         }, 
+        {
+          "name": "Python C++ Debug",
+          "type": "pythoncpp",
+          "request": "launch",
+          "pythonLaunchName": "Python: Current File",
+          "cppAttachName": "(Windows) Attach",
+        },
           {
             "name": "arap_hpbd twist bar full", 
             "type": "debugpy",
@@ -56,13 +64,7 @@
                     "${fileBasenameNoExtension}.prof",
                     "${file}"]
         },
-        {
-            "name": "Python C++ Debug",
-            "type": "pythoncpp",
-            "request": "launch",
-            "pythonLaunchName": "Python: Current File",
-            "cppAttachName": "(Windows) Attach",
-          },
+
           {
             "name": "(Windows) Attach",
             "type": "cppvsdbg",

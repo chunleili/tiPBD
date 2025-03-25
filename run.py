@@ -2246,6 +2246,48 @@ args=[        "engine/soft/soft3d.py",
 allargs.append(args)
 
 
+
+# case208-211: bunny squash for different size  converge to 1e-3, dt=3ms
+for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]):
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-bunny",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-rtol=1e-2",
+            "-delta_t=3e-3",
+            "-solver_type=AMG",
+            "-arch=gpu",
+            "-maxiter=10000",
+            "-maxiter_Axb=100",
+            "-end_frame=20",
+            "-mu=1e9",
+            "-use_gravity=0",
+            "-reinit=squash",
+            "-setup_interval=100000",
+            "-export_log=1",
+            "-build_P_method=strength0.1",
+            ]
+    allargs.append(args)
+
+# case211-214:  bunny squash for different size  converge to 1e-3, dt=3ms
+for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]):
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-bunny",
+            f"-auto_another_outdir={auto_another_outdir}",
+            f"-model_path=data/model/{config}",
+            "-rtol=1e-2",
+            "-delta_t=3e-3",
+            "-solver_type=XPBD",
+            "-arch=gpu",
+            "-maxiter=10000",
+            "-end_frame=20",
+            "-mu=1e9",
+            "-use_gravity=0",
+            "-reinit=squash",
+            "-setup_interval=100000"
+            ]
+    allargs.append(args)
+
 def export_cases_to_json(allargs):
     import json
     for i in range(len(allargs)):

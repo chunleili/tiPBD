@@ -16,10 +16,10 @@ namespace fastmg
     {
         maxiter = config->data["maxiter"];
         rtol = config->data["rtol"];
-        converge_to_tol = config->data["converge_to_tol"];
+        // converge_to_tol = config->data["converge_to_tol"];
         std::cout << "maxiter: " << maxiter << std::endl;
         std::cout << "rtol: " << rtol << std::endl;
-        std::cout << "converge_to_tol: " << converge_to_tol << std::endl;
+        // std::cout << "converge_to_tol: " << converge_to_tol << std::endl;
     };
 
 void  MGPCG::solve(int maxiter, float rtol)

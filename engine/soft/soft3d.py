@@ -694,28 +694,37 @@ class SoftBody(PhysicalBase):
         self.tic_frame = time.perf_counter()
         semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
         self.lagrangian.fill(0)
-        self.log_energy(self.frame,0,f"{args.out_dir}/r/energy.txt")
+        # self.log_energy(self.frame,0,f"{args.out_dir}/r/energy.txt")
+        self.dual0 = self.log_residual(self.frame,0,f"{args.out_dir}/r/residual.txt")
         if args.use_external_constraints:
             self.read_external_pos()
             self.do_external_constraints()
         for self.ite in range(args.maxiter):
-            # if self.has_no_time_budget():
-            #     break
             self.tic_iter = perf_counter()
             self.solveSoft()
-            self.log_energy(self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
+            # self.log_energy(self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
+            self.dualr = self.log_residual(self.frame,self.ite+1,f"{args.out_dir}/r/residual.txt")
             self.toc_iter = perf_counter()
+            if self.is_converged(): break
             
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
 
 
+    def is_converged(self):
+        if self.dualr < self.dual0 * args.rtol:
+            return True
+        # if self.has_no_time_budget():
+        #     return True
+        return False
+    
+
     def log_energy(self,frame, iter, filename_to_save=""):
-        if args.calc_energy:
+        if args.calc_energy and args.export_log:
             te = compute_energy(self.inv_mass, self.pos, self.predict_pos, self.tet_indices, self.B, self.alpha, self.delta_t, self.is_fixed, self.fixed_stiffness, self.fixed_pos)
             s=f"Frame:{frame} Iter:{iter} Energy:{te:.8e}"
-            print(s)
+            logging.info(s)
             if filename_to_save != "":
                 with open(filename_to_save, "a") as f:
                     f.write(s)
@@ -723,10 +732,14 @@ class SoftBody(PhysicalBase):
         
 
     def log_residual(self, frame, iter, filename_to_save):
-        if args.calc_dual:
+        if args.calc_dual and args.export_log:
+            if iter==0:
+                update_constraints_kernel(self.pos, self.tet_indices, self.B, self.constraints)
             r_norm = calc_dual_residual(self.alpha_tilde,self.lagrangian,self.constraints,self.dual_residual)
-            s=f"Frame:{frame} Iter:{iter} Residual:{r_norm:.8e}"
-            print(s)
+            if iter==0:
+                self.dual0 = r_norm
+            s=f"Frame:{frame} Iter:{iter} Residual:{r_norm:.8e} Relative:{r_norm/self.dual0:.3e}\n"
+            logging.info(s)
             with open(filename_to_save, "a") as f:
                 f.write(s)
             return r_norm
@@ -793,7 +806,9 @@ def calc_dual_residual(alpha_tilde:ti.template(),
     res = 0.0
     ti.loop_config(serialize=True)
     for i in range(dual_residual.shape[0]):
-        res += dual_residual[i]
+        res += dual_residual[i] * dual_residual[i]
+    return ti.sqrt(res)
+
 
 
 @ti.kernel

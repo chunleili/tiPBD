@@ -8,3 +8,6 @@
 [submodule "cpp/mgcg_cuda/extern/pybind"]
 	path = cpp/mgcg_cuda/extern/pybind
 	url = https://github.com/pybind/pybind11.git
+[submodule "cpp/mgcg_cuda/extern/json"]
+	path = cpp/mgcg_cuda/extern/json
+	url = https://github.com/nlohmann/json.git

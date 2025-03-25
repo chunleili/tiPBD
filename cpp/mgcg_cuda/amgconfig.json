@@ -1,0 +1,9 @@
+{
+    "maxiter": 20,
+    "rtol": 1e-5,
+    "solver": "AMG",
+    "verbose": 0,
+    "smoother": "WJACOBI",
+    "coarse_solver_type": "SMOOTHER",
+    "converge_to_tol": false
+}

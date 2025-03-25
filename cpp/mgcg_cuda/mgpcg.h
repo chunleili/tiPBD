@@ -5,7 +5,7 @@
 #include "CSR.h"
 #include "timer.h"
 #include "vcycle.h"
-
+#include "config_manager.h"
 
 namespace fastmg {
 
@@ -13,8 +13,12 @@ struct MGPCG : CusparseWrappers {
     std::vector<MGLevel>& levels; 
     std::shared_ptr<Smoother> smoother;  
     std::shared_ptr<VCycle> vcycle;  
+    std::shared_ptr<ConfigManager> config;
 
-    MGPCG(std::vector<MGLevel>& levels, std::shared_ptr<Smoother> smoother, std::shared_ptr<VCycle> vcycle) : levels(levels), smoother(smoother), vcycle(vcycle) {};
+    MGPCG(std::vector<MGLevel> &levels,
+          std::shared_ptr<Smoother> smoother,
+          std::shared_ptr<VCycle> vcycle,
+          std::shared_ptr<ConfigManager> config);
     void solve(int maxiter, float rtol);
     void solve_only_smoother(int maxiter, float rtol);
     int niter;

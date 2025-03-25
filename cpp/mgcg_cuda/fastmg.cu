@@ -35,6 +35,7 @@
 #include "CSR.h"
 #include "mmio.h"
 #include "SpMatData.h"
+#include "config_manager.h"
 
 using std::cout;
 using std::endl;
@@ -81,10 +82,10 @@ float avg(std::vector<float> &v)
             levels.resize(numlvs);
         }
 
+        config = std::make_shared<ConfigManager>();
         smoother = std::make_shared<Smoother>(levels);
         vcycle = std::make_shared<VCycle>(levels, smoother);
-        mgpcg = std::make_shared<MGPCG>(levels,smoother, vcycle);
-
+        mgpcg = std::make_shared<MGPCG>(levels,smoother, vcycle, config);
     }
 
 

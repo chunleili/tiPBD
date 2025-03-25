@@ -6,6 +6,7 @@
 #include "timer.h"
 #include "mgpcg.h"
 #include "SpMatData.h"
+#include "config_manager.h"
 
 namespace fastmg {
 template <typename T>
@@ -24,6 +25,7 @@ struct FastMG :CusparseWrappers{
     std::shared_ptr<Smoother> smoother;  // create in create_levels
     std::shared_ptr<VCycle> vcycle;  // create in create_levels
     std::shared_ptr<MGPCG> mgpcg;  // create in create_levels
+    std::shared_ptr<ConfigManager> config;  // create in create_levels
 
 
     bool verbose = false;
@@ -31,7 +33,7 @@ struct FastMG :CusparseWrappers{
     std::vector<float> elapsed1, elapsed2, elapsed3;
 
     void setup(SpMatData* P0); //setup P0 from outside
-    void create_levels(size_t numlvs);
+    void create_levels(size_t numlvs); // a factory function to create instances
 
     void set_scale_RAP(float s, int lv);
     void set_P(size_t lv, float const *datap, size_t ndat, int const *indicesp, size_t nind, int const *indptrp, size_t nptr, size_t rows, size_t cols, size_t nnz);

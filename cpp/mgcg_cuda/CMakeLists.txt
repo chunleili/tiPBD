@@ -21,7 +21,7 @@ project(fastmg LANGUAGES CXX CUDA)
 
 add_library(fastmg SHARED fastmg.cu cuda_utils.cu kernels.cu solve_soft.cpp fastfill.cpp cusparse_wrappers.cu smoother.cu vcycle.cu mgpcg.cu)
 target_link_libraries(fastmg PUBLIC cusparse cublas cusolver)
-target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen)
+target_include_directories(fastmg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen  ${CMAKE_CURRENT_SOURCE_DIR}/extern/json/include)
 set_target_properties(fastmg PROPERTIES CUDA_SEPARABLE_COMPILATION ON
 CUDA_STANDARD 17
 CUDA_ARCHITECTURES "60;70;75;80;86;89")

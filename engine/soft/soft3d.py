@@ -516,7 +516,7 @@ class SoftBody(PhysicalBase):
     def compute_C_and_gradC(self):
         compute_C_and_gradC_kernel(self.pos_mid, self.tet_indices, self.B, self.constraints, self.gradC)
 
-    @timeit
+    # @timeit
     def dlam2dpos(self,dlam):
         self.dlambda.from_numpy(dlam)
         self.dpos.fill(0.0)
@@ -721,8 +721,12 @@ class SoftBody(PhysicalBase):
     
 
     def log_energy(self,frame, iter, filename_to_save=""):
-        if args.calc_energy and args.export_log:
+        if args.calc_energy:
             te = compute_energy(self.inv_mass, self.pos, self.predict_pos, self.tet_indices, self.B, self.alpha, self.delta_t, self.is_fixed, self.fixed_stiffness, self.fixed_pos)
+            if iter==0:
+                self.energy0 = te
+            if not args.export_log:
+                return te
             s=f"Frame:{frame} Iter:{iter} Energy:{te:.8e}"
             logging.info(s)
             if filename_to_save != "":
@@ -732,12 +736,14 @@ class SoftBody(PhysicalBase):
         
 
     def log_residual(self, frame, iter, filename_to_save):
-        if args.calc_dual and args.export_log:
+        if args.calc_dual:
             if iter==0:
                 update_constraints_kernel(self.pos, self.tet_indices, self.B, self.constraints)
             r_norm = calc_dual_residual(self.alpha_tilde,self.lagrangian,self.constraints,self.dual_residual)
             if iter==0:
                 self.dual0 = r_norm
+            if not args.export_log:
+                return r_norm
             s=f"Frame:{frame} Iter:{iter} Residual:{r_norm:.8e} Relative:{r_norm/self.dual0:.3e}\n"
             logging.info(s)
             with open(filename_to_save, "a") as f:
@@ -1528,7 +1534,7 @@ def AMG_A():
     tic2 = perf_counter()
     extlib.fastFillSoft_run(ist.pos.to_numpy(), ist.gradC.to_numpy())
     extlib.fastmg_set_A0_from_fastFillSoft()
-    logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
+    # logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
 
 def fetch_A_from_cuda(lv=0):

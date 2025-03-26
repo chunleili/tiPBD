@@ -39,7 +39,9 @@ parser.add_argument("-case", type=int, nargs='*',help=f"case numbers(can be mult
 parser.add_argument("-end_frame", type=int, default=10, help=f"end frame")
 parser.add_argument("-overwrite", action="store_true")
 parser.add_argument("-A", type=str, help="export a matrix file for testing")
-parser.add_argument("-exportCases", action="store_true", help="export the cases to json file")
+parser.add_argument("-exportAll", action="store_true", help="export all the cases to json file")
+parser.add_argument("-export", type=int, help="export one case to json file(specify the case number)", default=-1)
+parser.add_argument("-load", type=str, nargs='*', help="load the cases from json file and run, can be multiple")
 
 end_frame = parser.parse_args().end_frame
 
@@ -2257,7 +2259,7 @@ for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node"
             "-delta_t=3e-3",
             "-solver_type=AMG",
             "-arch=gpu",
-            "-maxiter=10000",
+            "-maxiter=100",
             "-maxiter_Axb=100",
             "-end_frame=20",
             "-mu=1e9",
@@ -2269,7 +2271,7 @@ for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node"
             ]
     allargs.append(args)
 
-# case211-214:  bunny squash for different size  converge to 1e-3, dt=3ms
+# case212-215:  bunny squash for different size  converge to 1e-3, dt=3ms
 for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node","bunnyBig/bunnyBig.node","bunny85w/bunny85w.node"]):
     args = ["engine/soft/soft3d.py",
             f"-out_dir=result/case{len(allargs)}-{day}-bunny",
@@ -2279,12 +2281,13 @@ for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node"
             "-delta_t=3e-3",
             "-solver_type=XPBD",
             "-arch=gpu",
-            "-maxiter=10000",
+            "-maxiter=100000",
             "-end_frame=20",
             "-mu=1e9",
             "-use_gravity=0",
             "-reinit=squash",
-            "-setup_interval=100000"
+            "-setup_interval=100000",
+            "-export_log=1",
             ]
     allargs.append(args)
 
@@ -2299,6 +2302,31 @@ def export_cases_to_json(allargs):
         Path(casename).parent.mkdir(parents=True, exist_ok=True)
         with open(casename, "w") as f:
             json.dump(allargs[i], f, indent=4)
+
+
+def export_one_case_to_json(case_num:int, name:str=None):
+    import json
+    if name is not None:
+        casename = f"data/config/generated/case{case_num}-{name}.json"
+    else:
+        casename = f"data/config/generated/case{case_num}.json"
+    print(f"Exporting {casename}")
+    Path(casename).parent.mkdir(parents=True, exist_ok=True)
+    with open(casename, "w") as f:
+        json.dump(allargs[case_num], f, indent=4)
+
+
+def load_cases_from_json(allargs, json_lists):
+    import json
+    for i in range(len(json_lists)):
+        json_path = json_lists[i]
+        print(f"Loading {json_path}")
+        with open(json_path, "r") as f:
+            arg = json.load(f)
+            allargs.append(arg)
+            case_num = len(allargs)-1
+            print(f"Load case {case_num} from {json_path}")
+            run_case(case_num)
 
 
 def run_case(case_num:int):
@@ -2353,14 +2381,23 @@ if __name__=='__main__':
     cli_args = parser.parse_args()
 
 
-    if cli_args.exportCases:
+    if cli_args.exportAll:
         print("Exporting cases to json (data/config/generated/)...")
         export_cases_to_json(allargs)
         print("Export done.")
         exit(0)
 
+    if cli_args.export!=-1:
+        print("Exporting cases to json (data/config/generated/)...")
+        export_one_case_to_json(cli_args.export)
+        print("Export done.")
+        exit(0)
+
     if cli_args.A is not None:
         export_A(cli_args)
+
+    if cli_args.load is not None:
+        load_cases_from_json(allargs, cli_args.load)
 
     if cli_args.case:
         tic = perf_counter()

@@ -619,7 +619,7 @@ class SoftBody(PhysicalBase):
 
     def has_no_time_budget(self):
         self.frame_past_time = perf_counter() - self.tic_frame
-        logging.info(f"FramePastTime: {self.frame_past_time*1000:.0f}ms")
+        # logging.info(f"FramePastTime: {self.frame_past_time*1000:.0f}ms")
         if args.solver_type=="AMG":
             if self.should_setup(): 
                 self.frame_past_time = 0.0
@@ -713,10 +713,12 @@ class SoftBody(PhysicalBase):
 
 
     def is_converged(self):
-        if self.dualr < self.dual0 * args.rtol:
-            return True
-        # if self.has_no_time_budget():
-        #     return True
+        if self.args.converge_condition == "dual":
+            if self.dualr < self.dual0 * args.rtol:
+                return True
+        elif self.args.converge_condition == "time":
+            if self.has_no_time_budget():
+                return True
         return False
     
 
@@ -742,12 +744,17 @@ class SoftBody(PhysicalBase):
             r_norm = calc_dual_residual(self.alpha_tilde,self.lagrangian,self.constraints,self.dual_residual)
             if iter==0:
                 self.dual0 = r_norm
+
+            self.dualr = r_norm
+            s=f"Frame:{frame} Iter:{iter} Residual:{r_norm:.3e} Relative:{r_norm/self.dual0:.3e}"
+
             if not args.export_log:
                 return r_norm
-            s=f"Frame:{frame} Iter:{iter} Residual:{r_norm:.8e} Relative:{r_norm/self.dual0:.3e}\n"
+            self.frame_past_time = perf_counter() - self.tic_frame
+            s+=f" FramePastTime:{self.frame_past_time*1000:.1f}ms"
             logging.info(s)
-            with open(filename_to_save, "a") as f:
-                f.write(s)
+            with open(f"{args.out_dir}/r/residual.txt", "a") as f:
+                f.write(s+"\n")
             return r_norm
 
 
@@ -757,11 +764,11 @@ class SoftBody(PhysicalBase):
 
         
     def substep_xpbd(self):
-        self.tic_frame = 0.0
+        self.tic_frame = perf_counter()
         semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
         self.lagrangian.fill(0)
-        self.log_energy(self.frame,0,f"{args.out_dir}/r/energy.txt")
-        # self.log_residual(self.frame,0,f"{args.out_dir}/r/residual.txt")
+        # self.log_energy(self.frame,0,f"{args.out_dir}/r/energy.txt")
+        self.dualr0=self.log_residual(self.frame,0,f"{args.out_dir}/r/residual.txt")
         if args.use_external_constraints:
             self.read_external_pos()
             self.do_external_constraints()
@@ -777,10 +784,10 @@ class SoftBody(PhysicalBase):
                 self.residual,
                 args.omega
             )
-            # if self.has_no_time_budget(): 
-            #     break
-            self.log_energy(  self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
-            # self.log_residual(self.frame,self.ite+1,f"{args.out_dir}/r/residual.txt")
+            # self.log_energy(self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
+            self.dualr = self.log_residual(self.frame,self.ite+1,f"{args.out_dir}/r/residual.txt")
+            self.toc_iter = perf_counter()
+            if self.is_converged(): break
 
         self.collision_response()
         self.n_outer_all.append(self.ite+1)

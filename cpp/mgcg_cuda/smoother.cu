@@ -43,10 +43,10 @@ void Smoother::setup_chebyshev_cuda(CSR<float> &A)
     float b = rho * upper_bound;
     chebyshev_polynomial_coefficients(a, b);
 
-    max_eig = rho;
+    m_max_eig = rho;
     if (verbose)
     {
-        cout << "max eigenvalue: " << max_eig << endl;
+        cout << "max eigenvalue: " << m_max_eig << endl;
     }
 }
 
@@ -236,6 +236,7 @@ float Smoother::calc_weighted_jacobi_omega(CSR<float> &A, bool use_radical_omega
 
     // TODO: calculate lambda_min
     float lambda_max = calc_max_eig(DinvA);
+    m_max_eig = lambda_max; // record max eigen value
     float lambda_min;
     if (use_radical_omega)
     {
@@ -393,7 +394,25 @@ void Smoother::smooth(int lv, Vec<float> &x, Vec<float> const &b)
 
 float Smoother::calc_max_eig(CSR<float>& A)
 {
-    return  computeMaxEigenvaluePowerMethodOptimized(A, 100);
+    m_max_eig = computeMaxEigenvaluePowerMethodOptimized(A, 100);
+    return m_max_eig;
+}
+
+float Smoother::get_max_eig()
+{
+    if (m_max_eig == 0)
+    {
+        std::cout << "max eigenvalue is not calculated yet" << std::endl;
+        std::cout<< "calculating max eigenvalue..." << std::endl;
+        if (levels[0].A.nrows==0)
+        {
+            std::cerr << "A is empty" << std::endl;
+            return 0;
+        }
+        m_max_eig =  calc_max_eig(levels[0].A);
+        std::cout << "max eigenvalue: " << m_max_eig << std::endl;
+    }
+    return m_max_eig;
 }
 
 

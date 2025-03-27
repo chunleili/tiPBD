@@ -473,4 +473,10 @@ extern "C" DLLEXPORT void fastmg_solve_only_directsolver() {
 }
 
 
+/// @brief get the spectral radius of the matrix
+/// @return the spectral radius of the matrix
+extern "C" DLLEXPORT float fastmg_get_max_eig() {
+    return get_fastmg()->get_max_eig();
+}
+
 } // namespace

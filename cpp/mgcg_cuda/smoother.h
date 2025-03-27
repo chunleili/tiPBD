@@ -15,7 +15,7 @@ struct Smoother:CusparseWrappers{
     std::vector<float> chebyshev_coeff;
     size_t smoother_type = 1; //1:chebyshev, 2:w-jacobi, 3:gauss_seidel(level0)+w-jacobi(other levels)
     size_t smoother_niter=2; // TODO: we will replace smoother_niter later
-    float max_eig;
+    float m_max_eig=0.0;
     bool use_radical_omega=false;
     Buffer buff;
 
@@ -34,7 +34,6 @@ struct Smoother:CusparseWrappers{
     void gauss_seidel_cpu(int lv, Vec<float> &x, Vec<float> const &b);
     void multi_color_gauss_seidel(int lv, Vec<float> &x, Vec<float> const &b);
 
-    private:
     std::vector<MGLevel> &levels; // reference to the levels in fastmg
     
     void setup_chebyshev_cuda(CSR<float> &A);
@@ -44,6 +43,7 @@ struct Smoother:CusparseWrappers{
     float calc_min_eig(CSR<float> &A, float mu0=0.1);
     float calc_weighted_jacobi_omega(CSR<float>&A, bool use_radical_omega=false);
     float calc_max_eig(CSR<float>& A);
+    float get_max_eig();
 };
     
 } // namespace fastmg

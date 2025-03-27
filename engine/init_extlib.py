@@ -56,6 +56,7 @@ def init_extlib(args, sim=""):
     extlib.fastmg_fetch_A.argtypes = [ctypes.c_int, arr_float, arr_int, arr_int]
     extlib.fastmg_fetch_A_data.argtypes = [arr_float]
     extlib.fastmg_use_radical_omega.argtypes = [ctypes.c_int]
+    extlib.fastmg_get_max_eig.restype = ctypes.c_float
 
 
     extlib.fastmg_new()

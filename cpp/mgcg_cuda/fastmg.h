@@ -69,6 +69,7 @@ struct FastMG :CusparseWrappers{
     void get_Aoff_and_Dinv(CSR<float> &A, CSR<float> &Dinv, CSR<float> &Aoff);
     void set_outer_x(float const *x, size_t n);
     void set_outer_b(float const *b, size_t n);
+    float get_max_eig(){return smoother->get_max_eig();};
 };
 
 FastMG* get_fastmg();

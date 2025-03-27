@@ -365,8 +365,9 @@ class SoftBody(PhysicalBase):
         self.tri = self.model_tri.copy()
 
     def allocate_fields(self, NV, NT):
-        self.pos = ti.Vector.field(3, float, NV)
-        self.pos_mid = ti.Vector.field(3, float, NV)
+        self.pos = ti.Vector.field(3, float, NV)     # after/during solving this iter
+        self.pos_mid = ti.Vector.field(3, float, NV) # before solving this iter
+        self.prev_pos = ti.Vector.field(3, float, self.NV) # before solving last iter
         self.predict_pos = ti.Vector.field(3, float, NV)
         self.old_pos = ti.Vector.field(3, float, NV)
         self.vel = ti.Vector.field(3, float, NV)  # velocity of particles
@@ -524,6 +525,31 @@ class SoftBody(PhysicalBase):
         if args.use_line_search:
             self.omega = self.line_search(self.pos.to_numpy(), self.dpos.to_numpy())
         self.update_pos()
+
+        if args.use_WangChebyshev:
+            self.update_pos_chebyshev()
+
+
+    def update_pos_chebyshev(self):
+        # rho			= 0.9992
+        # gamma       = 0.9
+        # S           = 9
+        rho			= self.args.WangChebyshev_rho
+        gamma       = self.args.WangChebyshev_gamma
+        S           = self.args.WangChebyshev_S
+
+        if self.ite == 0:
+            self.prev_pos.copy_from(self.pos_mid)
+        update_pos_chebyshev_kernel(
+            self.pos,       # 下一状态缓冲区 (After  this iter solve constraints)
+            self.pos_mid,   # 当前状态缓冲区 (Before this iter solve constraints)
+            self.prev_pos,  # 前一状态缓冲区 (Before last iter solve constraints)
+            gamma,  # 松弛因子参数
+            self.ite,  # 当前迭代次数
+            rho,    # Binv@C的谱半径
+            S       # 前置不采用chebyshev的步数
+        )
+        
 
     def compute_b(self):
         b = -self.constraints.to_numpy() - self.alpha_tilde_np * self.lagrangian.to_numpy()
@@ -1053,6 +1079,53 @@ def reset_lagrangian(lagrangian: ti.template()):
 # ---------------------------------------------------------------------------- #
 #                                    kernels                                   #
 # ---------------------------------------------------------------------------- #
+#https://wanghmin.github.io/publication/wang-2015-csi/
+# Wang2015's Code: D:\Dev\Wang-2015-CSI\Chebyshev_sim\Chebyshev\lib\PROJECTIVE_TET_MESH.h:L606
+# Chebyshev: q^(k+1) = ω_{k+1}(γ(q^(k+1) - q^(k)) + q^(k) - q^(k-1)) + q^(k-1)
+# prev_pos -> pos_mid -> pos
+# prev_X   -> X       -> next_X
+# q^(k-1)  -> q^(k)   -> q^(k+1)
+# We are in the middle pos_mid -> pos or X->next_X
+# pos is changed during the solving process
+@ti.kernel
+def update_pos_chebyshev_kernel(
+    next_X: ti.template(),  # after this iter solved by XPBD : pos
+    X: ti.template(),       # before this iter solved by XPBD: pos_mid
+    prev_X: ti.template(),  # last iter
+    under_relax: ti.f32,    # γ，松弛因子
+    l: ti.i32,             # 当前迭代次数
+    rho: ti.f32,           # 谱半径
+    S: ti.f32,             # 前置的步数=9
+    ):
+    # 动态计算omega参数
+    omega = 1.0
+    if l < S:
+        omega = 1.0
+    elif l == S: 
+        omega = 2.0 / (2.0 - rho * rho)
+    else:
+        omega = 4.0 / (4.0 - rho * rho * omega)
+
+    # Chebyshev: q^(k+1) = ω_{k+1}(γ(q^(k+1) - q^(k)) + q^(k) - q^(k-1)) + q^(k-1)
+    # Wang's Code: lib\PROJECTIVE_TET_MESH.h:L606
+    for i in range(next_X.shape[0]):
+        # First part: temp = γ(q^(k+1) - q^(k)) + q^(k)
+        temp = (next_X[i] - X[i]) * under_relax + X[i]
+        next_X[i] = omega * (temp - prev_X[i]) + prev_X[i]
+        prev_X[i]=X[i]
+        X[i]=next_X[i]
+
+
+@ti.kernel
+def update_pos_kernel(
+    inv_mass:ti.template(),
+    dpos:ti.template(),
+    pos:ti.template(),
+    omega:ti.f32
+):
+    for i in range(inv_mass.shape[0]):
+        if inv_mass[i] != 0.0:
+            pos[i] += omega * dpos[i]
 
 
 @ti.kernel

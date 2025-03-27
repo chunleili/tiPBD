@@ -2323,6 +2323,34 @@ args = ["engine/soft/soft3d.py",
 allargs.append(args)
 
 
+
+ 
+# case217: Test Line Search to solve the overshoot
+args = ["engine/soft/soft3d.py",
+        f"-out_dir=result/case{len(allargs)}-{day}-bunny",
+        f"-auto_another_outdir={auto_another_outdir}",
+        f"-model_path=data/model/bunnyBig/bunnyBig.node",
+        "-rtol=1e-2",
+        "-delta_t=10e-3",
+        "-solver_type=AMG",
+        "-arch=gpu",
+        "-maxiter=200",
+        "-maxiter_Axb=20",
+        "-end_frame=1",
+        "-mu=1e9",
+        "-use_gravity=0",
+        "-reinit=squash",
+        "-setup_interval=100000",
+        "-export_log=1",
+        "-build_P_method=strength0.1",
+        "-verbosity=1",
+        "-use_line_search=1",
+        ]
+allargs.append(args)
+
+
+
+
 def export_cases_to_json(allargs):
     import json
     for i in range(len(allargs)):

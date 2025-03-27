@@ -112,7 +112,7 @@ if __name__ == '__main__':
     
     # Default test data if no arguments provided
     if not args.data:
-        args.data = ["result/case216-0327-bunny/latest.log", f"{thisDir}214.log"]
+        args.data = ["result/case217-0327-bunny/latest.log", f"{thisDir}214.log"]
         args.labels = ["AMG", "XPBD"]
     
     plot_comparison(args.data, args.labels, args.colors, args.title)

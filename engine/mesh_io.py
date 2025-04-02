@@ -207,6 +207,40 @@ def scale_to_unit_cube(mesh):
     return trimesh.Trimesh(vertices=vertices, faces=mesh.faces)
 
 
+def scale_to_unit_cube_v2(pos):
+    """
+    将pos缩放到[0,1]的立方体。
+    """
+    print("rescaling the model to unit cube")
+    bbox = get_bbox(pos)
+    size = bbox[1] - bbox[0]
+    scale = 1.0 / np.max(size)
+    
+    # 先归一化到[0,1]
+    pos = (pos - bbox[0]) * scale
+    
+    print("bbox before:", bbox)
+    print("scale:", scale)
+    print("bbox after:", get_bbox(pos))
+    return pos
+
+
+def get_bbox(pos):
+    lowest_x = np.min(pos[:, 0])
+    highest_x = np.max(pos[:, 0])
+    lowest_y = np.min(pos[:, 1])
+    highest_y = np.max(pos[:, 1])
+    lowest_z = np.min(pos[:, 2])
+    highest_z = np.max(pos[:, 2])
+    bbox = np.array(
+        [
+            [lowest_x, lowest_y, lowest_z],
+            [highest_x, highest_y, highest_z],
+        ]
+    )
+    return bbox
+
+
 def shift(mesh, x):
     mesh.vertices += x
 
@@ -595,3 +629,8 @@ def edge_data_to_tri_data(e2t, edge_data, tri):
             # TODO: now we use sum square of edge data into one triangle data to get a scalar value, maybe we can use vec3
             tri_data[t] += edge_data[e]**2
     return tri_data
+
+
+
+
+

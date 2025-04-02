@@ -30,6 +30,7 @@ from engine.util import vec_is_equal
 from engine.physical_base import PhysicalBase
 from script.convert.geo import Geo
 from engine.energy import compute_energy
+from engine.ti_kernels import *
 
 def init_args():
     parser = argparse.ArgumentParser()
@@ -43,12 +44,12 @@ def init_args():
     # "data/model/bunnyBig/bunnyBig.node"
     # "data/model/bunny85w/bunny85w.node"
     # "data/model/ball/ball.node"
-    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall","beam","twist_bar"])
+    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall","beam","twist_bar","SphereCollision"])
     parser.add_argument("-large", action="store_true")
     parser.add_argument("-small", action="store_true")
     parser.add_argument("-omega", type=float, default=0.1)
     parser.add_argument("-smoother_type", type=str, default="jacobi")
-    parser.add_argument("-use_line_search", type=int, default=0)
+    parser.add_argument("-use_line_search", type=int, default=True)
 
 
     args = parser.parse_args()
@@ -395,6 +396,7 @@ class SoftBody(PhysicalBase):
         self.ele = self.tet_indices
         self.is_fixed = ti.field(int, self.NV)
         self.fixed_pos = ti.Vector.field(3, float, self.NV)
+        self.is_colliding = ti.field(int, self.NV)
 
     def initialize(self):
         info(f"Initializing mesh")
@@ -404,6 +406,7 @@ class SoftBody(PhysicalBase):
         self.model_tet = self.model_tet.astype(np.int32)
         self.pos.from_numpy(self.model_pos)
         self.tet_indices.from_numpy(self.model_tet)
+        self.init_model()
 
         inv_mu = 1.0 / args.mu
         inv_h2 = 1.0 / args.delta_t / args.delta_t
@@ -460,7 +463,8 @@ class SoftBody(PhysicalBase):
                 # move the model above the ground
                 logging.warning(f"move the model above the ground")
                 self.pos.from_numpy(self.pos.to_numpy() + np.array([0, -min_pos_y+(max_pos_y-min_pos_y)*0.01, 0]))
-            self.ground_pos = 0.0
+            self.args.ground_pos = 0.0
+
         elif args.reinit=="beam":
             p = self.model_pos
             # fix the beam at the left end
@@ -482,6 +486,41 @@ class SoftBody(PhysicalBase):
             self.gravity = ti.Vector([0,0,0])
             deformed_pos = load_pos_from_node("data/model/twist_bar/twist_bar_deformed.node")
             self.pos.from_numpy(deformed_pos)
+        elif args.reinit=="SphereCollision":
+            from engine.mesh_io import scale_to_unit_cube_v2, get_bbox
+            self.gravity = ti.Vector([0,-9.8,0])
+            # lift above 
+            p = self.initial_pos
+            p[:, 1] = p[:, 1] + 0.25  #p[:, 0/1/2] corresponds to x/y/z
+            self.bbox = get_bbox(p)
+            print("After lift bbox\n", self.bbox)
+            self.pos.from_numpy(p)
+
+            self.args.use_SDF_collision = True
+            self.collider_pos = ti.Vector([0.5,0.1,0.5])
+            self.collider_radius = 0.2
+
+
+    def init_model(self):
+        from engine.mesh_io import scale_to_unit_cube_v2, get_bbox
+        self.initial_pos = self.pos.to_numpy()
+
+        # get bbox and lowest y(for ground collision)
+        self.bbox = get_bbox(self.model_pos)
+        print("\nbbox\n", self.bbox)
+        self.lowest_y = self.bbox[0, 1]
+        print("lowest_y", self.lowest_y)
+
+        # rescale the model to unit cube
+        if self.args.rescale_to_unit_cube:
+            logging.info("Rescalling the model into unit cube")
+            p = scale_to_unit_cube_v2(self.initial_pos)
+            self.bbox = get_bbox(p)
+            print("\nbbox after rescale\n", self.bbox)
+            self.lowest_y = self.bbox[0, 1]
+            print("lowest_y", self.lowest_y)
+            self.pos.from_numpy(p)
+            self.initial_pos = p 
 
 
     # calc_dual use the base class's
@@ -737,6 +776,21 @@ class SoftBody(PhysicalBase):
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
+
+
+    def update_vel(self):
+        update_vel_with_collision_kernel(self.delta_t, self.pos, self.old_pos, self.vel, self.inv_mass, self.is_colliding)
+
+        
+    def collision_response(self):
+        if self.args.use_ground_collision:
+            ground_collision_kernel(self.pos, self.old_pos, self.args.ground_pos, self.inv_mass)
+
+        self.args.collision_nsubsteps = 1
+        for s in range(self.args.collision_nsubsteps):
+            dt = self.delta_t / self.args.collision_nsubsteps
+            if self.args.use_SDF_collision:
+                sphere_collision_kernel(self.pos, self.old_pos, self.collider_pos, self.collider_radius, self.inv_mass, dt, self.vel, self.is_colliding)
 
 
     def is_converged(self):

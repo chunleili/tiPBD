@@ -75,8 +75,8 @@ def semi_euler_kernel(
         if inv_mass[i] != 0.0:
             old_pos[i] = pos[i]
             # vel[i] += damping_coeff* delta_t * (gravity + force[i])
-            vel[i] += delta_t * (gravity + force[i])
             vel[i] *= damping_coeff
+            vel[i] += delta_t * (gravity + force[i])
 
             pos[i] += delta_t * vel[i]
             predict_pos[i] = pos[i]
@@ -93,6 +93,17 @@ def update_vel_kernel(delta_t: ti.f32,
             vel[i] = (pos[i] - old_pos[i]) / delta_t
 
 
+@ti.kernel
+def update_vel_with_collision_kernel(delta_t: ti.f32,
+                      pos: ti.template(),
+                      old_pos: ti.template(),
+                      vel: ti.template(),
+                      inv_mass: ti.template(),
+                      is_colliding: ti.template()):
+    for i in pos:
+        if inv_mass[i] != 0.0 and not is_colliding[i]:
+            vel[i] = (pos[i] - old_pos[i]) / delta_t
+
 
 
 # ground collision response
@@ -104,6 +115,33 @@ def ground_collision_kernel(pos: ti.template(), old_pos:ti.template(), ground_po
                 pos[i] = old_pos[i]
                 pos[i][1] = ground_pos
 
+
+# Position Based Collision Response
+
+@ti.kernel
+def sphere_collision_kernel(pos: ti.template(), old_pos:ti.template(), sphere_pos: ti.template(), sphere_radius: ti.f32, inv_mass: ti.template(),  dt: ti.f32, vel: ti.template(), is_colliding: ti.template()):
+    for i in ti.grouped(pos):
+        if inv_mass[i] != 0.0:
+            offset_to_center = pos[i] - sphere_pos
+            dist = offset_to_center.norm()
+            if dist <= sphere_radius:
+                is_colliding[i] = 1
+                
+                # 计算碰撞点的法向量（从球心指向碰撞点的单位向量）
+                normal = offset_to_center / dist
+                
+                # 将点移动到球面上
+                pos[i] = sphere_pos + normal * sphere_radius
+                
+                # 更新速度
+                vel[i] = (pos[i] - old_pos[i])/dt
+
+                # 计算碰撞后的速度（反射）
+                vel_normal = ti.math.dot(vel[i], normal) * normal
+                vel_tangent = vel[i] - vel_normal
+                vel[i] = vel_tangent - vel_normal  # 反转法向速度分量
+
+            
 @ti.kernel
 def calc_norm_kernel(a:ti.template())->ti.f32:
     sum = 0.0

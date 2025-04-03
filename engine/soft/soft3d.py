@@ -44,7 +44,7 @@ def init_args():
     # "data/model/bunnyBig/bunnyBig.node"
     # "data/model/bunny85w/bunny85w.node"
     # "data/model/ball/ball.node"
-    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall","beam","twist_bar","SphereCollision"])
+    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall","beam","twist_bar","SphereCollision", "CylinderCollision"])
     parser.add_argument("-large", action="store_true")
     parser.add_argument("-small", action="store_true")
     parser.add_argument("-omega", type=float, default=0.1)
@@ -503,6 +503,8 @@ class SoftBody(PhysicalBase):
             from engine.mesh_io import scale_to_unit_cube_v2, get_bbox
             self.gravity = ti.Vector([0,-9.8,0])
             self.args.use_SDF_collision = True
+            self.collider_pos = ti.Vector([0.5,0.1,0.5])
+            self.collider_radius = 0.2
 
             # lift above 
             p = self.initial_pos

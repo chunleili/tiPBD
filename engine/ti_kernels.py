@@ -141,6 +141,35 @@ def sphere_collision_kernel(pos: ti.template(), old_pos:ti.template(), sphere_po
                 vel_tangent = vel[i] - vel_normal
                 vel[i] = vel_tangent - vel_normal  # 反转法向速度分量
 
+@ti.kernel
+def cylinder_collision_kernel(pos: ti.template(), old_pos:ti.template(), cylinder_pos: ti.template(), cylinder_radius: ti.f32, inv_mass: ti.template(),  dt: ti.f32, vel: ti.template(), is_colliding: ti.template()):
+    for i in ti.grouped(pos):
+        if inv_mass[i] != 0.0:
+            # 计算点到圆柱轴线的最短距离（在xy平面上）
+            p = pos[i] - cylinder_pos
+            # 投影到xy平面
+            p_xy = ti.Vector([p[0], p[1]])  # 改为xy平面
+            dist = p_xy.norm()
+            
+            if dist <= cylinder_radius:
+                is_colliding[i] = 1
+                
+                # 计算碰撞点的法向量（从轴线指向碰撞点的单位向量，在xy平面上）
+                normal_xy = p_xy / dist
+                # 构建3D法向量（z分量为0）
+                normal = ti.Vector([normal_xy[0], normal_xy[1], 0.0])  # z分量为0
+                
+                # 将点移动到圆柱表面
+                pos[i] = cylinder_pos + ti.Vector([normal[0] * cylinder_radius, normal[1] * cylinder_radius, p[2]])  # 保持z坐标不变
+                
+                # 更新速度
+                vel[i] = (pos[i] - old_pos[i])/dt
+
+                # 计算碰撞后的速度（反射）
+                vel_normal = ti.math.dot(vel[i], normal) * normal
+                vel_tangent = vel[i] - vel_normal
+                vel[i] = vel_tangent - vel_normal  # 反转法向速度分量
+
             
 @ti.kernel
 def calc_norm_kernel(a:ti.template())->ti.f32:

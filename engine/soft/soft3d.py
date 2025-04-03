@@ -499,6 +499,17 @@ class SoftBody(PhysicalBase):
             self.args.use_SDF_collision = True
             self.collider_pos = ti.Vector([0.5,0.1,0.5])
             self.collider_radius = 0.2
+        elif args.reinit=="CylinderCollision":
+            from engine.mesh_io import scale_to_unit_cube_v2, get_bbox
+            self.gravity = ti.Vector([0,-9.8,0])
+            self.args.use_SDF_collision = True
+
+            # lift above 
+            p = self.initial_pos
+            p[:, 1] = p[:, 1] + 0.25  #p[:, 0/1/2] corresponds to x/y/z
+            self.bbox = get_bbox(p)
+            print("After lift bbox\n", self.bbox)
+            self.pos.from_numpy(p)
 
 
     def init_model(self):
@@ -790,7 +801,8 @@ class SoftBody(PhysicalBase):
         for s in range(self.args.collision_nsubsteps):
             dt = self.delta_t / self.args.collision_nsubsteps
             if self.args.use_SDF_collision:
-                sphere_collision_kernel(self.pos, self.old_pos, self.collider_pos, self.collider_radius, self.inv_mass, dt, self.vel, self.is_colliding)
+                # sphere_collision_kernel(self.pos, self.old_pos, self.collider_pos, self.collider_radius, self.inv_mass, dt, self.vel, self.is_colliding)
+                cylinder_collision_kernel(self.pos, self.old_pos, self.collider_pos, self.collider_radius, self.inv_mass, dt, self.vel, self.is_colliding)
 
 
     def is_converged(self):

@@ -27,6 +27,20 @@
           ]
         }, 
         {
+          "name": "BunnyCylinderCollision",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "engine/soft/soft3d.py",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "-reinit=CylinderCollision",
+            "-end_frame=350",
+            "-use_ground_collision=0",
+            "-rescale_to_unit_cube=1",
+          ]
+        }, 
+        {
           "name": "Python C++ Debug",
           "type": "pythoncpp",
           "request": "launch",

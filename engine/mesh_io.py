@@ -631,6 +631,96 @@ def edge_data_to_tri_data(e2t, edge_data, tri):
     return tri_data
 
 
+def create_sphere_mesh(center, radius, segments=32):
+    """生成球体网格
+    Args:
+        center: 球心坐标 [x,y,z]
+        radius: 球体半径
+        segments: 细分段数
+    Returns:
+        vertices: 顶点坐标数组
+        triangles: 三角形索引数组
+    """
+    import numpy as np
+    
+    # 生成球面顶点
+    vertices = []
+    for i in range(segments + 1):
+        lat = np.pi * (-0.5 + float(i) / segments)
+        for j in range(segments + 1):
+            lon = 2 * np.pi * float(j) / segments
+            x = np.cos(lat) * np.cos(lon)
+            y = np.cos(lat) * np.sin(lon)
+            z = np.sin(lat)
+            vertices.append([
+                x * radius + center[0],
+                y * radius + center[1],
+                z * radius + center[2]
+            ])
+    
+    # 生成三角形索引
+    triangles = []
+    for i in range(segments):
+        for j in range(segments):
+            v1 = i * (segments + 1) + j
+            v2 = v1 + 1
+            v3 = (i + 1) * (segments + 1) + j
+            v4 = v3 + 1
+            triangles.append([v1, v2, v3])
+            triangles.append([v2, v4, v3])
+    
+    return np.array(vertices), np.array(triangles)
 
-
-
+def create_cylinder_mesh(center, radius, height=10.0, segments=32):
+    """生成圆柱体网格，轴向为z轴
+    Args:
+        center: 圆柱体中心坐标 [x,y,z]
+        radius: 圆柱体半径
+        height: 圆柱体高度
+        segments: 圆周细分段数
+    Returns:
+        vertices: 顶点坐标数组
+        triangles: 三角形索引数组
+    """
+    import numpy as np
+    
+    half_height = height / 2
+    vertices = []
+    # 生成顶部和底部圆周顶点
+    for i in range(segments):
+        theta = 2 * np.pi * i / segments
+        x = radius * np.cos(theta)
+        y = radius * np.sin(theta)
+        # 底部顶点
+        vertices.append([
+            x + center[0],
+            y + center[1],
+            center[2] - half_height
+        ])
+        # 顶部顶点
+        vertices.append([
+            x + center[0],
+            y + center[1],
+            center[2] + half_height
+        ])
+    
+    # 添加中心点
+    vertices.append([center[0], center[1], center[2] - half_height])  # 底部中心
+    vertices.append([center[0], center[1], center[2] + half_height])  # 顶部中心
+    
+    triangles = []
+    # 生成侧面三角形（注意顶点顺序以确保法向朝外）
+    for i in range(segments):
+        v1 = i * 2
+        v2 = (i * 2 + 2) % (segments * 2)
+        v3 = i * 2 + 1
+        v4 = (i * 2 + 3) % (segments * 2)
+        triangles.append([v1, v3, v2])  # 修改顶点顺序
+        triangles.append([v2, v3, v4])  # 修改顶点顺序
+        
+        # 底面三角形（法向朝下）
+        triangles.append([v2, v1, segments * 2])
+        # 顶面三角形（法向朝上）
+        triangles.append([v3, v4, segments * 2 + 1])
+    
+    return np.array(vertices), np.array(triangles)

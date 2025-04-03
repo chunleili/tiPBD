@@ -31,6 +31,8 @@ from engine.physical_base import PhysicalBase
 from script.convert.geo import Geo
 from engine.energy import compute_energy
 from engine.ti_kernels import *
+from engine.collision import *
+
 
 def init_args():
     parser = argparse.ArgumentParser()
@@ -44,7 +46,7 @@ def init_args():
     # "data/model/bunnyBig/bunnyBig.node"
     # "data/model/bunny85w/bunny85w.node"
     # "data/model/ball/ball.node"
-    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall","beam","twist_bar","SphereCollision", "CylinderCollision"])
+    parser.add_argument("-reinit", type=str, default="enlarge",choices=["random","enlarge","squash","freefall","beam","twist_bar","collision"])
     parser.add_argument("-large", action="store_true")
     parser.add_argument("-small", action="store_true")
     parser.add_argument("-omega", type=float, default=0.1)
@@ -486,8 +488,13 @@ class SoftBody(PhysicalBase):
             self.gravity = ti.Vector([0,0,0])
             deformed_pos = load_pos_from_node("data/model/twist_bar/twist_bar_deformed.node")
             self.pos.from_numpy(deformed_pos)
-        elif args.reinit=="SphereCollision":
+        elif args.reinit=="collision":
             from engine.mesh_io import scale_to_unit_cube_v2, get_bbox
+            self.args.use_SDF_collision = True
+
+            if self.args.use_SDF_collision:
+                self.colliders = add_colliders(self.args.collider_json_path)
+
             self.gravity = ti.Vector([0,-9.8,0])
             # lift above 
             p = self.initial_pos
@@ -496,22 +503,10 @@ class SoftBody(PhysicalBase):
             print("After lift bbox\n", self.bbox)
             self.pos.from_numpy(p)
 
-            self.args.use_SDF_collision = True
-            self.collider_pos = ti.Vector([0.5,0.1,0.5])
-            self.collider_radius = 0.2
-        elif args.reinit=="CylinderCollision":
-            from engine.mesh_io import scale_to_unit_cube_v2, get_bbox
-            self.gravity = ti.Vector([0,-9.8,0])
-            self.args.use_SDF_collision = True
-            self.collider_pos = ti.Vector([0.5,0.1,0.5])
-            self.collider_radius = 0.2
 
-            # lift above 
-            p = self.initial_pos
-            p[:, 1] = p[:, 1] + 0.25  #p[:, 0/1/2] corresponds to x/y/z
-            self.bbox = get_bbox(p)
-            print("After lift bbox\n", self.bbox)
-            self.pos.from_numpy(p)
+            if args.export_mesh:
+                from engine.collision import visualize_colliders
+                visualize_colliders(self.colliders, args.out_dir)
 
 
     def init_model(self):
@@ -799,12 +794,23 @@ class SoftBody(PhysicalBase):
         if self.args.use_ground_collision:
             ground_collision_kernel(self.pos, self.old_pos, self.args.ground_pos, self.inv_mass)
 
-        self.args.collision_nsubsteps = 1
-        for s in range(self.args.collision_nsubsteps):
+        if self.args.use_SDF_collision:
             dt = self.delta_t / self.args.collision_nsubsteps
-            if self.args.use_SDF_collision:
-                # sphere_collision_kernel(self.pos, self.old_pos, self.collider_pos, self.collider_radius, self.inv_mass, dt, self.vel, self.is_colliding)
-                cylinder_collision_kernel(self.pos, self.old_pos, self.collider_pos, self.collider_radius, self.inv_mass, dt, self.vel, self.is_colliding)
+            for s in range(self.args.collision_nsubsteps):
+                # 遍历所有碰撞体进行碰撞检测和响应
+                for collider in self.colliders:
+                    if collider.type == "sphere":
+                        sphere_collision_kernel(
+                            self.pos, self.old_pos, 
+                            ti.Vector(collider.pos), collider.size, 
+                            self.inv_mass, dt, self.vel, self.is_colliding
+                        )
+                    elif collider.type == "cylinder":
+                        cylinder_collision_kernel(
+                            self.pos, self.old_pos, 
+                            ti.Vector(collider.pos), collider.size, 
+                            self.inv_mass, dt, self.vel, self.is_colliding
+                        )
 
 
     def is_converged(self):

@@ -76,6 +76,10 @@ def add_common_args(parser):
     parser.add_argument("-WangChebyshev_S", type=int, default=9)
     parser.add_argument("-rescale_to_unit_cube", type=int, default=False)
     parser.add_argument("-ground_pos", type=float, default=0.0)
+    parser.add_argument("-use_SDF_collision", type=int, default=False, help="a master switch to use SDF collision, if false, all SDF collision will not be used")
+    parser.add_argument("-collider_json_path", type=str, default="", help="json file for colliders, see data/scene/sphere.json for example")
+    parser.add_argument("-visualize_colliders", type=int, default=True, help="A master swich to visualize colliders, if false, all colliders will not be visualized even if they are set to be visible")
+    parser.add_argument("-collision_nsubsteps", type=int, default=1, help="number of substeps for collision response")
     return parser
 
 

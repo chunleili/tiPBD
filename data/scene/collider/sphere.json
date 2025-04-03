@@ -1,0 +1,10 @@
+{
+    "colliders":[
+		{
+			"type": "sphere",
+			"size": 0.2,
+			"pos": [0.5, 0.1, 0.5],
+			"visible": true
+		}
+	]
+}

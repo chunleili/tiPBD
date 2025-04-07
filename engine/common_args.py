@@ -80,6 +80,7 @@ def add_common_args(parser):
     parser.add_argument("-collider_json_path", type=str, default="", help="json file for colliders, see data/scene/sphere.json for example")
     parser.add_argument("-visualize_colliders", type=int, default=True, help="A master swich to visualize colliders, if false, all colliders will not be visualized even if they are set to be visible")
     parser.add_argument("-collision_nsubsteps", type=int, default=1, help="number of substeps for collision response")
+    parser.add_argument("-initial_translate", type=float, nargs=3, default=(0.0, 0.0, 0.0),help="initial_translate for model")
     return parser
 
 

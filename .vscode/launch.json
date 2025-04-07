@@ -35,6 +35,7 @@
             "-use_SDF_collision=1",
             "-collider_json_path=data/scene/collider/sphere.json",
             "-collision_nsubsteps=1",
+            "-initial_translate","0","0.25","0"
           ]
         }, 
         {
@@ -52,6 +53,7 @@
             "-use_SDF_collision=1",
             "-collider_json_path=data/scene/collider/cylinder.json",
             "-collision_nsubsteps=1",
+            "-initial_translate","0","0.25","0"
           ]
         },
           {

@@ -438,8 +438,16 @@ class SoftBody(PhysicalBase):
     def reinit(self):
         # args.reinit = "squash"
         # FIXME: no reinit will cause bug, why? FIXED: because when there is no deformation, the gradient will be in any direction! Sigma=(1,1,1) There will be singularity issue! We need to jump the constraint=0 case.
-        # reinit pos
+        if self.args.use_gravity:
+            self.gravity = ti.Vector([0,-9.8,0])
+        else:
+            self.gravity = ti.Vector([0,0,0])
+
         self.initial_pos = self.pos.to_numpy()
+
+        self.initial_translate_model()
+
+        # reinit pos
         self.fixed_pos.copy_from(self.pos)
         self.fixed_stiffness = self.args.fixed_stiffness
         if args.reinit == "random":
@@ -489,24 +497,30 @@ class SoftBody(PhysicalBase):
             deformed_pos = load_pos_from_node("data/model/twist_bar/twist_bar_deformed.node")
             self.pos.from_numpy(deformed_pos)
         elif args.reinit=="collision":
-            from engine.mesh_io import scale_to_unit_cube_v2, get_bbox
-            self.args.use_SDF_collision = True
-
             if self.args.use_SDF_collision:
                 self.colliders = add_colliders(self.args.collider_json_path)
 
-            self.gravity = ti.Vector([0,-9.8,0])
-            # lift above 
+                if args.export_mesh and args.visualize_colliders:
+                    from engine.collision import visualize_colliders
+                    visualize_colliders(self.colliders, args.out_dir)
+
+
+    
+    def initial_translate_model(self):
+        from engine.mesh_io import  get_bbox
+        t = self.args.initial_translate
+        logging.info(f"initial translate:{t}")
+        if t[0]!=0 or  t[1]!=0 or t[2]!=0:
             p = self.initial_pos
-            p[:, 1] = p[:, 1] + 0.25  #p[:, 0/1/2] corresponds to x/y/z
-            self.bbox = get_bbox(p)
-            print("After lift bbox\n", self.bbox)
+            p[:, 0] = p[:, 0] + t[0]
+            p[:, 1] = p[:, 1] + t[1]
+            p[:, 2] = p[:, 2] + t[2]
             self.pos.from_numpy(p)
 
-
-            if args.export_mesh:
-                from engine.collision import visualize_colliders
-                visualize_colliders(self.colliders, args.out_dir)
+            self.bbox = get_bbox(self.model_pos)
+            print("\nbbox\n", self.bbox)
+            self.lowest_y = self.bbox[0, 1]
+            print("lowest_y", self.lowest_y)
 
 
     def init_model(self):

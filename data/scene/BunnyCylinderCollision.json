@@ -1,0 +1,10 @@
+{
+    "reinit": "collision",
+    "end_frame": 350,
+    "use_ground_collision": 0,
+    "rescale_to_unit_cube": 1,
+    "use_SDF_collision": 1,
+    "collider_json_path": "data/scene/collider/cylinder.json",
+    "collision_nsubsteps": 1,
+    "initial_translate": [0, 0.25, 0]
+}

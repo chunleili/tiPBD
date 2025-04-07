@@ -24,6 +24,7 @@ def add_common_args(parser):
     parser.add_argument("-use_cache", type=int, default=False)
     parser.add_argument("-export_mesh", type=int, default=True)
     parser.add_argument("-tol", type=float, default=1e-4)
+    parser.add_argument("-atol", type=float, default=1e-4, help="absolute tolerance, same with tol")
     parser.add_argument("-rtol", type=float, default=1e-9)
     parser.add_argument("-tol_Axb", type=float, default=1e-5)
     parser.add_argument("-smoother_niter", type=int, default=2)

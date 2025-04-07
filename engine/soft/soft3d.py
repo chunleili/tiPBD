@@ -817,19 +817,19 @@ class SoftBody(PhysicalBase):
                         sphere_collision_kernel(
                             self.pos, self.old_pos, 
                             ti.Vector(collider.pos), collider.size, 
-                            self.inv_mass, dt, self.vel, self.is_colliding
+                            self.inv_mass, dt, self.vel, self.is_colliding, collider.bc_type,
                         )
                     elif collider.type == "cylinder":
                         cylinder_collision_kernel(
                             self.pos, self.old_pos, 
                             ti.Vector(collider.pos), collider.size, 
-                            self.inv_mass, dt, self.vel, self.is_colliding
+                            self.inv_mass, dt, self.vel, self.is_colliding, collider.bc_type,
                         )
 
 
     def is_converged(self):
         if self.args.converge_condition == "dual":
-            if self.dualr < self.dual0 * args.rtol:
+            if self.dualr < self.dual0 * args.rtol or self.dualr < args.atol:
                 return True
         elif self.args.converge_condition == "time":
             if self.has_no_time_budget():

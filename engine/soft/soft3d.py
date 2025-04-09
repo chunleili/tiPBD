@@ -270,7 +270,7 @@ class SoftBody(PhysicalBase):
 
     def read_geo_pinpos(self):
         dir = prj_path + "/" + args.geo_dir + "/"
-        geo = Geo(dir+f"physdata_{ist.frame}.geo")
+        geo = Geo(dir+f"physdata_{self.frame}.geo")
         pinpos = np.array(geo.get_pos())
         assert pinpos.shape[0] == self.pos.shape[0]
         # set_pinpos_kernel(self.pin, self.pos, pinpos)
@@ -1699,14 +1699,14 @@ def fill_A_csr_kernel(data:ti.types.ndarray(dtype=ti.f32),
 # ---------------------------------------------------------------------------- #
 #                              end fill A                                      #
 # ---------------------------------------------------------------------------- #
-def AMG_A():
+def AMG_A(ist):
     tic2 = perf_counter()
     extlib.fastFillSoft_run(ist.pos.to_numpy(), ist.gradC.to_numpy())
     extlib.fastmg_set_A0_from_fastFillSoft()
     # logging.info(f"    fill_A time: {(perf_counter()-tic2)*1000:.0f}ms")
 
 
-def fetch_A_from_cuda(lv=0):
+def fetch_A_from_cuda(ist,lv=0):
     nnz = extlib.fastmg_get_nnz(lv)
     matsize = extlib.fastmg_get_matsize(lv)
     if lv==0:
@@ -1720,28 +1720,28 @@ def fetch_A_from_cuda(lv=0):
         A = scipy.sparse.csr_matrix((data, indices, indptr), shape=(matsize, matsize))
     return A
 
-def fetch_A_data_from_cuda():
+def fetch_A_data_from_cuda(ist):
     extlib.fastmg_fetch_A_data(ist.spmat_data)
     A = scipy.sparse.csr_matrix((ist.spmat_data, ist.spmat_indices, ist.spmat_indptr), shape=(ist.NT, ist.NT))
     return A
 
-def get_A0_python()->scipy.sparse.csr_matrix:
+def get_A0_python(ist)->scipy.sparse.csr_matrix:
     A = fill_A_csr_ti(ist)
     return A
 
-def get_A0_cuda()->scipy.sparse.csr_matrix:
-    AMG_A()
-    A = fetch_A_from_cuda(0)
+def get_A0_cuda(ist)->scipy.sparse.csr_matrix:
+    AMG_A(ist)
+    A = fetch_A_from_cuda(ist,0)
     return A
 
 
 def export_all_levels_A(ist):
     from engine.util import export_A_b
-    AMG_A()
+    AMG_A(ist)
     nl = ist.linsol.get_nl()
     for l in range(nl):
         print(f"exporting A of level {l}...")
-        A = fetch_A_from_cuda(l)
+        A = fetch_A_from_cuda(ist,l)
         print(f"A.shape={A.shape}")
         export_A_b(A, None, dir=args.out_dir+"/A/", postfix=f"L{l}")
         print(f"exported A of level {l}...")
@@ -1751,7 +1751,16 @@ def export_all_levels_A(ist):
 # ---------------------------------------------------------------------------- #
 #                                     main                                     #
 # ---------------------------------------------------------------------------- #
-def init_linear_solver():
+def init_linear_solver(ist):
+    def AMG_A_wrapper():
+        AMG_A(ist)
+    
+    def get_A0_cuda_wrapper():
+        return get_A0_cuda(ist)
+    
+    def get_A0_python_wrapper():
+        return get_A0_python(ist)
+
     if args.solver_type == "AMG":
         from engine.soft.graph_coloring import graph_coloring_v2
         def gc():
@@ -1761,32 +1770,32 @@ def init_linear_solver():
             linsol = AmgCuda(
                 args=args,
                 extlib=extlib,
-                get_A0=get_A0_cuda,
+                get_A0=get_A0_cuda_wrapper,
                 should_setup=ist.should_setup,
-                fill_A_in_cuda=AMG_A,
+                fill_A_in_cuda=AMG_A_wrapper,
                 graph_coloring=gc,
                 copy_A=True,
             )
         else:
-            linsol = AmgPython(args, get_A0_python, ist.should_setup)
+            linsol = AmgPython(args, get_A0_python_wrapper, ist.should_setup)
     elif args.solver_type == "AMGX":
-        linsol = AmgxSolver(args.amgx_config, get_A0_python, args.cuda_dir, args.amgx_lib_dir)
+        linsol = AmgxSolver(args.amgx_config, get_A0_python_wrapper, args.cuda_dir, args.amgx_lib_dir)
     elif args.solver_type == "DIRECT":
         if args.direct_solver_type=="pardiso":
             from engine.solver.direct_solver import DirectSolverPardiso
-            linsol = DirectSolverPardiso(get_A0_cuda)
+            linsol = DirectSolverPardiso(get_A0_cuda_wrapper)
         elif args.use_cuda:
             linsol = AmgCuda(
                     args=args,
                     extlib=extlib,
-                    get_A0=get_A0_cuda,
+                    get_A0=get_A0_cuda_wrapper,
                     should_setup=ist.should_setup,
-                    fill_A_in_cuda=AMG_A,
+                    fill_A_in_cuda=AMG_A_wrapper,
                     only_direct=True,
                     copy_A=True,
                 )
         else:
-            linsol = DirectSolver(get_A0_python)
+            linsol = DirectSolver(get_A0_python_wrapper)
     elif args.solver_type == "XPBD":
         linsol=None
     else:
@@ -1829,17 +1838,18 @@ def init():
     init_logger(args)
     global extlib
     extlib = init_extlib(args,sim="soft")
-    global ist
+    # global ist
     ist = SoftBody(args.model_path)
-    ist.linsol = init_linear_solver()
+    ist.linsol = init_linear_solver(ist)
     if args.solver_type != "XPBD" and args.solver_type != "NEWTON":
         from engine.soft.fill_A import init_direct_fill_A
         init_direct_fill_A(ist,extlib)
     print(f"initialize time:", perf_counter()-tic)
+    return ist
 
 
 def main():
-    init()
+    ist=init()
     from engine.util import main_loop
     main_loop(ist,args)
 

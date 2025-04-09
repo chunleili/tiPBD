@@ -21,6 +21,18 @@
           "cppAttachName": "(Windows) Attach",
         },
         {
+          "name": "Pachinko",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "engine/soft/soft3d.py",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "-use_json=1",
+            "-json_path=data/scene/pachinko.json",
+          ]
+        },
+        {
           "name": "BunnySphereCollision",
           "type": "debugpy",
           "request": "launch",

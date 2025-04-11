@@ -6,6 +6,7 @@ import taichi as ti
 class BCType:
     STICKY = 0  # 粘性碰撞， 即速度为0
     REFLECT = 1  # 反射碰撞， 即法向速度反向
+    SLIP = 2  # 滑动碰撞， 即法向速度为0
 
 def add_colliders(json_path):
     """ Add colliders from json configs
@@ -15,39 +16,56 @@ def add_colliders(json_path):
     colliders = []
     with open(json_path, 'r') as f:
         data = json.load(f)
+        common_bc_type = data.get('bc_type', 'sticky').lower() 
+        common_restitution = data.get('restitution', 1.0)
+        i = 0
         for collider in data['colliders']:
+            collider_id = collider.get('id', i)
             type = collider['type']
             pos = collider['pos']
             size = collider['size']
             visible = collider.get('visible', True)
-            bc_type_str = collider.get('bc_type', 'sticky').lower()  # 默认为sticky
-            bc_type = BCType.STICKY if bc_type_str == 'sticky' else BCType.REFLECT
-            
+            restitution = collider.get('restitution',common_restitution)
+            bc_type_str = collider.get('bc_type', common_bc_type).lower() 
+            if bc_type_str == 'sticky':
+                bc_type = BCType.STICKY
+            elif bc_type_str == 'reflect':
+                bc_type = BCType.REFLECT
+            elif bc_type_str == 'slip':
+                bc_type = BCType.SLIP
+            elif bc_type_str == 'separate':
+                bc_type = BCType.SEPARATE
+            else:
+                raise ValueError(f"Unknown boundary condition type: {bc_type_str}")
+
             if type == "sphere":
-                colliders.append(SphereCollider(pos, size, visible=visible, bc_type=bc_type))
+                colliders.append(SphereCollider(pos=pos, size=size, visible=visible, bc_type=bc_type, id=collider_id, restitution=restitution))
             elif type == "cylinder":
-                colliders.append(CylinderCollider(pos, size, visible=visible, bc_type=bc_type))
+                colliders.append(CylinderCollider(pos=pos, size=size, visible=visible, bc_type=bc_type, id=collider_id, restitution=restitution))
             else:
                 raise ValueError(f"Unknown collider type: {type}")
+            i+=1
     return colliders
 
 
 class Collider:
-    def __init__(self, type="sphere", pos=[0,0,0], size=0.1, visible=True, bc_type=BCType.STICKY):
+    def __init__(self, type="sphere", pos=[0,0,0], size=0.1, visible=True, bc_type=BCType.STICKY, id=0, restitution=1.0):
         self.type = type
         self.pos = pos
         self.size = size
         self.visible = visible
         self.bc_type = bc_type
+        self.id = id
+        self.restitution=restitution
 
 
 class SphereCollider(Collider):
-    def __init__(self, pos=[0,0,0], size=0.1, visible=True, bc_type=BCType.STICKY):
-        super().__init__(type="sphere", pos=pos, size=size, visible=visible, bc_type=bc_type)
+    def __init__(self, **kwargs):
+        super().__init__(type="sphere", **kwargs)
 
 class CylinderCollider(Collider):
-    def __init__(self, pos=[0,0,0], size=0.1, visible=True, bc_type=BCType.STICKY):
-        super().__init__(type="cylinder", pos=pos, size=size, visible=visible, bc_type=bc_type)
+    def __init__(self, **kwargs):
+        super().__init__(type="cylinder", **kwargs)
 
 
 # ground collision response
@@ -63,8 +81,9 @@ def ground_collision_kernel(pos: ti.template(), old_pos:ti.template(), ground_po
 # Position Based Collision Response
 
 @ti.kernel
-def sphere_collision_kernel(pos: ti.template(), old_pos:ti.template(), sphere_pos: ti.template(), sphere_radius: ti.f32, inv_mass: ti.template(),  dt: ti.f32, vel: ti.template(), is_colliding: ti.template(), bc_type:ti.i32):
+def sphere_collision_kernel(pos: ti.template(), old_pos:ti.template(), sphere_pos: ti.template(), sphere_radius: ti.f32, inv_mass: ti.template(),  dt: ti.f32, vel: ti.template(), is_colliding: ti.template(), bc_type:ti.i32, restitution:ti.f32):
     for i in ti.grouped(pos):
+        is_colliding[i] = 0
         if inv_mass[i] != 0.0:
             offset_to_center = pos[i] - sphere_pos
             dist = offset_to_center.norm()
@@ -80,18 +99,23 @@ def sphere_collision_kernel(pos: ti.template(), old_pos:ti.template(), sphere_po
                 # 更新速度
                 vel[i] = (pos[i] - old_pos[i])/dt
 
-                # 计算碰撞后的速度
                 if bc_type==0:  # STICKY
                     vel[i]=0.0
-                elif bc_type==1:   # REFLECT  
+                elif bc_type==1: # REFLECT
                     vel_normal = ti.math.dot(vel[i], normal) * normal
+                    # 计算切向速度分量
                     vel_tangent = vel[i] - vel_normal
-                    vel[i] = vel_tangent - vel_normal  # 反转法向速度分量
-                
+                    # 更新速度：切向速度减去法向速度乘以恢复系数
+                    vel[i] = vel_tangent - vel_normal * restitution
+                if bc_type == 2:  # SLIP
+                    # SLIP: 将法向速度置为0
+                    vel[i] = vel[i] - normal * ti.math.dot(vel[i], normal)
+
 
 @ti.kernel
-def cylinder_collision_kernel(pos: ti.template(), old_pos:ti.template(), cylinder_pos: ti.template(), cylinder_radius: ti.f32, inv_mass: ti.template(),  dt: ti.f32, vel: ti.template(), is_colliding: ti.template(), bc_type:ti.i32):
+def cylinder_collision_kernel(pos: ti.template(), old_pos:ti.template(), cylinder_pos: ti.template(), cylinder_radius: ti.f32, inv_mass: ti.template(),  dt: ti.f32, vel: ti.template(), is_colliding: ti.template(), bc_type:ti.i32, restitution:ti.f32):
     for i in ti.grouped(pos):
+        is_colliding[i] = 0
         if inv_mass[i] != 0.0:
             # 计算点到圆柱轴线的最短距离（在xy平面上）
             p = pos[i] - cylinder_pos
@@ -117,8 +141,14 @@ def cylinder_collision_kernel(pos: ti.template(), old_pos:ti.template(), cylinde
                     vel[i]=0.0
                 elif bc_type==1: # REFLECT
                     vel_normal = ti.math.dot(vel[i], normal) * normal
+                    # 计算切向速度分量
                     vel_tangent = vel[i] - vel_normal
-                    vel[i] = vel_tangent - vel_normal  # 反转法向速度分量
+                    # 更新速度：切向速度减去法向速度乘以恢复系数
+                    vel[i] = vel_tangent - vel_normal * restitution
+                if bc_type == 2:  # SLIP
+                    # SLIP: 将法向速度置为0
+                    vel[i] = vel[i] - normal * ti.math.dot(vel[i], normal)
+
 
 
 def visualize_colliders(colliders, out_dir):

@@ -9,7 +9,6 @@
     "initial_translate": [0, 0.25, 0],
     "model_path":"data/model/armadillo34K/armadillo34K.node",
     "mu":1e9,
-    "bc_type":"sticky",
     "maxiter": 1000,
     "rtol": 1e-1,
     "atol": 1e-3,

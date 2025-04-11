@@ -794,7 +794,7 @@ class SoftBody(PhysicalBase):
             self.dualr = self.log_residual(self.frame,self.ite+1,f"{args.out_dir}/r/residual.txt")
             self.toc_iter = perf_counter()
             if self.is_converged(): break
-            
+            self.collision_response()
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
@@ -805,6 +805,7 @@ class SoftBody(PhysicalBase):
 
         
     def collision_response(self):
+        logging.info("collision response")
         if self.args.use_ground_collision:
             ground_collision_kernel(self.pos, self.old_pos, self.args.ground_pos, self.inv_mass)
 
@@ -817,13 +818,13 @@ class SoftBody(PhysicalBase):
                         sphere_collision_kernel(
                             self.pos, self.old_pos, 
                             ti.Vector(collider.pos), collider.size, 
-                            self.inv_mass, dt, self.vel, self.is_colliding, collider.bc_type,
+                            self.inv_mass, dt, self.vel, self.is_colliding, collider.bc_type, collider.restitution
                         )
                     elif collider.type == "cylinder":
                         cylinder_collision_kernel(
                             self.pos, self.old_pos, 
                             ti.Vector(collider.pos), collider.size, 
-                            self.inv_mass, dt, self.vel, self.is_colliding, collider.bc_type,
+                            self.inv_mass, dt, self.vel, self.is_colliding, collider.bc_type, collider.restitution
                         )
 
 

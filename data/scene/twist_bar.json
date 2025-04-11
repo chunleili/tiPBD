@@ -9,7 +9,7 @@
     "arch": "gpu",
     "maxiter": 100,
     "end_frame": 1,
-    "mu": 2334889.75,
+    "mu": 2334889000.75,
     "reinit": "twist_bar",
     "mass_density": 1e3,
     "calc_energy": 1,

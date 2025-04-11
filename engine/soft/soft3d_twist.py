@@ -729,7 +729,7 @@ class SoftBody(PhysicalBase):
             print(s)
             if filename_to_save != "":
                 with open(filename_to_save, "a") as f:
-                    f.write(s)
+                    f.write(s+"\n")
             return te
 
 

@@ -794,7 +794,8 @@ class SoftBody(PhysicalBase):
             self.dualr = self.log_residual(self.frame,self.ite+1,f"{args.out_dir}/r/residual.txt")
             self.toc_iter = perf_counter()
             if self.is_converged(): break
-            self.collision_response()
+            if (self.ite+1)%10==0:
+                self.collision_response()
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
         self.update_vel()
@@ -812,6 +813,14 @@ class SoftBody(PhysicalBase):
         if self.args.use_SDF_collision:
             dt = self.delta_t / self.args.collision_nsubsteps
             for s in range(self.args.collision_nsubsteps):
+                #对每一个碰撞体，先进行包围盒检测，剔除掉包围盒与模拟体包围盒不重叠的碰撞体
+                # 此项检测在每种具体的collider单独实现。
+                # 先找到模拟体的包围盒
+                from engine.mesh_io import get_bbox
+                bbox = get_bbox(self.pos.to_numpy()) #[[xmin, ymin, zmin], [xmax, ymax, zmax]]
+                xmin, ymin, zmin, xmax, ymax, zmax = bbox.flatten()
+                ncolliders_after_culling= len(self.colliders) # 记录剔除后还有几个collider
+
                 # 遍历所有碰撞体进行碰撞检测和响应
                 for collider in self.colliders:
                     if collider.type == "sphere":
@@ -821,11 +830,26 @@ class SoftBody(PhysicalBase):
                             self.inv_mass, dt, self.vel, self.is_colliding, collider.bc_type, collider.restitution
                         )
                     elif collider.type == "cylinder":
+                        # z axis aligned infinite long cylinder
+                        # collision culling
+                        # 检查模拟体bbox和圆柱体bbox在xy平面上的投影是否有交集
+                        collider_min = np.array([collider.pos[0] - collider.size, collider.pos[1] - collider.size])
+                        collider_max = np.array([collider.pos[0] + collider.size, collider.pos[1] + collider.size])
+                        # 如果没有交集则跳过
+                        if (xmax < collider_min[0] or xmin > collider_max[0] or
+                            ymax < collider_min[1] or ymin > collider_max[1]):
+                            ncolliders_after_culling -= 1
+                            continue
+
                         cylinder_collision_kernel(
                             self.pos, self.old_pos, 
                             ti.Vector(collider.pos), collider.size, 
                             self.inv_mass, dt, self.vel, self.is_colliding, collider.bc_type, collider.restitution
                         )
+                    else:
+                        raise NotImplementedError(f"Unknown collider type: {collider.type}")
+
+                logging.info(f"ncolliders_after_culling: {ncolliders_after_culling}")
 
 
     def is_converged(self):

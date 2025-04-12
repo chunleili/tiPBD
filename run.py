@@ -2350,6 +2350,16 @@ allargs.append(args)
 
 
 
+# case218/219/220: pachinko for three x-translate
+for i,config in enumerate(["left","middle","right"]):
+    args = ["engine/soft/soft3d.py",
+            f"-out_dir=result/case{len(allargs)}-{day}-pachinko_{config}",
+            f"-use_json=1",
+            f"-json_path=data/scene/pachinko_seperate/pachinko_{config}.json",
+    ]
+    allargs.append(args)
+
+
 
 def export_cases_to_json(allargs):
     import json

@@ -1,6 +1,6 @@
 {
-    "bc_type": "reflect",
-    "restitution": 0.1,
+    "bc_type": "slip",
+    "restitution": 0.05,
     "colliders":[
         {
             "type": "cylinder",

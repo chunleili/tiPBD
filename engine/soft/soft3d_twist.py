@@ -48,6 +48,7 @@ def init_args():
     parser.add_argument("-small", action="store_true")
     parser.add_argument("-omega", type=float, default=0.1)
     parser.add_argument("-smoother_type", type=str, default="jacobi")
+    parser.add_argument("-use_line_search", type=int, default=True)
 
 
     args = parser.parse_args()
@@ -120,7 +121,6 @@ class SoftBody(PhysicalBase):
             if args.export_mesh:
                 write_mesh(args.out_dir + f"/mesh/{0:04d}", self.pos.to_numpy(), self.model_tri)
         self.force = np.zeros((self.NV, 3), dtype=np.float32)
-        args.use_line_search = False
 
         if args.calc_rbm:
             # CAUTION: THIS IS ONLY WORK for the primal system with 3nx3n matrix, otherwise the shape of B will be wrong!
@@ -166,9 +166,9 @@ class SoftBody(PhysicalBase):
             rhs = currentObjectiveValue 
             ls_times += 1
         obj = lhs
-        print(f'    obj: {obj:.8e}')
-        print(f'    ls_times: {ls_times}')
-        print(f'    step size: {t}')
+        # print(f'    obj: {obj:.8e}')
+        # print(f'    ls_times: {ls_times}')
+        # print(f'    step size: {t}')
 
         if t < EPSILON:
             t = 0.0

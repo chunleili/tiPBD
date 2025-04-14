@@ -1,0 +1,16 @@
+{
+    "tol": 1e-3,
+    "rtol": 1e-1,
+    "delta_t": 10e-3,
+    "arch": "gpu",
+    "end_frame": 1,
+    "mu": 1e9,
+    "use_gravity": 0,
+    "reinit": "squash",
+    
+    
+    "maxiter": 100000,
+    "solver_type": "XPBD",
+    "time_budget": 10,
+    "model_path": "data/model/bunny85w/bunny85w.node"
+}

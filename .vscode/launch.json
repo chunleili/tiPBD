@@ -12,7 +12,6 @@
             ""
           ]
         }, 
-        
         {
           "name": "Python C++ Debug",
           "type": "pythoncpp",
@@ -20,6 +19,18 @@
           "pythonLaunchName": "Python: Current File",
           "cppAttachName": "(Windows) Attach",
         },
+        {
+          "name": "BunnySquash",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "${file}",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "-use_json=1",
+            "-json_path=data/scene/bunny_squash/bunny_squash.json",
+          ]
+        }, 
         {
           "name": "Pachinko",
           "type": "debugpy",
@@ -42,42 +53,6 @@
           "args": [
             "-use_json=1",
             "-json_path=data/scene/pachinko_3.json",
-          ]
-        },
-        {
-          "name": "BunnySphereCollision",
-          "type": "debugpy",
-          "request": "launch",
-          "program": "engine/soft/soft3d.py",
-          "console": "integratedTerminal",
-          "cwd": "${workspaceFolder}",
-          "args": [
-            "-reinit=collision",
-            "-end_frame=350",
-            "-use_ground_collision=0",
-            "-rescale_to_unit_cube=1",
-            "-use_SDF_collision=1",
-            "-collider_json_path=data/scene/collider/sphere.json",
-            "-collision_nsubsteps=1",
-            "-initial_translate","0","0.25","0"
-          ]
-        }, 
-        {
-          "name": "BunnyCylinderCollision",
-          "type": "debugpy",
-          "request": "launch",
-          "program": "engine/soft/soft3d.py",
-          "console": "integratedTerminal",
-          "cwd": "${workspaceFolder}",
-          "args": [
-            "-reinit=collision",
-            "-end_frame=350",
-            "-use_ground_collision=0",
-            "-rescale_to_unit_cube=1",
-            "-use_SDF_collision=1",
-            "-collider_json_path=data/scene/collider/cylinder.json",
-            "-collision_nsubsteps=1",
-            "-initial_translate","0","0.25","0"
           ]
         },
         {

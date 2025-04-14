@@ -782,16 +782,16 @@ class SoftBody(PhysicalBase):
         self.tic_frame = time.perf_counter()
         semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
         self.lagrangian.fill(0)
-        # self.log_energy(self.frame,0,f"{args.out_dir}/r/energy.txt")
-        self.dual0 = self.log_residual(self.frame,0,f"{args.out_dir}/r/residual.txt")
+        # self.log_energy(self.frame,0)
+        self.dual0 = self.log_residual(self.frame,0)
         if args.use_external_constraints:
             self.read_external_pos()
             self.do_external_constraints()
         for self.ite in range(args.maxiter):
             self.tic_iter = perf_counter()
             self.solveSoft()
-            # self.log_energy(self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
-            self.dualr = self.log_residual(self.frame,self.ite+1,f"{args.out_dir}/r/residual.txt")
+            # self.log_energy(self.frame,self.ite+1)
+            self.dualr = self.log_residual(self.frame,self.ite+1)
             self.toc_iter = perf_counter()
             if self.is_converged(): break
             if (self.ite+1)%10==0:
@@ -862,7 +862,7 @@ class SoftBody(PhysicalBase):
         return False
     
 
-    def log_energy(self,frame, iter, filename_to_save=""):
+    def log_energy(self,frame, iter):
         if args.calc_energy:
             te = compute_energy(self.inv_mass, self.pos, self.predict_pos, self.tet_indices, self.B, self.alpha, self.delta_t, self.is_fixed, self.fixed_stiffness, self.fixed_pos)
             if iter==0:
@@ -871,13 +871,13 @@ class SoftBody(PhysicalBase):
                 return te
             s=f"Frame:{frame} Iter:{iter} Energy:{te:.8e}"
             logging.info(s)
-            if filename_to_save != "":
-                with open(filename_to_save, "a") as f:
-                    f.write(s)
+            filename_to_save = f"residual_{self.sim_name}_{self.start_date}.txt"
+            with open(filename_to_save, "a") as f:
+                f.write(s)
             return te
         
 
-    def log_residual(self, frame, iter, filename_to_save):
+    def log_residual(self, frame, iter):
         if args.calc_dual:
             if iter==0:
                 update_constraints_kernel(self.pos, self.tet_indices, self.B, self.constraints)
@@ -893,7 +893,7 @@ class SoftBody(PhysicalBase):
             self.frame_past_time = perf_counter() - self.tic_frame
             s+=f" FramePastTime:{self.frame_past_time*1000:.1f}ms"
             logging.info(s)
-            with open(f"{args.out_dir}/r/residual.txt", "a") as f:
+            with open(f"residual_{self.sim_name}_{self.start_date}.txt", "a") as f:
                 f.write(s+"\n")
             return r_norm
 
@@ -907,8 +907,8 @@ class SoftBody(PhysicalBase):
         self.tic_frame = perf_counter()
         semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
         self.lagrangian.fill(0)
-        # self.log_energy(self.frame,0,f"{args.out_dir}/r/energy.txt")
-        self.dualr0=self.log_residual(self.frame,0,f"{args.out_dir}/r/residual.txt")
+        # self.log_energy(self.frame,0)
+        self.dualr0=self.log_residual(self.frame,0)
         if args.use_external_constraints:
             self.read_external_pos()
             self.do_external_constraints()
@@ -924,8 +924,8 @@ class SoftBody(PhysicalBase):
                 self.residual,
                 args.omega
             )
-            # self.log_energy(self.frame,self.ite+1,f"{args.out_dir}/r/energy.txt")
-            self.dualr = self.log_residual(self.frame,self.ite+1,f"{args.out_dir}/r/residual.txt")
+            # self.log_energy(self.frame,self.ite+1)
+            self.dualr = self.log_residual(self.frame,self.ite+1)
             self.toc_iter = perf_counter()
             if self.is_converged(): break
 

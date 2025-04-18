@@ -516,6 +516,8 @@ def project_constraints(
         F = D_s @ B[t]
         U, S, V = ti.svd(F)
         constraint[t] = ti.sqrt((S[0, 0] - 1) ** 2 + (S[1, 1] - 1) ** 2 + (S[2, 2] - 1) ** 2)
+        if constraint[t]<1e-6:
+            continue
         g0, g1, g2, g3 = compute_gradient(U, S, V, B[t])
         denorminator = (
             inv_mass[p0] * g0.norm_sqr()
@@ -688,15 +690,11 @@ def substep(dt):
         log_residual(meta.frame, meta.ss, meta.residual_filename)
     if meta.args.log_energy:
         log_energy(meta.frame, meta.ss, meta.energy_filename)
-    for meta.iter in range(meta.args.maxiter):
-        # if meta.use_multigrid:
-        # tic_restrict = perf_counter()
+
+    # Core step: Elasticity loop
+    if meta.use_multigrid:
         update_coarse_mesh() # Restriction
-        # toc_restrict = perf_counter()
-        # timer_restrict=(toc_restrict - tic_restrict)
-        # coarse xpbd(coarse solve)
-        # tic_coarse = perf_counter()
-        reset_lagrangian(fine.lagrangian) 
+        reset_lagrangian(coarse.lagrangian) 
         for meta.cite in range(meta.coarse_iterations):
             project_constraints(
                 coarse.pos_mid,
@@ -710,34 +708,26 @@ def substep(dt):
                 coarse.residual,
                 dt,
             )
-        # toc_coarse = perf_counter()
-        # timer_coarse=(toc_coarse - tic_coarse)
-        # tic_prolong = perf_counter()
         update_fine_mesh() # Prolongation
-        # toc_prolong = perf_counter()
-        # timer_prolong=(toc_prolong - tic_prolong)
-        # tic_fine = perf_counter()
-        # fine xpbd(postsmoother)
-        reset_lagrangian(coarse.lagrangian) 
-        for meta.fite in range(meta.fine_iterations):
-            project_constraints(
-                fine.pos_mid,
-                fine.tet_indices,
-                fine.inv_mass,
-                fine.lagrangian,
-                fine.B,
-                fine.pos,
-                fine.alpha,
-                fine.constraint,
-                fine.residual,
-                dt
-            )
-        if meta.args.log_residual:
-            dualr = log_residual(meta.frame, meta.ss+1, meta.residual_filename)
-        if meta.args.log_energy:
-            energy = log_energy(meta.frame, meta.ss+1, meta.energy_filename)
-    # toc_fine = perf_counter()
-    # timer_fine=(toc_fine - tic_fine)
+    reset_lagrangian(fine.lagrangian) 
+    for meta.fite in range(meta.fine_iterations):
+        project_constraints(
+            fine.pos_mid,
+            fine.tet_indices,
+            fine.inv_mass,
+            fine.lagrangian,
+            fine.B,
+            fine.pos,
+            fine.alpha,
+            fine.constraint,
+            fine.residual,
+            dt
+        )
+    if meta.args.log_residual:
+        dualr = log_residual(meta.frame, meta.ss+1, meta.residual_filename)
+    if meta.args.log_energy:
+        energy = log_energy(meta.frame, meta.ss+1, meta.energy_filename)
+
     if not meta.args.quasi_static:
         update_velocity(dt, fine.pos, fine.old_pos, fine.vel, fine.inv_mass)
 
@@ -834,7 +824,7 @@ def main():
         meta.coarse_iterations = gui.slider_int("coarse_iterations", meta.coarse_iterations, 1, 50)
         meta.fine_iterations = gui.slider_int("fine_iterations", meta.fine_iterations, 1, 50)
         meta.args.nsubsteps = gui.slider_int("nsubsteps", meta.args.nsubsteps, 1, 100)
-        meta.args.maxiter = gui.slider_int("maxiter", meta.args.maxiter, 1, 100)
+        # meta.args.maxiter = gui.slider_int("maxiter", meta.args.maxiter, 1, 100)
         gui.text(f"F #tets: {fine.NT} #verts: {fine.NV}")
         gui.text(f"C #tets: {coarse.NT} #verts: {coarse.NV}")
         dt = meta.h / meta.args.nsubsteps
@@ -867,7 +857,7 @@ def main():
             reinit("fixleft")
             Bfixleft = False
 
-        meta.s = f"frame {meta.frame} "
+        meta.s = f"frame {meta.frame}    "
         if not meta.pause or Bstep_one_frame:
             Bstep_one_frame = False
             tic_frame = perf_counter()

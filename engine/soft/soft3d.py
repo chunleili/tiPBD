@@ -94,7 +94,7 @@ class SoftBody(PhysicalBase):
 
 
         dir = str(Path(mesh_file).parent.stem)
-        self.sim_name = f"soft3d-{dir}-{str(Path(mesh_file).stem)}"
+        self.sim_name = f"{args.reinit}_{dir}_{args.solver_type}"
         self.frame=args.start_frame
         self.initial_frame=args.start_frame
 
@@ -806,7 +806,6 @@ class SoftBody(PhysicalBase):
 
         
     def collision_response(self):
-        logging.info("collision response")
         if self.args.use_ground_collision:
             ground_collision_kernel(self.pos, self.old_pos, self.args.ground_pos, self.inv_mass)
 
@@ -850,6 +849,8 @@ class SoftBody(PhysicalBase):
                         raise NotImplementedError(f"Unknown collider type: {collider.type}")
 
                 logging.info(f"ncolliders_after_culling: {ncolliders_after_culling}")
+        logging.info("collision response")
+        
 
 
     def is_converged(self):

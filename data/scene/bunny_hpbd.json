@@ -1,10 +1,10 @@
 {
     "model": "bunny",
-    "model_path" : "data/model/bunny85w/bunny85w",
-    "fine_model_path" : "data/model/bunny85w/bunny85w",
+    "model_path" : "data/model/bunny50K/bunny50K",
+    "fine_model_path" : "data/model/bunny50K/bunny50K",
     "coarse_model_path" :"data/model/bunny85w/bunny5k",
     "omega":0.1,
-    "mu":1e20,
+    "mu":1e8,
     "delta_t":33e-3,
     "damping_coeff":1.0,
     "gravity":[0.0, 0, 0.0],

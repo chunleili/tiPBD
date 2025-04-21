@@ -23,7 +23,7 @@
           "name": "BunnySquash",
           "type": "debugpy",
           "request": "launch",
-          "program": "${file}",
+          "program": "engine/soft/soft3d.py",
           "console": "integratedTerminal",
           "cwd": "${workspaceFolder}",
           "args": [

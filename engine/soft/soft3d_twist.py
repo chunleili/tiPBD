@@ -487,8 +487,8 @@ class SoftBody(PhysicalBase):
             # print(f"fixed particles: {self.fixed_particles}")
         
         elif args.reinit=="twist_bar":
-            self.gravity = ti.Vector([0,0,0])
-            deformed_pos = load_pos_from_node("data/model/twist_bar/twist_bar_deformed.node")
+            self.gravity = ti.Vector(args.gravity)
+            deformed_pos = load_pos_from_node(args.load_file)
             self.pos.from_numpy(deformed_pos)
 
 
@@ -727,9 +727,8 @@ class SoftBody(PhysicalBase):
             te = compute_energy(self.inv_mass, self.pos, self.predict_pos, self.tet_indices, self.B, self.alpha, self.delta_t, self.is_fixed, self.fixed_stiffness, self.fixed_pos)
             s=f"Frame:{frame} Iter:{iter} Energy:{te:.8e}"
             print(s)
-            if filename_to_save != "":
-                with open(filename_to_save, "a") as f:
-                    f.write(s+"\n")
+            with open(f"energy_twist_bar118k_{3*self.args.mu:.0e}_amg.txt", "a") as f:
+                f.write(s+"\n")
             return te
 
 

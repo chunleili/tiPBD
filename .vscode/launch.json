@@ -148,6 +148,7 @@
               "-maxiter=50",
               "-use_gravity=1",
               "-delta_t=1e-3",
+              "-use_external_constraints=1"
             ]
           }, 
           {

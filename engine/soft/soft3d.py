@@ -202,8 +202,8 @@ class SoftBody(PhysicalBase):
         self.extra_springs = DistanceConstraintsAttach(pts, pos, self.target_pos)
 
         # optional data(inv_mass, stiffness, restlength)
-        self.extra_springs.set_alpha(consgeo.get_stiffness())
-        self.extra_springs.set_rest_len(consgeo.get_restlength())
+        # self.extra_springs.set_alpha(consgeo.get_stiffness())
+        # self.extra_springs.set_rest_len(consgeo.get_restlength())
 
 
     def read_muscle2muscle_rest(self,):

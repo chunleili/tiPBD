@@ -1860,7 +1860,6 @@ for i,config in enumerate(["bunny5k/bunny5k.node","bunny_small/bunny_small.node"
 for config in [64,128,256,512]:
     args = ["engine/cloth/cloth3d.py",
             "-solver_type=AMG",
-            f"-end_frame=100",
             f"-out_dir=result/case{len(allargs)}-{day}-cloth{config}",
             f"-auto_another_outdir={auto_another_outdir}",
             "-arch=cpu",
@@ -1878,7 +1877,6 @@ for config in [64,128,256,512]:
 for config in [64,128,256,512]:
     args = ["engine/cloth/cloth3d.py",
             "-solver_type=XPBD",
-            f"-end_frame=100",
             f"-out_dir=result/case{len(allargs)}-{day}-cloth{config}",
             f"-auto_another_outdir={auto_another_outdir}",
             "-arch=gpu",
@@ -1886,7 +1884,7 @@ for config in [64,128,256,512]:
             "-maxiter=100000",
             "-delta_t=3e-3",
             "-tol=1e-4",
-            "-end_frame=180",
+            "-end_frame=500",
             "-compliance=1e-9",
             "-time_budget=200.0"
             ]
@@ -2359,6 +2357,14 @@ for i,config in enumerate(["left","middle","right"]):
     ]
     allargs.append(args)
 
+
+# case221/222/223/224/225: bunny squash for different setup interval
+for i,config in enumerate(["1","10","20","50","100"]):
+    args = ["engine/soft/soft3d.py",
+            f"-use_json=1",
+            f"-json_path=data/scene/bunny_squash/bunny_squash-interval{config}.json",
+    ]
+    allargs.append(args)
 
 
 def export_cases_to_json(allargs):

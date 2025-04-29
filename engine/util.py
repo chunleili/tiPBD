@@ -288,7 +288,7 @@ def export_after_substep(ist, args, **kwargs):
     ist.r_all.t_export += time.perf_counter()-tic_export
     t_frame = time.perf_counter()-ist.tic_frame
     if args.export_log:
-        logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s")
+        logging.info(f"Time of frame-{ist.frame}: {t_frame:.3f}s Iter={ist.ite+1} Dual={ist.dualr:.2e}")
 
 
 def init_logger(args):
@@ -378,12 +378,14 @@ def main_loop(ist,args):
     import tqdm
 
     ist.timer_loop = time.perf_counter()
-    ist.initial_frame = ist.frame
+    ist.initial_frame = args.start_frame
+    ist.frame = args.start_frame
     step_pbar = tqdm.tqdm(total=args.end_frame, initial=ist.frame)
     ist.r_all.t_export = 0.0
 
     try:
-        for ist.frame in range(ist.initial_frame, args.end_frame+1):
+        # for ist.frame in range(ist.initial_frame, args.end_frame+1):
+        while ist.frame <= args.end_frame:
             ist.tic_frame = time.perf_counter()
 
             if args.solver_type == "XPBD":
@@ -395,9 +397,10 @@ def main_loop(ist,args):
 
             export_after_substep(ist,args)
 
-            logging.info("\n")
+            # logging.info("\n")
             step_pbar.update(1)
             logging.info("\n")
+            ist.frame += 1
             
         print("Normallly end.")
         ending(args,ist)

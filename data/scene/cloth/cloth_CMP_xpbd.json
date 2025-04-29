@@ -1,0 +1,13 @@
+
+{
+    "setup_num":0,
+    "solver_type":"AMG",
+    "arch":"gpu",
+    "N":512,
+    "maxiter":10000,
+    "delta_t":3e-3,
+    "tol":1e-4,
+    "end_frame":500,
+    "compliance": 1e-9,
+    "time_budget":200
+}

@@ -54,6 +54,7 @@ def init_args():
     parser.add_argument("-tri_file", type=str, default="data/model/fast_mass_spring/tri.txt")
     parser.add_argument("-use_initFill", type=int, default=False)
     parser.add_argument("-write_physdata", type=int, default=False)
+    parser.add_argument("-use_line_search", type=int, default=False)
 
     args = parser.parse_args()
 
@@ -86,7 +87,44 @@ class Cloth(PhysicalBase):
         self.linsol = self.init_linear_solver(args, extlib)
 
         self.init_fill()
+        self.omega= self.args.omega
     
+
+    def line_search(self, x, dpos, ls_beta=0.5, EPSILON=1e-9,):
+        """
+        x: position of vertices, shape=(NV,3), numpy array
+        dpos: dpos, shape=(NV,3), numpy array
+        reutrn: step size
+        """
+
+        if not args.use_line_search:
+            return self.omega
+
+        def evalutate_objective(x):
+            calc_dual_residual(self.dual_residual, self.edge, self.rest_len, self.lagrangian, self.pos, self.alpha_tilde)
+            dual = calc_norm(self.dual_residual)
+            return dual
+
+        t = 1.0/ls_beta
+        ls_times = 0
+        currentObjectiveValue = evalutate_objective(x)
+        while ls_times==0 or (lhs >= rhs and t > EPSILON):
+            t *= ls_beta
+            x_plus_tdx = x + t*dpos
+            lhs = evalutate_objective(x_plus_tdx)
+            rhs = currentObjectiveValue 
+            ls_times += 1
+        obj = lhs
+        if self.args.verbosity>=3:
+            logging.info(f'    obj: {obj:.8e}')
+            logging.info(f'    ls_times: {ls_times}')
+            logging.info(f'    step size: {t}')
+
+        if t < EPSILON:
+            t = 0.0
+        return t
+
+
     def transfer_reinit_to_setup_num(self):
         if args.reinit == "attach":
             args.setup_num = 0
@@ -250,7 +288,9 @@ class Cloth(PhysicalBase):
         return self.b
     
     def update_pos(self):
-        update_pos_kernel(self.inv_mass, self.dpos, self.pos,args.omega)
+        if args.use_line_search:
+            self.args.omega = self.line_search(self.pos.to_numpy(), self.dpos.to_numpy())
+        update_pos_kernel(self.inv_mass, self.dpos, self.pos,self.args.omega)
         
     def update_constraints(self):
         update_constraints_kernel(self.pos, self.edge, self.rest_len, self.constraints)
@@ -281,7 +321,8 @@ class Cloth(PhysicalBase):
     def has_no_time_budget(self):
         self.frame_past_time = perf_counter() - self.tic_frame
         self.timeBudget_left = args.time_budget - self.frame_past_time
-        logging.info(f"Time budget left: {self.timeBudget_left*1000:.0f}ms")
+        if args.verbosity>=2:
+            logging.info(f"Time budget left: {self.timeBudget_left*1000:.0f}ms")
         if args.solver_type=="AMG":
             if self.should_setup(): 
                 self.timeBudget_left = args.time_budget
@@ -349,7 +390,8 @@ class Cloth(PhysicalBase):
         semi_euler(ist.old_pos, ist.inv_mass, ist.vel, ist.pos, ist.predict_pos,args.delta_t)
         reset_lagrangian(ist.lagrangian)
 
-        ist.r_iter.calc_r0()
+        ist.r_iter.dual0 = ist.calc_dual()
+        ist.r_frame = [ist.r_iter.dual0]
         for ist.ite in range(args.maxiter):
             tic_iter = perf_counter()
 
@@ -367,6 +409,12 @@ class Cloth(PhysicalBase):
                 ist.dualr=xpbd_calcr(ist, tic_iter, ist.r_iter.dual0)
                 if ist.dualr<args.tol:
                     break
+
+                # # stalling check
+                # ist.r_frame.append(ist.dualr)
+                # if len(ist.r_frame)>100 and abs(ist.r_frame[-100]-ist.r_frame[-1])/abs(ist.r_frame[-100])<1e-3:
+                #     raise RuntimeError(f"Stalling in {ist.frame}-{ist.ite}, dualr: {ist.dualr:.2e}. Exit. Please reset the tolerance.")
+
         ist.n_outer_all.append(ist.ite+1)
         update_vel(ist.old_pos, ist.inv_mass, ist.vel, ist.pos)
 
@@ -613,7 +661,7 @@ def xpbd_calcr(ist, tic_iter, dual0):
             np.save(args.out_dir+f"/r/fulldual-{ist.frame}-{ist.ite}.npy",ist.dual_residual.to_numpy())
     t_calcr = perf_counter()-tic_calcr
     tic_exportr = perf_counter()
-    if args.export_log:
+    if args.export_log and args.verbosity>=2:
         logging.info(f"{ist.frame}-{ist.ite}  dual0:{dual0:.2e} dual:{dualr:.2e}  t:{t_iter:.2e}s calcr:{t_calcr:.2e}s")
     ist.r_iter.t_export += perf_counter() - tic_exportr
     return dualr

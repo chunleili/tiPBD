@@ -70,7 +70,7 @@ def add_common_args(parser):
     parser.add_argument("-direct_solver_type", type=str, default="cusolver", choices= ["cusolver", "scipy", "pardiso"])
     parser.add_argument("-fixed_stiffness", type=float, default=1e8)
     parser.add_argument("-fixed_particles", type=int, nargs="*", default=[])
-    parser.add_argument("-verbosity", type=int, choices=[0, 1, 2], default=1)
+    parser.add_argument("-verbosity", type=int, default=1)
     parser.add_argument("-use_WangChebyshev", type=int, default=False)
     parser.add_argument("-WangChebyshev_rho", type=float, default=0.9992)
     parser.add_argument("-WangChebyshev_gamma", type=float, default=0.9)

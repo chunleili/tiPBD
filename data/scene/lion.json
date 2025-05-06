@@ -1,0 +1,10 @@
+{
+    "end_frame":90,
+    "use_pintotarget":true,
+    "maxiter":20,
+    "mu":1e9,
+    "use_gravity":true,
+    "geo_dir":"data/model/lion",
+    "use_external_constraints":true,
+    "quasi_static":true
+}

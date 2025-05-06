@@ -20,6 +20,18 @@
           "cppAttachName": "(Windows) Attach",
         },
         {
+          "name": "lion",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "engine/soft/soft3d.py",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "-use_json=1",
+            "-json_path=data/scene/lion.json",
+          ]
+        },
+        {
           "name": "BunnySquash",
           "type": "debugpy",
           "request": "launch",
@@ -179,6 +191,7 @@
               "-mu=1e9",
               "-use_gravity=1",
               "-geo_dir=data/model/extraSpring",
+              "-use_external_constraints=1"
             ]
           }, 
           {

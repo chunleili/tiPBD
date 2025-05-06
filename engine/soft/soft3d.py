@@ -105,6 +105,7 @@ class SoftBody(PhysicalBase):
 
         if args.use_extra_spring or args.use_pintoanimation or args.use_pintotarget or args.use_muscle2muscle:
             args.use_houdini_data=1
+            args.quasi_static=1
 
         if args.use_houdini_data:
             self.read_geo_rest()
@@ -259,7 +260,7 @@ class SoftBody(PhysicalBase):
         self.pintotarget = PinToTarget(pts, pos, self.target_pos)
 
 
-    @timeit
+    # @timeit
     def read_target_pos(self):
         dir = prj_path + "/" + args.geo_dir + "/"
         geo = Geo(dir+f"cons_{self.frame}.geo")
@@ -698,7 +699,7 @@ class SoftBody(PhysicalBase):
         self.dual0 = self.r_iter.calc_r0()
         return self.dual0
 
-    @timeit
+    # @timeit
     def read_external_pos(self):
         if args.use_pintoanimation:
             self.read_geo_pinpos()
@@ -726,15 +727,12 @@ class SoftBody(PhysicalBase):
     # @timeit
     def do_external_constraints(self):
         if args.use_extra_spring:
-            if self.ite ==0:
-                self.extra_springs.aos.lam.fill(0.0)
+            self.extra_springs.aos.lam.fill(0.0)
             self.extra_springs.solve_one_iter(self.pos, self.target_pos, args.delta_t)
         if args.use_pintotarget:
-            if self.ite ==0:
-                self.pintotarget.solve(self.pos, self.target_pos, args.maxiter)
+            self.pintotarget.solve(self.pos, self.target_pos, 1)
         if args.use_muscle2muscle:
-            if self.ite ==0:
-                self.m2mCons.aos.lam.fill(0.0)
+            self.m2mCons.aos.lam.fill(0.0)
             self.m2mCons.solve_one_iter(self.pos, args.delta_t)
 
 
@@ -780,7 +778,8 @@ class SoftBody(PhysicalBase):
 
     def substep_all_solver(self):
         self.tic_frame = time.perf_counter()
-        semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
+        if not args.quasi_static:
+            semi_euler_kernel(args.delta_t, self.pos, self.predict_pos, self.old_pos, self.vel, args.damping_coeff, self.gravity)
         self.lagrangian.fill(0)
         # self.log_energy(self.frame,0)
         self.dual0 = self.log_residual(self.frame,0)
@@ -798,7 +797,8 @@ class SoftBody(PhysicalBase):
                 self.collision_response()
         self.collision_response()
         self.n_outer_all.append(self.ite+1)
-        self.update_vel()
+        if not args.quasi_static:
+            self.update_vel()
 
 
     def update_vel(self):

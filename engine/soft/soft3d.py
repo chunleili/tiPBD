@@ -105,16 +105,17 @@ class SoftBody(PhysicalBase):
 
         if args.use_extra_spring or args.use_pintoanimation or args.use_pintotarget or args.use_muscle2muscle:
             args.use_houdini_data=1
-            args.quasi_static=1
+            from engine.external_constraints import ExternalConstraints
+            self.muscle = ExternalConstraints(args)
 
-        if args.use_houdini_data:
-            self.read_geo_rest()
-            if args.use_extra_spring:
-                self.read_extra_spring_rest()
-            if args.use_pintotarget:
-                self.read_pintotarget_rest()
-            if args.use_muscle2muscle:
-                self.read_muscle2muscle_rest()
+            self.muscle.initialize(self)
+            # self.muscle.read_geo_rest(self)
+            # if args.use_extra_spring:
+            #     self.muscle.read_extra_spring_rest()
+            # if args.use_pintotarget:
+            #     self.muscle.read_pintotarget_rest()
+            # if args.use_muscle2muscle:
+            #     self.muscle.read_muscle2muscle_rest()
             self.init_physics()
         else:
             self.build_mesh(mesh_file)
@@ -179,168 +180,168 @@ class SoftBody(PhysicalBase):
         return t
 
 
-    def read_extra_spring_rest(self,):
-        dir = prj_path + "/" + args.geo_dir + "/"
-        consgeo = Geo(dir+f"cons_{self.initial_frame}.geo")
-        self.consgeo_rest = consgeo
+    # def read_extra_spring_rest(self,):
+    #     dir = prj_path + "/" + args.geo_dir + "/"
+    #     consgeo = Geo(dir+f"cons_{self.initial_frame}.geo")
+    #     self.consgeo_rest = consgeo
         
-        # read connectivity
-        # first column is target(driving point), second column is source(driven)
-        pts1 = np.array(consgeo.get_pts())
-        pts = ti.field(int, pts1.shape[0])
-        pts.from_numpy(pts1)
+    #     # read connectivity
+    #     # first column is target(driving point), second column is source(driven)
+    #     pts1 = np.array(consgeo.get_pts())
+    #     pts = ti.field(int, pts1.shape[0])
+    #     pts.from_numpy(pts1)
 
-        # read sim pos(to be driven)
-        pos1 = np.array(self.geo_rest.get_pos(),dtype=np.float32)
-        pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
-        pos.from_numpy(pos1)
+    #     # read sim pos(to be driven)
+    #     pos1 = np.array(self.geo_rest.get_pos(),dtype=np.float32)
+    #     pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
+    #     pos.from_numpy(pos1)
 
-        # read target pos(driving)
-        tp = consgeo.get_target_pos()
-        self.target_pos = python_list_to_ti_field(tp)
+    #     # read target pos(driving)
+    #     tp = consgeo.get_target_pos()
+    #     self.target_pos = python_list_to_ti_field(tp)
 
-        from engine.constraints.distance_constraints import DistanceConstraintsAttach
-        self.extra_springs = DistanceConstraintsAttach(pts, pos, self.target_pos)
+    #     from engine.constraints.distance_constraints import DistanceConstraintsAttach
+    #     self.extra_springs = DistanceConstraintsAttach(pts, pos, self.target_pos)
 
-        # optional data(inv_mass, stiffness, restlength)
-        # self.extra_springs.set_alpha(consgeo.get_stiffness())
-        # self.extra_springs.set_rest_len(consgeo.get_restlength())
-
-
-    def read_muscle2muscle_rest(self,):
-        """ read muscle2muscle topology from geo file
-            It start from pt_index 1
-        """
-        dir = prj_path + "/" + args.geo_dir + "/"
-        m2mgeo = Geo(dir+f"m2m.geo")
-        self.m2mgeo = m2mgeo
-
-        # source pt(interior pt of muscle A)
-        src = np.array(m2mgeo.get_pts())
-
-        # target pts (surface pts of muscle B, could be multiple)
-        tps = (m2mgeo.get_target_pts())
-
-        # pairs of (p1, p2)
-        pairs = []
-        for i,p1 in enumerate(src):
-            p2s = tps[i]
-            for k,p2 in enumerate(p2s):
-                pairs.append((p1,p2))
-
-        pairs_np = np.array(pairs)
-        p1 = python_list_to_ti_field(pairs_np[:,0].tolist())
-        p2 = python_list_to_ti_field(pairs_np[:,1].tolist())
-        from engine.constraints.distance_constraints import DistanceConstraints
-        self.m2mCons = DistanceConstraints(p1,p2, self.pos )
+    #     # optional data(inv_mass, stiffness, restlength)
+    #     # self.extra_springs.set_alpha(consgeo.get_stiffness())
+    #     # self.extra_springs.set_rest_len(consgeo.get_restlength())
 
 
-    def read_pintotarget_rest(self,):
-        dir = prj_path + "/" + args.geo_dir + "/"
-        consgeo = Geo(dir+f"cons_{self.initial_frame}.geo")
-        self.consgeo_rest = consgeo
+    # def read_muscle2muscle_rest(self,):
+    #     """ read muscle2muscle topology from geo file
+    #         It start from pt_index 1
+    #     """
+    #     dir = prj_path + "/" + args.geo_dir + "/"
+    #     m2mgeo = Geo(dir+f"m2m.geo")
+    #     self.m2mgeo = m2mgeo
+
+    #     # source pt(interior pt of muscle A)
+    #     src = np.array(m2mgeo.get_pts())
+
+    #     # target pts (surface pts of muscle B, could be multiple)
+    #     tps = (m2mgeo.get_target_pts())
+
+    #     # pairs of (p1, p2)
+    #     pairs = []
+    #     for i,p1 in enumerate(src):
+    #         p2s = tps[i]
+    #         for k,p2 in enumerate(p2s):
+    #             pairs.append((p1,p2))
+
+    #     pairs_np = np.array(pairs)
+    #     p1 = python_list_to_ti_field(pairs_np[:,0].tolist())
+    #     p2 = python_list_to_ti_field(pairs_np[:,1].tolist())
+    #     from engine.constraints.distance_constraints import DistanceConstraints
+    #     self.m2mCons = DistanceConstraints(p1,p2, self.pos )
+
+
+    # def read_pintotarget_rest(self,):
+    #     dir = prj_path + "/" + args.geo_dir + "/"
+    #     consgeo = Geo(dir+f"cons_{self.initial_frame}.geo")
+    #     self.consgeo_rest = consgeo
         
-        # read connectivity
-        # target_pos is driving point, pts is source points(to be driven)
-        pts1 = np.array(consgeo.get_pts())
-        pts = ti.field(int, pts1.shape[0])
-        pts.from_numpy(pts1)
+    #     # read connectivity
+    #     # target_pos is driving point, pts is source points(to be driven)
+    #     pts1 = np.array(consgeo.get_pts())
+    #     pts = ti.field(int, pts1.shape[0])
+    #     pts.from_numpy(pts1)
 
-        # read sim pos(to be driven)
-        pos1 = np.array(self.geo_rest.get_pos(),dtype=np.float32)
-        pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
-        pos.from_numpy(pos1)
+    #     # read sim pos(to be driven)
+    #     pos1 = np.array(self.geo_rest.get_pos(),dtype=np.float32)
+    #     pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
+    #     pos.from_numpy(pos1)
 
-        # read target pos(driving)
-        target_pos = np.array(consgeo.get_target_pos(),dtype=np.float32)
-        self.target_pos = ti.Vector.field(3, ti.f32, target_pos.shape[0])
-        self.target_pos.from_numpy(target_pos)
+    #     # read target pos(driving)
+    #     target_pos = np.array(consgeo.get_target_pos(),dtype=np.float32)
+    #     self.target_pos = ti.Vector.field(3, ti.f32, target_pos.shape[0])
+    #     self.target_pos.from_numpy(target_pos)
 
-        from engine.constraints.distance_constraints import PinToTarget
-        self.pintotarget = PinToTarget(pts, pos, self.target_pos)
+    #     from engine.constraints.distance_constraints import PinToTarget
+    #     self.pintotarget = PinToTarget(pts, pos, self.target_pos)
 
 
     # @timeit
-    def read_target_pos(self):
-        dir = prj_path + "/" + args.geo_dir + "/"
-        geo = Geo(dir+f"cons_{self.frame}.geo")
-        tp = np.array(geo.get_target_pos(),dtype=np.float32)
-        self.target_pos.from_numpy(np.array(tp, dtype=np.float32))
-        ...
+    # def read_target_pos(self):
+    #     dir = prj_path + "/" + args.geo_dir + "/"
+    #     geo = Geo(dir+f"cons_{self.frame}.geo")
+    #     tp = np.array(geo.get_target_pos(),dtype=np.float32)
+    #     self.target_pos.from_numpy(np.array(tp, dtype=np.float32))
+    #     ...
 
 
-    def read_geo_pinpos(self):
-        dir = prj_path + "/" + args.geo_dir + "/"
-        geo = Geo(dir+f"physdata_{self.frame}.geo")
-        pinpos = np.array(geo.get_pos())
-        assert pinpos.shape[0] == self.pos.shape[0]
-        # set_pinpos_kernel(self.pin, self.pos, pinpos)
+    # def read_geo_pinpos(self):
+    #     dir = prj_path + "/" + args.geo_dir + "/"
+    #     geo = Geo(dir+f"physdata_{self.frame}.geo")
+    #     pinpos = np.array(geo.get_pos())
+    #     assert pinpos.shape[0] == self.pos.shape[0]
+    #     # set_pinpos_kernel(self.pin, self.pos, pinpos)
         
-        self.pinlist = np.where(self.pin)[0]
-        self.inv_mass_np = self.inv_mass.to_numpy()
-        self.inv_mass_np[self.pinlist] = 0.0
-        self.inv_mass.from_numpy(self.inv_mass_np)
+    #     self.pinlist = np.where(self.pin)[0]
+    #     self.inv_mass_np = self.inv_mass.to_numpy()
+    #     self.inv_mass_np[self.pinlist] = 0.0
+    #     self.inv_mass.from_numpy(self.inv_mass_np)
 
-        pos_ = self.pos.to_numpy()
-        pos_[self.pin] = pinpos[self.pin]
-        self.pos.from_numpy(pos_)
-
-
-    def read_geo_mesh(self,filename):
-        geo = Geo(filename)
-        vert = np.array(geo.get_vert(),dtype=np.int32)
-        pos = np.array(geo.get_pos(), dtype=np.float32)
-        self.NV = pos.shape[0]
-        self.NT = vert.shape[0]
-        self.NCONS = self.NT
-        self.allocate_fields(self.NV, self.NT)
-
-        self.vert = vert
-        self.pos.from_numpy(pos)
-        self.pos_mid.from_numpy(pos)
-        self.old_pos.from_numpy(pos)
-        self.tet_indices.from_numpy(vert)
-        self.geodir = dir
-        self.geo = geo
-        self.geo_rest = geo
+    #     pos_ = self.pos.to_numpy()
+    #     pos_[self.pin] = pinpos[self.pin]
+    #     self.pos.from_numpy(pos_)
 
 
-    def read_geo_rest(self):
-        dir = prj_path + "/" + args.geo_dir + "/"
-        if os.path.exists(dir+"restpos.geo"):
-            geo = Geo(dir+"restpos.geo")
-        elif os.path.exists(dir+"physdata_1.geo"):
-            geo = Geo(dir+"physdata_1.geo")
-        else:
-            raise FileNotFoundError(f"restpos.geo or physdata_1.geo not found in {dir}")
+    # def read_geo_mesh(self,filename):
+    #     geo = Geo(filename)
+    #     vert = np.array(geo.get_vert(),dtype=np.int32)
+    #     pos = np.array(geo.get_pos(), dtype=np.float32)
+    #     self.NV = pos.shape[0]
+    #     self.NT = vert.shape[0]
+    #     self.NCONS = self.NT
+    #     self.allocate_fields(self.NV, self.NT)
+
+    #     self.vert = vert
+    #     self.pos.from_numpy(pos)
+    #     self.pos_mid.from_numpy(pos)
+    #     self.old_pos.from_numpy(pos)
+    #     self.tet_indices.from_numpy(vert)
+    #     self.geodir = dir
+    #     self.geo = geo
+    #     self.geo_rest = geo
+
+
+    # def read_geo_rest(self):
+    #     dir = prj_path + "/" + args.geo_dir + "/"
+    #     if os.path.exists(dir+"restpos.geo"):
+    #         geo = Geo(dir+"restpos.geo")
+    #     elif os.path.exists(dir+"physdata_1.geo"):
+    #         geo = Geo(dir+"physdata_1.geo")
+    #     else:
+    #         raise FileNotFoundError(f"restpos.geo or physdata_1.geo not found in {dir}")
          
-        pin = np.array(geo.get_gluetoaniamtion(),dtype=np.bool_)
-        vert = np.array(geo.get_vert(),dtype=np.int32)
-        pinpos = np.array(geo.get_pos(), dtype=np.float32)
+    #     pin = np.array(geo.get_gluetoaniamtion(),dtype=np.bool_)
+    #     vert = np.array(geo.get_vert(),dtype=np.int32)
+    #     pinpos = np.array(geo.get_pos(), dtype=np.float32)
 
-        self.NV = pinpos.shape[0]
-        self.NT = vert.shape[0]
-        self.NCONS = self.NT
-        self.allocate_fields(self.NV, self.NT)
+    #     self.NV = pinpos.shape[0]
+    #     self.NT = vert.shape[0]
+    #     self.NCONS = self.NT
+    #     self.allocate_fields(self.NV, self.NT)
 
-        self.pin = pin
-        self.vert = vert
-        self.pinpos = pinpos
-        self.pos.from_numpy(pinpos)
-        self.pos_mid.from_numpy(pinpos)
-        self.old_pos.from_numpy(pinpos)
-        self.tet_indices.from_numpy(vert)
-        self.geodir = dir
-        self.geo = geo
-        self.geo_rest = geo
+    #     self.pin = pin
+    #     self.vert = vert
+    #     self.pinpos = pinpos
+    #     self.pos.from_numpy(pinpos)
+    #     self.pos_mid.from_numpy(pinpos)
+    #     self.old_pos.from_numpy(pinpos)
+    #     self.tet_indices.from_numpy(vert)
+    #     self.geodir = dir
+    #     self.geo = geo
+    #     self.geo_rest = geo
         
-        # read mass from geo
-        im = np.array(geo.get_mass(), dtype=np.float32)
-        im = 1.0 / im[np.isnan(im)==False]
-        # set pinned point inv_mass to 0
-        im[pin] = 0.0
+    #     # read mass from geo
+    #     im = np.array(geo.get_mass(), dtype=np.float32)
+    #     im = 1.0 / im[np.isnan(im)==False]
+    #     # set pinned point inv_mass to 0
+    #     im[pin] = 0.0
 
-        self.inv_mass.from_numpy(im)
+    #     self.inv_mass.from_numpy(im)
 
 
     def init_physics(self):
@@ -700,11 +701,11 @@ class SoftBody(PhysicalBase):
         return self.dual0
 
     # @timeit
-    def read_external_pos(self):
-        if args.use_pintoanimation:
-            self.read_geo_pinpos()
-        if args.use_extra_spring or args.use_pintotarget:
-            self.read_target_pos()
+    # def read_external_pos(self):
+    #     if args.use_pintoanimation:
+    #         self.read_geo_pinpos()
+    #     if args.use_extra_spring or args.use_pintotarget:
+    #         self.read_target_pos()
 
     def has_no_time_budget(self):
         self.frame_past_time = perf_counter() - self.tic_frame
@@ -724,16 +725,16 @@ class SoftBody(PhysicalBase):
         return d
     
 
-    # @timeit
-    def do_external_constraints(self):
-        if args.use_extra_spring:
-            self.extra_springs.aos.lam.fill(0.0)
-            self.extra_springs.solve_one_iter(self.pos, self.target_pos, args.delta_t)
-        if args.use_pintotarget:
-            self.pintotarget.solve(self.pos, self.target_pos, 1)
-        if args.use_muscle2muscle:
-            self.m2mCons.aos.lam.fill(0.0)
-            self.m2mCons.solve_one_iter(self.pos, args.delta_t)
+    # # @timeit
+    # def do_external_constraints(self):
+    #     if args.use_extra_spring:
+    #         self.extra_springs.aos.lam.fill(0.0)
+    #         self.extra_springs.solve_one_iter(self.pos, self.target_pos, args.delta_t)
+    #     if args.use_pintotarget:
+    #         self.pintotarget.solve(self.pos, self.target_pos, 1)
+    #     if args.use_muscle2muscle:
+    #         self.m2mCons.aos.lam.fill(0.0)
+    #         self.m2mCons.solve_one_iter(self.pos, args.delta_t)
 
 
     def  do_local_steps(self):
@@ -784,8 +785,7 @@ class SoftBody(PhysicalBase):
         # self.log_energy(self.frame,0)
         self.dual0 = self.log_residual(self.frame,0)
         if args.use_external_constraints:
-            self.read_external_pos()
-            self.do_external_constraints()
+            self.muscle.handle_external_constraints(self.pos)
         for self.ite in range(args.maxiter):
             self.tic_iter = perf_counter()
             self.solveSoft()
@@ -911,8 +911,9 @@ class SoftBody(PhysicalBase):
         # self.log_energy(self.frame,0)
         self.dualr0=self.log_residual(self.frame,0)
         if args.use_external_constraints:
-            self.read_external_pos()
-            self.do_external_constraints()
+            # self.muscle.read_external_pos()
+            # self.muscle.do_external_constraints()
+            self.muscle.call_every_substep(self.pos)
         for self.ite in range(args.maxiter):
             project_constraints_v2(
                 self.pos_mid,

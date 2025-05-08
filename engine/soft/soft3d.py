@@ -911,9 +911,7 @@ class SoftBody(PhysicalBase):
         # self.log_energy(self.frame,0)
         self.dualr0=self.log_residual(self.frame,0)
         if args.use_external_constraints:
-            # self.muscle.read_external_pos()
-            # self.muscle.do_external_constraints()
-            self.muscle.call_every_substep(self.pos)
+            self.pos = self.muscle.handle_external_constraints(self.frame, self.pos)
         for self.ite in range(args.maxiter):
             project_constraints_v2(
                 self.pos_mid,

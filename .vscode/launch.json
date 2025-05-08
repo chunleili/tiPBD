@@ -32,6 +32,18 @@
           ]
         },
         {
+          "name": "lion_hpbd",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "engine/volumetric/arap_hpbd.py",
+          "console": "integratedTerminal",
+          "cwd": "${workspaceFolder}",
+          "args": [
+            "-use_json=1",
+            "-json_path=data/scene/lion_hpbd.json",
+          ]
+        },
+        {
           "name": "BunnySquash",
           "type": "debugpy",
           "request": "launch",

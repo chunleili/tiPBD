@@ -13,22 +13,36 @@ from script.convert.geo import Geo
 class ExternalConstraints:
     """
     Class to handle external constraints for muscle solvers.
+    Usage:  
+            Initialize:
+            from engine.external_constraints import ExternalConstraints
+            self.muscle = ExternalConstraints(args, self)
+
+            Before the simulation loop:
+            if args.use_external_constraints:
+                self.pos = self.muscle.handle_external_constraints(self.frame, self.pos)
     """
 
-    def __init__(self, args, ist):
+    def __init__(self, args):
         """
         Initialize the ExternalConstraints class.
 
         Parameters:
         - args: Command line arguments containing simulation parameters.
-        - ist: Instance of the simulation containing simulation field data.
         """
         self.args = args
-        self.initialize(ist) #TODO: remove ist and replace it with concrete fields
+        args.use_external_constraints = True
+        args.use_houdini_data= True
+        self.args.use_extra_spring = False #TODO
+        self.args.use_muscle2muscle = False #TODO
+        self.args.use_pintoanimation = False #TODO
+        if not hasattr(self.args, "start_frame"):
+            self.args.start_frame = 1
 
-    # TODO: remove ist and replace it with concrete fields
-    def initialize(self, ist):
-        self.read_geo_rest(ist) # TODO
+        self.initialize() 
+
+    def initialize(self):
+        self.read_geo_rest() 
         if self.args.use_extra_spring:
             self.read_extra_spring_rest()
         if self.args.use_pintotarget:
@@ -141,51 +155,56 @@ class ExternalConstraints:
         pos.from_numpy(pos_)
 
 
-    def read_geo_rest(self, ist):
+    def read_geo_rest(self, filename="restpos.geo"):
         dir = prj_path + "/" + self.args.geo_dir + "/"
-        if os.path.exists(dir + "restpos.geo"):
-            geo = Geo(dir + "restpos.geo")
-        elif os.path.exists(dir + "physdata_1.geo"):
-            geo = Geo(dir + "physdata_1.geo")
+        filename = dir + filename
+        if os.path.exists(filename):
+            geo = Geo(filename)
         else:
-            raise FileNotFoundError(f"restpos.geo or physdata_1.geo not found in {dir}")
+            raise FileNotFoundError(f"restpos.geo not found")
 
-        pin = np.array(geo.get_gluetoaniamtion(), dtype=np.bool_)
-        vert = np.array(geo.get_vert(), dtype=np.int32)
-        pos_ = np.array(geo.get_pos(), dtype=np.float32)
+        self.pin = np.array(geo.get_gluetoaniamtion(), dtype=np.bool_)
+        self.vert = np.array(geo.get_vert(), dtype=np.int32)
+        self.pos_rest = np.array(geo.get_pos(), dtype=np.float32)
 
-        self.NV = pos_.shape[0]
-        self.NT = vert.shape[0]
-        self.NCONS = self.NT
+        self.NV = self.pos_rest.shape[0]
+        self.NT = self.vert.shape[0]
 
-        self.pin = pin
-        self.vert = vert
-        self.pinpos = pos_
-        self.geodir = dir
+        self.geo_dir = dir
         self.geo = geo
         self.geo_rest = geo
 
-        # read mass from geo
-        im = np.array(geo.get_mass(), dtype=np.float32)
-        im = 1.0 / im[np.isnan(im) == False]
-        # set pinned point inv_mass to 0
-        im[pin] = 0.0
 
-        # TODO: TO BE REMOVED.  Transfering the data reference between self and ist
+    def fetch_fields(self, ist):
         ist.NV = self.NV
         ist.NT = self.NT
-        ist.allocate_fields(self.NV, self.NT)
-        ist.inv_mass.from_numpy(im)
-        ist.pos.from_numpy(pos_)
-        ist.tet_indices.from_numpy(vert)
-        ist.geo = geo
+        # ist.allocate_fields(self.NV, self.NT)
+        # ist.inv_mass.from_numpy(im)
+        ist.pos.from_numpy(self.pos)
+        ist.tet_indices.from_numpy(self.pos)
+        ist.geo = self.pos
+
+        # # read mass from geo
+        # im = np.array(geo.get_mass(), dtype=np.float32)
+        # im = 1.0 / im[np.isnan(im) == False]
+        # # set pinned point inv_mass to 0
+        # im[pin] = 0.0
+
+        # # TODO: TO BE REMOVED.  Transfering the data reference between self and ist
+        # ist.NV = self.NV
+        # ist.NT = self.NT
+        # ist.allocate_fields(self.NV, self.NT)
+        # # ist.inv_mass.from_numpy(im)
+        # ist.pos.from_numpy(pos_)
+        # ist.tet_indices.from_numpy(vert)
+        # ist.geo = geo
         # return self.NV, self.NT,  vert, pos_, im, geo, pin
 
 
     def write_geo(self, output=None):
         self.geo.set_positions(self.pos.to_numpy())
         if output is None:
-            output = self.geodir + f"physdata_{self.frame}_out.geo"
+            output = self.geo_dir + f"physdata_{self.frame}_out.geo"
         self.geo.write(output)
 
     # @timeit

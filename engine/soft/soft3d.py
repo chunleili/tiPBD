@@ -103,20 +103,15 @@ class SoftBody(PhysicalBase):
         else:
             self.gravity = ti.Vector([0.0, 0.0, 0.0])
 
-        if args.use_extra_spring or args.use_pintoanimation or args.use_pintotarget or args.use_muscle2muscle:
-            args.use_houdini_data=1
+        if args.use_external_constraints:
+            mesh_file = self.args.geo_dir + "/" + "restpos.geo"
             from engine.external_constraints import ExternalConstraints
-            self.muscle = ExternalConstraints(args, self)
-
-            # self.muscle.initialize(self)
-            # self.muscle.read_geo_rest(self)
-            # if args.use_extra_spring:
-            #     self.muscle.read_extra_spring_rest()
-            # if args.use_pintotarget:
-            #     self.muscle.read_pintotarget_rest()
-            # if args.use_muscle2muscle:
-            #     self.muscle.read_muscle2muscle_rest()
-            self.init_physics()
+            self.muscle = ExternalConstraints(args)
+            self.build_mesh(mesh_file)
+            self.allocate_fields(self.NV, self.NT)
+            self.args.reinit = ""
+            self.args.quasi_static = True
+            self.initialize()
         else:
             self.build_mesh(mesh_file)
             self.NCONS = self.NT
@@ -301,7 +296,7 @@ class SoftBody(PhysicalBase):
     #     self.pos_mid.from_numpy(pos)
     #     self.old_pos.from_numpy(pos)
     #     self.tet_indices.from_numpy(vert)
-    #     self.geodir = dir
+    #     self.geo_dir = dir
     #     self.geo = geo
     #     self.geo_rest = geo
 
@@ -331,7 +326,7 @@ class SoftBody(PhysicalBase):
     #     self.pos_mid.from_numpy(pinpos)
     #     self.old_pos.from_numpy(pinpos)
     #     self.tet_indices.from_numpy(vert)
-    #     self.geodir = dir
+    #     self.geo_dir = dir
     #     self.geo = geo
     #     self.geo_rest = geo
         
@@ -352,7 +347,7 @@ class SoftBody(PhysicalBase):
     def write_geo(self, output=None):
         self.geo.set_positions(self.pos.to_numpy())
         if output is None:
-            output = self.geodir+f"physdata_{self.frame}_out.geo"
+            output = self.geo_dir+f"{self.frame}.geo"
         self.geo.write(output)
 
     def build_mesh(self,mesh_file):
@@ -440,10 +435,6 @@ class SoftBody(PhysicalBase):
     def reinit(self):
         # args.reinit = "squash"
         # FIXME: no reinit will cause bug, why? FIXED: because when there is no deformation, the gradient will be in any direction! Sigma=(1,1,1) There will be singularity issue! We need to jump the constraint=0 case.
-        if self.args.use_gravity:
-            self.gravity = ti.Vector([0,-9.8,0])
-        else:
-            self.gravity = ti.Vector([0,0,0])
 
         self.initial_pos = self.pos.to_numpy()
 

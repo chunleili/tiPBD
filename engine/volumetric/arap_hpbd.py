@@ -37,7 +37,7 @@ parser.add_argument("-gravity", type=float, nargs=3, default=(0.0, 0, 0.0))
 parser.add_argument("-total_mass", type=float, default=16000.0)
 parser.add_argument("-use_multigrid", type=int, default=False)
 parser.add_argument("-init_style", type=str, default="", choices=["","random", "enlarge","squash","zero","freefall","rest","fixleft"])
-parser.add_argument("-export_log", type=int, default=False)
+parser.add_argument("-export_log", type=int, default=True)
 parser.add_argument("-out_dir", type=str, default="result/latest")
 parser.add_argument("-export_mesh", type=int, default=False)
 parser.add_argument("-use_json", type=int, default=True)
@@ -48,7 +48,7 @@ parser.add_argument("-nsubsteps", type=int, default=1)
 parser.add_argument("-quasi_static", type=int, default=False)
 
 
-ti.init(arch=ti.gpu)
+ti.init(arch=ti.cpu)
 
 
 class Meta:
@@ -144,11 +144,30 @@ def read_tetgen(filename):
 
 class ArapHpbd:
     def __init__(self, path):
-        self.model_pos, self.model_tet, self.model_tri = read_tetgen(path)
-        self.NV = len(self.model_pos)
-        self.NT = len(self.model_tet)
-        self.NF = len(self.model_tri)
+        if meta.args.use_external_constraints:
+            from engine.mesh_io import read_geo
+            pos, tet_indices, face_indices, geo = read_geo(path, True)
 
+            self.geo = geo
+            self.model_pos = pos
+            self.model_tet = tet_indices
+            self.model_tri = face_indices
+            self.NV = len(self.model_pos)
+            self.NT = len(self.model_tet)
+            self.NF = len(self.model_tri)
+            self.allocate_fields(self.NV, self.NT, self.NF)
+
+        else:
+            self.model_pos, self.model_tet, self.model_tri = read_tetgen(path)
+            self.NV = len(self.model_pos)
+            self.NT = len(self.model_tet)
+            self.NF = len(self.model_tri)
+            self.allocate_fields(self.NV, self.NT, self.NF)
+
+
+    def allocate_fields(self, NV, NT, NF=None):
+        self.NV = NV  # number of vertices
+        self.NT = NT
         self.pos = ti.Vector.field(3, float, self.NV)
         self.pos_mid = ti.Vector.field(3, float, self.NV)
         self.predict_pos = ti.Vector.field(3, float, self.NV)
@@ -157,7 +176,6 @@ class ArapHpbd:
         self.mass = ti.field(float, self.NV)  # mass of particles
         self.inv_mass = ti.field(float, self.NV)  # inverse mass of particles
         self.tet_indices = ti.Vector.field(4, int, self.NT)
-        self.display_indices = ti.field(ti.i32, self.NF * 3)
         self.B = ti.Matrix.field(3, 3, float, self.NT)  # D_m^{-1}
         self.lagrangian = ti.field(float, self.NT)  # lagrangian multipliers
         self.rest_volume = ti.field(float, self.NT)  # rest volume of each tet
@@ -176,6 +194,17 @@ class ArapHpbd:
             self.pos,
             self.vel,
         ]
+
+        if NF is not None:
+            self.NF = NF  # number of faces
+            self.display_indices = ti.field(ti.i32, NF * 3)
+
+
+    def write_geo(self, output=None):
+        self.geo.set_positions(self.pos.to_numpy())
+        if output is None:
+            output = self.geo_dir+f"{self.frame}.geo"
+        self.geo.write(output)
 
 def load_model():
     if meta.args.fine_model_path != "" and meta.args.coarse_model_path != "":
@@ -691,6 +720,7 @@ def substep(dt):
     if meta.args.log_energy:
         log_energy(meta.frame, meta.ss, meta.energy_filename)
 
+
     # Core step: Elasticity loop
     if meta.use_multigrid:
         update_coarse_mesh() # Restriction
@@ -747,6 +777,9 @@ def main():
     init_model(fine)
     init_model(coarse)
 
+    from engine.external_constraints import ExternalConstraints
+    fine.muscle = ExternalConstraints(meta.args)
+
     init_physics(
         fine.pos,
         fine.old_pos,
@@ -796,6 +829,8 @@ def main():
     timer_fine = 0.0
     timer_restrict = 0.0
     timer_prolong = 0.0
+    timer_frame_avg = 0.0
+    timer_ext_avg = 0.0
     while window.running:
         scene.ambient_light((0.8, 0.8, 0.8))
         camera.track_user_inputs(window, movement_speed=0.03, hold_key=ti.ui.RMB)
@@ -861,11 +896,16 @@ def main():
         if not meta.pause or Bstep_one_frame:
             Bstep_one_frame = False
             tic_frame = perf_counter()
+            if meta.frame>0:
+                tic1 = perf_counter()
+                fine.pos = fine.muscle.handle_external_constraints(meta.frame, fine.pos)
+                timer_ext_avg += perf_counter() - tic1
             for meta.ss in range(meta.args.nsubsteps):
                 substep(dt)
             # collsion_response(fine.pos, fine.old_pos, 0.0, fine.inv_mass)
             toc_frame = perf_counter()
             timer_frame=toc_frame - tic_frame
+            timer_frame_avg += timer_frame
             # logging.info(meta.s)
             meta.frame += 1
 
@@ -880,13 +920,17 @@ def main():
         gui.text(meta.s)
         meta.s =""
 
-        if meta.frame == meta.args.end_frame:
+        if meta.frame > meta.args.end_frame:
             window.running = False
             break
 
         if meta.args.export_mesh and not meta.pause:
-            logging.info(f"exporting {meta.frame:04d}.ply")
-            write_mesh(meta.out_dir / f"mesh/{meta.frame:04d}.ply", fine.pos.to_numpy(), fine.model_tri)
+            if not meta.args.use_external_constraints:
+                logging.info(f"exporting {meta.frame:04d}.ply")
+                write_mesh(meta.out_dir / f"mesh/{meta.frame:04d}.ply", fine.pos.to_numpy(), fine.model_tri)
+            else:
+                logging.info(f"exporting {meta.frame:04d}.geo")
+                fine.write_geo(meta.args.out_dir + f"/mesh/{meta.frame:04d}.geo")
 
         scene.mesh(fine.pos, fine.display_indices, color=(1.0, 0.5, 0.5), show_wireframe=wire_frame)
 
@@ -896,7 +940,8 @@ def main():
         canvas.scene(scene)
         window.show()
     # timer_frame = np.array(timer_frame)
-    # logging.info(f"average frame time: {np.mean(timer_frame)*1000:.1f}ms")
+    logging.info(f"average frame time: {(timer_frame_avg)/meta.args.end_frame*1000:.1f}ms")
+    logging.info(f"average external time: {timer_ext_avg/meta.args.end_frame*1000:.1f}ms")
 
 
 if __name__ == "__main__":

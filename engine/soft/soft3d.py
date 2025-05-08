@@ -785,7 +785,7 @@ class SoftBody(PhysicalBase):
         # self.log_energy(self.frame,0)
         self.dual0 = self.log_residual(self.frame,0)
         if args.use_external_constraints:
-            self.muscle.handle_external_constraints(self.pos)
+            self.pos = self.muscle.handle_external_constraints(self.frame, self.pos)
         for self.ite in range(args.maxiter):
             self.tic_iter = perf_counter()
             self.solveSoft()

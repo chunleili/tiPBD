@@ -47,8 +47,8 @@ class ExternalConstraints:
 
         # read sim pos(to be driven)
         pos1 = np.array(self.geo_rest.get_pos(), dtype=np.float32)
-        pos = ti.Vector.field(3, ti.f32, pos1.shape[0])
-        pos.from_numpy(pos1)
+        pos_ = ti.Vector.field(3, ti.f32, pos1.shape[0])
+        pos_.from_numpy(pos1)
 
         # read target pos(driving)
         tp = consgeo.get_target_pos()
@@ -56,13 +56,13 @@ class ExternalConstraints:
 
         from engine.constraints.distance_constraints import DistanceConstraintsAttach
 
-        self.extra_springs = DistanceConstraintsAttach(pts, pos, self.target_pos)
+        self.extra_springs = DistanceConstraintsAttach(pts, pos_, self.target_pos)
 
         # optional data(inv_mass, stiffness, restlength)
         # self.extra_springs.set_alpha(consgeo.get_stiffness())
         # self.extra_springs.set_rest_len(consgeo.get_restlength())
 
-    def read_muscle2muscle_rest(self):
+    def read_muscle2muscle_rest(self, pos):
         """read muscle2muscle topology from geo file
         It start from pt_index 1
         """
@@ -88,7 +88,7 @@ class ExternalConstraints:
         p2 = python_list_to_ti_field(pairs_np[:, 1].tolist())
         from engine.constraints.distance_constraints import DistanceConstraints
 
-        self.m2mCons = DistanceConstraints(p1, p2, self.pos)
+        self.m2mCons = DistanceConstraints(p1, p2, pos)
 
     def read_pintotarget_rest(self):
         dir = prj_path + "/" + self.args.geo_dir + "/"
@@ -115,18 +115,18 @@ class ExternalConstraints:
 
         self.pintotarget = PinToTarget(pts, pos, self.target_pos)
 
-    def read_target_pos(self):
+    def read_target_pos(self, frame):
         dir = prj_path + "/" + self.args.geo_dir + "/"
-        geo = Geo(dir + f"cons_{self.frame}.geo")
+        geo = Geo(dir + f"cons_{frame}.geo")
         tp = np.array(geo.get_target_pos(), dtype=np.float32)
         self.target_pos.from_numpy(np.array(tp, dtype=np.float32))
         ...
 
-    def read_geo_pinpos(self):
+    def read_geo_pinpos(self, frame, pos):
         dir = prj_path + "/" + self.args.geo_dir + "/"
-        geo = Geo(dir + f"physdata_{self.frame}.geo")
+        geo = Geo(dir + f"physdata_{frame}.geo")
         pinpos = np.array(geo.get_pos())
-        assert pinpos.shape[0] == self.pos.shape[0]
+        assert pinpos.shape[0] == pos.shape[0]
         # set_pinpos_kernel(self.pin, self.pos, pinpos)
 
         self.pinlist = np.where(self.pin)[0]
@@ -134,29 +134,10 @@ class ExternalConstraints:
         self.inv_mass_np[self.pinlist] = 0.0
         self.inv_mass.from_numpy(self.inv_mass_np)
 
-        pos_ = self.pos.to_numpy()
+        pos_ = pos.to_numpy()
         pos_[self.pin] = pinpos[self.pin]
-        self.pos.from_numpy(pos_)
+        pos.from_numpy(pos_)
 
-    # def read_geo_mesh(self, filename):
-    #     geo = Geo(filename)
-    #     vert = np.array(geo.get_vert(), dtype=np.int32)
-    #     pos = np.array(geo.get_pos(), dtype=np.float32)
-    #     self.NV = pos.shape[0]
-    #     self.NT = vert.shape[0]
-    #     self.NCONS = self.NT
-
-    #     self.vert = vert
-    #     self.geodir = dir
-    #     self.geo = geo
-    #     self.geo_rest = geo
-
-    #     # FIXME: TO BE REMOVED
-    #     self.allocate_fields(self.NV, self.NT)
-    #     self.pos.from_numpy(pos)
-    #     self.pos_mid.from_numpy(pos)
-    #     self.old_pos.from_numpy(pos)
-    #     self.tet_indices.from_numpy(vert)
 
     def read_geo_rest(self, ist):
         dir = prj_path + "/" + self.args.geo_dir + "/"
@@ -194,13 +175,9 @@ class ExternalConstraints:
         ist.allocate_fields(self.NV, self.NT)
         ist.inv_mass.from_numpy(im)
         ist.pos.from_numpy(pinpos)
-        ist.pos_mid.from_numpy(pinpos)
-        ist.old_pos.from_numpy(pinpos)
         ist.tet_indices.from_numpy(vert)
         ist.geo = geo
-        self.pos = ist.pos
-        self.frame = ist.frame
-        ist.pos = self.pos
+
 
     def write_geo(self, output=None):
         self.geo.set_positions(self.pos.to_numpy())
@@ -209,11 +186,11 @@ class ExternalConstraints:
         self.geo.write(output)
 
     # @timeit
-    def read_external_pos(self):
+    def read_external_pos(self,frame,pos):
         if self.args.use_pintoanimation:
-            self.read_geo_pinpos()
+            self.read_geo_pinpos(frame,pos)
         if self.args.use_extra_spring or self.args.use_pintotarget:
-            self.read_target_pos()
+            self.read_target_pos(frame)
 
     # # @timeit
     def do_external_constraints(self, pos):
@@ -226,7 +203,7 @@ class ExternalConstraints:
             self.m2mCons.aos.lam.fill(0.0)
             self.m2mCons.solve_one_iter(pos, self.args.delta_t)
 
-    def handle_external_constraints(self, pos):
+    def handle_external_constraints(self, frame, pos):
         """
         Call this function every substep to update the external constraints.
         It will read the external positions and apply the constraints.
@@ -234,5 +211,6 @@ class ExternalConstraints:
         Parameters:
         - pos: taichi field containing the current positions of the points.
         """
-        self.read_external_pos()
+        self.read_external_pos(frame,pos)
         self.do_external_constraints(pos)
+        return pos

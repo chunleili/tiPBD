@@ -15,18 +15,20 @@ class ExternalConstraints:
     Class to handle external constraints for muscle solvers.
     """
 
-    def __init__(self, args):
+    def __init__(self, args, ist):
         """
         Initialize the ExternalConstraints class.
 
         Parameters:
         - args: Command line arguments containing simulation parameters.
+        - ist: Instance of the simulation containing simulation field data.
         """
         self.args = args
+        self.initialize(ist) #TODO: remove ist and replace it with concrete fields
 
     # TODO: remove ist and replace it with concrete fields
     def initialize(self, ist):
-        self.read_geo_rest(ist)
+        self.read_geo_rest(ist) # TODO
         if self.args.use_extra_spring:
             self.read_extra_spring_rest()
         if self.args.use_pintotarget:
@@ -150,15 +152,15 @@ class ExternalConstraints:
 
         pin = np.array(geo.get_gluetoaniamtion(), dtype=np.bool_)
         vert = np.array(geo.get_vert(), dtype=np.int32)
-        pinpos = np.array(geo.get_pos(), dtype=np.float32)
+        pos_ = np.array(geo.get_pos(), dtype=np.float32)
 
-        self.NV = pinpos.shape[0]
+        self.NV = pos_.shape[0]
         self.NT = vert.shape[0]
         self.NCONS = self.NT
 
         self.pin = pin
         self.vert = vert
-        self.pinpos = pinpos
+        self.pinpos = pos_
         self.geodir = dir
         self.geo = geo
         self.geo_rest = geo
@@ -169,14 +171,15 @@ class ExternalConstraints:
         # set pinned point inv_mass to 0
         im[pin] = 0.0
 
-        # FIXME: TO BE REMOVED.  Transfering the data reference between self and ist
+        # TODO: TO BE REMOVED.  Transfering the data reference between self and ist
         ist.NV = self.NV
         ist.NT = self.NT
         ist.allocate_fields(self.NV, self.NT)
         ist.inv_mass.from_numpy(im)
-        ist.pos.from_numpy(pinpos)
+        ist.pos.from_numpy(pos_)
         ist.tet_indices.from_numpy(vert)
         ist.geo = geo
+        # return self.NV, self.NT,  vert, pos_, im, geo, pin
 
 
     def write_geo(self, output=None):

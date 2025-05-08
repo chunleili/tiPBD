@@ -106,9 +106,9 @@ class SoftBody(PhysicalBase):
         if args.use_extra_spring or args.use_pintoanimation or args.use_pintotarget or args.use_muscle2muscle:
             args.use_houdini_data=1
             from engine.external_constraints import ExternalConstraints
-            self.muscle = ExternalConstraints(args)
+            self.muscle = ExternalConstraints(args, self)
 
-            self.muscle.initialize(self)
+            # self.muscle.initialize(self)
             # self.muscle.read_geo_rest(self)
             # if args.use_extra_spring:
             #     self.muscle.read_extra_spring_rest()
@@ -849,7 +849,7 @@ class SoftBody(PhysicalBase):
                         raise NotImplementedError(f"Unknown collider type: {collider.type}")
 
                 logging.info(f"ncolliders_after_culling: {ncolliders_after_culling}")
-        logging.info("collision response")
+            logging.info("collision response")
         
 
 

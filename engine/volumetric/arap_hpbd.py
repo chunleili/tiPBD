@@ -48,7 +48,7 @@ parser.add_argument("-nsubsteps", type=int, default=1)
 parser.add_argument("-quasi_static", type=int, default=False)
 
 
-ti.init(arch=ti.cpu)
+ti.init(arch=ti.gpu)
 
 
 class Meta:

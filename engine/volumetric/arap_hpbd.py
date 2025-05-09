@@ -1,15 +1,7 @@
-"""
-Modified YP multi-grid solver for ARAP
-"""
 import taichi as ti
 from taichi.lang.ops import sqrt
 import numpy as np
 import logging
-from logging import info
-import scipy
-import scipy.io as sio
-from scipy.sparse import coo_matrix, spdiags, kron
-from scipy.io import mmwrite
 import sys, os, argparse
 from time import perf_counter
 from pathlib import Path

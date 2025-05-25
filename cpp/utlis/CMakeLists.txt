@@ -17,7 +17,7 @@ option(use_rigid_body_modes "Use rigid_body_modes" OFF)
 option(use_pybind "Use pybind" OFF)
 option(use_init_adj "Use init_adj" OFF)
 option(use_graph_coloring "Use graph_coloring" OFF)
-option(use_ecl "Use ecl coloring" ON)
+option(use_ecl "Use ecl coloring" OFF)
 
 if(use_pybind OR use_init_adj OR use_rigid_body_modes)
     # 查找 Python 3.10

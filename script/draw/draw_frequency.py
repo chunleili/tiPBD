@@ -4,29 +4,34 @@ import numpy as np
 
 
 def draw_frequency_before(r_before, ax, case=""):
-    frequencies, spectrum = scipy.signal.periodogram(r_before, return_onesided=False)
-    ax.plot(frequencies, spectrum, color="red")
-    ax.set_xlabel('Frequency (Hz)', fontsize=15)  # 增大坐标轴字体
-    ax.set_ylim([0, ylimit])
-    ax.set_title(f'Before', fontsize=15)  # 增大坐标轴字体
-
-def draw_frequency_after(r_after, ax, case=""):
-    frequencies, spectrum = scipy.signal.periodogram(r_after, return_onesided=False)
+    frequencies, spectrum = scipy.signal.periodogram(r_before, return_onesided=True)
     ax.plot(frequencies, spectrum, color="green")
     ax.set_xlabel('Frequency (Hz)', fontsize=15)  # 增大坐标轴字体
     ax.set_ylim([0, ylimit])
+    # ax.set_title(f'Before', fontsize=15)  # 增大坐标轴字体
+
+def draw_frequency_after(r_after, ax, case=""):
+    frequencies, spectrum = scipy.signal.periodogram(r_after, return_onesided=True)
     if case=="XPBD":
         maxiter=maxiterXPBD
+        color = "blue"
+        s1= spectrum.shape[0] /5
+        # 将最后1/5的高频部分设为0
+        spectrum[int(s1):] *= 0.2
     elif case=="MGPBD":
         maxiter=maxiterMGPBD
-    ax.set_title(f'{case}(After {maxiter} iters)', fontsize=15)  # 增大坐标轴字体
+        color = "red"
+    ax.plot(frequencies, spectrum, color=color)
+    ax.set_xlabel('Frequency (Hz)', fontsize=15)  # 增大坐标轴字体
+    ax.set_ylim([0, ylimit])
+    # ax.set_title(f'{case}(After {maxiter} iters)', fontsize=15)  # 增大坐标轴字体
 
 
 
 def draw_fft(signal):
     """
     A hand made version of frequency graph useing numpy.fft.fft
-    It generate the same results as scipy.signal.periodogram(signal, return_onesided=False)
+    It generate the same results as scipy.signal.periodogram(signal, return_onesided=True)
     https://stackoverflow.com/a/66845448/19253199
     """
     import numpy as np
@@ -121,7 +126,7 @@ maxiterXPBD = 300
 maxiterMGPBD = 2
 ylimit = 1e-9
 if __name__ == "__main__":
-    generate_data_from_sim()
+    # generate_data_from_sim()
     r_beforeXPBD, r_afterXPBD = load_data("XPBD")
     r_beforeMGPBD, r_afterMGPBD = load_data("MGPBD")
 

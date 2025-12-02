@@ -1,0 +1,11 @@
+{
+    "out_dir":"result/capybara",
+    "end_frame":600,
+    "use_pintotarget":1,
+    "maxiter":20,
+    "mu":1e9,
+    "use_gravity":1,
+    "geo_dir":"data/model/capybara",
+    "delta_t":3e-3,
+    "solver_type":"AMG"
+}
